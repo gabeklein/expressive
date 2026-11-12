@@ -128,4 +128,4 @@ function notRenderable(type: Function): never {
   throw new Error(`${type.name}${within()} is a Model - extend Component to render it, or provide it with <Component for={${type.name}}>.`);
 }
 
-export { complete, mount, patchFragment, patchText, unmountFiber };
+export { complete, mount, notRenderable, patchFragment, patchText, unmountFiber };
