@@ -14,6 +14,7 @@ import { mountElement, unmountElement } from './element';
 import { range, removeRange } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { untrack } from '../core/hot';
+import { adoptText } from './hydrate';
 import { mountPortal, unmountPortal } from './portal';
 import { reconcile } from './reconcile';
 import { rendering } from './render';
@@ -34,8 +35,7 @@ function complete<T extends Fiber>(fiber: T, work: () => void): T {
 function mount(value: RenderNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance): Fiber {
   switch (kindOf(value, rendering)) {
     case 'text': {
-      const text = document.createTextNode(String(value));
-      parent.insertBefore(text, before);
+      const text = adoptText(parent, before, String(value));
       return { kind: 'text', value, context, start: text, end: text, children: [] };
     }
     case 'component':

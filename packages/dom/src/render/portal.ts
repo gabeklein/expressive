@@ -6,17 +6,17 @@ import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
+import { adopt } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  const marker = document.createComment('portal');
+  const marker = adopt(parent, before, () => document.createComment('portal'), (node) => node.nodeType == 8 && (node as Comment).data == 'portal');
   const container = target(value.props.into, parent);
   const portalStart = document.createComment('portal-root');
   const portalEnd = document.createComment('/portal-root');
 
-  parent.insertBefore(marker, before);
   if (value.props[LEAD]) container.prepend(portalStart, portalEnd);
   else container.append(portalStart, portalEnd);
 

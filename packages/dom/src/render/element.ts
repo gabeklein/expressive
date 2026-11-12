@@ -12,6 +12,7 @@ import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
 import { focusing } from './render';
 import { afterFlush } from '../core/scheduler';
+import { adopt } from './hydrate';
 import { hostOf } from './suspense';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -23,9 +24,12 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
   const tag = value.type as string;
   const host = hostOf(parent);
   const namespace = tag == 'svg' || host instanceof SVGElement && host.localName != 'foreignObject' ? SVG : undefined;
-  const element = namespace
-    ? document.createElementNS(SVG, tag)
-    : document.createElement(tag);
+  const element = adopt(
+    parent,
+    before,
+    () => namespace ? document.createElementNS(SVG, tag) : document.createElement(tag),
+    (node) => node.nodeType == 1 && (node as Element).localName == tag && ((node as Element).namespaceURI == SVG) == !!namespace
+  );
   const fiber: Fiber = {
     kind: 'element',
     key: value.key,
@@ -39,7 +43,6 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     events: new Map()
   };
 
-  parent.insertBefore(element, before);
   complete(fiber, () => {
     patchProps(fiber, value.props, appearance);
   });
