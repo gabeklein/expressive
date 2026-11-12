@@ -42,12 +42,15 @@ const CONTENT = ['textContent', 'innerText'];
 const CLOSING: Record<string, RegExp> = { script: /<\/(script)/gi, style: /<\/(style)/gi };
 const ATTRIBUTE = /^[^\s"'<>/=\u0000-\u001f\u007f]+$/;
 const TAG = /^[a-zA-Z][^\s"'<>/=\u0000-\u001f\u007f]*$/;
+const HOISTED = new Set(['title', 'meta', 'link']);
 
 interface Output {
   /** Markup for the container the node mounts in, as `render()` would leave it. */
   html: string;
   /** Rules the render emitted, for a `<style>` in the document head. */
   css: string;
+  /** `<title>`, `<meta>` and `<link>` elements rendered outside SVG, for the document head - `html` keeps a marker in their place. */
+  head: string;
 }
 
 interface Options {
@@ -62,6 +65,7 @@ interface Options {
 interface Pass {
   contexts: Context[];
   frames: { count: number }[];
+  head: string[];
   inline?: boolean;
   markers: boolean;
   signal?: AbortSignal;
@@ -132,7 +136,7 @@ function escape(value: string, attribute?: boolean) {
  * `new()` runs and is not awaited; effects and `ready` never do. Owned instances are destroyed once rendered.
  * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
  * A `catch` boundary handles an error, then renders again; a retry that fails no further than the last rejects.
- * A portal leaves only its marker.
+ * A portal leaves only its marker; `<title>`, `<meta>` and `<link>` go to `head`, as `render()` hoists them.
  */
 async function renderToString(node: Node, options: Options = {}): Promise<Output> {
   const { inline, markers = true, signal } = options;
@@ -145,7 +149,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
     unitless: (property) => UNITLESS.has(property)
   };
   const context = new Context(Context.root);
-  const pass: Pass = { contexts: [context], frames: [], inline, markers, signal, sink };
+  const pass: Pass = { contexts: [context], frames: [], head: [], inline, markers, signal, sink };
 
   try {
     signal?.throwIfAborted();
@@ -156,7 +160,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
 
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
 
-    return { html, css };
+    return { html, css, head: pass.head.join('') };
   } catch (thrown) {
     throw thrown instanceof Failure ? thrown.error : thrown;
   } finally {
@@ -199,8 +203,14 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
       return range(pass, 'fragment', walk((value as VNode).props.children, pass, context, appearance, svg));
     case 'portal':
       return marker(pass);
-    case 'element':
-      return element(value as VNode, pass, context, appearance, svg);
+    case 'element': {
+      const node = value as VNode;
+
+      if (!HOISTED.has(node.type as string) || svg) return element(node, pass, context, appearance, svg);
+
+      pass.head.push(await element(node, pass, context, appearance, svg));
+      return marker(pass);
+    }
     case 'owned':
       return range(pass, 'component', owned(value as VNode, pass, context, appearance, svg));
     default:

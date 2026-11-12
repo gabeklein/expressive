@@ -378,15 +378,15 @@ describe('renderToString', () => {
     const state = JSON.stringify({ a: '</script><img src=x onerror=alert(1)>', b: '<!-- x' });
     const { html } = await serve(
       <head>
-        <meta {...{ content: 'a<b>"c' } as any} />
+        <base {...{ target: 'a<b>"c' } as any} />
         <script type="application/json">{state}</script>
         <style>{'a{} </STYLE><b>'}</style>
       </head>
     );
 
     expect(html).toBe(
-      '<!--fragment--><head><meta content="a&lt;b&gt;&quot;c">' +
-      '<script type="application/json">{"a":"<\\/script><img src=x onerror=alert(1)>","b":"\\u003C!-- x"}</script>' +
+      '<!--fragment--><head><base target="a&lt;b&gt;&quot;c">' +
+      '<script type="application/json">{"a":"<\/script><img src=x onerror=alert(1)>","b":"\u003C!-- x"}</script>' +
       '<style>a{} <\\/STYLE><b></style></head><!--/fragment-->'
     );
   });
@@ -415,6 +415,22 @@ describe('renderToString', () => {
       .rejects.toThrow('Invalid attribute name "x"><img src=x onerror=alert(1)>".');
     await expect(serve(createElement('img src=x', {})))
       .rejects.toThrow('Invalid element name "img src=x".');
+  });
+
+  it('will collect head elements, leaving the marker render() leaves', async () => {
+    const node = () => (
+      <div>
+        <title>{'A & B'}</title>
+        <meta name="description" content="about" />
+        <svg><title>icon</title></svg>
+      </div>
+    );
+
+    const html = await parity(node);
+    const { head } = await serve(node());
+
+    expect(html).toBe('<!--fragment--><div><!--portal--><!--portal--><svg><title>icon</title></svg></div><!--/fragment-->');
+    expect(head).toBe('<title>A &amp; B</title><meta name="description" content="about">');
   });
 
   it('will await a suspended render and retry it in place', async () => {
