@@ -9940,3 +9940,82 @@ describe('review', () => {
     expect(caught).toEqual([]);
   });
 });
+
+describe('scale', () => {
+  it('will run a long chain of steps', async () => {
+    class Test extends Steps {
+      count = 0;
+
+      async run() {
+        this.page(0);
+      }
+
+      protected async page(index: number) {
+        await Promise.resolve();
+        this.count = index + 1;
+
+        if (this.count < 10000) this.page(this.count);
+      }
+    }
+
+    const test = Test.new();
+
+    await test.run();
+    await test;
+
+    expect(test.count).toBe(10000);
+  });
+
+  it('will run a long chain of steps after a caught failure', async () => {
+    class Test extends Steps {
+      count = 0;
+
+      async run() {
+        this.fail().catch();
+        this.page(0);
+      }
+
+      protected async fail() {
+        throw new Error('skipped');
+      }
+
+      protected async page(index: number) {
+        await Promise.resolve();
+        this.count = index + 1;
+
+        if (this.count < 10000) this.page(this.count);
+      }
+    }
+
+    const test = Test.new();
+
+    await test.run();
+    await test;
+
+    expect(test.count).toBe(10000);
+  });
+
+  it('will run a wide group of steps', async () => {
+    const items = Array.from({ length: 10000 }, (_, index) => index);
+
+    class Test extends Steps {
+      found = map<number, number>();
+
+      async run() {
+        this.then(items, this.visit);
+      }
+
+      protected async visit(index: number) {
+        await Promise.resolve();
+        this.found.set(index, index);
+      }
+    }
+
+    const test = Test.new();
+
+    await test.run();
+    await test;
+
+    expect(test.found.size).toBe(10000);
+  });
+});
