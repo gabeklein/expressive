@@ -24,6 +24,22 @@
   "bin": {
     "expressive": "dist/cli.js"
   },
+  "expressive": {
+    "bin": {
+      "dev": "./dist/command/dev.js",
+      "build": "./dist/command/build.js"
+    },
+    "help": {
+      "dev": "Vite dev server with HMR; /__inspect relay",
+      "build": "dist/client (static app) and dist/server/index.js (node service)"
+    },
+    "suggest": {
+      "sql": {
+        "package": "@expressive/sql",
+        "help": "check and sync your database schema"
+      }
+    }
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

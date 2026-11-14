@@ -122,6 +122,7 @@ expressive dev             Vite dev server with HMR; /__inspect relay
 expressive build           dist/client and dist/server/index.js
 expressive build --pretty  unminified client, stable filenames
 expressive <command> --help  inputs for a command
+expressive                 commands from every dependency, e.g. sql from @expressive/sql
 node dist/server/index.js  run the built service (port from index.ts, default 3000)
 ```
 
