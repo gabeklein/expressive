@@ -47,7 +47,8 @@ try {
 - **Values** - `Date`, `BigInt`, `Map`, `Set`, `Uint8Array` and `undefined` in arrays survive the trip, tagged inside plain JSON.
 - **Cookies** - declare them as fields of a `Cookies` subclass; `AppCookies.get().session` reads this request's, `AppCookies.set({ session: id })` sends `Set-Cookie` with the reply.
 - **Request** - `Current.get().request`, `.url` and `.cookies` inside a call, and `setHeader` for its reply.
+- **Base path** - `rpc({ base: "/api" })` serves the calls under a prefix: stubs send there and the server matches it, with nothing to strip.
 - **Client** - `configure({ base, headers, transport, reply })` for cross-origin servers, auth headers or a custom fetch.
-- **Server entry** - `rpc({ entry: "server.ts" })` makes your own Worker-shaped module the server: it gets the calls as `handle(request)` from `@expressive/rpc/calls` and adds routes, a `scheduled` handler or Durable Objects beside them, sharing their modules in dev and build. Its routes run in the request's scope, so `Current` and `Cookies` work there as in a call.
+- **Server entry** - `rpc({ entry: "server.ts" })` makes your own Worker-shaped module the server: it gets the calls as `handle(request)` from `@expressive/rpc/calls` and adds routes, a `scheduled` handler or Durable Objects beside them, sharing their modules in dev and build. Its routes run in the request's scope, so `Current` and `Cookies` work there as in a call. In Hono, `handle` is middleware: `app.use(async (c, next) => (await handle(c.req.raw)) ?? next())`.
 
 Full reference: [skills/expressive-rpc](https://github.com/gabeklein/expressive/blob/main/packages/rpc/skills/expressive-rpc/SKILL.md), shipped in the package. A runnable app is in [`example/`](https://github.com/gabeklein/expressive/tree/main/packages/rpc/example).
