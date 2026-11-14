@@ -80,4 +80,4 @@ function help(name: string, levels: Spec[][], runs = true) {
   return sections.join('\n\n');
 }
 
-export { help, usage };
+export { help, table, usage };

@@ -5,11 +5,7 @@ import { help, usage } from './help';
 import { SPECS, type Target } from './input';
 import { kebab, Reader, Usage } from './parse';
 
-class Exit extends Error {
-  constructor(readonly code: number) {
-    super();
-  }
-}
+class Help extends Error {}
 
 class Miss extends Error {
   constructor(
@@ -29,10 +25,10 @@ class Miss extends Error {
  * before any `new()` runs. Models held in plain fields activate earlier, before argv is read. Once
  * every class on the path is ready, the last one's `run()` is awaited, then the path is destroyed.
  *
- * A usage error prints to `out.error` and returns 2; `--help` or `-h` prints help for the path and
- * returns 0. `run` returning `undefined` or `true` gives 0, `false` 1, a number itself; anything else
+ * A usage error prints to `out.error` and returns 2; `--help`, `-h`, `help` in place of a command, or a
+ * group run alone prints help for the path and returns 0. `run` returning `undefined` or `true` gives 0, `false` 1, a number itself; anything else
  * prints to `out.log` and gives 0. A throw, or a failed async `new()`, prints its message and gives 1.
- * The command name in help is the class name in kebab case.
+ * The command name in help is `name` if given, else the class name in kebab case.
  *
  * @example
  * export default command(Lint);
@@ -41,7 +37,7 @@ function command(Root: Model.Type): Run {
   const name = kebab(Root.name).replace(/^-/, '');
   const loaded = new Map<Function, Map<string, Model.Type>>();
 
-  return async (argv: string[], out: Output) => {
+  return async (argv: string[], out: Output, invoked = name) => {
     for (;;) {
       const reader = new Reader(argv, process.cwd());
       const path: Model[] = [];
@@ -57,7 +53,7 @@ function command(Root: Model.Type): Run {
           const step = reader.enter(specs, named, this.constructor.name);
 
           if (!step) {
-            if (reader.help) throw new Exit(0);
+            if (reader.help) throw new Help();
 
             if ('run' in this) {
               finish();
@@ -70,7 +66,7 @@ function command(Root: Model.Type): Run {
 
             const [extra] = reader.levels.at(-1)!.operands;
 
-            if (extra === undefined) throw new Exit(2);
+            if (extra === undefined) throw new Help();
 
             throw new Usage(reader.ended ? `Unexpected argument "${extra}".` : `Unknown command "${extra}".`);
           }
@@ -97,7 +93,7 @@ function command(Root: Model.Type): Run {
       const finish = () => {
         const values = reader.finish();
 
-        if (values === true) throw new Exit(0);
+        if (values === true) throw new Help();
 
         path.forEach((level, index) => Object.assign(level, values[index]));
       };
@@ -118,7 +114,7 @@ function command(Root: Model.Type): Run {
       });
 
       try {
-        root = Root.new(enter(name));
+        root = Root.new(enter(invoked));
 
         for (const level of path) await level.get(() => {});
 
@@ -146,11 +142,9 @@ function command(Root: Model.Type): Run {
           }
         }
 
-        if (error instanceof Exit) {
-          if (error.code) out.error(help(...shown()));
-          else out.log(help(...shown()));
-
-          return error.code;
+        if (error instanceof Help) {
+          out.log(help(...shown()));
+          return 0;
         }
 
         if (error instanceof Usage) {

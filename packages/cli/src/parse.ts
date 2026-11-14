@@ -133,6 +133,11 @@ class Reader {
           const sub = subs.get(token);
 
           if (sub) return sub;
+
+          if (token == 'help') {
+            this.help = true;
+            continue;
+          }
           if (!positional) throw new Usage(`Unknown command "${token}".`);
         }
 

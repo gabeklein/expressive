@@ -294,10 +294,10 @@ describe('sub', () => {
   });
 
   describe('help', () => {
-    it('will print help to stderr for a group run alone, and return 2', async () => {
-      expect(await call(Sql)).toBe(2);
+    it('will print help for a group run alone, and return 0', async () => {
+      expect(await call(Sql)).toBe(0);
       expect(lines[0]).toMatch(
-        /^! Usage: sql \[options\] <command> <entry>\n\nArguments:\n {2}<entry>\n\nCommands:\n {2}check {2}list what sync would change\n {2}sync {3}apply schema changes/
+        /^Usage: sql \[options\] <command> <entry>\n\nArguments:\n {2}<entry>\n\nCommands:\n {2}check {2}list what sync would change\n {2}sync {3}apply schema changes/
       );
     });
 
@@ -314,6 +314,18 @@ describe('sub', () => {
       expect(lines[0]).toMatch(/^Usage: sql sync \[options\] <entry>\n[^]*--force +rebuild drifted columns/);
       expect(lines[1]).toMatch(/^Usage: sql check \[options\] <entry>/);
       expect(lines[1]).not.toMatch(/Commands:/);
+    });
+
+    it('will print help for help in place of a command', async () => {
+      expect(await call(Sql, 'help')).toBe(0);
+      expect(await call(Sql, 'help', 'sync')).toBe(0);
+      expect(lines[0]).toMatch(/^Usage: sql \[options\] <command> <entry>/);
+      expect(lines[1]).toMatch(/^Usage: sql sync \[options\] <entry>/);
+    });
+
+    it('will name help after the invoked path', async () => {
+      expect(await command(Sql)(['sync', '--help'], out, 'kit sql')).toBe(0);
+      expect(lines[0]).toMatch(/^Usage: kit sql sync \[options\] <entry>/);
     });
 
     it('will print help for a class with no run', async () => {
