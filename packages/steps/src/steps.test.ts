@@ -9942,34 +9942,66 @@ describe('review', () => {
 });
 
 describe('scale', () => {
-  it('will run a long chain of steps', async () => {
-    class Test extends Steps {
+  async function work(make: (size: number) => Steps) {
+    const { push } = Array.prototype;
+    const { get } = Map.prototype;
+    let count = 0;
+
+    const measure = async (size: number) => {
+      const test = make(size);
+
       count = 0;
+      await test.run();
+      await test;
 
-      async run() {
-        this.page(0);
-      }
+      return count;
+    };
 
-      protected async page(index: number) {
-        await Promise.resolve();
-        this.count = index + 1;
+    Array.prototype.push = function (this: unknown[], ...items: unknown[]) {
+      count++;
+      return push.apply(this, items);
+    };
 
-        if (this.count < 10000) this.page(this.count);
-      }
+    Map.prototype.get = function (this: Map<unknown, unknown>, key: unknown) {
+      count++;
+      return get.call(this, key);
+    };
+
+    try {
+      const small = await measure(500);
+      const large = await measure(2000);
+
+      return large / small;
+    } finally {
+      Array.prototype.push = push;
+      Map.prototype.get = get;
+    }
+  }
+
+  class Chain extends Steps {
+    size = 0;
+    count = 0;
+
+    async run() {
+      this.page(0);
     }
 
-    const test = Test.new();
+    protected async page(index: number) {
+      await Promise.resolve();
+      this.count = index + 1;
 
-    await test.run();
-    await test;
+      if (this.count < this.size) this.page(this.count);
+    }
+  }
 
-    expect(test.count).toBe(10000);
+  it('will grow linearly with a chain of steps', async () => {
+    const growth = await work((size) => Chain.new({ size }));
+
+    expect(growth).toBeLessThan(5);
   });
 
-  it('will run a long chain of steps after a caught failure', async () => {
-    class Test extends Steps {
-      count = 0;
-
+  it('will grow linearly with a chain of steps after a caught failure', async () => {
+    class Test extends Chain {
       async run() {
         this.fail().catch();
         this.page(0);
@@ -9978,31 +10010,20 @@ describe('scale', () => {
       protected async fail() {
         throw new Error('skipped');
       }
-
-      protected async page(index: number) {
-        await Promise.resolve();
-        this.count = index + 1;
-
-        if (this.count < 10000) this.page(this.count);
-      }
     }
 
-    const test = Test.new();
+    const growth = await work((size) => Test.new({ size }));
 
-    await test.run();
-    await test;
-
-    expect(test.count).toBe(10000);
+    expect(growth).toBeLessThan(5);
   });
 
-  it('will run a wide group of steps', async () => {
-    const items = Array.from({ length: 10000 }, (_, index) => index);
-
+  it('will grow linearly with a wide group of steps', async () => {
     class Test extends Steps {
+      size = 0;
       found = map<number, number>();
 
       async run() {
-        this.then(items, this.visit);
+        this.then(Array.from({ length: this.size }, (_, index) => index), this.visit);
       }
 
       protected async visit(index: number) {
@@ -10011,11 +10032,8 @@ describe('scale', () => {
       }
     }
 
-    const test = Test.new();
+    const growth = await work((size) => Test.new({ size }));
 
-    await test.run();
-    await test;
-
-    expect(test.found.size).toBe(10000);
+    expect(growth).toBeLessThan(5);
   });
 });
