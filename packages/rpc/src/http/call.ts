@@ -2,6 +2,7 @@ import { attempt, fault, inFolder, locate, type Call, type Endpoint, type Export
 import { parse, stringify } from "../codec";
 import { headersOf, within } from "../context";
 import { ERRORS } from "../errors";
+import { reserved, walk, type Tree } from "../route";
 
 export function isCall(request: Request): boolean {
   const { headers } = request;
@@ -30,17 +31,57 @@ export interface HandlerOptions {
   seats?: Seats;
   /** Path the calls are served under, such as `/api` - a request outside it is not a call. */
   base?: string;
+  /** Error classes a call may throw, by id - one thrown keeps its class and fields on the client. */
+  errors?: Record<string, unknown>;
 }
 
-export function handler(endpoints: Endpoint[] | (() => Endpoint[]), { dev = false, seats, base = "" }: HandlerOptions = {}): (request: Request) => Promise<Response | undefined> {
-  const list = typeof endpoints == "function" ? endpoints : () => endpoints;
+/**
+ * Answer the calls in `tree` - give any other request `undefined`.
+ *
+ * A call's address is its place in the tree: `api.admin.users.ban` answers `POST /admin/users`
+ * named `ban`. An error thrown that `errors` does not list replies 500 - its message in `dev`, a
+ * generic one otherwise. Throws if any name in the tree is `with` or `then`.
+ *
+ * @example
+ * export default { fetch: handler(api, { base: "/api", errors: { Duplicate } }) };
+ */
+export function handler(tree: Tree, options?: HandlerOptions): (request: Request) => Promise<Response | undefined>;
+
+export function handler(endpoints: Endpoint[] | (() => Endpoint[]), options?: HandlerOptions): (request: Request) => Promise<Response | undefined>;
+
+export function handler(endpoints: Tree | Endpoint[] | (() => Endpoint[]), { dev = false, seats, base = "", errors }: HandlerOptions = {}): (request: Request) => Promise<Response | undefined> {
   const prefix = base.split("/").filter(Boolean);
   const under = (request: Request) => {
     const at = new URL(request.url).pathname.split("/").filter(Boolean);
     return prefix.every((part, i) => at[i] === part);
   };
 
-  return async request => (isCall(request) && under(request) ? dispatch(request, list, dev, seats, undefined, prefix.length) : undefined);
+  if (Array.isArray(endpoints) || typeof endpoints == "function") {
+    const list = typeof endpoints == "function" ? endpoints : () => endpoints;
+    return async request => (isCall(request) && under(request) ? dispatch(request, list, dev, seats, undefined, prefix.length) : undefined);
+  }
+
+  const table = { ...ERRORS, ...errors };
+
+  reserved(endpoints);
+
+  return async request => (isCall(request) && under(request) ? answer(request, endpoints, dev, table, prefix.length) : undefined);
+}
+
+async function answer(request: Request, tree: Tree, dev: boolean, errors: Record<string, unknown>, skip: number): Promise<Response> {
+  const at = new URL(request.url).pathname.split("/").filter(Boolean).slice(skip);
+  const name = request.headers.get("x-expressive-call");
+  const found = name !== null && walk(tree, at, name);
+
+  if (!found) return reply(404, { message: "Not found." });
+
+  const args = await readArgs(request);
+
+  if (!args) return reply(400, { message: "Expected a JSON array of arguments." });
+
+  const outcome = await attempt(() => within(request, at, () => found.fn(...args), found.seats), [], dev, errors);
+
+  return withHeaders(respond(outcome), headersOf(request));
 }
 
 const unseated: Seats = async () => undefined;
