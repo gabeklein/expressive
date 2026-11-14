@@ -67,6 +67,7 @@
         "expressive": "dist/cli.js",
       },
       "dependencies": {
+        "@expressive/cli": "^0.1.0",
         "@expressive/dom": "^0.12.0",
         "@expressive/inspect": "^0.6.4",
         "@expressive/router": "^0.10.4",
