@@ -12,7 +12,7 @@ Typed server calls for any Vite client build. Modules in one folder (`api/` by d
 import { defineConfig } from "vite";
 import rpc from "@expressive/rpc/vite";
 
-export default defineConfig({ plugins: [rpc()] });   // rpc({ dir: "api", opaque: true })
+export default defineConfig({ plugins: [rpc()] });   // rpc({ dir: "api", base: "/api" })
 ```
 
 ```ts
@@ -46,7 +46,7 @@ A server module under `dir` may export:
 - [Groups](#groups) - objects of calls and Error classes imported from elsewhere in `dir` - and re-exports of them.
 - In an `index.ts` only, a default `Model` subclass or function - the folder's gate.
 
-Anything else fails the build: a sync function, a value, `export *`, a non-Error class, a default outside an index. Twin-shaped exports (Model classes) are refused - stateful twins are `@expressive/dev`'s.
+Anything else fails the build: a sync function, a value, `export *`, a non-Error class, a default outside an index. Twin-shaped exports (Model classes) are refused - stateful twins are `@expressive/dev`'s. `with` and `then` are the client's - no call, module or folder takes them.
 
 Only calls the client build imports are served. Helpers belong outside `dir` (`server/`, `shared/`), or in a module `test` leaves plain; a type a call's signature names must be importable by the client.
 
@@ -97,9 +97,11 @@ const found: types.Result[] = await claim.search(query);
 
 ## Addressing
 
-Folders are layers, static names only (`[param]` folders throw). A module posts to its folder's path - `api/todos.ts` → `POST /`, `api/admin/users.ts` → `POST /admin` - with `x-expressive-call: <module>:<export>` (an index's export alone). Ids are readable in dev and salted hashes in build, so a client from an older deploy fails instead of calling changed code. `opaque: false` keeps readable ids for clients that outlive a deploy (installed PWAs, native shells).
+A call's address is its place in the tree: folders, then the module - an index is its folder. `api/todos.ts#list` → `POST /todos` with `x-expressive-call: list`; `api/admin/users.ts#ban` → `POST /admin/users`, `ban`; `api/index.ts#hello` → `POST /`, `hello`. Folders are static names only (`[param]` folders throw). A module and a folder of one name (`todos.ts` beside `todos/`), or a call named as a sibling path, fail the build.
 
-`rpc({ base: "/api" })` serves every folder under a path - `api/todos.ts` → `POST /api`, `api/admin/users.ts` → `POST /api/admin`. Stubs send there and `handle` answers only beneath it, given the full request - for a host that routes a prefix to the server (Firebase Hosting rewrites, a shared origin).
+Addresses are readable and stable across deploys. `opaque: true` seals call names in a build - paths stay readable - so a client from an older deploy fails instead of calling changed code.
+
+`rpc({ base: "/api" })` serves the tree under a path - `api/todos.ts` → `POST /api/todos`. Stubs send there and `handle` answers only beneath it, given the full request - for a host that routes a prefix to the server (Firebase Hosting rewrites, a shared origin).
 
 ## Values
 
@@ -107,7 +109,9 @@ Arguments and results cross as JSON plus what JSON loses: `Date` (an invalid one
 
 ## Errors
 
-`HttpError` and its subclasses map to statuses: `BadRequest` 400, `Unauthorized` 401, `PaymentRequired` 402, `Forbidden` 403, `NotFound` 404, `MethodNotAllowed` 405, `Conflict` 409, `Gone` 410, `PayloadTooLarge` 413, `UnprocessableEntity` 422, `TooManyRequests` 429, `InternalError` 500, `NotImplemented` 501, `ServiceUnavailable` 503. A status outside 400-599 replies 500 with the error's fields intact - `Redirect(location, status = 302)` arrives as a `Redirect` carrying both, for the client to act on. Extend one, or set `status` on your own, to add a kind. Any other thrown error replies 500 - its message in dev, a generic one in build.
+`HttpError` and its subclasses map to statuses: `BadRequest` 400, `Unauthorized` 401, `PaymentRequired` 402, `Forbidden` 403, `NotFound` 404, `MethodNotAllowed` 405, `Conflict` 409, `Gone` 410, `PayloadTooLarge` 413, `UnprocessableEntity` 422, `TooManyRequests` 429, `InternalError` 500, `NotImplemented` 501, `ServiceUnavailable` 503. A status outside 400-599 replies 500 with the error's fields intact - `Redirect(location, status = 302)` arrives as a `Redirect` carrying both, for the client to act on. Extend one, or set `status` on your own, to add a kind.
+
+An exported Error class crosses by the name it is exported under - `"error": "Duplicate"` on the wire, and the rebuilt error's `name`. Names are app-wide: two classes exported under one name fail the build - rename at the export (`export { Taken as ClaimTaken }`); one class reached twice is fine. Keep error classes in a module both sides import (`lib/errors.ts`) and pass them to the client's `errors` to rebuild them as themselves. Any other thrown error replies 500 - its message in dev, with a warning naming its class, a generic one in build.
 
 ## Gates and Current
 
@@ -207,7 +211,17 @@ configure({
 });
 ```
 
-`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again.
+`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in.
+
+Every stub is a member of the client's `api` tree - `api.admin.users.ban` is `ban` from `api/admin/users.ts`, the same function each access. Any node or call takes `.with({ signal, timeout })` for the calls under it; nested, the inner extend the outer:
+
+```ts
+import { list } from "../api/todos";
+
+await list.with({ signal: controller.signal, timeout: 10_000 })();
+```
+
+An abort rejects with the signal's reason, a timeout with a `TimeoutError`.
 
 ## Server entry
 
@@ -253,6 +267,35 @@ export { Room } from "./room";   // a Durable Object, say
   export default app;
   ```
 - `@expressive/rpc/calls` is the server's: a client import fails the build, and a call to `handle` outside a server the plugin builds or runs throws. One rpc dev server per process serves it.
+
+## Hand-written server
+
+The plugin's server is a tree a person could write - `route(gate, children)` from `@expressive/rpc/http` is a gated layer, a plain object a path segment, a function a call:
+
+```ts
+// server.ts - no plugin
+import { handler, route } from "@expressive/rpc/http";
+import { Duplicate } from "./lib/errors";
+
+export const api = route(() => void Session.new(), {
+  claim: { search, create },
+  admin: route(Admin, { users: { ban } }),
+});
+
+export default { fetch: handler(api, { base: "/api", errors: { Duplicate } }) };
+```
+
+```ts
+// client
+import { client } from "@expressive/rpc";
+import type { api as Api } from "../server";
+
+const { api } = client<typeof Api>({ base: "/api", errors: { Duplicate } });
+
+await api.admin.users.ban(7);
+```
+
+A gate is a function or Model class, as an index default; it runs before every call beneath it. `handler(tree)` gives a request that is not a call `undefined`.
 
 ## Build and deploy
 
