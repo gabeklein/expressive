@@ -147,6 +147,13 @@ describe("client", () => {
     expect((await server.transformRequest("/api/admin/stats.ts"))!.code).toContain('const at = "/admin"');
   });
 
+  it("will send to the folder's path under a base", async () => {
+    const server = await serve(project(), { plugins: [rpc({ base: "api/" })] });
+
+    expect((await server.transformRequest("/api/todos.ts"))!.code).toContain('const at = "/api/"');
+    expect((await server.transformRequest("/api/admin/stats.ts"))!.code).toContain('const at = "/api/admin"');
+  });
+
   it("will throw if a server module exports what the client cannot use", async () => {
     const server = await serve(project({ "api/bad.ts": `export function sync() {}`, "src/bad.ts": `import { sync } from "../api/bad"; sync();` }));
 
@@ -240,6 +247,17 @@ describe("dev server", () => {
 
     expect(await post("/", "todos:list", [], "a")).toMatchObject({ status: 200 });
     expect(await post("/admin", "stats:stats", [], "admin")).toEqual({ status: 404, body: { message: "Not found." } });
+  });
+
+  it("will answer calls under a base, leaving the rest to Vite", async () => {
+    const { server, post } = await listen(project(), { plugins: [rpc({ base: "/api" })] });
+
+    await server.transformRequest("/api/todos.ts");
+    await server.transformRequest("/api/admin/stats.ts");
+
+    expect(await post("/api/", "todos:list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/api/admin", "stats:stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await post("/", "todos:list", [], "a")).not.toMatchObject({ status: 200 });
   });
 
   it("will leave other requests to Vite", async () => {
@@ -407,6 +425,16 @@ describe("build", () => {
     expect(await post("/admin", "stats:stats", "a")).toMatchObject({ status: 403 });
     expect(await post("/admin", "stats:stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
     expect(await (await server.fetch(new Request("http://localhost/"), { ASSETS })).text()).toBe("asset");
+  });
+
+  it("will answer calls under a base, handing the rest to the Worker's assets", async () => {
+    const { server, client, post } = await build(project(), { opaque: false, base: "/api" });
+    const ASSETS = { fetch: async () => new Response("asset") };
+
+    expect(client).toContain("`/api/admin`");
+    expect(await post("/api", "todos:list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/api/admin", "stats:stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await (await server.fetch(new Request("http://localhost/", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "todos:list" }, body: "[]" }), { ASSETS })).text()).toBe("asset");
   });
 
   it("will keep the client's rollup options out of the server bundle", async () => {
@@ -585,6 +613,16 @@ describe("entry", () => {
     expect(await post("/", "tally:tick")).toMatchObject({ status: 401 });
     expect(await (await get(server, "/count")).json()).toEqual({ count: 1, name: "dev" });
     expect(await (await get(server, "/")).text()).toContain(`<script type="module"`);
+  });
+
+  it("will hand the entry calls under a base, its own routes alongside", async () => {
+    const { server, post } = await listen(project(ENTRY), { plugins: [rpc({ entry: "server.ts", base: "/api" })] });
+
+    await server.transformRequest("/api/tally.ts");
+
+    expect(await post("/api", "tally:tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
+    expect(await post("/", "tally:tick", [], "a")).not.toMatchObject({ status: 200 });
+    expect(await (await get(server, "/count")).json()).toEqual({ count: 1, name: null });
   });
 
   it("will run the entry's routes in the request's scope, with what Cookies set on the response", async () => {

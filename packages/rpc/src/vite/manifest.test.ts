@@ -152,4 +152,12 @@ describe("calls", () => {
     expect(entry).toContain(`const gates = new Map([["", m1.default], ["admin", m3.default]]);`);
     expect(entry).toContain(`export const handle = handler([{ pattern: [], exports: async () => e0 }, { pattern: ["admin"], exports: async () => e1 }]`);
   });
+
+  it("will serve the calls under a base", () => {
+    const manifest = new Manifest();
+
+    manifest.modules.set("/app/api/todos.ts", exposed("/app/api/todos.ts", { calls: ["list"] }));
+
+    expect(manifest.calls([], "/api")).toContain(`{ seats: async pattern => gates.get(pattern.join("/")), base: "/api" });`);
+  });
 });

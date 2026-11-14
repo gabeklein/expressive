@@ -28,20 +28,27 @@ export type Tier<E extends Exports> = (incoming: Incoming<E>, fn?: Call) => Prom
 export interface HandlerOptions {
   dev?: boolean;
   seats?: Seats;
+  /** Path the calls are served under, such as `/api` - a request outside it is not a call. */
+  base?: string;
 }
 
-export function handler(endpoints: Endpoint[] | (() => Endpoint[]), { dev = false, seats }: HandlerOptions = {}): (request: Request) => Promise<Response | undefined> {
+export function handler(endpoints: Endpoint[] | (() => Endpoint[]), { dev = false, seats, base = "" }: HandlerOptions = {}): (request: Request) => Promise<Response | undefined> {
   const list = typeof endpoints == "function" ? endpoints : () => endpoints;
+  const prefix = base.split("/").filter(Boolean);
+  const under = (request: Request) => {
+    const at = new URL(request.url).pathname.split("/").filter(Boolean);
+    return prefix.every((part, i) => at[i] === part);
+  };
 
-  return async request => (isCall(request) ? dispatch(request, list, dev, seats) : undefined);
+  return async request => (isCall(request) && under(request) ? dispatch(request, list, dev, seats, undefined, prefix.length) : undefined);
 }
 
 const unseated: Seats = async () => undefined;
 
-export async function dispatch<E extends Exports>(request: Request, endpoints: () => Endpoint<E>[], dev: boolean, seats = unseated, tier?: Tier<E>): Promise<Response> {
+export async function dispatch<E extends Exports>(request: Request, endpoints: () => Endpoint<E>[], dev: boolean, seats = unseated, tier?: Tier<E>, skip = 0): Promise<Response> {
   const list = endpoints();
   const { pathname } = new URL(request.url);
-  const at = pathname.split("/").filter(Boolean);
+  const at = pathname.split("/").filter(Boolean).slice(skip);
   const name = request.headers.has("x-expressive-get") ? undefined : request.headers.get("x-expressive-call") ?? undefined;
   const { found, exports, fn } = await locate(list, at, name);
   const incoming = { request, list, at, pathname, found, exports, dev, seats };

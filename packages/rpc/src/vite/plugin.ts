@@ -7,7 +7,7 @@ import type { Plugin, RunnableDevEnvironment } from "vite";
 import type { Endpoint, Seats } from "../call";
 import { toNode } from "../http/node";
 import { guardScript } from "./guard";
-import { Manifest, locate, type Exposed, type Located } from "./manifest";
+import { Manifest, locate, pathOf, type Exposed, type Located } from "./manifest";
 import { scanModule } from "./scan";
 
 export interface Options {
@@ -19,6 +19,11 @@ export interface Options {
    * `dist/server/index.js`. Without one, the server answers calls and hands the rest to `env.ASSETS`.
    */
   entry?: string;
+  /**
+   * Path the calls are served under, such as `/api`. Stubs send to it and the server answers
+   * calls only beneath it - an entry passes the full request to `handle` without stripping it.
+   */
+  base?: string;
   /** Bindings the entry's `fetch` gets as `env` in dev - say, wrangler's `getPlatformProxy().env`. */
   env?: () => object | Promise<object>;
 }
@@ -44,7 +49,8 @@ const SHARED = ["@expressive/mvc", "@expressive/rpc"];
 const NEXT = "x-expressive-next";
 const INDEX = ["ts", "js", "mts", "mjs"].map(ext => `index.${ext}`);
 
-export function rpc({ dir = "api", opaque = true, entry, env }: Options = {}): Plugin {
+export function rpc({ dir = "api", opaque = true, entry, env, base: path = "" }: Options = {}): Plugin {
+  const base = path.split("/").filter(Boolean).map(part => "/" + part).join("");
   let root = "";
   let folder = "";
   let main: string | undefined;
@@ -162,7 +168,7 @@ export function rpc({ dir = "api", opaque = true, entry, env }: Options = {}): P
 
       manifest.modules.set(at.file, exposed);
 
-      return manifest.stub(exposed, located);
+      return manifest.stub(exposed, located, { at: base + pathOf(exposed) });
     },
 
     async transform(code, id) {
@@ -170,7 +176,7 @@ export function rpc({ dir = "api", opaque = true, entry, env }: Options = {}): P
 
       if (this.environment.name === ENV && this.environment.mode === "build" && code.includes(CALLS)) {
         const resolve: Resolve = async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id;
-        return { code: manifest.calls(await gates(resolve)), map: null };
+        return { code: manifest.calls(await gates(resolve), base), map: null };
       }
 
       const problem = this.environment.config.consumer === "client" && (await guardScript(code, file));
@@ -208,7 +214,7 @@ export function rpc({ dir = "api", opaque = true, entry, env }: Options = {}): P
 
       const handle = async (request: Request) => {
         const loaded = await runtime();
-        return loaded.handler(endpoints(loaded), { dev: true, seats })(request);
+        return loaded.handler(endpoints(loaded), { dev: true, seats, base })(request);
       };
 
       Object.assign(globalThis, { [Symbol.for(CALLS)]: handle });
