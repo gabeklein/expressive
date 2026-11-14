@@ -156,9 +156,22 @@ export async function fault(error: unknown, endpoints: Endpoint[], dev: boolean,
   const { status } = error as { status?: unknown };
 
   if (id) return { error: { ...error, error: id, message: error.message }, status: typeof status == "number" ? status : undefined };
-  if (dev) return { error: { message: error.message, stack: error.stack } };
+  if (!dev) return { error: { message: "Internal error." } };
 
-  return { error: { message: "Internal error." } };
+  warn(error);
+
+  return { error: { message: error.message, stack: error.stack } };
+}
+
+const warned = new WeakSet<Function>();
+
+function warn({ constructor: Type }: Error) {
+  const builtin = (globalThis as Record<string, unknown>)[Type.name] === Type;
+
+  if (builtin || warned.has(Type)) return;
+
+  warned.add(Type);
+  console.warn(`${Type.name} is not a known error class, so a build replies "Internal error." for it - export it from a server module, or list it in errors.`);
 }
 
 export async function classId(endpoints: Endpoint[], error: Error, errors: Record<string, unknown> = {}): Promise<string | undefined> {
