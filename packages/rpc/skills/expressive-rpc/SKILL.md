@@ -99,6 +99,8 @@ const found: types.Result[] = await claim.search(query);
 
 Folders are layers, static names only (`[param]` folders throw). A module posts to its folder's path - `api/todos.ts` → `POST /`, `api/admin/users.ts` → `POST /admin` - with `x-expressive-call: <module>:<export>` (an index's export alone). Ids are readable in dev and salted hashes in build, so a client from an older deploy fails instead of calling changed code. `opaque: false` keeps readable ids for clients that outlive a deploy (installed PWAs, native shells).
 
+`rpc({ base: "/api" })` serves every folder under a path - `api/todos.ts` → `POST /api`, `api/admin/users.ts` → `POST /api/admin`. Stubs send there and `handle` answers only beneath it, given the full request - for a host that routes a prefix to the server (Firebase Hosting rewrites, a shared origin).
+
 ## Values
 
 Arguments and results cross as JSON plus what JSON loses: `Date` (an invalid one too), `BigInt`, `NaN` and `±Infinity`, `Map`, `Set`, `Uint8Array` and `ArrayBuffer` (arriving as `Uint8Array`), and `undefined` in an array - so `f(a, undefined)` keeps its default. Each goes as a one-key tagged object (`{ "$date": "2026-11-08T12:00:00.000Z" }`), so the body stays readable JSON; a plain object whose only key is a tag is escaped, so data never reads as one. The rest is `JSON.stringify`'s: `toJSON` first, `undefined` and function properties dropped, class instances as their own enumerable fields, a circular structure refused. A thrown error's own fields ride the same codec.
@@ -205,7 +207,7 @@ configure({
 });
 ```
 
-`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one.
+`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again.
 
 ## Server entry
 
@@ -234,11 +236,22 @@ export default {
 export { Room } from "./room";   // a Durable Object, say
 ```
 
-- `handle(request)` answers a call and gives anything else `undefined`.
+- `handle(request)` answers a call and gives anything else `undefined`. Pass the request as received - under `rpc({ base })` it matches the prefix itself.
 - The entry and the calls share one copy of every module, in dev and in the build.
 - The entry's `fetch` runs in the request's scope, as a call does: `Current.get()` is the request and a `Cookies` subclass reads and sets cookies in any route, what it sets joining the route's response. A folder's gate is the calls' - a route checks its own access.
 - `vite build` bundles the entry as `dist/server/index.js`, its other exports included.
 - In dev the entry's `fetch` runs on every request before Vite, with `ctx.waitUntil` logging a rejection. `env` is `rpc({ env })`'s result (say, wrangler's `getPlatformProxy().env`) plus an `ASSETS` that hands the request back to Vite.
+- In Hono, `handle` is middleware - `undefined` falls through to `next()`. Hono's `mount()` would strip the prefix and wants a handler that always returns a `Response`; neither fits, so skip it:
+
+  ```ts
+  const app = new Hono<{ Bindings: Env }>();
+
+  app.use(async (c, next) => (await handle(c.req.raw)) ?? next());
+  app.get("/api/health", c => c.json({ ok: true }));
+  app.notFound(c => c.env.ASSETS.fetch(c.req.raw));
+
+  export default app;
+  ```
 - `@expressive/rpc/calls` is the server's: a client import fails the build, and a call to `handle` outside a server the plugin builds or runs throws. One rpc dev server per process serves it.
 
 ## Build and deploy

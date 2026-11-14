@@ -122,7 +122,7 @@ export class Manifest<E extends Exposed = Exposed> {
   }
 
   /** The calls as a module: `handle(request)` answers a call and gives anything else `undefined`. */
-  calls(gates: Located[]): string {
+  calls(gates: Located[], base = ""): string {
     const json = JSON.stringify;
     const files = [...new Set([...this.modules.keys(), ...gates.map(gate => gate.file)])];
     const alias = (file: string) => `m${files.indexOf(file)}`;
@@ -143,7 +143,7 @@ export class Manifest<E extends Exposed = Exposed> {
       "",
       ...endpoints.flat(),
       `const gates = new Map([${gates.map(gate => `[${json(gate.pattern.join("/"))}, ${alias(gate.file)}.default]`).join(", ")}]);`,
-      `export const handle = handler([${this.byPattern().map((group, i) => `{ pattern: ${json(group[0].pattern)}, exports: async () => e${i} }`).join(", ")}], { seats: async pattern => gates.get(pattern.join("/")) });`,
+      `export const handle = handler([${this.byPattern().map((group, i) => `{ pattern: ${json(group[0].pattern)}, exports: async () => e${i} }`).join(", ")}], { seats: async pattern => gates.get(pattern.join("/"))${base ? `, base: ${json(base)}` : ""} });`,
       "",
     ].join("\n");
   }

@@ -149,6 +149,16 @@ describe("handler", () => {
   it("will pass on a request that is not a call", async () => {
     expect(await handler(endpoints)(new Request("http://localhost/tally"))).toBeUndefined();
   });
+
+  it("will answer calls only under its base, matching folders beneath it", async () => {
+    const handle = handler(endpoints, { base: "/api/v1" });
+    const response = await handle(fetched(request("/api/v1/tally", "add", "[1, 2]")));
+
+    expect(await response!.json()).toEqual({ value: 3 });
+    expect(await handle(fetched(request("/tally", "add", "[1, 2]")))).toBeUndefined();
+    expect(await handle(fetched(request("/api/tally", "add", "[1, 2]")))).toBeUndefined();
+    expect((await handle(fetched(request("/api/v1/other", "add", "[1, 2]"))))!.status).toBe(404);
+  });
 });
 
 describe("failure", () => {
