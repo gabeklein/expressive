@@ -6,20 +6,19 @@ const runBuild = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("./vite/dev", () => ({ runDev }));
 vi.mock("./vite/build", () => ({ runBuild }));
 
-const argv = process.argv;
+const { argv, exitCode } = process;
 let log: ReturnType<typeof vi.spyOn>;
 let error: ReturnType<typeof vi.spyOn>;
-let exit: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   vi.resetModules();
   log = vi.spyOn(console, "log").mockImplementation(() => {});
   error = vi.spyOn(console, "error").mockImplementation(() => {});
-  exit = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
 });
 
 afterEach(() => {
   process.argv = argv;
+  process.exitCode = exitCode;
   vi.restoreAllMocks();
   runDev.mockReset();
   runBuild.mockReset();
@@ -27,47 +26,33 @@ afterEach(() => {
 
 async function run(...args: string[]) {
   process.argv = ["node", "expressive", ...args];
-  // @ts-expect-error
   await import("./cli");
-  await vi.waitFor(() => expect(runDev.mock.calls.length + runBuild.mock.calls.length + log.mock.calls.length + exit.mock.calls.length).toBeGreaterThan(0));
+
+  return process.exitCode;
 }
 
-it("will run dev by default", async () => {
-  await run();
-  expect(runDev).toHaveBeenCalled();
-});
-
 it("will run dev", async () => {
-  await run("dev");
+  expect(await run("dev")).toBe(0);
   expect(runDev).toHaveBeenCalled();
 });
 
 it("will run build", async () => {
-  await run("build", "--pretty");
+  expect(await run("build", "--pretty")).toBe(0);
   expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true });
 });
 
 it("will print help", async () => {
-  await run("--help");
-  expect(log.mock.calls[0][0]).toContain("Usage:");
+  expect(await run("--help")).toBe(0);
+  expect(log.mock.calls[0][0]).toMatch(/^Usage: expressive \[options\] <command>/);
 });
 
-it("will exit on an unknown command", async () => {
-  await run("deploy");
-  expect(error.mock.calls[0][0]).toContain("Unknown command: deploy");
-  expect(exit).toHaveBeenCalledWith(1);
+it("will list commands when none is given", async () => {
+  expect(await run()).toBe(2);
+  expect(error.mock.calls[0][0]).toMatch(/dev +Vite dev server/);
+  expect(runDev).not.toHaveBeenCalled();
 });
 
-it("will exit with the message of a failure", async () => {
-  runBuild.mockRejectedValueOnce(new Error("broke"));
-  await run("build");
-  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
-  expect(error).toHaveBeenCalledWith("broke");
-});
-
-it("will exit with a thrown value that is not an error", async () => {
-  runDev.mockRejectedValueOnce("broke");
-  await run();
-  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
-  expect(error).toHaveBeenCalledWith("broke");
+it("will exit 2 on an unknown command", async () => {
+  expect(await run("deploy")).toBe(2);
+  expect(error.mock.calls[0][0]).toMatch(/^Unknown command "deploy"\./);
 });

@@ -10,6 +10,8 @@ export default defineConfig({
     index: 'src/index.ts',
     'server/index': 'src/server/index.ts',
     cli: 'src/cli.ts',
+    'command/dev': 'src/command/dev.ts',
+    'command/build': 'src/command/build.ts',
     'jsx-runtime': 'src/jsx-runtime.ts',
     'jsx-dev-runtime': 'src/jsx-dev-runtime.ts',
     'vite/index': 'src/vite/index.ts'
