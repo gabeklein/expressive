@@ -78,6 +78,87 @@ describe("call", () => {
   });
 });
 
+describe("api", () => {
+  it("will call by place in the tree - the path its nodes, the name its last", async () => {
+    const fetch = serve({ body: { value: 1 } }, { body: { value: 2 } });
+    const { api } = client<{ ping(): Promise<string>; admin: { users: { ban(id: number): Promise<void> } } }>();
+
+    expect(await api.admin.users.ban(7)).toBe(1);
+    expect(fetch).toHaveBeenLastCalledWith("/admin/users", expect.objectContaining({ headers: expect.objectContaining({ "x-expressive-call": "ban" }), body: "[7]" }));
+
+    expect(await api.ping()).toBe(2);
+    expect(fetch).toHaveBeenLastCalledWith("/", expect.anything());
+  });
+
+  it("will give one node per name, to keep a call stable as a callback", () => {
+    const { api } = client();
+
+    expect(api.claim.search).toBe(api.claim.search);
+    expect(api.claim).toBe(api.claim);
+    expect(api.with({}).claim).not.toBe(api.claim);
+  });
+
+  it("will not be a thenable or a symbol's holder, and its root is not a call", async () => {
+    const { api } = client();
+
+    expect(api.then).toBeUndefined();
+    expect(api[Symbol.iterator as never]).toBeUndefined();
+    expect(await Promise.resolve(api.claim)).toBe(api.claim);
+    expect(() => api()).toThrow("The client's root is not a call - name one: api.list().");
+  });
+
+  it("will abort the calls under a node when its signal does", async () => {
+    vi.stubGlobal("fetch", vi.fn((_: unknown, init?: RequestInit) => new Promise<Response>((_, reject) => init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason)))));
+    const { api } = client();
+    const control = new AbortController();
+    const pending = api.with({ signal: control.signal }).claim.search();
+
+    control.abort(new Error("Stopped."));
+
+    await expect(pending).rejects.toThrow("Stopped.");
+  });
+
+  it("will fail the calls under a node after its timeout, nested options extending the outer", async () => {
+    const fetch = vi.fn((_: unknown, init?: RequestInit) => new Promise<Response>((_, reject) => init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason))));
+    vi.stubGlobal("fetch", fetch);
+    const { api } = client();
+    const control = new AbortController();
+    const pending = api.with({ signal: control.signal }).claim.with({ timeout: 5 }).search();
+
+    await expect(pending).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(control.signal.aborted).toBe(false);
+
+    serve({ body: { value: 1 } });
+    expect(await api.claim.search()).toBe(1);
+  });
+});
+
+describe("errors", () => {
+  class Duplicate extends Error {
+    constructor(message: string, public existing = "") { super(message); }
+  }
+
+  it("will rebuild an error as the class given for its id, fields and all", async () => {
+    serve({ body: { error: "Duplicate", message: "Taken", status: 409, existing: "a" }, status: 409 });
+    const { call } = client({ errors: { Duplicate } });
+
+    const error = await call("/", "add", []).catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(Duplicate);
+    expect(error).toMatchObject({ message: "Taken", existing: "a", status: 409 });
+  });
+
+  it("will take error classes configured later, and define a given one as itself", async () => {
+    serve({ body: { error: "Duplicate", message: "Taken" }, status: 409 });
+    const rpc = client();
+
+    rpc.configure({ errors: { Duplicate } });
+
+    expect(rpc.define("Duplicate", "Duplicate")).toBe(Duplicate);
+    expect(await rpc.call("/", "add", []).catch((e: Error) => e)).toBeInstanceOf(Duplicate);
+  });
+});
+
 describe("pathOf", () => {
   const { pathOf } = client();
 

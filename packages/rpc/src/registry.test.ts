@@ -42,4 +42,16 @@ describe("registry", () => {
 
     expect(Object.getPrototypeOf(define("/tally#Limit", "Limit", "/elsewhere#Base"))).toBe(Error);
   });
+
+  it("will define an id given a class as that class, whether known at first or added", () => {
+    class Known extends Error {}
+    class Later extends Error {}
+    const { add, define, rebuild } = registry({ Known });
+
+    add({ Later });
+
+    expect(define("Known", "Known")).toBe(Known);
+    expect(define("Later", "Later")).toBe(Later);
+    expect(rebuild({ error: "Later", message: "a" })).toBeInstanceOf(Later);
+  });
 });

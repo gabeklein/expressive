@@ -1,7 +1,7 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Model } from "@expressive/mvc";
 
-import { classId, invoke, resolve, verify, walkOf, type Endpoint } from "./call";
+import { classId, fault, invoke, resolve, verify, walkOf, type Endpoint } from "./call";
 import { Current, install } from "./context";
 
 const at = (...pattern: string[]): Endpoint => ({ pattern, exports: async () => ({ calls: {}, classes: {} }) });
@@ -113,6 +113,24 @@ describe("invoke", () => {
 
     const outcome = await run("fail", [], { dev: true });
     expect(outcome).toMatchObject({ error: { message: "Nope", stack: expect.stringContaining("Error: Nope") } });
+  });
+});
+
+describe("fault", () => {
+  it("will warn once per class, in development, of an error class it does not know", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    class Unlisted extends Error {}
+
+    try {
+      expect(await fault(new Unlisted("Odd"), [], true)).toMatchObject({ error: { message: "Odd" } });
+      await fault(new Unlisted("Again"), [], true);
+      await fault(new TypeError("Bug"), [], true);
+      await fault(new Unlisted("Built"), [], false);
+
+      expect(warn.mock.calls).toEqual([[`Unlisted is not a known error class, so a build replies "Internal error." for it - export it from a server module, or list it in errors.`]]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

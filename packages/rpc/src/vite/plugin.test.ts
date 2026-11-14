@@ -154,14 +154,22 @@ describe("client", () => {
     const server = await serve(project());
     const stub = (await server.transformRequest("/api/todos.ts"))!.code;
 
-    expect(stub).toContain('const at = "/"');
-    expect(stub).toContain('call(at, "todos:list", args)');
-    expect(stub).toContain('define("/#todos:Over", "Over", "http:HttpError")');
+    expect(stub).toContain("const at = api.todos;");
+    expect(stub).toContain("export const list = at.list;");
+    expect(stub).toContain('define("Over", "Over", "http:HttpError")');
     expect(stub).toContain('import "/api/errors.ts";');
-    expect(stub).toContain('define("/#todos:Late", "Late", "/#errors:Billing")');
-    expect(stub).toMatch(/import \{ call, define \} from ".*rpc\/src\/index\.ts"/);
+    expect(stub).toContain('define("Late", "Late", "Billing")');
+    expect(stub).toMatch(/import \{ api, define \} from ".*rpc\/src\/index\.ts"/);
     expect(stub).not.toContain("Too long");
-    expect((await server.transformRequest("/api/admin/stats.ts"))!.code).toContain('const at = "/admin"');
+    expect((await server.transformRequest("/api/admin/stats.ts"))!.code).toContain("const at = api.admin.stats;");
+    expect((await server.transformRequest("/api/index.ts"))!.code).toContain("const at = api;");
+  });
+
+  it("will send to the folder's path under a base", async () => {
+    const server = await serve(project(), { plugins: [rpc({ base: "api/" })] });
+
+    expect((await server.transformRequest("/api/todos.ts"))!.code).toContain("const at = api.api.todos;");
+    expect((await server.transformRequest("/api/admin/stats.ts"))!.code).toContain("const at = api.api.admin.stats;");
   });
 
   it("will throw if a server module exports what the client cannot use", async () => {
@@ -233,10 +241,10 @@ describe("dev server", () => {
     await server.transformRequest("/api/todos.ts");
     await server.transformRequest("/api/admin/stats.ts");
 
-    expect(await post("/", "todos:list")).toEqual({ status: 401, body: { error: "http:Unauthorized", message: "Refused.", status: 401 } });
-    expect(await post("/", "todos:list", [], "alice")).toEqual({ status: 200, body: { value: ["one"] } });
-    expect(await post("/admin", "stats:stats", [], "alice")).toEqual({ status: 403, body: { error: "http:Forbidden", message: "Refused.", status: 403 } });
-    expect(await post("/admin", "stats:stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await post("/todos", "list")).toEqual({ status: 401, body: { error: "http:Unauthorized", message: "Refused.", status: 401 } });
+    expect(await post("/todos", "list", [], "alice")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/admin/stats", "stats", [], "alice")).toEqual({ status: 403, body: { error: "http:Forbidden", message: "Refused.", status: 403 } });
+    expect(await post("/admin/stats", "stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
   });
 
   it("will rebuild a thrown error as its id", async () => {
@@ -244,19 +252,30 @@ describe("dev server", () => {
 
     await server.transformRequest("/api/todos.ts");
 
-    expect(await post("/", "todos:add", ["long"], "a")).toEqual({ status: 409, body: { error: "/#todos:Over", message: "Too long", status: 409 } });
-    expect(await post("/", "todos:done", ["x"], "a")).toEqual({ status: 404, body: { error: "http:NotFound", message: "No todo x", status: 404 } });
+    expect(await post("/todos", "add", ["long"], "a")).toEqual({ status: 409, body: { error: "Over", message: "Too long", status: 409 } });
+    expect(await post("/todos", "done", ["x"], "a")).toEqual({ status: 404, body: { error: "http:NotFound", message: "No todo x", status: 404 } });
   });
 
   it("will answer only what the client imported", async () => {
     const { server, post } = await listen(project());
 
-    expect(await post("/", "todos:list", [], "a")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/todos", "list", [], "a")).toEqual({ status: 404, body: { message: "Not found." } });
 
     await server.transformRequest("/api/todos.ts");
 
-    expect(await post("/", "todos:list", [], "a")).toMatchObject({ status: 200 });
-    expect(await post("/admin", "stats:stats", [], "admin")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/todos", "list", [], "a")).toMatchObject({ status: 200 });
+    expect(await post("/admin/stats", "stats", [], "admin")).toEqual({ status: 404, body: { message: "Not found." } });
+  });
+
+  it("will answer calls under a base, leaving the rest to Vite", async () => {
+    const { server, post } = await listen(project(), { plugins: [rpc({ base: "/api" })] });
+
+    await server.transformRequest("/api/todos.ts");
+    await server.transformRequest("/api/admin/stats.ts");
+
+    expect(await post("/api/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/api/admin/stats", "stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await post("/todos", "list", [], "a")).not.toMatchObject({ status: 200 });
   });
 
   it("will leave other requests to Vite", async () => {
@@ -271,12 +290,12 @@ describe("dev server", () => {
     const { server, post } = await listen(root);
 
     await server.transformRequest("/api/todos.ts");
-    expect(await post("/", "todos:list", [], "a")).toMatchObject({ body: { value: ["one"] } });
+    expect(await post("/todos", "list", [], "a")).toMatchObject({ body: { value: ["one"] } });
 
     await new Promise(ready => setTimeout(ready, 300));
     writeFileSync(join(root, "api/todos.ts"), readFileSync(join(root, "api/todos.ts"), "utf8").replace(`["one"]`, `["two"]`));
 
-    await vi.waitFor(async () => expect(await post("/", "todos:list", [], "a")).toMatchObject({ body: { value: ["two"] } }), { timeout: 5000 });
+    await vi.waitFor(async () => expect(await post("/todos", "list", [], "a")).toMatchObject({ body: { value: ["two"] } }), { timeout: 5000 });
   }, 15_000);
 
   it("will keep one copy of installed @expressive packages across a reload", async () => {
@@ -288,15 +307,15 @@ describe("dev server", () => {
     const edit = (file: string, from: string, to: string) => writeFileSync(join(root, file), readFileSync(join(root, file), "utf8").replace(from, to));
 
     await server.transformRequest("/api/todos.ts");
-    expect(await post("/", "todos:list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
 
     await new Promise(ready => setTimeout(ready, 300));
     edit("api/todos.ts", `["one"]`, `["two"]`);
-    await vi.waitFor(async () => expect(await post("/", "todos:list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } }), { timeout: 5000 });
+    await vi.waitFor(async () => expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } }), { timeout: 5000 });
 
     edit("api/index.ts", `"Refused."`, `"Sign in."`);
-    await vi.waitFor(async () => expect(await post("/", "todos:list")).toMatchObject({ status: 401, body: { message: "Sign in." } }), { timeout: 5000 });
-    expect(await post("/", "todos:list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } });
+    await vi.waitFor(async () => expect(await post("/todos", "list")).toMatchObject({ status: 401, body: { message: "Sign in." } }), { timeout: 5000 });
+    expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } });
   }, 30_000);
 
   it("will run a folder's function gate, its Models in reach of the call", async () => {
@@ -304,8 +323,8 @@ describe("dev server", () => {
 
     await server.transformRequest("/api/whoami.ts");
 
-    expect(await post("/", "whoami:whoami")).toEqual({ status: 401, body: { error: "http:Unauthorized", message: "Sign in.", status: 401 } });
-    expect(await post("/", "whoami:whoami", [], "ada")).toEqual({ status: 200, body: { value: "ada" } });
+    expect(await post("/whoami", "whoami")).toEqual({ status: 401, body: { error: "http:Unauthorized", message: "Sign in.", status: 401 } });
+    expect(await post("/whoami", "whoami", [], "ada")).toEqual({ status: 200, body: { value: "ada" } });
   });
 
   it("will refuse a call through a folder whose gate is not a Model", async () => {
@@ -313,7 +332,7 @@ describe("dev server", () => {
 
     await server.transformRequest("/api/odd/ping.ts");
 
-    expect(await post("/odd", "ping:ping", [], "a")).toMatchObject({ status: 500, body: { message: expect.stringContaining("api/odd/index.ts: An index's default is its folder's gate") } });
+    expect(await post("/odd/ping", "ping", [], "a")).toMatchObject({ status: 500, body: { message: expect.stringContaining("api/odd/index.ts: An index's default is its folder's gate") } });
   });
 
   it("will fail a call to a folder exporting a class that is not an Error", async () => {
@@ -321,7 +340,7 @@ describe("dev server", () => {
 
     await server.transformRequest("/api/odd.ts");
 
-    expect((await post("/", "odd:ping", [], "a")).status).toBe(500);
+    expect((await post("/odd", "ping", [], "a")).status).toBe(500);
   });
 });
 
@@ -407,21 +426,21 @@ describe("build", () => {
     return { server, client, post };
   }
 
-  it("will emit the client and a server bundle answering the calls the client imports, by hashed id", async () => {
+  it("will emit the client and a server bundle answering the calls the client imports, by hashed id when opaque", async () => {
     const root = project();
-    const { server, client, post } = await build(root);
-    const ids = [...client.matchAll(/[`"']([\w-]{16})[`"']/g)].map(([, id]) => id);
+    const { server, client, post } = await build(root, { opaque: true });
+    const ids = [...client.matchAll(/[`"'.]([\w-]{16})(?![\w-])/g)].map(([, id]) => id);
 
     expect(existsSync(join(root, "dist/client/index.html"))).toBe(true);
     expect(client).not.toContain("todos:list");
     expect(client).not.toContain("Too long");
 
-    const answers = await Promise.all(ids.map(id => post("/", id, "a")));
+    const answers = await Promise.all(ids.map(id => post("/todos", id, "a")));
     const list = ids[answers.findIndex(answer => answer.status === 200 && answer.body.value?.[0] === "one")];
 
     expect(list).toBeDefined();
-    expect(await post("/", list)).toMatchObject({ status: 401 });
-    expect(await post("/", "todos:list", "a")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/todos", list)).toMatchObject({ status: 401 });
+    expect(await post("/todos", "list", "a")).toEqual({ status: 404, body: { message: "Not found." } });
     expect((await server.fetch(new Request("http://localhost/"))).status).toBe(404);
   });
 
@@ -429,10 +448,20 @@ describe("build", () => {
     const { server, post } = await build(project(), { opaque: false });
     const ASSETS = { fetch: async () => new Response("asset") };
 
-    expect(await post("/", "todos:list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
-    expect(await post("/admin", "stats:stats", "a")).toMatchObject({ status: 403 });
-    expect(await post("/admin", "stats:stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await post("/todos", "list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/admin/stats", "stats", "a")).toMatchObject({ status: 403 });
+    expect(await post("/admin/stats", "stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
     expect(await (await server.fetch(new Request("http://localhost/"), { ASSETS })).text()).toBe("asset");
+  });
+
+  it("will answer calls under a base, handing the rest to the Worker's assets", async () => {
+    const { server, client, post } = await build(project(), { opaque: false, base: "/api" });
+    const ASSETS = { fetch: async () => new Response("asset") };
+
+    expect(client).toContain(".api.admin.stats.stats");
+    expect(await post("/api/todos", "list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/api/admin/stats", "stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await (await server.fetch(new Request("http://localhost/", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "list" }, body: "[]" }), { ASSETS })).text()).toBe("asset");
   });
 
   it("will keep the client's rollup options out of the server bundle", async () => {
@@ -442,7 +471,7 @@ describe("build", () => {
 
     expect(readdirSync(join(root, "dist/client")).sort()).toEqual(["assets", "index.html", "other.html"]);
     expect(readdirSync(join(root, "dist/server"))).toEqual(["index.js"]);
-    expect(await post("/", "todos:list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/todos", "list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
   });
 
   it("will guard only scripts that mention @expressive/rpc", async () => {
@@ -468,7 +497,7 @@ describe("build", () => {
       const { post } = await build(root, { opaque: false });
       const code = readFileSync(join(root, "dist/server/index.js"), "utf8");
 
-      expect(await post("/", "loud:loud", "a")).toEqual({ status: 200, body: { value: "HI" } });
+      expect(await post("/loud", "loud", "a")).toEqual({ status: 200, body: { value: "HI" } });
       expect(code).not.toMatch(/from\s*"shout"/);
     });
 
@@ -480,8 +509,8 @@ describe("build", () => {
       const { post } = await build(root, { opaque: false }, { resolve: {}, environments: { rpc: { resolve: { noExternal: [] } } } });
       const code = readFileSync(join(root, "dist/server/index.js"), "utf8");
 
-      expect(await post("/", "loud:loud", "a")).toEqual({ status: 200, body: { value: "HI" } });
-      expect(await post("/", "loud:loud")).toMatchObject({ status: 401 });
+      expect(await post("/loud", "loud", "a")).toEqual({ status: 200, body: { value: "HI" } });
+      expect(await post("/loud", "loud")).toMatchObject({ status: 401 });
       expect(code).toMatch(/from\s*"shout"/);
       expect(code).toMatch(/from\s*"@expressive\/rpc\/http"/);
       expect(code).not.toMatch(/from\s*"@expressive\/rpc\/calls"/);
@@ -495,7 +524,7 @@ describe("build", () => {
       const { post } = await build(root, { opaque: false }, { resolve: {}, environments: { rpc: { resolve: { noExternal: ["@expressive/rpc"] } } } });
       const code = readFileSync(join(root, "dist/server/index.js"), "utf8");
 
-      expect(await post("/", "loud:loud", "a")).toEqual({ status: 200, body: { value: "HI" } });
+      expect(await post("/loud", "loud", "a")).toEqual({ status: 200, body: { value: "HI" } });
       expect(code).toMatch(/from\s*"shout"/);
       expect(code).not.toMatch(/from\s*"@expressive\/rpc[/"]/);
     }, 30_000);
@@ -505,8 +534,8 @@ describe("build", () => {
     const root = project({ ...FUNCTION_GATE, "src/main.ts": `import { whoami } from "../api/whoami"; whoami();` });
     const { post } = await build(root, { opaque: false });
 
-    expect(await post("/", "whoami:whoami")).toEqual({ status: 401, body: { error: "http:Unauthorized", message: "Sign in.", status: 401 } });
-    expect(await post("/", "whoami:whoami", "ada")).toEqual({ status: 200, body: { value: "ada" } });
+    expect(await post("/whoami", "whoami")).toEqual({ status: 401, body: { error: "http:Unauthorized", message: "Sign in.", status: 401 } });
+    expect(await post("/whoami", "whoami", "ada")).toEqual({ status: 200, body: { value: "ada" } });
   });
 
   it("will build calls with no gate in their folders", async () => {
@@ -522,7 +551,7 @@ describe("build", () => {
     const bundled = await import(pathToFileURL(join(root, "dist/server/index.js")).href);
     const code = readFileSync(join(root, "dist/server/index.js"), "utf8");
 
-    expect(await post("/", "tally:tick", "a")).toEqual({ status: 200, body: { value: 1 } });
+    expect(await post("/tally", "tick", "a")).toEqual({ status: 200, body: { value: 1 } });
     expect(await (await server.fetch(new Request("http://localhost/count"))).json()).toEqual({ count: 1, name: null });
     expect((await server.fetch(new Request("http://localhost/"))).status).toBe(404);
     expect(await server.scheduled()).toBe("ran");
@@ -559,10 +588,10 @@ describe("a folder beside the root", () => {
 
     const stub = (await server.transformRequest(`/@fs${root}/api/todos.ts`))!.code;
 
-    expect(stub).toContain('call(at, "todos:list", args)');
+    expect(stub).toContain("export const list = at.list;");
     expect(stub).not.toContain("Too long");
-    expect(await post("/", "todos:list")).toMatchObject({ status: 401 });
-    expect(await post("/", "todos:list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/todos", "list")).toMatchObject({ status: 401 });
+    expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
   });
 
   it("will build calls from a folder outside the Vite root", async () => {
@@ -584,9 +613,9 @@ describe("a folder beside the root", () => {
       return { status: response.status, body: await response.json() };
     };
 
-    expect(await call("/", "todos:list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
-    expect(await call("/admin", "stats:stats", "a")).toMatchObject({ status: 403 });
-    expect(await call("/admin", "stats:stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await call("/todos", "list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await call("/admin/stats", "stats", "a")).toMatchObject({ status: 403 });
+    expect(await call("/admin/stats", "stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
   });
 
   it("will resolve the folder's own tsconfig paths with resolve.tsconfigPaths", async () => {
@@ -603,7 +632,7 @@ describe("a folder beside the root", () => {
     await server.transformRequest("/src/main.ts");
     await server.transformRequest(`/@fs${root}/api/todos.ts`);
 
-    expect(await post("/", "todos:list", [], "a")).toEqual({ status: 200, body: { value: ["seeded"] } });
+    expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["seeded"] } });
   });
 });
 
@@ -615,10 +644,20 @@ describe("entry", () => {
 
     await server.transformRequest("/api/tally.ts");
 
-    expect(await post("/", "tally:tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
-    expect(await post("/", "tally:tick")).toMatchObject({ status: 401 });
+    expect(await post("/tally", "tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
+    expect(await post("/tally", "tick")).toMatchObject({ status: 401 });
     expect(await (await get(server, "/count")).json()).toEqual({ count: 1, name: "dev" });
     expect(await (await get(server, "/")).text()).toContain(`<script type="module"`);
+  });
+
+  it("will hand the entry calls under a base, its own routes alongside", async () => {
+    const { server, post } = await listen(project(ENTRY), { plugins: [rpc({ entry: "server.ts", base: "/api" })] });
+
+    await server.transformRequest("/api/tally.ts");
+
+    expect(await post("/api/tally", "tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
+    expect(await post("/tally", "tick", [], "a")).not.toMatchObject({ status: 200 });
+    expect(await (await get(server, "/count")).json()).toEqual({ count: 1, name: null });
   });
 
   it("will run the entry's routes in the request's scope, with what Cookies set on the response", async () => {
@@ -630,9 +669,9 @@ describe("entry", () => {
 
     await server.transformRequest("/api/tally.ts");
 
-    const call = await fetch(new URL("/", server.resolvedUrls!.local[0]), {
+    const call = await fetch(new URL("/tally", server.resolvedUrls!.local[0]), {
       method: "POST",
-      headers: { "content-type": "application/json", "x-expressive-call": "tally:dark", authorization: "Bearer a" },
+      headers: { "content-type": "application/json", "x-expressive-call": "dark", authorization: "Bearer a" },
       body: "[]",
     });
 
@@ -679,7 +718,7 @@ describe("entry", () => {
     servers.splice(servers.indexOf(older.server), 1);
     await older.server.close();
 
-    expect(await post("/", "tally:tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
+    expect(await post("/tally", "tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
   });
 
   it("will fail a request when the entry has no default fetch", async () => {
@@ -726,16 +765,16 @@ describe("groups", () => {
 
     expect(shop).toMatch(/import \{ list as t0, add as t1, Over as t2 \} from "\/api\/shop\/cart\.ts\?rpc";/);
     expect(shop).toMatch(/import \{ stats as t3 \} from "\/api\/shop\/admin\/stats\.ts\?rpc";/);
-    expect(shop).toContain('call(at, "hours", args)');
+    expect(shop).toContain("export const hours = at.hours;");
     expect(shop).not.toContain("Closed.");
     expect(shop.replace(/\s+/g, "")).toContain(`constg0={"list":t0,"add":t1,"errors":{"Over":t2}};export{g0as"cart",t3as"stats"};`);
-    expect(cart).toContain('const at = "/shop"');
-    expect(cart).toContain('call(at, "cart:list", args)');
-    expect(cart).toContain('call(at, "cart:add", args)');
+    expect(cart).toContain("const at = api.shop.cart;");
+    expect(cart).toContain("export const list = at.list;");
+    expect(cart).toContain("export const add = at.add;");
     expect(cart).toMatch(/import "\/api\/shop\/errors\.ts\?rpc";/);
     expect(cart).not.toContain("internal");
     expect(cart).not.toContain("PAGE");
-    expect(cart).toContain('define("/shop#cart:Late", "Late", "/shop#errors:Billing")');
+    expect(cart).toContain('define("Late", "Late", "Billing")');
   });
 
   it("will leave a module the test does not select plain, unless a server module reaches it", async () => {
@@ -751,7 +790,7 @@ describe("groups", () => {
     const cart = (await server.transformRequest("/api/shop/cart.ts"))!.code;
 
     expect(shop).toMatch(/import \{ list as t0, add as t1, Over as t2 \} from "\/api\/shop\/cart\.ts";/);
-    expect(cart).toContain('call(at, "cart:internal", args)');
+    expect(cart).toContain("export const internal = at.internal;");
   });
 
   it("will answer only reached leaves, each through the gates of selected indexes along its folder", async () => {
@@ -762,21 +801,21 @@ describe("groups", () => {
     await server.transformRequest("/api/shop/cart.ts?rpc");
     await server.transformRequest("/api/shop/admin/stats.ts?rpc");
 
-    const closed = await fetch(new URL("/shop", server.resolvedUrls!.local[0]), {
+    const closed = await fetch(new URL("/shop/cart", server.resolvedUrls!.local[0]), {
       method: "POST",
-      headers: { "content-type": "application/json", "x-expressive-call": "cart:list", authorization: "Bearer a", "x-closed": "1" },
+      headers: { "content-type": "application/json", "x-expressive-call": "list", authorization: "Bearer a", "x-closed": "1" },
       body: "[]",
     });
 
     expect(closed.status).toBe(403);
-    expect(await post("/shop", "cart:list")).toMatchObject({ status: 401 });
-    expect(await post("/shop", "cart:list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/shop/cart", "list")).toMatchObject({ status: 401 });
+    expect(await post("/shop/cart", "list", [], "a")).toEqual({ status: 200, body: { value: ["one"] } });
     expect(await post("/shop", "hours", [], "a")).toEqual({ status: 200, body: { value: "9-5" } });
-    expect(await post("/shop", "cart:add", ["long"], "a")).toMatchObject({ status: 409, body: { error: "/shop#cart:Over" } });
-    expect(await post("/shop", "cart:internal", [], "a")).toEqual({ status: 404, body: { message: "Not found." } });
-    expect(await post("/shop/admin", "stats:stats", [], "a")).toMatchObject({ status: 403 });
-    expect(await post("/shop/admin", "stats:stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
-    expect(await post("/", "todos:list", [], "a")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/shop/cart", "add", ["long"], "a")).toMatchObject({ status: 409, body: { error: "Over" } });
+    expect(await post("/shop/cart", "internal", [], "a")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/shop/admin/stats", "stats", [], "a")).toMatchObject({ status: 403 });
+    expect(await post("/shop/admin/stats", "stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await post("/todos", "list", [], "a")).toEqual({ status: 404, body: { message: "Not found." } });
   });
 
   it("will take a folder's gate only from an index the test selects", async () => {
@@ -785,7 +824,7 @@ describe("groups", () => {
     await server.transformRequest("/api/shop/index.ts");
     await server.transformRequest("/api/shop/cart.ts?rpc");
 
-    expect(await post("/shop", "cart:list")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/shop/cart", "list")).toEqual({ status: 200, body: { value: ["one"] } });
   });
 
   const REACH = {
@@ -802,23 +841,23 @@ describe("groups", () => {
     const stub = async () => (await server.transformRequest("/api/lib/p.ts?rpc"))!.code;
 
     await server.transformRequest("/api/a/index.ts");
-    expect(await stub()).toContain('call(at, "p:y", args)');
-    expect(await stub()).not.toContain('"p:z"');
+    expect(await stub()).toContain("export const y = at.y;");
+    expect(await stub()).not.toContain("at.z");
 
     await server.transformRequest("/api/b/index.ts");
-    expect(await post("/lib", "p:y", [], "a")).toEqual({ status: 200, body: { value: "y" } });
+    expect(await post("/lib/p", "y", [], "a")).toEqual({ status: 200, body: { value: "y" } });
 
     await new Promise(ready => setTimeout(ready, 300));
     writeFileSync(join(root, "api/c/index.ts"), `import { z } from "../lib/p"; export const c = { z };`);
 
     await vi.waitFor(async () => {
       await server.transformRequest("/api/c/index.ts");
-      expect(await stub()).toContain('call(at, "p:z", args)');
+      expect(await stub()).toContain("export const z = at.z;");
     }, { timeout: 5000 });
 
     skip.add("b/index.ts");
     server.environments.client.moduleGraph.invalidateAll();
-    expect(await stub()).not.toContain('"p:y"');
+    expect(await stub()).not.toContain("at.y");
   }, 15_000);
 
   it("will build a plain module's stub with every server module's leaves, however late one is found", async () => {
@@ -834,7 +873,7 @@ describe("groups", () => {
 
     const server = (await import(pathToFileURL(join(root, "dist/server/index.js")).href)).default;
     const post = async (name: string) => {
-      const response: Response = await server.fetch(new Request("http://localhost/lib", {
+      const response: Response = await server.fetch(new Request("http://localhost/lib/p", {
         method: "POST",
         headers: { "content-type": "application/json", "x-expressive-call": name, authorization: "Bearer a" },
         body: "[]",
@@ -843,7 +882,7 @@ describe("groups", () => {
       return response.status;
     };
 
-    expect([await post("p:x"), await post("p:y"), await post("p:z")]).toEqual([200, 200, 404]);
+    expect([await post("x"), await post("y"), await post("z")]).toEqual([200, 200, 404]);
   });
 
   it("will stop answering a leaf its module drops", async () => {
@@ -852,16 +891,16 @@ describe("groups", () => {
 
     await server.transformRequest("/api/shop/index.ts");
     await server.transformRequest("/api/shop/cart.ts?rpc");
-    expect(await post("/shop", "cart:add", ["a"], "a")).toEqual({ status: 200, body: { value: "a" } });
+    expect(await post("/shop/cart", "add", ["a"], "a")).toEqual({ status: 200, body: { value: "a" } });
 
     await new Promise(ready => setTimeout(ready, 300));
     writeFileSync(join(root, "api/shop/index.ts"), GROUPS["api/shop/index.ts"].replace("list, add, Over }", "list, Over }").replace("list, add, errors", "list, errors"));
 
     await vi.waitFor(async () => {
       await server.transformRequest("/api/shop/index.ts");
-      expect(await post("/shop", "cart:add", ["a"], "a")).toEqual({ status: 404, body: { message: "Not found." } });
+      expect(await post("/shop/cart", "add", ["a"], "a")).toEqual({ status: 404, body: { message: "Not found." } });
     }, { timeout: 5000 });
-    expect(await post("/shop", "cart:list", [], "a")).toMatchObject({ status: 200 });
+    expect(await post("/shop/cart", "list", [], "a")).toMatchObject({ status: 200 });
   }, 15_000);
 
   it("will resolve a stub's import of a plain module in the folder to that module's stub", async () => {
@@ -911,12 +950,12 @@ describe("groups", () => {
       return { status: response.status, body: await response.json() };
     };
 
-    expect(await post("/shop", "cart:list")).toMatchObject({ status: 401 });
-    expect(await post("/shop", "cart:list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
-    expect(await post("/shop", "cart:internal", "a")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/shop/cart", "list")).toMatchObject({ status: 401 });
+    expect(await post("/shop/cart", "list", "a")).toEqual({ status: 200, body: { value: ["one"] } });
+    expect(await post("/shop/cart", "internal", "a")).toEqual({ status: 404, body: { message: "Not found." } });
     expect(await post("/shop", "hours", "a")).toEqual({ status: 200, body: { value: "9-5" } });
-    expect(await post("/shop/admin", "stats:stats", "a")).toMatchObject({ status: 403 });
-    expect(await post("/shop/admin", "stats:stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
-    expect(await post("/", "todos:list", "a")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await post("/shop/admin/stats", "stats", "a")).toMatchObject({ status: 403 });
+    expect(await post("/shop/admin/stats", "stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
+    expect(await post("/todos", "list", "a")).toEqual({ status: 404, body: { message: "Not found." } });
   });
 });

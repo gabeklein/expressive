@@ -5,6 +5,8 @@ import { Model } from "@expressive/mvc";
 import type { Endpoint, Seats } from "../call";
 import { Current, install } from "../context";
 import { Cookies } from "../cookies";
+import { Forbidden } from "../errors";
+import { route } from "../route";
 import { dispatch, failure, handler, isCall, reply, scoped, type Tier } from "./call";
 
 const TAB = crypto.randomUUID();
@@ -148,6 +150,87 @@ describe("handler", () => {
 
   it("will pass on a request that is not a call", async () => {
     expect(await handler(endpoints)(new Request("http://localhost/tally"))).toBeUndefined();
+  });
+
+  it("will answer calls only under its base, matching folders beneath it", async () => {
+    const handle = handler(endpoints, { base: "/api/v1" });
+    const response = await handle(fetched(request("/api/v1/tally", "add", "[1, 2]")));
+
+    expect(await response!.json()).toEqual({ value: 3 });
+    expect(await handle(fetched(request("/tally", "add", "[1, 2]")))).toBeUndefined();
+    expect(await handle(fetched(request("/api/tally", "add", "[1, 2]")))).toBeUndefined();
+    expect((await handle(fetched(request("/api/v1/other", "add", "[1, 2]"))))!.status).toBe(404);
+  });
+});
+
+describe("handler of a tree", () => {
+  install();
+
+  class Session extends Model {
+    user = "";
+
+    protected new() {
+      const token = Current.get().request.headers.get("authorization");
+
+      if (!token) throw new Forbidden("Sign in.");
+
+      this.user = token;
+    }
+  }
+
+  class Duplicate extends Error {
+    status = 409;
+  }
+
+  const api = route(() => void Session.new(), {
+    whoami: async () => Session.get().user,
+    claim: {
+      create: async (name: string) => { throw new Duplicate(`${name} exists`); },
+      fail: async () => { throw new Error("Nope"); },
+      path: async () => Current.get().url.pathname,
+    },
+  });
+
+  const answer = async (handle: ReturnType<typeof handler>, url: string, name: string | undefined, body = "[]", token?: string) => {
+    const response = await handle(fetched(request(url, name, body, "application/json", token ? { authorization: token } : {})));
+    return response && { status: response.status, body: await response.json() };
+  };
+
+  it("will answer a call at its place in the tree, behind the gates along it", async () => {
+    const handle = handler(api);
+
+    expect(await answer(handle, "/", "whoami", "[]", "ada")).toEqual({ status: 200, body: { value: "ada" } });
+    expect(await answer(handle, "/claim", "path", "[]", "ada")).toEqual({ status: 200, body: { value: "/claim" } });
+    expect(await answer(handle, "/", "whoami")).toEqual({ status: 403, body: { error: "http:Forbidden", message: "Sign in.", status: 403 } });
+  });
+
+  it("will send a listed error class by its id, and hide the rest outside development", async () => {
+    expect(await answer(handler(api, { errors: { Duplicate } }), "/claim", "create", '["a"]', "ada")).toEqual({
+      status: 409,
+      body: { error: "Duplicate", message: "a exists", status: 409 },
+    });
+    expect(await answer(handler(api), "/claim", "create", '["a"]', "ada")).toEqual({ status: 500, body: { message: "Internal error." } });
+    expect(await answer(handler(api), "/claim", "fail", "[]", "ada")).toEqual({ status: 500, body: { message: "Internal error." } });
+  });
+
+  it("will reply 404 to no call at the path, and 400 to arguments that are not an array", async () => {
+    const handle = handler(api);
+
+    expect(await answer(handle, "/claim", "missing")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect(await answer(handle, "/claim", undefined, "[]", "ada")).toBeUndefined();
+    expect((await handle(fetched(request("/claim", undefined, "[]", "application/json", { "x-expressive-get": "1" }))))!.status).toBe(404);
+    expect(await answer(handle, "/claim", "path", "{}", "ada")).toEqual({ status: 400, body: { message: "Expected a JSON array of arguments." } });
+  });
+
+  it("will answer only under its base", async () => {
+    const handle = handler(api, { base: "/api" });
+
+    expect(await answer(handle, "/api/claim", "path", "[]", "ada")).toEqual({ status: 200, body: { value: "/api/claim" } });
+    expect(await answer(handle, "/claim", "path", "[]", "ada")).toBeUndefined();
+  });
+
+  it("will throw if a name in the tree is reserved", () => {
+    expect(() => handler({ a: { with: async () => {} } })).toThrow("a.with is reserved for the client");
   });
 });
 
