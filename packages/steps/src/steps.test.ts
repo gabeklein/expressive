@@ -9942,7 +9942,7 @@ describe('review', () => {
 });
 
 describe('scale', () => {
-  async function work(make: (size: number) => Steps) {
+  async function work(make: (size: number) => Steps & { run(): Promise<unknown> }) {
     const { push } = Array.prototype;
     const { get } = Map.prototype;
     let count = 0;
