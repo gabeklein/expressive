@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { dirname, relative, sep } from "node:path";
+import { basename, dirname, relative, sep } from "node:path";
 
 import type { Exports } from "../call";
+import { RESERVED, type Tree as CallTree } from "../route";
 import type { ErrorClass, Parent } from "./scan";
 import type { Leaf, Tree } from "./surface";
 
@@ -74,23 +75,34 @@ export class Manifest<E extends Exposed = Exposed> {
 
   stub(exposed: E, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), imports = [], lines = [] }: Stub = {}): string {
     const json = JSON.stringify;
+
+    return [
+      `import { ${["call", "define", ...imports].join(", ")} } from ${json(from)};`,
+      ...this.parentImports(exposed),
+      `const at = ${json(at)};`,
+      ...exposed.calls.map(name => `export const ${name} = (...args) => call(at, ${json(this.callId(exposed, name))}, args);`),
+      ...this.errorLines(exposed, locate),
+      ...lines,
+      "",
+    ].join("\n");
+  }
+
+  protected parentImports(exposed: E): string[] {
     const before = new Set<string>();
 
     for (const { parent } of exposed.errors)
       if (parent && "file" in parent && parent.file !== exposed.file) before.add(importOf(exposed.file, parent.file));
 
-    return [
-      `import { ${["call", "define", ...imports].join(", ")} } from ${json(from)};`,
-      ...[...before].map(spec => `import ${json(spec)};`),
-      `const at = ${json(at)};`,
-      ...exposed.calls.map(name => `export const ${name} = (...args) => call(at, ${json(this.callId(exposed, name))}, args);`),
-      ...exposed.errors.map(({ name, parent }) => {
-        const args = [json(this.classId(exposed, name)), json(name), ...(parent ? [json(this.parentId(parent, locate))] : [])];
-        return `export const ${name} = define(${args.join(", ")});`;
-      }),
-      ...lines,
-      "",
-    ].join("\n");
+    return [...before].map(spec => `import ${JSON.stringify(spec)};`);
+  }
+
+  protected errorLines(exposed: E, locate: Locate): string[] {
+    const json = JSON.stringify;
+
+    return exposed.errors.map(({ name, parent }) => {
+      const args = [json(this.classId(exposed, name)), json(name), ...(parent ? [json(this.parentId(parent, locate))] : [])];
+      return `export const ${name} = define(${args.join(", ")});`;
+    });
   }
 
   table(group: E[], alias: (file: string) => string): string {
@@ -121,34 +133,7 @@ export class Manifest<E extends Exposed = Exposed> {
     return { calls, classes };
   }
 
-  /** The calls as a module: `handle(request)` answers a call and gives anything else `undefined`. */
-  calls(gates: Located[], base = ""): string {
-    const json = JSON.stringify;
-    const files = [...new Set([...this.modules.keys(), ...gates.map(gate => gate.file)])];
-    const alias = (file: string) => `m${files.indexOf(file)}`;
-
-    const endpoints = this.byPattern().map((group, i) => {
-      return [
-        `const e${i} = { ${this.table(group, alias)} };`,
-        `verify(${json(pathOf(group[0]))}, e${i});`,
-      ];
-    });
-
-    return [
-      `import { install, verify } from "@expressive/rpc/protocol";`,
-      `import { handler } from "@expressive/rpc/http";`,
-      ...files.map(file => `import * as ${alias(file)} from ${json(file)};`),
-      "",
-      "install();",
-      "",
-      ...endpoints.flat(),
-      `const gates = new Map([${gates.map(gate => `[${json(gate.pattern.join("/"))}, ${alias(gate.file)}.default]`).join(", ")}]);`,
-      `export const handle = handler([${this.byPattern().map((group, i) => `{ pattern: ${json(group[0].pattern)}, exports: async () => e${i} }`).join(", ")}], { seats: async pattern => gates.get(pattern.join("/"))${base ? `, base: ${json(base)}` : ""} });`,
-      "",
-    ].join("\n");
-  }
-
-  private seal(id: string): string {
+  protected seal(id: string): string {
     return this.salt ? createHash("sha256").update(this.salt + id).digest("base64url").slice(0, 16) : id;
   }
 }
@@ -183,4 +168,166 @@ export function groupLines(file: string, tree: Tree): string[] {
     ...groups,
     `export { ${exports.join(", ")} };`,
   ];
+}
+
+export const addressOf = ({ pattern, module }: Located): string[] => (module ? [...pattern, module] : pattern);
+
+const labelOf = ({ pattern, file }: Located) => [...pattern, basename(file)].join("/");
+
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const member = (key: string) => (IDENTIFIER.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`);
+
+export interface Layer<G> {
+  gate?: G;
+  module?: Exposed;
+  calls: Map<string, { exposed: Exposed; name: string }>;
+  children: Map<string, Layer<G>>;
+}
+
+type Load = (file: string) => Promise<Record<string, unknown>>;
+type Route = (gate: never, children: CallTree) => CallTree;
+
+export class Calls extends Manifest {
+  callId(at: Located, name: string): string {
+    return this.salt ? this.seal(`/${addressOf(at).join("/")}#${name}`) : name;
+  }
+
+  classId(_at: Located, name: string): string {
+    return name;
+  }
+
+  stub(exposed: Exposed, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), lines = [] }: Stub = {}): string {
+    this.check(exposed);
+
+    const node = "api" + String(at).split("/").filter(Boolean).map(member).join("");
+
+    return [
+      `import { api, define } from ${JSON.stringify(from)};`,
+      ...this.parentImports(exposed),
+      `const at = ${node};`,
+      ...exposed.calls.map(name => `export const ${name} = at${member(this.callId(exposed, name))};`),
+      ...this.errorLines(exposed, locate),
+      ...lines,
+      "",
+    ].join("\n");
+  }
+
+  check(exposed: Exposed) {
+    const taken = [...addressOf(exposed), ...exposed.calls].find(name => RESERVED.has(name));
+
+    if (taken) throw new Error(`${labelOf(exposed)}: "${taken}" is reserved for the client - name it otherwise.`);
+
+    for (const other of this.modules.values()) {
+      if (other.file === exposed.file) continue;
+
+      const clash = exposed.errors.find(({ name }) => other.errors.some(error => error.name === name));
+
+      if (clash) throw new Error(`${labelOf(exposed)} and ${labelOf(other)} both export an error class ${clash.name} - rename one where it is exported.`);
+    }
+  }
+
+  layout<G>(gates: Map<string, G>): Layer<G> {
+    const root: Layer<G> = { gate: gates.get(""), calls: new Map(), children: new Map() };
+
+    const child = (layer: Layer<G>, key: string, path: string[], module?: Exposed): Layer<G> => {
+      const found = layer.children.get(key);
+      const clash = found && (found.module ?? module);
+
+      if (clash) throw new Error(`/${path.join("/")} is both ${key}/ and ${labelOf(clash)} - rename one.`);
+      if (found) return found;
+
+      const made: Layer<G> = { gate: module ? undefined : gates.get(path.join("/")), module, calls: new Map(), children: new Map() };
+
+      layer.children.set(key, made);
+
+      return made;
+    };
+
+    for (const exposed of this.modules.values()) {
+      this.check(exposed);
+
+      let layer = root;
+
+      exposed.pattern.forEach((part, i) => (layer = child(layer, part, exposed.pattern.slice(0, i + 1))));
+
+      if (exposed.module) layer = child(layer, exposed.module, addressOf(exposed), exposed);
+
+      for (const name of exposed.calls) layer.calls.set(this.callId(exposed, name), { exposed, name });
+    }
+
+    const clashes = (layer: Layer<G>, path: string[]) => {
+      for (const [key, sub] of layer.children) {
+        const call = layer.calls.get(key);
+
+        if (call) throw new Error(`${labelOf(call.exposed)}: ${call.name}() and /${[...path, key].join("/")} share a name - rename one.`);
+
+        clashes(sub, [...path, key]);
+      }
+    };
+
+    clashes(root, []);
+
+    return root;
+  }
+
+  source(gates: Located[], base = ""): string {
+    const json = JSON.stringify;
+    const layout = this.layout(new Map(gates.map(gate => [gate.pattern.join("/"), gate])));
+    const modules = [...this.modules.values()];
+    const files = [...new Set([...modules.map(exposed => exposed.file), ...gates.map(gate => gate.file)])];
+    const alias = (file: string) => `m${files.indexOf(file)}`;
+
+    const render = (layer: Layer<Located>, indent: string): string => {
+      const inner = indent + "  ";
+      const entries = [
+        ...[...layer.calls].map(([id, { exposed, name }]) => `${inner}${json(id)}: ${alias(exposed.file)}.${name},`),
+        ...[...layer.children].map(([key, sub]) => `${inner}${json(key)}: ${render(sub, inner)},`),
+      ];
+      const body = entries.length ? `{\n${entries.join("\n")}\n${indent}}` : "{}";
+
+      return layer.gate ? `route(${alias(layer.gate.file)}.default, ${body})` : body;
+    };
+
+    const errors = modules.filter(exposed => exposed.errors.length);
+
+    return [
+      `import { install, verify } from "@expressive/rpc/protocol";`,
+      `import { handler, route } from "@expressive/rpc/http";`,
+      ...files.map(file => `import * as ${alias(file)} from ${json(file)};`),
+      "",
+      "install();",
+      "",
+      ...errors.map(exposed => `verify(${json(labelOf(exposed))}, { calls: {}, classes: { ${exposed.errors.map(({ name }) => `${json(name)}: ${alias(exposed.file)}.${name}`).join(", ")} } });`),
+      `const errors = { ${errors.flatMap(exposed => exposed.errors.map(({ name }) => `${json(name)}: ${alias(exposed.file)}.${name}`)).join(", ")} };`,
+      "",
+      `const api = ${render(layout, "")};`,
+      "",
+      `export const handle = handler(api, { errors${base ? `, base: ${json(base)}` : ""} });`,
+      "",
+    ].join("\n");
+  }
+
+  async build(gates: Map<string, () => Promise<unknown>>, load: Load, route: Route, verify: (file: string, exports: Exports) => void) {
+    const layout = this.layout(gates);
+    const errors: Record<string, unknown> = {};
+
+    const make = async (layer: Layer<() => Promise<unknown>>): Promise<CallTree> => {
+      const tree: CallTree = {};
+
+      for (const [id, { exposed, name }] of layer.calls) tree[id] = (await load(exposed.file))[name] as CallTree[string];
+      for (const [key, sub] of layer.children) tree[key] = await make(sub);
+
+      return layer.gate ? route((await layer.gate()) as never, tree) : tree;
+    };
+
+    for (const exposed of this.modules.values()) {
+      const module = await load(exposed.file);
+      const classes = Object.fromEntries(exposed.errors.map(({ name }) => [name, module[name]]));
+
+      verify(exposed.file, { calls: {}, classes });
+      Object.assign(errors, classes);
+    }
+
+    return { tree: await make(layout), errors };
+  }
 }

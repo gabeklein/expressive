@@ -4,10 +4,9 @@ import { createRequire } from "node:module";
 import { join, relative, resolve as resolvePath, sep } from "node:path";
 import type { Plugin, RunnableDevEnvironment, ViteDevServer } from "vite";
 
-import type { Endpoint, Seats } from "../call";
 import { toNode } from "../http/node";
 import { guardScript } from "./guard";
-import { Manifest, SCRIPT, groupLines, locate, pathOf, type Exposed, type Located } from "./manifest";
+import { Calls, SCRIPT, addressOf, groupLines, locate, type Exposed, type Located } from "./manifest";
 import { scanModule, type Sources } from "./scan";
 import { leaves, scanSurface } from "./surface";
 
@@ -20,6 +19,7 @@ export interface Options {
    * serves only those calls. A folder's gate is the default of its index only when the index is a server module.
    */
   test?: RegExp | ((path: string) => boolean);
+  /** Seal call names in a build, so the wire shows a hash in place of each name. Paths stay readable. */
   opaque?: boolean;
   /**
    * The app's own server module, Worker-shaped: `export default { fetch(request, env, ctx) }`.
@@ -44,6 +44,7 @@ type Resolve = (spec: string, importer: string) => Promise<string | undefined>;
 
 interface Runtime {
   handler: typeof import("../http/call").handler;
+  route: typeof import("../route").route;
   scoped: typeof import("../http/call").scoped;
   verify: typeof import("../call").verify;
 }
@@ -58,12 +59,12 @@ const NEXT = "x-expressive-next";
 const INDEX = ["ts", "js", "mts", "mjs"].map(ext => `index.${ext}`);
 const REACHED = "rpc";
 
-export function rpc({ dir = "api", test, opaque = true, entry, env, base: path = "" }: Options = {}): Plugin {
+export function rpc({ dir = "api", test, opaque = false, entry, env, base: path = "" }: Options = {}): Plugin {
   const base = path.split("/").filter(Boolean).map(part => "/" + part).join("");
   let root = "";
   let folder = "";
   let main: string | undefined;
-  let manifest = new Manifest();
+  let manifest = new Calls();
   const reach = new Map<string, Map<string, Set<string>>>();
   const surveyed = new Map<string, number>();
   let dev: ViteDevServer | undefined;
@@ -191,7 +192,7 @@ export function rpc({ dir = "api", test, opaque = true, entry, env, base: path =
     buildStart() {
       if (this.environment.name !== "client" || this.environment.mode !== "build") return;
 
-      manifest = new Manifest(opaque ? randomBytes(16).toString("base64url") : undefined);
+      manifest = new Calls(opaque ? randomBytes(16).toString("base64url") : undefined);
       reach.clear();
       surveyed.clear();
     },
@@ -236,7 +237,7 @@ export function rpc({ dir = "api", test, opaque = true, entry, env, base: path =
         return `import app from ${from};\nimport { scoped } from "@expressive/rpc/http";\n\nexport * from ${from};\nexport default scoped(app);\n`;
       }
       if (id === ENTRY) return `import { handle } from "@expressive/rpc/calls";\n\nexport default { async fetch(request, env) { return (await handle(request)) ?? env?.ASSETS?.fetch(request) ?? new Response("Not found.", { status: 404 }); } };\n`;
-      if (id === RUNTIME) return `export { handler, scoped } from "@expressive/rpc/http";\nexport { install, verify } from "@expressive/rpc/protocol";\n`;
+      if (id === RUNTIME) return `export { handler, route, scoped } from "@expressive/rpc/http";\nexport { install, verify } from "@expressive/rpc/protocol";\n`;
       if (this.environment.config.consumer !== "client") return;
 
       const file = id.split("?")[0];
@@ -261,7 +262,7 @@ export function rpc({ dir = "api", test, opaque = true, entry, env, base: path =
 
         manifest.modules.set(file, exposed);
 
-        return manifest.stub(exposed, located, { at: base + pathOf(exposed), lines: tree.size ? groupLines(file, tree) : [] });
+        return manifest.stub(exposed, located, { at: base + "/" + addressOf(exposed).join("/"), lines: tree.size ? groupLines(file, tree) : [] });
       }
 
       if (!reached(id)) return;
@@ -274,7 +275,7 @@ export function rpc({ dir = "api", test, opaque = true, entry, env, base: path =
 
       manifest.modules.set(file, exposed);
 
-      return manifest.stub(exposed, located, { at: base + pathOf(exposed) });
+      return manifest.stub(exposed, located, { at: base + "/" + addressOf(exposed).join("/") });
     },
 
     async transform(code, id) {
@@ -282,7 +283,7 @@ export function rpc({ dir = "api", test, opaque = true, entry, env, base: path =
 
       if (this.environment.name === ENV && this.environment.mode === "build" && code.includes(CALLS)) {
         const resolve: Resolve = async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id;
-        return { code: manifest.calls(await gates(resolve), base), map: null };
+        return { code: manifest.source(await gates(resolve), base), map: null };
       }
 
       const problem = this.environment.config.consumer === "client" && (await guardScript(code, file));
@@ -298,30 +299,46 @@ export function rpc({ dir = "api", test, opaque = true, entry, env, base: path =
       let installed: unknown;
 
       const runtime = async (): Promise<Runtime> => {
-        const { handler, install, scoped, verify } = await runner.import(RUNTIME);
+        const { handler, install, route, scoped, verify } = await runner.import(RUNTIME);
 
         if (installed !== install) {
           installed = install;
           install();
         }
 
-        return { handler, scoped, verify };
+        return { handler, route, scoped, verify };
       };
 
-      const endpoints = ({ verify }: Runtime): Endpoint[] =>
-        manifest.byPattern().map(group => ({
-          pattern: group[0].pattern,
-          exports: () => manifest.exports(group, file => runner.import(file), (file, exports) => verify(relative(root, file), exports)),
-        }));
-
-      const seats: Seats = async pattern => {
-        const gate = await gateAt(pattern, resolve);
-        return gate && (await runner.import(gate.file)).default;
+      const loader = async (pattern: string[]) => {
+        try {
+          const gate = await gateAt(pattern, resolve);
+          return gate && (async () => (await runner.import(gate.file)).default);
+        } catch (error) {
+          return async () => () => { throw error; };
+        }
       };
 
       const handle = async (request: Request) => {
-        const loaded = await runtime();
-        return loaded.handler(endpoints(loaded), { dev: true, seats, base })(request);
+        const { handler, route, verify } = await runtime();
+        const gates = new Map<string, () => Promise<unknown>>();
+        const seen = new Set<string>();
+
+        for (const { pattern } of manifest.modules.values())
+          for (let i = 0; i <= pattern.length; i++) {
+            const key = pattern.slice(0, i).join("/");
+
+            if (seen.has(key)) continue;
+
+            seen.add(key);
+
+            const gate = await loader(pattern.slice(0, i));
+
+            if (gate) gates.set(key, gate);
+          }
+
+        const { tree, errors } = await manifest.build(gates, file => runner.import(file), route, (file, exports) => verify(relative(root, file), exports));
+
+        return handler(tree, { dev: true, base, errors })(request);
       };
 
       Object.assign(globalThis, { [Symbol.for(CALLS)]: handle });
