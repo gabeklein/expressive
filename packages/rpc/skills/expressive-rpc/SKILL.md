@@ -1,6 +1,6 @@
 ---
 name: expressive-rpc
-description: Typed server calls for Vite apps (@expressive/rpc) - modules in api/ run on the server, the client imports them as stubs. Use when adding or debugging server calls - module rules, groups and test, values, http errors, gates and Current, client configure, server entry, Worker/Node deploy.
+description: Typed server calls for Vite apps (@expressive/rpc) - modules in api/ run on the server, the client imports them as stubs. Use when adding or debugging server calls - module rules, groups and test, values, http errors, gates and Current, client configure, server entry, your own server (Bun.serve, Node), Worker/Node/Bun deploy.
 ---
 
 # @expressive/rpc
@@ -268,38 +268,57 @@ export { Room } from "./room";   // a Durable Object, say
   ```
 - `@expressive/rpc/calls` is the server's: a client import fails the build, and a call to `handle` outside a server the plugin builds or runs throws. One rpc dev server per process serves it.
 
-## Hand-written server
+## Your own server
 
-The plugin's server is a tree a person could write - `route(gate, children)` from `@expressive/rpc/http` is a gated layer, a plain object a path segment, a function a call:
+Where the app already runs a server - Bun, Node, a Worker - the calls can live in it, and the plugin is not needed. `route(gate, children)` from `@expressive/rpc/http` is a gated layer, a plain object a path segment, a function a call; `handler(tree)` answers them:
 
 ```ts
-// server.ts - no plugin
-import { handler, route } from "@expressive/rpc/http";
-import { Duplicate } from "./lib/errors";
+// server/api.ts
+import { route } from "@expressive/rpc/http";
 
 export const api = route(() => void Session.new(), {
   claim: { search, create },
   admin: route(Admin, { users: { ban } }),
 });
+```
 
-export default { fetch: handler(api, { base: "/api", errors: { Duplicate } }) };
+```ts
+// server/index.ts - Bun
+import { handler, scoped } from "@expressive/rpc/http";
+import { api } from "./api";
+
+const calls = handler(api, { base: "/api", errors: { Duplicate } });
+
+Bun.serve(scoped({
+  port: 8787,
+  async fetch(request: Request) {
+    return (await calls(request)) ?? routes(request);   // streams, uploads, files
+  },
+}));
 ```
 
 ```ts
 // client
 import { client } from "@expressive/rpc";
-import type { api as Api } from "../server";
+import type { api as Api } from "../server/api";
 
-const { api } = client<typeof Api>({ base: "/api", errors: { Duplicate } });
+export const { api } = client<typeof Api>({ base: "/api", errors: { Duplicate } });
 
 await api.admin.users.ban(7);
 ```
 
-A gate is a function or Model class, as an index default; it runs before every call beneath it. `handler(tree)` gives a request that is not a call `undefined`.
+- `handler(tree)` gives a request that is not a call `undefined`. `Current`, `Cookies` and gates work in its calls as under the plugin; `scoped(app)` gives the app's own routes the same scope, what they set joining their response.
+- The process loads its call modules itself - a long-lived job queue, db handle or `bun:sqlite` is shared with the calls.
+- Import the tree as a type only - a value import ships server code to the client. Error classes come from a module both sides import.
+- In dev, proxy the base to the server: `server: { proxy: { "/api": "http://localhost:8787" } }` in `vite.config.ts`.
+- A gate is a function or Model class; it runs before every call beneath it.
+- After the first `handler` or `scoped`, a static `Model.get()` outside a call throws - instructions (`get(JobManager)`) and Models' own lookups are unaffected.
 
 ## Build and deploy
 
-`vite build` emits `dist/client` and `dist/server/index.js`, a self-contained bundle holding only the calls the client imported - the app's entry, or by default `export default { fetch(request, env) }`, which hands non-call requests to `env.ASSETS` when bound, else 404. `cloudflare:` imports stay external.
+Under the plugin, `vite build` emits `dist/client` and `dist/server/index.js`, a self-contained bundle holding only the calls the client imported - the app's entry, or by default `export default { fetch(request, env) }`, which hands non-call requests to `env.ASSETS` when bound, else 404. `cloudflare:` imports stay external.
+
+It runs anywhere `fetch(request)` does - Workers is one target, not the default.
 
 - **Cloudflare Workers:** `main: "dist/server/index.js"`, `compatibility_flags: ["nodejs_compat"]` (required), `no_bundle: true`, `assets: { directory: "dist/client", binding: "ASSETS", run_worker_first: true }`.
 - **Node:** `toNode(server.fetch)` from `@expressive/rpc/http` is a `(req, res, next?)` handler - `next` gets what the server answers `undefined`; serve static files yourself.
@@ -312,6 +331,8 @@ A gate is a function or Model class, as an index default; it runs before every c
       environments: { rpc: { resolve: { noExternal: [] } } },   // or ["@expressive/rpc"] to bundle rpc too
     });
     ```
+
+- **Bun:** `Bun.serve({ port, fetch: server.fetch })`, or call it from your own `fetch` and serve `dist/client` beside it. `env.ASSETS` is unbound, so a non-call is a 404 unless your `fetch` answers it.
 
 Use `vite build` or `createBuilder().buildApp()` - the legacy `build()` API builds the client only.
 
