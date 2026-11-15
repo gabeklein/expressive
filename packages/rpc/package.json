@@ -1,7 +1,7 @@
 {
   "name": "@expressive/rpc",
   "version": "0.4.0",
-  "description": "Typed server calls for any Vite client build: a folder of async functions, stubs on the client, a Worker or Node server bundle.",
+  "description": "Typed server calls for any Vite client build: a folder of async functions, stubs on the client, a server bundle for Workers, Bun or Node, or your own server.",
   "license": "MIT",
   "author": {
     "name": "Gabe Klein",
@@ -81,6 +81,7 @@
     "rpc",
     "vite",
     "cloudflare-workers",
+    "bun",
     "server-functions"
   ],
   "publishConfig": {

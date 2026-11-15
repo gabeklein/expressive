@@ -378,3 +378,49 @@ describe("scoped", () => {
     expect(scoped(entry as { fetch?: undefined })).toBe(entry);
   });
 });
+
+describe("a server the app runs", () => {
+  const fresh = async () => {
+    vi.resetModules();
+
+    const { Model } = await import("@expressive/mvc");
+    const { Current } = await import("../context");
+    const { Cookies } = await import("../cookies");
+    const { route } = await import("../route");
+    const { handler, scoped } = await import("./call");
+
+    class Session extends Cookies {
+      token?: string = undefined;
+    }
+
+    class User extends Model {
+      name = "";
+    }
+
+    return { Current, Session, User, route, handler, scoped };
+  };
+
+  it("will resolve Current, cookies and a gate's Models without install()", async () => {
+    const { Current, Session, User, route, handler } = await fresh();
+    const api = {
+      auth: { login: async (token: string) => void Session.set({ token }) },
+      me: route(() => void (User.new().name = Session.get().token!), {
+        whoami: async () => [Current.get().url.pathname, User.get().name],
+      }),
+    };
+    const handle = handler(api, { base: "/api" });
+
+    const login = (await handle(fetched(request("/api/auth", "login", '["ada"]'))))!;
+    const whoami = (await handle(fetched(request("/api/me", "whoami", "[]", "application/json", { cookie: "token=ada" }))))!;
+
+    expect(login.headers.get("set-cookie")).toContain("token=ada");
+    expect(await whoami.json()).toEqual({ value: ["/api/me", "ada"] });
+  });
+
+  it("will scope the app's own routes without install()", async () => {
+    const { Current, scoped } = await fresh();
+    const app = scoped({ fetch: async (request: Request) => new Response(Current.get().url.pathname + (request === Current.get().request ? "" : "?")) });
+
+    expect(await (await app.fetch(new Request("http://localhost/events")))!.text()).toBe("/events");
+  });
+});

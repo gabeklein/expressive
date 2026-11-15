@@ -9,7 +9,7 @@ const DEV = Symbol.for("@expressive/rpc/calls#dev");
 export async function handle(request: Request): Promise<Response | undefined> {
   const dev = (globalThis as Record<symbol, typeof handle | undefined>)[DEV];
 
-  if (!dev) throw new Error("@expressive/rpc/calls answers only in a server the rpc() Vite plugin builds or runs - call it from that server's entry.");
+  if (!dev) throw new Error("@expressive/rpc/calls answers only in a server the rpc() Vite plugin builds or runs - call it from that server's entry, or serve a tree with handler() from @expressive/rpc/http.");
 
   return dev(request);
 }

@@ -39,6 +39,7 @@ export type Seat = Owned & { key?(): string | number | undefined };
 export type Gate = () => unknown;
 
 let TTL = 0;
+let installed = false;
 
 const store = new AsyncLocalStorage<Frame>();
 const SEATED = new WeakSet<Owned>();
@@ -322,12 +323,18 @@ function watch() {
  */
 export function install({ ttl = 0 }: { ttl?: number } = {}) {
   TTL = ttl;
+  installed = true;
   watch();
 
   const previous = resolver((Type, compute) => {
     if (!Type && !store.getStore()) return previous(Type, compute);
     return compute(scope(frame().layer));
   });
+}
+
+/** Install with defaults unless a host already has - for servers the app runs itself. */
+export function ensureInstalled() {
+  if (!installed) install();
 }
 
 function parseCookies(header = ""): Record<string, string> {

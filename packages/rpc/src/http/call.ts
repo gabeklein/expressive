@@ -1,6 +1,6 @@
 import { attempt, fault, inFolder, locate, type Call, type Endpoint, type Exports, type Match, type Outcome, type Seats } from "../call";
 import { parse, stringify } from "../codec";
-import { headersOf, within } from "../context";
+import { ensureInstalled, headersOf, within } from "../context";
 import { ERRORS } from "../errors";
 import { reserved, walk, type Tree } from "../route";
 
@@ -64,6 +64,7 @@ export function handler(endpoints: Tree | Endpoint[] | (() => Endpoint[]), { dev
   const table = { ...ERRORS, ...errors };
 
   reserved(endpoints);
+  ensureInstalled();
 
   return async request => (isCall(request) && under(request) ? answer(request, endpoints, dev, table, prefix.length) : undefined);
 }
@@ -114,6 +115,8 @@ export function scoped<A extends { fetch?: Fetch }>(app: A): A {
   const fetch = app?.fetch;
 
   if (typeof fetch != "function") return app;
+
+  ensureInstalled();
 
   const run: Fetch = async (request, ...rest) => {
     const response = await within(request, [], () => fetch.call(app, request, ...rest));
