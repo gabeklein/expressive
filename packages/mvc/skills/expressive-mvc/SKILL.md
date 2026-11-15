@@ -18,7 +18,7 @@ A class-based state backbone - reactive MVC in plain classes, rendered by React 
 | `@expressive/router` | Published | Host-agnostic, class-based router built on MVC.                   |
 | `@expressive/inspect` | Published | In-process inspector: registry, ownership tree, path queries, journal. |
 | `@expressive/rpc`    | Preview   | Typed server calls for a Vite client build - one folder of modules, stubs on the client. |
-| `@expressive/dev`    | Preview   | App host: `expressive dev`/`build`, file routes, sidecar calls, server Models. |
+| `@expressive/dev`    | Preview   | App host: `expressive dev`/`dev build`, file routes, sidecar calls, server Models. |
 | `@expressive/steps`  | Preview   | Multi-step processes as Models: steps, resets, waits, retries, concurrency gates. In-process. |
 
 ### Installing

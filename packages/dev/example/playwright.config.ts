@@ -19,6 +19,6 @@ export default defineConfig({
   ],
   webServer: [
     { command: `rm -rf node_modules/.vite ../node_modules/.vite && PORT=${dev} node ../dist/cli.js dev`, port: dev, reuseExistingServer: false },
-    { command: `node ../dist/cli.js build && PORT=${prod} node dist/server/index.js`, port: prod, reuseExistingServer: false },
+    { command: `node ../dist/cli.js dev build && PORT=${prod} node dist/server/index.js`, port: prod, reuseExistingServer: false },
   ],
 });

@@ -41,7 +41,7 @@ export function serverBuild(root: string, { write = true }: BuildOptions = {}): 
   };
 }
 
-/** `expressive build` - the client into `dist/client`, then the server into `dist/server/index.js`. */
+/** `expressive dev build` - the client into `dist/client`, then the server into `dist/server/index.js`. */
 export async function runBuild(root = process.cwd(), options: BuildOptions = {}): Promise<void> {
   await build(clientBuild(root, options));
   await build(serverBuild(root, options));

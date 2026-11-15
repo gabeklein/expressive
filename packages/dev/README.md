@@ -1,6 +1,6 @@
 # @expressive/dev
 
-`expressive dev` and `expressive build` for an Expressive app: Vite underneath, `@expressive/dom`
+`expressive dev` and `expressive dev build` for an Expressive app: Vite underneath, `@expressive/dom`
 as the renderer, `@expressive/router` for the tree that `app/` generates, and `@expressive/inspect`
 on the dev server.
 
@@ -275,11 +275,11 @@ calls can still carry the previous identity's data until the page reloads.
 ## Commands
 
 ```
-expressive dev             Vite dev server with HMR; /__inspect relay
-expressive build           dist/client (static app) and dist/server/index.js (node service)
-expressive build --pretty  unminified client, stable filenames
-expressive <command> --help  inputs for a command
-node dist/server/index.js  run the built service (port from index.ts, default 3000)
+expressive dev                 Vite dev server with HMR; /__inspect relay
+expressive dev build           dist/client (static app) and dist/server/index.js (node service)
+expressive dev build --pretty  unminified client, stable filenames
+expressive help [command]      commands, or one command's inputs
+node dist/server/index.js      run the built service (port from index.ts, default 3000)
 ```
 
 Nothing is written into the project. The shell, the client entry and the generated router module

@@ -1,11 +1,11 @@
 ---
 name: expressive-dev
-description: Expressive app host (@expressive/dev) - expressive dev/build over Vite with @expressive/dom, a generated route tree, inspect and rpc. Use when working in an @expressive/dev app - layout, route modules, sidecars, server Model and seats, twins, commands.
+description: Expressive app host (@expressive/dev) - expressive dev and dev build over Vite with @expressive/dom, a generated route tree, inspect and rpc. Use when working in an @expressive/dev app - layout, route modules, sidecars, server Model and seats, twins, commands.
 ---
 
 # @expressive/dev
 
-App host: `expressive dev` and `expressive build` over Vite, rendering with `@expressive/dom`, routing with `@expressive/router` from a generated tree, `@expressive/inspect` on the dev server, server calls through `@expressive/rpc`. Sidecar calls are stable; twins (server Models mirrored on the client) are experimental.
+App host: `expressive dev` and `expressive dev build` over Vite, rendering with `@expressive/dom`, routing with `@expressive/router` from a generated tree, `@expressive/inspect` on the dev server, server calls through `@expressive/rpc`. Sidecar calls are stable; twins (server Models mirrored on the client) are experimental.
 
 ```bash
 npm install @expressive/dev @expressive/mvc
@@ -118,11 +118,11 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ## Commands
 
 ```
-expressive dev             Vite dev server with HMR; /__inspect relay
-expressive build           dist/client and dist/server/index.js
-expressive build --pretty  unminified client, stable filenames
-expressive <command> --help  inputs for a command
-node dist/server/index.js  run the built service (port from index.ts, default 3000)
+expressive dev                 Vite dev server with HMR; /__inspect relay
+expressive dev build           dist/client and dist/server/index.js
+expressive dev build --pretty  unminified client, stable filenames
+expressive help [command]      commands, or one command's inputs
+node dist/server/index.js      run the built service (port from index.ts, default 3000)
 ```
 
 Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
