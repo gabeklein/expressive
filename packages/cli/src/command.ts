@@ -72,6 +72,7 @@ function command(Root: Model.Type): Run {
       const path: Model[] = [];
       let run!: () => unknown;
       let root: Model | undefined;
+      let about: string | undefined;
 
       const enter = (named: string) =>
         function (this: Model): any {
@@ -101,8 +102,9 @@ function command(Root: Model.Type): Run {
           }
 
           const target = step.target as Target;
-
           const child = kebab(step.key);
+
+          about = step.config.help;
 
           if (!target.run) {
             const owner = this.constructor;
@@ -135,7 +137,7 @@ function command(Root: Model.Type): Run {
           level.inline ? level.specs.filter((spec) => spec.kind != 'cmd') : level.specs
         );
 
-        return [names, specs, 'run' in path.at(-1)!] as const;
+        return [names, specs, 'run' in path.at(-1)!, about] as const;
       };
 
       const quiet = Model.on({
@@ -183,7 +185,9 @@ function command(Root: Model.Type): Run {
         }
 
         if (error instanceof Usage) {
-          out.error(`${error.message}\n${usage(...shown())}`);
+          const [names, specs, runs] = shown();
+
+          out.error(`${error.message}\n${usage(names, specs, runs)}`);
           return 2;
         }
 

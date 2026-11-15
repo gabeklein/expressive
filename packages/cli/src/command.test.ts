@@ -325,7 +325,7 @@ describe('cmd', () => {
       expect(await call(Sql, 'help')).toBe(0);
       expect(await call(Sql, 'help', 'sync')).toBe(0);
       expect(lines[0]).toMatch(/^Usage: sql \[options\] <command> <entry>/);
-      expect(lines[1]).toMatch(/^Usage: sql sync \[options\] <entry>/);
+      expect(lines[1]).toMatch(/^Usage: sql sync \[options\] <entry>\n\napply schema changes\n\nArguments:/);
     });
 
     it('will name help after the invoked path', async () => {
@@ -733,7 +733,7 @@ describe('peer', () => {
     expect(await call(Kit)).toBe(0);
     expect(await call(Kit, 'dev', '--port', '1')).toBe(2);
     expect(lines).toEqual([
-      'Usage: kit [options] <command>\n\nCommands:\n  sql  sync your schema\n  dev  dev server (not installed)\n\nOptions:\n  -h, --help  show this help',
+      'Usage: kit [options] <command>\n\nCommands:\n  sql  sync your schema\n  dev  dev server (not installed)\n\nOptions:\n  -h, --help  show this help\n\nRun "kit help <command>" for a command\'s inputs.',
       '! "kit dev" is not installed - npm i -D @kit/dev'
     ]);
   });

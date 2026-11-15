@@ -65,10 +65,12 @@ function usage(name: string, levels: Spec[][], runs = true) {
   return ['Usage:', name, '[options]', ...command, ...operands.map(operand)].join(' ');
 }
 
-/** Full `--help` text - usage, then arguments, commands, and every option in scope with its help. */
-function help(name: string, levels: Spec[][], runs = true) {
+/** Full `--help` text - usage, what the command does, arguments, commands, and every option in scope. */
+function help(name: string, levels: Spec[][], runs = true, about?: string) {
   const { operands, commands, options } = scope(levels);
   const sections = [usage(name, levels, runs)];
+
+  if (about) sections.push(about);
 
   if (operands.length)
     sections.push('Arguments:\n' + table(operands.map((spec) => [operand(spec), describe(spec)])));
@@ -83,6 +85,8 @@ function help(name: string, levels: Spec[][], runs = true) {
         [options.some((spec) => spec.config.short == 'h') ? '--help' : '-h, --help', 'show this help']
       ])
   );
+
+  if (commands.length) sections.push(`Run "${name} help <command>" for a command's inputs.`);
 
   return sections.join('\n\n');
 }

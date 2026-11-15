@@ -81,15 +81,19 @@ it('will list commands and every option in scope', () => {
       'Options:',
       '  -f, --force      parent force',
       '  --entry <value>',
-      '  -h, --help       show this help'
+      '  -h, --help       show this help',
+      '',
+      'Run "parent help <command>" for a command\'s inputs.'
     ].join('\n')
   );
 
   expect(usage('parent', [parent])).toBe('Usage: parent [options] [command]');
 
-  expect(help('parent child', [parent, child])).toBe(
+  expect(help('parent child', [parent, child], true, 'go deeper')).toBe(
     [
       'Usage: parent child [options]',
+      '',
+      'go deeper',
       '',
       'Options:',
       '  --force          child force',
