@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseAst } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -51,11 +54,55 @@ it('will apply during serve only, after other transforms', () => {
   expect(expressive()).toMatchObject({ apply: 'serve', enforce: 'post' });
 });
 
-it('will prebundle the runtimes a transformed module may import', () => {
-  const config = expressive().config as Function;
+describe('prebundle', () => {
+  const dirs: string[] = [];
 
-  expect(config()).toEqual({
-    optimizeDeps: { include: ['@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'] }
+  function project(packages: Record<string, string[]>, linked?: boolean) {
+    const root = mkdtempSync(join(tmpdir(), 'expressive-vite-'));
+    dirs.push(root);
+
+    for (const [name, entries] of Object.entries(packages)) {
+      const source = join(root, linked ? 'packages' : 'node_modules', name);
+      const exports = Object.fromEntries(entries.map((entry) => [`./${entry}`, `./${entry}.js`]));
+
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name, exports }));
+      for (const entry of entries) writeFileSync(join(source, `${entry}.js`), '');
+
+      if (linked) {
+        mkdirSync(join(root, 'node_modules', '@expressive'), { recursive: true });
+        symlinkSync(source, join(root, 'node_modules', name), 'junction');
+      }
+    }
+
+    return root;
+  }
+
+  function include(root: string) {
+    return (expressive().config as Function)({ root }).optimizeDeps.include;
+  }
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('will prebundle installed runtimes a transformed module may import', () => {
+    const root = project({
+      '@expressive/mvc': ['hot'],
+      '@expressive/dom': ['jsx-runtime', 'jsx-dev-runtime']
+    });
+
+    expect(include(root)).toEqual(['@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime']);
+  });
+
+  it('will not prebundle a linked or missing runtime', () => {
+    const root = project({ '@expressive/mvc': ['hot'] }, true);
+
+    expect(include(root)).toEqual([]);
+  });
+
+  it('will resolve from the working directory without a root', () => {
+    expect((expressive().config as Function)({}).optimizeDeps.include).toEqual([]);
   });
 });
 
