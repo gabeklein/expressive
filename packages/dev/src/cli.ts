@@ -7,7 +7,7 @@ export { default } from "./command/dev";
 class Expressive extends Model {
   dev = cmd({
     lazy: () => import("./command/dev"),
-    help: "Run the app - Vite with HMR. `dev build` for production.",
+    help: "Run the app - Vite with HMR. Use `dev build` for production.",
   });
 
   sql = cmd({
