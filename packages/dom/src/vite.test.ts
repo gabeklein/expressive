@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseAst } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -49,6 +52,63 @@ async function run(code: string, options: Run) {
 
 it('will apply during serve only, after other transforms', () => {
   expect(expressive()).toMatchObject({ apply: 'serve', enforce: 'post' });
+});
+
+describe('prebundle', () => {
+  const dirs: string[] = [];
+  const ALL = { '@expressive/mvc': ['', 'hot'], '@expressive/dom': ['jsx-runtime', 'jsx-dev-runtime'] };
+  const IDS = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
+
+  function project(packages: Record<string, string[]>, linked?: boolean) {
+    const root = mkdtempSync(join(tmpdir(), 'expressive-vite-'));
+    dirs.push(root);
+
+    for (const [name, entries] of Object.entries(packages)) {
+      const source = join(root, linked ? 'packages' : 'node_modules', name);
+      const exports = Object.fromEntries(entries.map((entry) => [entry ? `./${entry}` : '.', `./${entry || 'index'}.js`]));
+
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name, exports }));
+      for (const entry of entries) writeFileSync(join(source, `${entry || 'index'}.js`), '');
+
+      if (linked) {
+        mkdirSync(join(root, 'node_modules', '@expressive'), { recursive: true });
+        symlinkSync(source, join(root, 'node_modules', name), 'junction');
+      }
+    }
+
+    return root;
+  }
+
+  function include(root: string) {
+    return (expressive().config as Function)({ root }).optimizeDeps.include;
+  }
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('will prebundle installed runtimes a transformed module may import', () => {
+    const root = project(ALL);
+
+    expect(include(root)).toEqual(IDS);
+  });
+
+  it('will not prebundle a linked runtime', () => {
+    expect(include(project(ALL, true))).toEqual([]);
+  });
+
+  it('will not prebundle a missing runtime', () => {
+    expect(include(project({ '@expressive/mvc': ['hot'] }))).toEqual(['@expressive/mvc/hot']);
+  });
+
+  it('will resolve from the working directory, or a root relative to it', () => {
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(project(ALL));
+
+    expect((expressive().config as Function)({}).optimizeDeps.include).toEqual(IDS);
+    expect(include('.')).toEqual(IDS);
+    cwd.mockRestore();
+  });
 });
 
 describe('skip', () => {

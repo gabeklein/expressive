@@ -1,9 +1,12 @@
-import { dirname } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 import type { Plugin } from 'vite';
 
 type Node = { type: string; [key: string]: any };
 
 const SOURCE = /\.[cm]?[jt]sx?$/;
+const INSTALLED = /[\\/]node_modules[\\/]/;
+const RUNTIMES = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
 
 const COMPONENT = /^[A-Z]/;
 const RENDERER = /^@expressive\/dom(\/|$)/;
@@ -162,6 +165,18 @@ export default function expressive(): Plugin {
     name: '@expressive/dom:hot',
     apply: 'serve',
     enforce: 'post',
+    config(config) {
+      const from = createRequire(resolve(config.root || '', 'package.json'));
+      const include = RUNTIMES.filter((id) => {
+        try {
+          return INSTALLED.test(from.resolve(id));
+        } catch {
+          return false;
+        }
+      });
+
+      return { optimizeDeps: { include } };
+    },
     configResolved(config) {
       root = config.root;
     },
