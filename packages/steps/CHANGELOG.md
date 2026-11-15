@@ -1,5 +1,11 @@
 # @expressive/steps
 
+## 0.1.3
+
+### Patch Changes
+
+- [#718](https://github.com/gabeklein/expressive/pull/718) [`a8c7b7b`](https://github.com/gabeklein/expressive/commit/a8c7b7b82c168b668093ede9e0e19dc5b0cfacb2) A run's cost grows linearly with its steps - wide groups and long chains (a step scheduling the next) no longer slow quadratically as they grow.
+
 ## 0.1.2
 
 ### Patch Changes

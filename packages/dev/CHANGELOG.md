@@ -1,5 +1,12 @@
 # @expressive/dev
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [[`a6d2e6e`](https://github.com/gabeklein/expressive/commit/a6d2e6e8aed323e6e7dc74104a6bec8951d85656), [`a6d2e6e`](https://github.com/gabeklein/expressive/commit/a6d2e6e8aed323e6e7dc74104a6bec8951d85656)]:
+  - @expressive/rpc@0.4.0
+
 ## 0.1.4
 
 ### Patch Changes
