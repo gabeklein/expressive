@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "expressive",
@@ -47,7 +46,7 @@
     },
     "packages/cli": {
       "name": "@expressive/cli",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "@expressive/steps": "workspace:*",
@@ -62,16 +61,16 @@
     },
     "packages/dev": {
       "name": "@expressive/dev",
-      "version": "0.1.5",
+      "version": "0.2.0",
       "bin": {
         "expressive": "dist/cli.js",
       },
       "dependencies": {
-        "@expressive/cli": "^0.1.0",
-        "@expressive/dom": "^0.12.0",
+        "@expressive/cli": "^0.2.0",
+        "@expressive/dom": "^0.12.2",
         "@expressive/inspect": "^0.6.4",
         "@expressive/router": "^0.10.4",
-        "@expressive/rpc": "^0.4.0",
+        "@expressive/rpc": "^0.4.1",
         "es-module-lexer": "^1.6.0",
         "vite": "^8.0.0",
       },
@@ -87,7 +86,7 @@
     },
     "packages/dom": {
       "name": "@expressive/dom",
-      "version": "0.12.1",
+      "version": "0.12.2",
       "devDependencies": {
         "@expressive/mvc": "workspace:^",
         "@types/node": "^25.2.0",
@@ -147,7 +146,7 @@
     },
     "packages/react": {
       "name": "@expressive/react",
-      "version": "0.94.4",
+      "version": "0.94.5",
       "devDependencies": {
         "@expressive/mvc": "^0.94.4",
         "@testing-library/react": "^16.3.0",
@@ -188,7 +187,7 @@
     },
     "packages/rpc": {
       "name": "@expressive/rpc",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "dependencies": {
         "es-module-lexer": "^1.6.0",
       },

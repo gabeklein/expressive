@@ -1,5 +1,15 @@
 # @expressive/dom
 
+## 0.12.2
+
+### Patch Changes
+
+- [#732](https://github.com/gabeklein/expressive/pull/732) [`e71f3c9`](https://github.com/gabeklein/expressive/commit/e71f3c9b5d75c63f5efa44a15f3349ec9477afd7) A Component whose `render` is a styled function field (`render = Page`) now applies that function's `style()` map, layered over the class's, instead of rendering its elements unstyled.
+
+- [#707](https://github.com/gabeklein/expressive/pull/707) [`a64f20c`](https://github.com/gabeklein/expressive/commit/a64f20c4a3a4b0b1e0c63ddd59fd2d7ba016b503) A value that can't render now names what it is and the component being rendered: `Cannot render an instance of Promise in Page.` instead of `Cannot render [object Object].` An unusable element type reads `Cannot use null as an element type.`, and now throws a `TypeError`. An element or portal made by a second copy of `@expressive/dom`, such as one loaded during a Vite dependency re-optimization, is named as such.
+
+- [#707](https://github.com/gabeklein/expressive/pull/707) [`a64f20c`](https://github.com/gabeklein/expressive/commit/a64f20c4a3a4b0b1e0c63ddd59fd2d7ba016b503) When installed, the Vite plugin prebundles `@expressive/mvc` and `@expressive/mvc/hot`, which it injects, and dom's JSX runtimes, which plugin output such as svgr imports where Vite's scanner can't see it. A cold dev start no longer re-optimizes dependencies partway through the first render, which loaded a second copy of dom and threw `Cannot render [object Object].`
+
 ## 0.12.1
 
 ### Patch Changes
