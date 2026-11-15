@@ -1,3 +1,6 @@
+import { unbind } from '@expressive/mvc';
+import type { Component } from '@expressive/mvc';
+
 import { authoring, authorOf } from '../node/vnode';
 import type { Node as RenderNode } from '../node/vnode';
 import { door } from '../style/claim';
@@ -65,16 +68,20 @@ function renderedAppearance(fiber: Fiber): Appearance | undefined {
   const style = fiber.props?.style as Style;
   const entries = (fiber.appearance?.entries || []).map(({ hops, style }) => ({ hops: hops + 1, style }));
   const sub = owner(fiber.type);
-  const context = sub
+  const { instance } = fiber;
+  let context = sub
     ? enterAppearance(latest(sub.owner.constructor), sub.key)
     : enterAppearance(latest(fiber.type as Function));
 
-  unmatched(fiber.props!, [fiber.appearance?.lexical, context], fiber.appearance?.author, fiber.instance);
+  if (instance)
+    context = enterAppearance(unbind((instance as Component).render), undefined, context);
+
+  unmatched(fiber.props!, [fiber.appearance?.lexical, context], fiber.appearance?.author, instance);
 
   if (context?.base)
     entries.push({ hops: 0, style: context.base as Style });
 
-  if (style && !fiber.consumed && !(fiber.instance && 'style' in fiber.instance)) entries.push({ hops: 0, style });
+  if (style && !fiber.consumed && !(instance && 'style' in instance)) entries.push({ hops: 0, style });
 
   if (entries.length || context) return { author: fiber, context, entries };
 

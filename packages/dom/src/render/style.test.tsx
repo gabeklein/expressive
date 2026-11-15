@@ -293,4 +293,83 @@ describe('authoring scope without macros', () => {
     expect(root.querySelector('section')!.className).toBe('Box_box');
     expect(root.querySelector('p')!.className).toBe('');
   });
+
+  it('will style a render field with its function', () => {
+    const Page = () => <div _box><p _note /></div>;
+
+    style(Page, { _box: { color: 'red' } });
+
+    class Login extends Component {
+      render = Page;
+    }
+
+    style(Login, { _note: { color: 'blue' } });
+
+    const root = place(<Login />);
+    expect(root.querySelector('div')!.className).toBe('Page_box');
+    expect(root.querySelector('p')!.className).toBe('Login_note');
+  });
+
+  function order(node: Element) {
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const rules = [...sheet!.cssRules].map((rule) => rule.cssText);
+
+    return node.className.split(' ').sort((a, b) =>
+      rules.findIndex((rule) => rule.startsWith(`.${a} `)) - rules.findIndex((rule) => rule.startsWith(`.${b} `))
+    );
+  }
+
+  it('will rank a render field over its class when mounted first', () => {
+    const Form = () => <div _field _hint />;
+
+    style(Form, { _field: { color: 'red' } });
+
+    class Signup extends Component {
+      render = Form;
+    }
+
+    style(Signup, { _a: { color: 'green' }, _hint: { color: 'blue' }, _c: { color: 'pink' } });
+
+    const node = place(<Signup />).querySelector('div')!;
+    place(<Form />);
+
+    expect(order(node)).toEqual(['Signup_hint', 'Form_field']);
+  });
+
+  it('will rank a render field over its class when mounted after it', () => {
+    const Panel = () => <div _field _hint />;
+
+    style(Panel, { _field: { color: 'red' } });
+
+    class Settings extends Component {
+      render = Panel;
+    }
+
+    style(Settings, { _a: { color: 'green' }, _hint: { color: 'blue' }, _c: { color: 'pink' } });
+
+    place(<Panel />);
+    const node = place(<Settings />).querySelector('div')!;
+
+    expect(order(node)).toEqual(['Settings_hint', 'Panel_field-2']);
+  });
+
+  it('will merge a rule both maps define', () => {
+    const Sheet = () => <div _box />;
+
+    style(Sheet, { _box: { color: 'red' } });
+
+    class Account extends Component {
+      render = Sheet;
+    }
+
+    style(Account, { _box: { color: 'blue', background: 'green' } });
+
+    const node = place(<Account />).querySelector('div')!;
+
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const rule = [...sheet!.cssRules].find((rule) => rule.cssText.startsWith('.Sheet_box '));
+
+    expect(node.className).toBe('Sheet_box');
+    expect(rule!.cssText).toBe('.Sheet_box { color: red; background: green; }');
+  });
 });
