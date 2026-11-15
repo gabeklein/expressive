@@ -1,51 +1,19 @@
 #!/usr/bin/env node
+import { cmd, main } from "@expressive/cli";
+import { Model } from "@expressive/mvc";
 
-const HELP = `expressive - Expressive Dev
+export { default } from "./command/dev";
 
-Usage:
-  expressive                 Run dev server (alias for 'dev')
-  expressive dev             Run Vite dev server with HMR and the inspector
-  expressive build           dist/client (static app) + dist/server/index.js (node service)
-  expressive build --pretty  Readable client output (unminified, stable filenames)
-  expressive --help
+class Expressive extends Model {
+  dev = cmd({
+    lazy: () => import("./command/dev"),
+    help: "Run the app - Vite with HMR. Use `dev build` for production.",
+  });
 
-Project layout:
-  app/                   File-based routes (index.tsx, [slug].tsx, (static).tsx, [...].tsx)
-  app.tsx | src/app.tsx  Or: a single root component (default export)
-  index.ts               Optional. Service entry on the server (export default config({ port }))
-  index.html             Optional. Custom HTML shell
-  vite.config.ts         Optional. Extra Vite config, merged under Expressive's
-`;
-
-async function main() {
-  const [cmd, ...rest] = process.argv.slice(2);
-
-  if (cmd === "-h" || cmd === "--help") {
-    console.log(HELP);
-    return;
-  }
-
-  try {
-    switch (cmd) {
-      case undefined:
-      case "dev": {
-        const { runDev } = await import("./vite/dev");
-        await runDev();
-        return;
-      }
-      case "build": {
-        const { runBuild } = await import("./vite/build");
-        await runBuild(process.cwd(), { pretty: rest.includes("--pretty") });
-        return;
-      }
-      default:
-        console.error(`Unknown command: ${cmd}\n\n${HELP}`);
-        process.exit(1);
-    }
-  } catch (err: any) {
-    console.error(err?.message ?? err);
-    process.exit(1);
-  }
+  sql = cmd({
+    peer: "@expressive/sql",
+    help: "Check or sync a database schema against your entities.",
+  });
 }
 
-main();
+main(import.meta, Expressive);

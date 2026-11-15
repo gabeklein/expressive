@@ -1,7 +1,7 @@
 {
   "name": "@expressive/dev",
   "version": "0.1.5",
-  "description": "App host for Expressive: expressive dev/build over Vite, file-based routes on @expressive/dom, server calls and server Models.",
+  "description": "App host for Expressive: expressive dev and dev build over Vite, file-based routes on @expressive/dom, server calls and server Models.",
   "license": "MIT",
   "author": {
     "name": "Gabe Klein",
@@ -60,11 +60,12 @@
     "coverage": "vitest run --coverage",
     "test": "bun run typecheck && bun run coverage",
     "example": "cd example && node ../dist/cli.js dev",
-    "example:build": "cd example && node ../dist/cli.js build",
+    "example:build": "cd example && node ../dist/cli.js dev build",
     "example:start": "cd example && node dist/server/index.js",
     "example:e2e": "cd example && playwright test"
   },
   "dependencies": {
+    "@expressive/cli": "^0.1.0",
     "@expressive/dom": "^0.12.0",
     "@expressive/inspect": "^0.6.4",
     "@expressive/router": "^0.10.4",

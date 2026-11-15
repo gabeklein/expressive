@@ -235,7 +235,7 @@ Principles the MVP must not contradict; most land after it.
 - **`set` - its own PR, after values.** A write to a twin field: immediate silent local write, confirmed by the returned frame as calls are. Which fields the client may write, and the gates covering writes, decided then; until then assigning a twin field throws. Tabled to keep the shape from churning.
 - **Build-time slot bitmasks.** Every seat and scanned field has a position known at build; a watchlist of arbitrary twins packs into bytes. Per-tab twin ids cover today's case; revisit if the pool grows large.
 - **Per-connection call ids.** Derive ids from the connection id issued by the connection's opening request, so a call is valid only on the connection that learned it. Also shared secrets between server and bundle.
-- **Build notice.** `expressive build` prints one line per non-root route module kept in the main bundle and why - e.g. it exports `Catch`; a `Catch` on its section's `index` covers it.
+- **Build notice.** `expressive dev build` prints one line per non-root route module kept in the main bundle and why - e.g. it exports `Catch`; a `Catch` on its section's `index` covers it.
 - **Repo placement.** dev incubates here as a trunk while it drives changes into mvc and dom; it is the likeliest package to move to `gabeklein/expressive-dev` at its first release, once its PRs stop touching core.
 
 ## Rejected
