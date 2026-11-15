@@ -44,6 +44,12 @@ it('will apply during serve only, after other transforms', () => {
   expect(expressive()).toMatchObject({ apply: 'serve', enforce: 'post' });
 });
 
+it('will prebundle the runtime it injects', () => {
+  const config = expressive().config as Function;
+
+  expect(config()).toEqual({ optimizeDeps: { include: ['@expressive/mvc', '@expressive/mvc/hot'] } });
+});
+
 it.each([
   ['will skip a non-script module', 'class A {}', '/src/app.css'],
   ['will skip the mvc runtime itself', 'class A {}', '/mvc/src/model.js'],
