@@ -1,7 +1,7 @@
 import { Model } from '@expressive/mvc';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
-import { arg, args, flag, list, opt, SPECS, sub } from './input';
+import { arg, args, flag, list, opt, SPECS, cmd } from './input';
 
 describe('fields', () => {
   it('will start at defaults', () => {
@@ -120,7 +120,7 @@ describe('types', () => {
     expectTypeOf(test.dates).toEqualTypeOf<Date[]>();
   });
 
-  it('will type subs', () => {
+  it('will type commands', () => {
     class Child extends Model {
       run() {}
     }
@@ -131,10 +131,10 @@ describe('types', () => {
     }
 
     class Test extends Model {
-      statics = sub(Statics);
-      child = sub(Child);
-      lazy = sub(async () => ({ default: Child }));
-      inline = sub({ run() {} });
+      statics = cmd({ from: Statics });
+      child = cmd({ from: Child });
+      lazy = cmd({ lazy: async () => ({ default: Child }), help: 'child' });
+      inline = cmd({ run() {} });
     }
 
     const test = Test.new();
@@ -145,5 +145,41 @@ describe('types', () => {
     expectTypeOf(test.inline).toEqualTypeOf<true | undefined>();
     expectTypeOf(test.statics).toEqualTypeOf<Statics | undefined>();
     expect(SPECS.get(test)!.find((spec) => spec.key == 'statics')!.config.help).toBeUndefined();
+  });
+
+  it('will take exactly one of from, lazy, peer or run', () => {
+    class Child extends Model {}
+
+    expect(() => {
+      class Test extends Model {
+        // @ts-expect-error
+        both = cmd({ from: Child, run() {} });
+      }
+
+      Test.new();
+    }).toThrow('cmd() takes exactly one of from, lazy, peer or run - got from, run.');
+
+    expect(() => {
+      class Test extends Model {
+        // @ts-expect-error
+        none = cmd({ help: 'nothing' });
+      }
+
+      Test.new();
+    }).toThrow('got none.');
+  });
+
+  it('will require help for lazy and peer', () => {
+    class Child extends Model {}
+
+    class Test extends Model {
+      // @ts-expect-error
+      lazy = cmd({ lazy: async () => ({ default: Child }) });
+      // @ts-expect-error
+      peer = cmd({ peer: '@kit/sql' });
+      sql = cmd({ peer: '@kit/sql', help: 'sync' });
+    }
+
+    expectTypeOf(Test.new().sql).toEqualTypeOf<Model | undefined>();
   });
 });

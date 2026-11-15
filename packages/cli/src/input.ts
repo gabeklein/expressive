@@ -1,6 +1,6 @@
 import { def, Model } from '@expressive/mvc';
 
-type Kind = 'arg' | 'args' | 'flag' | 'opt' | 'list' | 'sub';
+type Kind = 'arg' | 'args' | 'flag' | 'opt' | 'list' | 'cmd';
 
 /** How a raw value is read - paths resolve against the working directory. */
 type Type = 'string' | 'number' | 'file' | 'dir' | 'path';
@@ -56,18 +56,42 @@ interface Spec {
   target?: Target;
 }
 
-/** A command run inline by its parent - no inputs of its own. */
-interface Inline {
-  /** One line for the parent's `--help`. */
-  help?: string;
-  /** Runs as the command, called on the parent. */
-  run(): unknown;
-  prototype?: never;
+interface Only {
+  from?: never;
+  lazy?: never;
+  peer?: never;
+  run?: never;
 }
 
-type Loader<T extends Model = Model> = () => Promise<{ default: Model.Type<T> } | Model.Type<T>>;
+/** A command class already in hand. */
+interface From<T extends Model = Model> extends Common, Omit<Only, 'from'> {
+  /** The command's class. */
+  from: Model.Type<T>;
+}
 
-type Target = Model.Type | Loader | Inline;
+/** A command module of this package, imported when routed to. */
+interface Lazy<T extends Model = Model> extends Common, Omit<Only, 'lazy'> {
+  /** Import of a module whose default export is the command's class. */
+  lazy: () => Promise<{ default: Model.Type<T> }>;
+  /** Required - help lists the command without importing it. */
+  help: string;
+}
+
+/** A command from another package - its `bin` named after the root command. */
+interface Peer extends Common, Omit<Only, 'peer'> {
+  /** Package name, resolved from the working directory. */
+  peer: string;
+  /** Required - help lists the command without importing it. */
+  help: string;
+}
+
+/** A command run inline by its parent - no inputs of its own. */
+interface Inline extends Common, Omit<Only, 'run'> {
+  /** Runs as the command, called on the parent. */
+  run(): unknown;
+}
+
+type Target = From | Lazy | Peer | Inline;
 
 type Merge<C extends unknown[]> = C extends [infer H, ...infer R] ? Omit<H, keyof Merge<R>> & Merge<R> : {};
 
@@ -171,31 +195,49 @@ function list<const C extends (Plural & Named & { split?: string })[]>(
 /**
  * Subcommand - routed to when the next operand is the field's name in kebab case.
  *
- * Takes a Model class, a loader for one (loaded only when routed to), or an inline command. The
- * field holds the routed child, `true` for an inline one, else `undefined`. `--` ends routing.
+ * Takes one of `from` (a class), `lazy` (an import of this package's module, default-exporting the
+ * class) or `peer` (another package). The field holds the routed child, else `undefined`. `--` ends
+ * routing. Exactly one of `from`, `lazy`, `peer` and `run` is allowed - more throws.
+ *
+ * A `peer` is found from the working directory upward, else beside the running script. Its
+ * `package.json` `bin` entry named after the root command is imported and its default export used.
+ * Not found, help marks it "not installed" and routing to it is a usage error with an install hint.
  *
  * Options of every class on the routed path are accepted anywhere after their owner's name. A name
  * declared at several levels is one option - the deepest definition reads the value for all. Only the
  * last class on the path takes operands, so a parent's `arg`s fill only for its own `run` or an
- * inline sub. A class with subs and no `run` is a group - run alone it prints help and exits 2.
+ * inline command. A class with commands and no `run` is a group - run alone it prints help.
  *
  * @example
- * sync = sub(Sync, { help: 'apply schema changes' });
+ * sync = cmd({ from: Sync, help: 'apply schema changes' });
  */
-function sub<T extends Model>(target: Model.Type<T> | Loader<T>, ...configs: Common[]): T | undefined;
+function cmd<T extends Model>(config: From<T> | Lazy<T>): T | undefined;
+
+/**
+ * Subcommand from another package - see {@link cmd}.
+ *
+ * @example
+ * sql = cmd({ peer: '@expressive/sql', help: 'check and sync your schema' });
+ */
+function cmd(config: Peer): Model | undefined;
 
 /**
  * Inline subcommand - `run` is the command, called on the parent, with no inputs of its own.
  *
- * Operands after its name fill the parent's `arg`s.
+ * Operands after its name fill the parent's `arg`s. The field holds `true` when routed to.
  *
  * @example
- * status = sub({ help: 'print status', run: () => console.log(this) });
+ * status = cmd({ help: 'print status', run: () => console.log(this) });
  */
-function sub(target: Inline, ...configs: Common[]): true | undefined;
+function cmd(config: Inline): true | undefined;
 
-function sub(target: Target, ...configs: Common[]) {
-  return input('sub', [typeof target != 'function' ? { help: target.help } : {}, ...configs], target);
+function cmd(config: Target) {
+  const given = (['from', 'lazy', 'peer', 'run'] as const).filter((key) => key in config);
+
+  if (given.length != 1)
+    throw new TypeError(`cmd() takes exactly one of from, lazy, peer or run - got ${given.join(', ') || 'none'}.`);
+
+  return input('cmd', [{ help: config.help }], config);
 }
 
 declare namespace arg {
@@ -218,5 +260,5 @@ declare namespace list {
   type Config<T = any> = Plural<T> & Named & { split?: string };
 }
 
-export { arg, args, flag, opt, list, sub, SPECS };
-export type { Spec, Kind, Type, Target, Inline };
+export { arg, args, flag, opt, list, cmd, SPECS };
+export type { Spec, Kind, Type, Target, From, Lazy, Peer, Inline };

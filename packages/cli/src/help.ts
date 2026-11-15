@@ -1,4 +1,5 @@
-import type { Spec } from './input';
+import type { Spec, Target } from './input';
+import { locate } from './peer';
 import { isNamed, isPlural, isPositional, isRequired, kebab, label, valueType } from './parse';
 
 function operand(spec: Spec) {
@@ -25,6 +26,12 @@ function describe(spec: Spec) {
   return shown ? `${help}${help && ' '}(default: ${fallback})`.trim() : help;
 }
 
+function summary({ config, target }: Spec) {
+  const { peer } = target as Target;
+
+  return peer && !locate(peer) ? `${config.help} (not installed)` : config.help || '';
+}
+
 function table(rows: [string, string][]) {
   const width = Math.max(...rows.map(([left]) => left.length));
 
@@ -45,7 +52,7 @@ function scope(levels: Spec[][]) {
 
   return {
     operands: leaf.filter(isPositional),
-    commands: leaf.filter((spec) => spec.kind == 'sub'),
+    commands: leaf.filter((spec) => spec.kind == 'cmd'),
     options
   };
 }
@@ -67,7 +74,7 @@ function help(name: string, levels: Spec[][], runs = true) {
     sections.push('Arguments:\n' + table(operands.map((spec) => [operand(spec), describe(spec)])));
 
   if (commands.length)
-    sections.push('Commands:\n' + table(commands.map((spec) => [kebab(spec.key), spec.config.help || ''])));
+    sections.push('Commands:\n' + table(commands.map((spec) => [kebab(spec.key), summary(spec)])));
 
   sections.push(
     'Options:\n' +

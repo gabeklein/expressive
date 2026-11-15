@@ -1,9 +1,14 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { get, Model } from '@expressive/mvc';
 import { Steps } from '@expressive/steps';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { command } from './command';
-import { arg, args, flag, list, opt, sub } from './input';
+import { command, main } from './command';
+import { arg, args, flag, list, opt, cmd } from './input';
 
 let lines: string[];
 
@@ -171,7 +176,7 @@ it('will run a Steps class', async () => {
   expect(lines).toEqual(['released 1.4.0 to a, b']);
 });
 
-describe('sub', () => {
+describe('cmd', () => {
   class Sync extends Model {
     entry = arg({ required: true });
     force = flag({ help: 'rebuild drifted columns' });
@@ -184,12 +189,12 @@ describe('sub', () => {
   class Sql extends Model {
     entry = arg({ required: true });
 
-    check = sub({
+    check = cmd({
       help: 'list what sync would change',
       run: () => void lines.push(`check ${this.entry}`)
     });
 
-    sync = sub(Sync, { help: 'apply schema changes' });
+    sync = cmd({ from: Sync, help: 'apply schema changes' });
   }
 
   describe('routing', () => {
@@ -207,7 +212,7 @@ describe('sub', () => {
       class Test extends Model {
         name = arg();
 
-        dryRun = sub({
+        dryRun = cmd({
           run() {
             lines.push((this as unknown as Test).name!);
           }
@@ -229,7 +234,7 @@ describe('sub', () => {
 
     it('will fail on an unknown command', async () => {
       class Group extends Model {
-        sync = sub(Sync);
+        sync = cmd({ from: Sync });
       }
 
       expect(await call(Group, 'nope')).toBe(2);
@@ -243,7 +248,7 @@ describe('sub', () => {
     it('will fill args once routing ends', async () => {
       class Test extends Model {
         name = arg();
-        sync = sub(Sync);
+        sync = cmd({ from: Sync });
 
         run() {
           lines.push(`run ${this.name} ${this.sync}`);
@@ -274,7 +279,7 @@ describe('sub', () => {
 
       class Parent extends Model {
         entry = arg({ required: true });
-        child = sub(Child);
+        child = cmd({ from: Child });
       }
 
       expect(await call(Parent, 'child', 'x')).toBe(0);
@@ -285,7 +290,7 @@ describe('sub', () => {
       class Empty extends Model {}
 
       class Test extends Model {
-        empty = sub(Empty);
+        empty = cmd({ from: Empty });
       }
 
       expect(await call(Test, 'empty')).toBe(1);
@@ -294,10 +299,10 @@ describe('sub', () => {
   });
 
   describe('help', () => {
-    it('will print help to stderr for a group run alone, and return 2', async () => {
-      expect(await call(Sql)).toBe(2);
+    it('will print help for a group run alone, and return 0', async () => {
+      expect(await call(Sql)).toBe(0);
       expect(lines[0]).toMatch(
-        /^! Usage: sql \[options\] <command> <entry>\n\nArguments:\n {2}<entry>\n\nCommands:\n {2}check {2}list what sync would change\n {2}sync {3}apply schema changes/
+        /^Usage: sql \[options\] <command> <entry>\n\nArguments:\n {2}<entry>\n\nCommands:\n {2}check {2}list what sync would change\n {2}sync {3}apply schema changes/
       );
     });
 
@@ -314,6 +319,18 @@ describe('sub', () => {
       expect(lines[0]).toMatch(/^Usage: sql sync \[options\] <entry>\n[^]*--force +rebuild drifted columns/);
       expect(lines[1]).toMatch(/^Usage: sql check \[options\] <entry>/);
       expect(lines[1]).not.toMatch(/Commands:/);
+    });
+
+    it('will print help for help in place of a command', async () => {
+      expect(await call(Sql, 'help')).toBe(0);
+      expect(await call(Sql, 'help', 'sync')).toBe(0);
+      expect(lines[0]).toMatch(/^Usage: sql \[options\] <command> <entry>/);
+      expect(lines[1]).toMatch(/^Usage: sql sync \[options\] <entry>/);
+    });
+
+    it('will name help after the invoked path', async () => {
+      expect(await command(Sql)(['sync', '--help'], out, 'kit sql')).toBe(0);
+      expect(lines[0]).toMatch(/^Usage: kit sql sync \[options\] <entry>/);
     });
 
     it('will print help for a class with no run', async () => {
@@ -343,7 +360,7 @@ describe('sub', () => {
 
       class Middle extends Model {
         depth = opt({ type: 'number' });
-        last = sub(Last);
+        last = cmd({ from: Last });
 
         new() {
           seen.push(`middle new: depth=${this.depth}`);
@@ -352,7 +369,7 @@ describe('sub', () => {
 
       class Root extends Model {
         entry = opt();
-        middle = sub(Middle);
+        middle = cmd({ from: Middle });
 
         new() {
           seen.push(`root new: middle=${!!this.middle}`);
@@ -379,7 +396,7 @@ describe('sub', () => {
         size = opt({ parse: (value) => ({ value }) });
         quiet = flag({ short: 'q' });
         level = opt({ default: 'parent' });
-        child = sub(Child);
+        child = cmd({ from: Child });
 
         new() {
           return () => lines.push(`parent ${this.size} ${this.quiet} ${this.level}`);
@@ -409,7 +426,7 @@ describe('sub', () => {
       class Parent extends Model {
         tags = list({ min: 1 });
         name = opt({ required: true });
-        child = sub(Child);
+        child = cmd({ from: Child });
       }
 
       expect(await call(Parent, 'child', '--name', 'x')).toBe(2);
@@ -443,10 +460,10 @@ describe('sub', () => {
         size = opt({ type: 'number' });
         tags = list();
         force = flag({ short: 'f' });
-        kind = sub(Kind);
-        type = sub(Type);
-        split = sub(Split);
-        short = sub(Short);
+        kind = cmd({ from: Kind });
+        type = cmd({ from: Type });
+        split = cmd({ from: Split });
+        short = cmd({ from: Short });
       }
 
       for (const name of ['kind', 'type', 'split', 'short']) expect(await call(Parent, name)).toBe(1);
@@ -471,11 +488,9 @@ describe('sub', () => {
       }
 
       const load = vi.fn(async () => ({ default: Late }));
-      const bare = vi.fn(async () => Late);
 
       class Test extends Leaf {
-        late = sub(load);
-        bare = sub(bare);
+        late = cmd({ lazy: load, help: 'late' });
 
         new() {
           created();
@@ -489,12 +504,10 @@ describe('sub', () => {
 
       await run(['late'], out);
       await run(['late'], out);
-      await run(['bare'], out);
 
       expect(load).toHaveBeenCalledTimes(1);
-      expect(bare).toHaveBeenCalledTimes(1);
-      expect(created).toHaveBeenCalledTimes(4);
-      expect(lines).toEqual(['late', 'late', 'late']);
+      expect(created).toHaveBeenCalledTimes(3);
+      expect(lines).toEqual(['late', 'late']);
     });
 
     it('will load each lazy level of a path', async () => {
@@ -507,11 +520,11 @@ describe('sub', () => {
       }
 
       class Middle extends Model {
-        last = sub(async () => (loads++, Last));
+        last = cmd({ lazy: async () => (loads++, { default: Last }), help: 'last' });
       }
 
       class Root extends Model {
-        middle = sub(async () => (loads++, { default: Middle }));
+        middle = cmd({ lazy: async () => (loads++, { default: Middle }), help: 'middle' });
       }
 
       const run = command(Root);
@@ -522,21 +535,26 @@ describe('sub', () => {
       expect(lines).toEqual(['last', 'last']);
     });
 
-    it('will fail a lazy sub that does not load a class', async () => {
+    it('will fail a lazy command whose module has no default class', async () => {
       class Test extends Model {
-        thrown = sub(async () => {
-          throw new Error('not found');
+        thrown = cmd({
+          help: 'thrown',
+          lazy: async () => {
+            throw new Error('not found');
+          }
         });
-        named = sub(async () => ({ Late: class {} }) as any);
-        empty = sub(async () => 0 as any);
+        named = cmd({ lazy: async () => ({ Late: class {} }) as any, help: 'named' });
+        empty = cmd({ lazy: async () => 0 as any, help: 'empty' });
+        bare = cmd({ lazy: async () => Test as any, help: 'bare' });
       }
 
-      for (const name of ['thrown', 'named', 'empty']) expect(await call(Test, name)).toBe(1);
+      for (const name of ['thrown', 'named', 'empty', 'bare']) expect(await call(Test, name)).toBe(1);
 
       expect(lines).toEqual([
         '! not found',
-        '! Sub "named" did not load a Model class.',
-        '! Sub "empty" did not load a Model class.'
+        '! Command "named" did not load a Model class.',
+        '! Command "empty" did not load a Model class.',
+        '! Command "bare" did not load a Model class.'
       ]);
     });
   });
@@ -550,7 +568,7 @@ describe('sub', () => {
       }
 
       class Parent extends Model {
-        child = sub(Child);
+        child = cmd({ from: Child });
 
         new() {
           return () => lines.push('parent destroyed');
@@ -578,7 +596,7 @@ describe('sub', () => {
 
       class Test extends Model {
         logger = new Logger();
-        late = sub(async () => (loads++, Late));
+        late = cmd({ lazy: async () => (loads++, { default: Late }), help: 'late' });
       }
 
       expect(await call(Test, '--nope')).toBe(2);
@@ -612,7 +630,7 @@ describe('sub', () => {
       }
 
       class Parent extends Model {
-        child = sub(Child);
+        child = cmd({ from: Child });
       }
 
       expect(await call(Parent, 'child')).toBe(0);
@@ -658,6 +676,105 @@ describe('sub', () => {
       stop();
 
       expect(caught).toHaveBeenCalledWith(new Error('elsewhere'));
+    });
+  });
+});
+
+describe('peer', () => {
+  let root: string;
+  const { argv } = process;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'expressive-cmd-')));
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    process.argv = [argv[0], ''];
+  });
+
+  afterEach(() => {
+    process.argv = argv;
+    vi.restoreAllMocks();
+    rmSync(root, { recursive: true });
+  });
+
+  function install(name: string, bin: unknown, source: string) {
+    const dir = join(root, 'node_modules', name);
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, bin }));
+    writeFileSync(join(dir, 'bin.mjs'), source);
+  }
+
+  class Sql extends Model {
+    entry = arg();
+
+    run() {
+      lines.push(`sql ${this.entry}`);
+    }
+  }
+
+  class Kit extends Model {
+    sql = cmd({ peer: '@kit/sql', help: 'sync your schema' });
+    dev = cmd({ peer: '@kit/dev', help: 'dev server' });
+  }
+
+  it('will run the default export of its bin named after the root', async () => {
+    (globalThis as any).kitSql = Sql;
+    install('@kit/sql', { kit: 'bin.mjs' }, 'export default globalThis.kitSql;');
+
+    expect(await call(Kit, 'sql', 'db.ts')).toBe(0);
+    expect(await call(Kit, 'sql', '--help')).toBe(0);
+    expect(lines[0]).toBe('sql db.ts');
+    expect(lines[1]).toMatch(/^Usage: kit sql \[options\] \[entry\]/);
+  });
+
+  it('will mark a missing peer in help and hint how to install it', async () => {
+    install('@kit/sql', { kit: 'bin.mjs' }, '');
+
+    expect(await call(Kit)).toBe(0);
+    expect(await call(Kit, 'dev', '--port', '1')).toBe(2);
+    expect(lines).toEqual([
+      'Usage: kit [options] <command>\n\nCommands:\n  sql  sync your schema\n  dev  dev server (not installed)\n\nOptions:\n  -h, --help  show this help',
+      '! "kit dev" is not installed - npm i -D @kit/dev'
+    ]);
+  });
+
+  it('will fail a peer without the bin', async () => {
+    install('@kit/sql', { other: 'bin.mjs' }, '');
+
+    expect(await call(Kit, 'sql')).toBe(1);
+    expect(lines).toEqual(['! @kit/sql has no "kit" bin.']);
+  });
+
+  describe('main', () => {
+    it('will run only as the entry', async () => {
+      const script = join(root, 'bin.mjs');
+      const url = pathToFileURL(script).href;
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const { exitCode } = process;
+
+      writeFileSync(script, '');
+      writeFileSync(join(root, 'other.mjs'), '');
+      process.argv = [argv[0], script, 'db.ts'];
+
+      try {
+        await main({ url, main: false }, Sql);
+        expect(lines).toEqual([]);
+
+        await main({ url: pathToFileURL(join(root, 'other.mjs')).href }, Sql);
+        expect(lines).toEqual([]);
+
+        await main({ url }, Sql);
+        await main({ url: 'file:///nowhere.mjs', main: true }, Sql);
+        expect(lines).toEqual(['sql db.ts', 'sql db.ts']);
+        expect(process.exitCode).toBe(0);
+
+        process.argv = [argv[0]];
+        await main({ url }, Sql);
+        expect(lines).toHaveLength(2);
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        process.exitCode = exitCode;
+      }
     });
   });
 });

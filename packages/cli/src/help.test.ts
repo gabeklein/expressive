@@ -2,7 +2,7 @@ import { Model } from '@expressive/mvc';
 import { expect, it } from 'vitest';
 
 import { help, usage } from './help';
-import { arg, args, flag, list, opt, SPECS, sub } from './input';
+import { arg, args, flag, list, opt, SPECS, cmd } from './input';
 
 const specs = (Type: Model.Type) => [SPECS.get(Type.new()) || []];
 
@@ -63,8 +63,8 @@ it('will list commands and every option in scope', () => {
   class Parent extends Model {
     force = flag({ short: 'f', help: 'parent force' });
     entry = opt();
-    child = sub(Child, { help: 'go deeper' });
-    other = sub(Child);
+    child = cmd({ from: Child, help: 'go deeper' });
+    other = cmd({ from: Child });
   }
 
   const [parent] = specs(Parent);
