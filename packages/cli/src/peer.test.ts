@@ -34,6 +34,7 @@ it('will find a package from the working directory upward', () => {
   const app = join(root, 'app');
   const dir = pkg(root, '@kit/sql', { kit: 'bin.js' });
 
+  writeFileSync(join(dir, 'bin.js'), '');
   mkdirSync(app);
   vi.mocked(process.cwd).mockReturnValue(app);
 

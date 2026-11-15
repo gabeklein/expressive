@@ -45,7 +45,7 @@ function peer(pkg: string, name: string) {
 
   if (!path) throw new Error(`${pkg} has no "${name}" bin.`);
 
-  return join(at, path);
+  return realpathSync(join(at, path));
 }
 
 /** Command that installs `pkg` as a dev dependency, by the lockfile nearest the working directory. */
