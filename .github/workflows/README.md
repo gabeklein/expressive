@@ -12,8 +12,7 @@ install in the `setup` action doubles as the internal-dependency desync guard -
 a workspace version that falls outside a sibling's range cannot reach main.
 
 Non-blocking signal: `changeset status` (a preview of which packages would
-bump). `build:site` measures bundle size for the site's headline figure and
-never fails on budget.
+bump). `build:site` measures bundle size for the figures the site quotes.
 
 Beside `verify`, one run per push also holds:
 
@@ -23,11 +22,10 @@ Beside `verify`, one run per push also holds:
 - `native` - calls `native.yml` for a PR labeled `react-native`.
 - `hot` - `hot-probe.ts`, the hot-reload gauntlet in Chrome on React and dom.
   Not yet a required check.
-- `size` - `size-limit.ts --gate`: fails while any import shape exceeds its
-  budget, with the table in the step summary. Not a required check - growth
-  shows red on the PR that caused it without blocking the merge. Budgets are
-  re-set once per release, not per feature: a PR on `main` re-sets them and
-  every size claim in the docs, before the Version Packages PR merges.
+- `size` - `bundle-size.ts`, run on the base branch and then the PR: the
+  per-shape difference goes in the step summary, and `--gate` fails when a
+  shape grows more than 5% in one change. Not a required check - intended
+  growth is explained in the PR and merged. No budgets to re-set.
 - `dev` - `packages/dev`'s example specs against its dev server and its built
   server. Runs for a PR into any branch, since dev's PRs target its trunk. Not
   a required check.

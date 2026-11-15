@@ -1,6 +1,8 @@
 import type { ComponentProps } from 'react';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 
+import { Size } from './Size';
+
 function ScrollTable(props: ComponentProps<'table'>) {
   return (
     <div className="docs-scroll-frame prose-no-margin relative my-6">
@@ -14,6 +16,7 @@ function ScrollTable(props: ComponentProps<'table'>) {
 const docsMdxComponents = {
   ...defaultMdxComponents,
   table: ScrollTable,
+  Size,
 };
 
 export default docsMdxComponents;
