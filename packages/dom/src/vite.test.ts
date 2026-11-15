@@ -51,10 +51,12 @@ it('will apply during serve only, after other transforms', () => {
   expect(expressive()).toMatchObject({ apply: 'serve', enforce: 'post' });
 });
 
-it('will prebundle the hot runtime it injects', () => {
+it('will prebundle the runtimes a transformed module may import', () => {
   const config = expressive().config as Function;
 
-  expect(config()).toEqual({ optimizeDeps: { include: ['@expressive/mvc/hot'] } });
+  expect(config()).toEqual({
+    optimizeDeps: { include: ['@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'] }
+  });
 });
 
 describe('skip', () => {

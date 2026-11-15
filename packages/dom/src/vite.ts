@@ -163,7 +163,7 @@ export default function expressive(): Plugin {
     apply: 'serve',
     enforce: 'post',
     config() {
-      return { optimizeDeps: { include: ['@expressive/mvc/hot'] } };
+      return { optimizeDeps: { include: ['@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'] } };
     },
     configResolved(config) {
       root = config.root;
