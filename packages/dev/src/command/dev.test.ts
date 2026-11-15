@@ -18,8 +18,13 @@ beforeEach(() => {
 
 it("will run the dev server", async () => {
   expect(await dev([], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith();
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true });
   expect(runBuild).not.toHaveBeenCalled();
+});
+
+it("will run without the relay for --no-inspect", async () => {
+  expect(await dev(["--no-inspect"], out)).toBe(0);
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false });
 });
 
 it("will return 1 with the message of a failure", async () => {

@@ -118,7 +118,8 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ## Commands
 
 ```
-expressive dev                 Vite dev server with HMR; /__inspect relay
+expressive dev                 Vite dev server with HMR and inspect's /__inspect relay
+expressive dev --no-inspect    without the relay
 expressive dev build           dist/client and dist/server/index.js
 expressive dev build --pretty  unminified client, stable filenames
 expressive help [command]      commands, or one command's inputs

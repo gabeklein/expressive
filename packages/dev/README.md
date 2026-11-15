@@ -275,7 +275,8 @@ calls can still carry the previous identity's data until the page reloads.
 ## Commands
 
 ```
-expressive dev                 Vite dev server with HMR; /__inspect relay
+expressive dev                 Vite dev server with HMR and inspect's /__inspect relay
+expressive dev --no-inspect    without the relay
 expressive dev build           dist/client (static app) and dist/server/index.js (node service)
 expressive dev build --pretty  unminified client, stable filenames
 expressive help [command]      commands, or one command's inputs
