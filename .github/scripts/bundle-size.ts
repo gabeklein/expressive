@@ -1,96 +1,82 @@
 import { gzipSync } from 'bun';
 import type { BunPlugin } from 'bun';
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { withWorkspaceLinks } from './workspace-links';
 
 /**
- * Budgets are gzip bytes for one import shape, measured against built dist.
- * Per-shape rather than one aggregate: the point is to notice when the adapter's
- * irreducible floor grows, or when a formerly shakeable export stops shaking.
+ * Gzip bytes per import shape, measured against built dist and written to
+ * `--out` (default `size-report.json`, which the site reads for its figures).
+ * Per-shape rather than one aggregate: the point is to notice when the
+ * adapter's irreducible floor grows, or when a formerly shakeable export stops
+ * shaking.
  *
- * Each carries ~2% headroom over the measured figure, because CI does not pin
- * a Bun version and minifier output drifts a little between them - measured at
- * <=0.5% across 1.3.1 and 1.3.14. Real growth is structural and clears it;
- * toolchain drift does not.
+ * With `--base <report>` each shape is compared to that report, and `--gate`
+ * fails when one grows by more than {@link STEP} in a single change. Feature
+ * growth stays well under it; a broken `sideEffects` flag or a module pulled
+ * into the wrong entry does not. There are no absolute budgets to re-set.
  *
- * Budgets are a release decision. Without `--gate` the script reports and
- * never fails. CI's `size` job passes `--gate` on every PR into main - a red
- * check that does not block merging - and once per release a PR on main
- * re-sets budgets and the figures quoted in docs.
- *
- * 10 kB is the line the maintainer cares about: `react: typical app`, the site's
- * headline figure, crossed it at 10.14 kB in 2026-09 (Model.on({ catch }), the error-report classes,
- * the copies registry) - further growth there needs a deliberate decision.
+ * `--partial` skips a shape that fails to bundle, for measuring a base that
+ * predates it.
  */
+const STEP = 0.05;
+
 const CASES = [
   {
     name: 'mvc: Model only',
-    limit: 7550,
     code: `import Model from '@expressive/mvc'; console.log(Model);`
   },
   {
     name: 'mvc: everything',
-    limit: 11640,
     code: `import * as all from '@expressive/mvc'; console.log(all);`
   },
   {
     name: 'react: Model only',
-    limit: 11700,
     code: `import '@expressive/react'; import { Model } from '@expressive/mvc'; console.log(Model);`
   },
   {
     name: 'react: typical app',
-    limit: 12720,
     code: `import '@expressive/react';
            import { Model, Component, get, set, ref, def } from '@expressive/mvc';
            console.log(Model, Component, get, set, ref, def);`
   },
   {
     name: 'react: with collections',
-    limit: 13440,
     code: `import '@expressive/react';
            import { Model, Component, has, map } from '@expressive/mvc';
            console.log(Model, Component, has, map);`
   },
   {
     name: 'react: everything',
-    limit: 14560,
     code: `import * as all from '@expressive/react'; import * as mvc from '@expressive/mvc'; console.log(all, mvc);`
   },
   {
     name: 'dom: renderer',
-    limit: 20240,
     code: `import Model, { Component, Context, def, get, has, map, pending, ref, set } from '@expressive/mvc';
            import { Fragment, Portal, createElement, render } from '@expressive/dom';
            console.log(Model, Component, Context, Fragment, Portal, createElement, def, get, has, map, pending, ref, render, set);`
   },
   {
     name: 'dom: styling',
-    limit: 25220,
     code: `import * as mvc from '@expressive/mvc';
            import * as dom from '@expressive/dom';
            console.log(mvc, dom);`
   },
   {
     name: 'router: everything',
-    limit: 14810,
     code: `import * as all from '@expressive/router'; console.log(all);`
   },
   {
     name: 'inspect: install',
-    limit: 13190,
     code: `import '@expressive/inspect/install';`
   },
   {
     name: 'steps: everything',
-    limit: 21430,
     code: `import { Steps } from '@expressive/steps'; console.log(Steps);`
   },
   {
     name: 'react + router',
-    limit: 17550,
     code: `import * as a from '@expressive/react';
            import * as b from '@expressive/router';
            console.log(a, b);`
@@ -123,10 +109,20 @@ const published: BunPlugin = {
 // map and each package's `sideEffects` both take part in the result.
 const release = withWorkspaceLinks();
 
+const flag = (name: string) => {
+  const at = process.argv.indexOf(name);
+  return at < 0 ? undefined : process.argv[at + 1];
+};
+
+const out = flag('--out') ?? 'size-report.json';
+const basePath = flag('--base');
+const gate = process.argv.includes('--gate');
+const partial = process.argv.includes('--partial');
+
 const dir = '.size-probe';
 mkdirSync(dir, { recursive: true });
 
-const results: { name: string; bytes: number; limit: number }[] = [];
+const results: { name: string; bytes: number; base?: number }[] = [];
 
 try {
   for (const probe of CASES) {
@@ -141,42 +137,48 @@ try {
       format: 'esm',
       external: ['react', 'react-dom', 'react/jsx-runtime'],
       define: { 'process.env.NODE_ENV': '"production"' }
-    });
+    }).catch((error) => ({ success: false, logs: [error], outputs: [] }) as const);
 
-    if (!built.success)
+    if (!built.success) {
+      if (partial) continue;
       throw new AggregateError(built.logs, `Failed to bundle "${probe.name}".`);
+    }
 
     const source = await built.outputs[0].text();
     const bytes = gzipSync(Buffer.from(source), { level: 9 }).length;
 
-    results.push({ name: probe.name, bytes, limit: probe.limit });
+    results.push({ name: probe.name, bytes });
   }
 } finally {
   rmSync(dir, { recursive: true, force: true });
   release();
 }
 
-const kb = (n: number) => (n / 1024).toFixed(2) + ' kB';
-const over = results.filter(({ bytes, limit }) => bytes > limit);
-const stale = results.filter(({ bytes, limit }) => bytes < limit * 0.85);
-
-for (const { name, bytes, limit } of results) {
-  const mark = bytes > limit ? 'FAIL' : bytes < limit * 0.85 ? 'slack' : 'ok';
-  console.log(`${name.padEnd(24)} ${kb(bytes).padStart(9)} / ${kb(limit).padStart(9)}  ${mark}`);
-}
-
 await Bun.write(
-  'size-report.json',
+  out,
   JSON.stringify(Object.fromEntries(results.map(({ name, bytes }) => [name, bytes])), null, 2)
 );
 
-const gate = process.argv.includes('--gate');
+if (basePath && existsSync(basePath)) {
+  const base: Record<string, number> = JSON.parse(readFileSync(basePath, 'utf8'));
+  for (const result of results) result.base = base[result.name];
+}
 
-if (over.length)
+const kb = (n: number) => (n / 1024).toFixed(2) + ' kB';
+const change = ({ bytes, base }: { bytes: number; base?: number }) =>
+  base === undefined ? undefined : (bytes - base) / base;
+const delta = (result: { bytes: number; base?: number }) => {
+  const ratio = change(result);
+  if (ratio === undefined) return 'new';
+  const diff = result.bytes - result.base!;
+  return `${diff > 0 ? '+' : ''}${diff} B (${(ratio * 100).toFixed(1)}%)`;
+};
+const jumped = results.filter((result) => (change(result) ?? 0) > STEP);
+
+for (const result of results)
   console.log(
-    `::warning title=Bundle size::` +
-    over.map(({ name, bytes, limit }) =>
-      `${name} is ${kb(bytes)}, over its ${kb(limit)} budget`).join('; ')
+    `${result.name.padEnd(24)} ${kb(result.bytes).padStart(9)}` +
+    (basePath ? `  ${delta(result)}${jumped.includes(result) ? '  JUMP' : ''}` : '')
   );
 
 if (process.env.GITHUB_STEP_SUMMARY)
@@ -185,32 +187,20 @@ if (process.env.GITHUB_STEP_SUMMARY)
     [
       '## Bundle size',
       '',
-      '| Import shape | gzip | budget |',
-      '| --- | --- | --- |',
-      ...results.map(({ name, bytes, limit }) =>
-        `| ${name} | ${bytes > limit ? `**${kb(bytes)}** :warning:` : kb(bytes)} | ${kb(limit)} |`
+      basePath ? '| Import shape | gzip | vs base |' : '| Import shape | gzip |',
+      basePath ? '| --- | --- | --- |' : '| --- | --- |',
+      ...results.map((result) =>
+        `| ${result.name} | ${kb(result.bytes)} |` +
+        (basePath ? ` ${jumped.includes(result) ? `**${delta(result)}** :warning:` : delta(result)} |` : '')
       ),
-      '',
-      over.length
-        ? `${over.length} shape(s) over budget. Budgets are re-set at release - leave them unless the growth is unintended.`
-        : 'All shapes within budget.',
       ''
     ].join('\n')
   );
 
-if (stale.length)
-  console.log(
-    `\nBudgets exceed measured size by >15% (${stale.map(({ name }) => name).join(', ')}).` +
-    ` Tighten them so the gate keeps its teeth.`
-  );
-
-if (over.length && gate)
+if (jumped.length && gate)
   throw new Error(
-    `Bundle size exceeds budget:\n` +
-    over.map(({ name, bytes, limit }) =>
-      `  ${name}: ${kb(bytes)} exceeds budget ${kb(limit)}`).join('\n') +
-    `\n\nLeave budgets alone unless the growth is unintended. Before the next release, land a PR on main that re-sets the budgets in` +
-    ` .github/scripts/size-limit.ts and every size claim in the docs and site (git grep -nE '[0-9] ?kB' website 'packages/*/skills').`
+    `Import shapes grew by more than ${STEP * 100}% in one change:\n` +
+    jumped.map((result) => `  ${result.name}: ${kb(result.base!)} -> ${kb(result.bytes)}`).join('\n') +
+    `\n\nA jump this size usually means lost tree-shaking or a module pulled into the wrong entry.` +
+    ` If the growth is intended, say so in the PR and merge - the check is not required.`
   );
-
-console.log(over.length ? `\n${over.length} shape(s) over budget.` : '\nAll import shapes within budget.');

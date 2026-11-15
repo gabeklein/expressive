@@ -54,10 +54,21 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - name: Build base
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE"
+          git worktree add "$RUNNER_TEMP/base" FETCH_HEAD
+          cd "$RUNNER_TEMP/base"
+          bun install --frozen-lockfile
+          bun run build
+          bun "$GITHUB_WORKSPACE/.github/scripts/bundle-size.ts" --partial --out "$RUNNER_TEMP/base.json"
+
       - run: bun run build
 
       - name: Bundle size
-        run: bun .github/scripts/size-limit.ts --gate
+        run: bun .github/scripts/bundle-size.ts --base "$RUNNER_TEMP/base.json" --gate
 
   dist-smoke:
     if: >-
