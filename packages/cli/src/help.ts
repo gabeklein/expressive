@@ -10,6 +10,8 @@ function operand(spec: Spec) {
 }
 
 function option(spec: Spec) {
+  if (spec.kind == 'flag' && spec.config.default === true) return `--no-${kebab(spec.key)}`;
+
   const name = (spec.config.short ? `-${spec.config.short}, ` : '') + label(spec);
 
   if (spec.kind == 'flag') return name;

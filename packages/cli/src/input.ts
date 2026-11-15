@@ -155,7 +155,8 @@ function args<const C extends Plural[]>(...configs: C): Value<Merge<C>>[] {
 /**
  * Boolean switch - `--name`, `--no-name`, or its `short` grouped with others (`-rf`).
  *
- * Takes no value. Default `false`.
+ * Takes no value. Default `false`. With `default: true`, help lists it as `--no-name` - describe turning it
+ * off.
  *
  * @example
  * force = flag({ short: 'f', help: 'overwrite existing files' });

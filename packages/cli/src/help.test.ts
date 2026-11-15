@@ -12,6 +12,7 @@ it('will list operands and options', () => {
     target = arg();
     files = args({ min: 1, help: 'files to check' });
     fix = flag({ short: 'f', help: 'rewrite in place' });
+    cache = flag({ short: 'c', default: true, help: 'skip the cache' });
     port = opt({ short: 'p', default: 3000, help: 'listen port' });
     level = opt({ default: 'info' });
     size = opt({ type: 'number' });
@@ -30,6 +31,7 @@ it('will list operands and options', () => {
       '',
       'Options:',
       '  -f, --fix            rewrite in place',
+      '  --no-cache           skip the cache',
       '  -p, --port <number>  listen port (default: 3000)',
       '  --level <value>      (default: info)',
       '  --size <number>',
