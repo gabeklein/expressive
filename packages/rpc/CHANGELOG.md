@@ -1,5 +1,28 @@
 # @expressive/rpc
 
+## 0.4.0
+
+### Minor Changes
+
+- [#719](https://github.com/gabeklein/expressive/pull/719) [`a6d2e6e`](https://github.com/gabeklein/expressive/commit/a6d2e6e8aed323e6e7dc74104a6bec8951d85656) `rpc({ base: "/api" })` serves the calls under a path prefix. Stubs send to it, and `handle(request)` - in the default server, the dev server or an app's entry - answers only beneath it, given the full request, so an entry no longer strips the prefix itself. `handler()` from `@expressive/rpc/http` takes the same `base`. The server-entry docs add a Hono recipe: `handle` as middleware, without `mount()` or a cast.
+
+- [#719](https://github.com/gabeklein/expressive/pull/719) [`a6d2e6e`](https://github.com/gabeklein/expressive/commit/a6d2e6e8aed323e6e7dc74104a6bec8951d85656) The server is a tree of calls you could write by hand. `route(gate, children)` and `handler(tree, { base, errors })` from `@expressive/rpc/http` serve one without the plugin, and the plugin's own server is that same tree.
+
+  Breaking:
+
+  - A call's address is its place in the tree: `api/admin/users.ts#ban` posts to `/admin/users` as `ban`, where it was `/admin` as `users:ban`.
+  - Builds keep readable names. `rpc({ opaque: true })` seals them.
+  - An exported Error class crosses by its export name (`Duplicate`), unique across the app - two classes under one name fail the build.
+  - `with` and `then` are reserved: no call, module or folder may take them.
+
+  Client:
+
+  - `client<T>().api` is a typed tree of calls, and the shared client's `api` backs every stub.
+  - Any node or call takes `.with({ signal, timeout })` - an abort rejects with the signal's reason, a timeout with a `TimeoutError`.
+  - `errors: { Duplicate }` in `client()` or `configure()` rebuilds a thrown error as that class.
+
+  In dev, a thrown Error subclass the server does not know warns once, naming its class - a build replies "Internal error." for it.
+
 ## 0.3.0
 
 ### Minor Changes
