@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-import { command, sub } from "@expressive/cli";
+import { cmd, main } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
-class Expressive extends Model {
-  dev = sub(() => import("./command/dev").then((module) => module.Dev), {
-    help: "Vite dev server with HMR; /__inspect relay",
-  });
+export { default } from "./command/dev";
 
-  build = sub(() => import("./command/build").then((module) => module.Build), {
-    help: "dist/client (static app) and dist/server/index.js (node service)",
-  });
+class Expressive extends Model {
+  dev = cmd({ peer: "@expressive/dev", help: "Vite dev server with HMR; dev build for production" });
+  sql = cmd({ peer: "@expressive/sql", help: "check and sync your database schema" });
 }
 
-process.exitCode = await command(Expressive)(process.argv.slice(2), console);
+main(import.meta, Expressive);

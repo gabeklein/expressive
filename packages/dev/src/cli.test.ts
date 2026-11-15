@@ -1,58 +1,19 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { command } from "@expressive/cli";
+import type { Model } from "@expressive/mvc";
+import { expect, it, vi } from "vitest";
 
-const runDev = vi.hoisted(() => vi.fn(async () => {}));
-const runBuild = vi.hoisted(() => vi.fn(async () => {}));
+const main = vi.hoisted(() => vi.fn());
 
-vi.mock("./vite/dev", () => ({ runDev }));
-vi.mock("./vite/build", () => ({ runBuild }));
+vi.mock("@expressive/cli", async (actual) => ({ ...(await actual<object>()), main }));
 
-const { argv, exitCode } = process;
-let log: ReturnType<typeof vi.spyOn>;
-let error: ReturnType<typeof vi.spyOn>;
+it("will export Dev and run the expressive command as entry", async () => {
+  const { default: Dev } = await import("./cli");
+  const [[meta, Expressive]] = main.mock.calls as [[ImportMeta, Model.Type]];
+  const out = { log: vi.fn(), error: vi.fn() };
 
-beforeEach(() => {
-  vi.resetModules();
-  log = vi.spyOn(console, "log").mockImplementation(() => {});
-  error = vi.spyOn(console, "error").mockImplementation(() => {});
-});
+  expect(Dev).toBe((await import("./command/dev")).default);
+  expect(meta.url).toMatch(/cli\.ts$/);
 
-afterEach(() => {
-  process.argv = argv;
-  process.exitCode = exitCode;
-  vi.restoreAllMocks();
-  runDev.mockReset();
-  runBuild.mockReset();
-});
-
-async function run(...args: string[]) {
-  process.argv = ["node", "expressive", ...args];
-  await import("./cli");
-
-  return process.exitCode;
-}
-
-it("will run dev", async () => {
-  expect(await run("dev")).toBe(0);
-  expect(runDev).toHaveBeenCalled();
-});
-
-it("will run build", async () => {
-  expect(await run("build", "--pretty")).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true });
-});
-
-it("will print help", async () => {
-  expect(await run("--help")).toBe(0);
-  expect(log.mock.calls[0][0]).toMatch(/^Usage: expressive \[options\] <command>/);
-});
-
-it("will list commands when none is given", async () => {
-  expect(await run()).toBe(2);
-  expect(error.mock.calls[0][0]).toMatch(/dev +Vite dev server/);
-  expect(runDev).not.toHaveBeenCalled();
-});
-
-it("will exit 2 on an unknown command", async () => {
-  expect(await run("deploy")).toBe(2);
-  expect(error.mock.calls[0][0]).toMatch(/^Unknown command "deploy"\./);
+  expect(await command(Expressive)([], out)).toBe(0);
+  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive \[options\] <command>\n\nCommands:\n {2}dev +Vite dev server[^\n]*\n {2}sql +check and sync your database schema/);
 });

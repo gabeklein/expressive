@@ -1,12 +1,14 @@
+import { command } from "@expressive/cli";
 import { beforeEach, expect, it, vi } from "vitest";
 
-import build from "./build";
+import Build from "./build";
 
 const runBuild = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../vite/build", () => ({ runBuild }));
 
 const out = { log: vi.fn(), error: vi.fn() };
+const build = command(Build);
 
 beforeEach(() => runBuild.mockClear());
 

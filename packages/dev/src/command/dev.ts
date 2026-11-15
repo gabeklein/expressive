@@ -1,12 +1,15 @@
-import { command } from "@expressive/cli";
+import { cmd } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
-export class Dev extends Model {
+export default class Dev extends Model {
+  build = cmd({
+    lazy: () => import("./build"),
+    help: "dist/client (static app) and dist/server/index.js (node service)",
+  });
+
   async run() {
     const { runDev } = await import("../vite/dev");
 
     await runDev();
   }
 }
-
-export default command(Dev);

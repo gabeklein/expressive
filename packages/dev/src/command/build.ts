@@ -1,7 +1,7 @@
-import { command, flag } from "@expressive/cli";
+import { flag } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
-export class Build extends Model {
+export default class Build extends Model {
   pretty = flag({ help: "unminified client, stable filenames" });
 
   async run() {
@@ -10,5 +10,3 @@ export class Build extends Model {
     await runBuild(process.cwd(), { pretty: this.pretty });
   }
 }
-
-export default command(Build);
