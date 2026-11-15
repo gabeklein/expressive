@@ -2,7 +2,7 @@ import { Model, unbind } from '@expressive/mvc';
 import { event, listener, touch } from '@expressive/mvc/observable';
 
 import { Control } from './control';
-import { HOOKS, KEYS, REFRESH, RESERVED, outside, rule, valueless } from './util';
+import { HOOKS, KEYS, outside, REFRESH, RESERVED, rule, valueless } from './util';
 
 declare namespace Steps {
   /**

@@ -3,9 +3,10 @@ import { event } from '@expressive/mvc/observable';
 
 import { Frame } from './frame';
 import { Run } from './run';
-import { Steps, Aborted } from './steps';
+import { Aborted, Steps } from './steps';
 import type { Answer } from './types';
-import { LONGEST, handle } from './util';
+import { recover } from './unwind';
+import { handle, LONGEST } from './util';
 
 class Wait extends Model {
   run = get(Run);
@@ -86,7 +87,7 @@ function lose(run: Run, wait: Wait, won: string[], answer: Steps.Node) {
       racer.id,
       run.serial(async () => {
         await quiet(run, racer.id);
-        (await run.recover(racer, cause, 'abort'))(undefined, false, racer.id);
+        (await recover(run, racer, cause, 'abort'))(undefined, false, racer.id);
       })
     );
 }

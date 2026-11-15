@@ -1,8 +1,9 @@
-import type { Gate, Hold, Waiter } from './types';
+import { listener, watch } from '@expressive/mvc/observable';
+
+import { Frame } from './frame';
 import { Run } from './run';
 import { Steps } from './steps';
-import { Frame } from './frame';
-import { watch, listener } from '@expressive/mvc/observable';
+import type { Gate, Hold, Waiter } from './types';
 import { signal } from './util';
 
 const GATES = new WeakMap<object, Gate>();

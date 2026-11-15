@@ -4,7 +4,7 @@ import { collection, mutators } from './collections';
 import { Run } from './run';
 import { Steps } from './steps';
 import type { Change, Collection, Handler, Kind, Log, Restore, Slot } from './types';
-import { ISSUED, KINDS, RETRY, SLACK, UNCAUGHT, UNITS, UNPLANNED, adopt, grouped, iterable, named, plain, rule, valueless } from './util';
+import { adopt, grouped, ISSUED, iterable, KINDS, named, plain, RETRY, rule, SLACK, UNCAUGHT, UNITS, UNPLANNED, valueless } from './util';
 import { route, wake } from './wait';
 
 class Frame extends Model {

@@ -5,9 +5,10 @@ import { Control } from './control';
 import { Frame } from './frame';
 import { acquire } from './gate';
 import { Steps } from './steps';
-import type { Branch, Gate, Handler, Held, Kind, Lineage, Log, Mode, Rescue, Restore, Slot, Ticket, Unwound } from './types';
-import { MODES, RULES, TOKEN, adopt, chain, grouped, rule, serial, signal } from './util';
-import { Wait, park, racing, wake } from './wait';
+import type { Branch, Gate, Handler, Held, Lineage, Mode, Rescue, Slot, Ticket } from './types';
+import { blame, fire, recover, refill, reset, restore, rewind, unwind } from './unwind';
+import { adopt, chain, grouped, MODES, rule, RULES, serial, signal, TOKEN } from './util';
+import { park, racing, Wait, wake } from './wait';
 
 class Run extends Model {
   control = get(Control);
@@ -195,7 +196,7 @@ class Run extends Model {
     if (!branch.failed) return;
 
     const { cause } = branch.failed;
-    const restore = await this.serial(() => (failed ? this.rewind(id, cause) : this.recover(item!, cause, 'error', false)));
+    const restore = await this.serial(() => (failed ? rewind(this, id, cause) : recover(this, item!, cause, 'error', false)));
 
     this._dropped.delete(shield);
     this._version++;
@@ -210,41 +211,6 @@ class Run extends Model {
 
     await this.exec(node, frame);
     restore();
-  }
-
-  async rewind(id: string, cause: unknown): Promise<Restore> {
-    const entry = this._entries.find((each) => each.id == id)!;
-    const { prior, log } = this._held.get(id)!;
-    const kept = new Set<string>();
-
-    this._reset.add(id);
-    this._held.delete(id);
-
-    try {
-      await this.fire(this._on.get(id), 'reset', undefined, kept);
-      entry.unwound = true;
-    } catch (thrown) {
-      entry.unwound = 'failed';
-      this.halt('failed', thrown);
-    }
-
-    const self = this.control._self as any;
-    let done = false;
-
-    return (into, all) => {
-      if (done) return;
-
-      done = true;
-
-      for (const key in prior) {
-        const wrote = into?._wrote.has(key);
-
-        if (wrote) into!._prior[key] = prior[key];
-        if (all || (!wrote && !kept.has(key))) self[key] = prior[key];
-      }
-
-      for (const [key, undo] of [...log].reverse()) if (all || !into?._changed.has(key)) undo();
-    };
   }
 
   async complete(frame?: Frame) {
@@ -262,15 +228,10 @@ class Run extends Model {
     this._finished.add(id);
 
     try {
-      await this.fire(on, 'close', undefined, new Set());
+      await fire(this, on, 'close', undefined, new Set());
     } catch (error) {
       if (!this.caught(error, id)) this.halt('failed', error);
     }
-  }
-
-  async fire(on: Handler[] | undefined, kind: Kind, cause: unknown, kept: Set<string>) {
-    for (const handler of [...(on || [])].reverse())
-      if (handler.kind == kind) await this.compensate(this.given(handler, cause), cause, kept, kind == 'reset' || kind == 'close' || cause === undefined);
   }
 
   given({ node, bare, kind }: Handler, cause: unknown) {
@@ -313,7 +274,7 @@ class Run extends Model {
     if (!branch.failed) return;
 
     const { cause } = branch.failed;
-    const restore = await this.serial(() => this.recover(item, cause, 'error'));
+    const restore = await this.serial(() => recover(this, item, cause, 'error'));
     const { key, fn } = rescue;
     const parent = this._parent.get(item.id)!;
 
@@ -366,31 +327,6 @@ class Run extends Model {
     }
 
     return node;
-  }
-
-  async recover(item: Steps.Node, cause: unknown, mode: Mode, own = true): Promise<Restore> {
-    const ids = this._entries.filter((entry) => !this._spent.has(entry.id) && (own || entry.id != item.id) && this.line(entry.id).includes(item.id));
-    const unwound = await this.unwind(cause, mode, new Set(ids.map((entry) => entry.id)));
-    let done = false;
-
-    const restore: Restore = (into, all, within) => {
-      if (done) return;
-
-      done = true;
-      this.refill(unwound, into, all, within);
-    };
-
-    if (unwound.failed) {
-      const { cause: thrown } = unwound.failed;
-
-      restore();
-
-      if (mode == 'abort') chain(thrown, cause);
-
-      this.halt('failed', thrown);
-    }
-
-    return restore;
   }
 
   caught(error: unknown, id: string) {
@@ -500,9 +436,9 @@ class Run extends Model {
           body = !frame._settled;
 
           if (error instanceof Promise && body && !fixed) {
-            await this.fire(frame._on, 'reset', undefined, new Set());
+            await fire(this, frame._on, 'reset', undefined, new Set());
 
-            this.reset(frame);
+            reset(this, frame);
 
             const failed = await frame.pause(error);
 
@@ -531,7 +467,7 @@ class Run extends Model {
 
       frame._settled = true;
 
-      if (!fixed && !defer) this.restore(frame._prior, frame._log);
+      if (!fixed && !defer) restore(this, frame._prior, frame._log);
 
       frame._restore?.();
 
@@ -597,23 +533,6 @@ class Run extends Model {
     this.halt('failed', error);
   }
 
-  reset(frame: Frame) {
-    this.restore(frame._prior, frame._log);
-    frame._armed++;
-
-    Object.assign(frame, {
-      _wrappers: new Map(),
-      _log: [],
-      _changed: new Set(),
-      _items: [],
-      _wrote: new Set(),
-      _prior: {},
-      _on: [],
-      _violation: undefined,
-      _late: undefined
-    });
-  }
-
   async end(item?: Steps.Node) {
     this._ending = true;
 
@@ -627,7 +546,7 @@ class Run extends Model {
     for (const entry of open.reverse())
       try {
         this._finished.add(entry.id);
-        await this.fire(this._on.get(entry.id), 'close', undefined, new Set());
+        await fire(this, this._on.get(entry.id), 'close', undefined, new Set());
       } catch (thrown) {
         return this.halt('failed', thrown);
       }
@@ -663,7 +582,7 @@ class Run extends Model {
   }
 
   broke(error: unknown) {
-    this.blame(error);
+    blame(this, error);
     this.control.status = 'failed';
     this.reject();
   }
@@ -715,9 +634,9 @@ class Run extends Model {
 
     if (this._unwinding) await this._unwinding;
 
-    const unwound = await this.unwind(this.reason(), mode);
+    const unwound = await unwind(this, this.reason(), mode);
 
-    this.refill(unwound);
+    refill(this, unwound);
 
     if (unwound.failed) {
       const { cause } = unwound.failed;
@@ -727,7 +646,7 @@ class Run extends Model {
         this.control.status = 'failed';
       }
 
-      this.blame(cause);
+      blame(this, cause);
     }
 
     const { _tail: tail } = this;
@@ -770,118 +689,6 @@ class Run extends Model {
     this.control.advance();
   }
 
-  async unwind(cause: unknown, mode: Mode, ids?: Set<string>): Promise<Unwound> {
-    const { control, _entries: entries } = this;
-    const pending = entries.filter((entry) => (ids ? ids.has(entry.id) : !this._spent.has(entry.id)));
-    const kept = new Set<string>();
-    const undone: Steps.Entry[] = [];
-    let halted = mode == 'stop';
-
-    for (const entry of pending.reverse()) {
-      const on = this._on.get(entry.id);
-      const open = !this._finished.has(entry.id);
-
-      if (ids && this._halted) break;
-      if (entry.unwound == 'failed') break;
-
-      if (!halted && (entry.irreversible || entry.committed)) {
-        entry.halted = halted = true;
-
-        if (entry.irreversible)
-          console.warn(`${control._self} stopped unwinding at ${entry.id}: ${entry.irreversible.join(', ')} cannot be restored.`);
-      }
-
-      if (!on && 'error' in entry) continue;
-
-      try {
-        if (open) await this.fire(on, 'abort', mode == 'error' ? cause : undefined, kept);
-        if (!halted && !this._reset.has(entry.id)) await this.fire(on, 'reset', undefined, kept);
-
-        this._finished.add(entry.id);
-
-        if (open) await this.fire(on, 'close', undefined, kept);
-      } catch (thrown) {
-        entry.unwound = 'failed';
-        return { undone, kept, failed: { cause: thrown } };
-      }
-
-      this._spent.add(entry.id);
-
-      if (halted) continue;
-      if (on?.some((handler) => handler.kind == 'reset') || (this._held.has(entry.id) && entry.wrote.length)) entry.unwound = true;
-
-      undone.push(entry);
-    }
-
-    return { undone, kept };
-  }
-
-  async compensate(item: Steps.Node, cause: unknown, kept: Set<string>, bare?: boolean) {
-    const fn = this._inline.get(item.id);
-
-    if (!fn) return this.undo([item], kept);
-
-    const frame = this.frames.add({ id: item.id, key: item.key, args: item.args, _undo: true, _owner: this._owner.get(item.id) });
-    try {
-      await (bare ? fn() : fn(cause));
-    } finally {
-      this.frames.delete(frame);
-      for (const key of frame._wrote) kept.add(key);
-    }
-
-    await this.undo(frame._items, kept);
-  }
-
-  async undo(items: Steps.Node[], kept: Set<string>): Promise<void> {
-    for (const item of items)
-      if (item.group) await Promise.all(item.group.map((member) => this.undo([member], kept)));
-      else {
-        const frame = (await this.invoke(item, undefined, true))!;
-
-        for (const key of frame._wrote) kept.add(key);
-
-        await this.undo(frame._items, kept);
-      }
-  }
-
-  refill({ undone, kept }: Unwound, into?: Frame, all?: boolean, within?: string) {
-    const self = this.control._self as any;
-    const prior = new Map<string, unknown>();
-    const log: Log = [];
-
-    for (const entry of undone) {
-      const held = this._held.get(entry.id);
-
-      if (!held) continue;
-
-      for (const key in held.prior) prior.set(key, held.prior[key]);
-
-      log.push(...[...held.log].reverse());
-    }
-
-    const since = (key: string) => !!within && !this.line(this._writer.get(key)!).includes(within);
-
-    for (const [key, value] of prior) {
-      const wrote = into?._wrote.has(key);
-
-      if (wrote) into!._prior[key] = value;
-      if (all || (!wrote && !kept.has(key) && !since(key))) self[key] = value;
-    }
-
-    for (const [key, undo] of log) if (all || (!into?._changed.has(key) && !since(key))) undo();
-  }
-
-  blame(cause: unknown) {
-    this._error = cause;
-    this.control.error = cause;
-  }
-
-  restore(prior: Record<string, unknown>, log: Log) {
-    const self = this.control._self as any;
-
-    for (const key in prior) self[key] = prior[key];
-    for (const [, undo] of [...log].reverse()) undo();
-  }
 }
 
 export { Run };
