@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "expressive",
@@ -47,14 +46,14 @@
     },
     "packages/cli": {
       "name": "@expressive/cli",
-      "version": "0.1.0",
+      "version": "0.0.0",
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "@expressive/steps": "workspace:*",
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.94.5",
+        "@expressive/mvc": "^0.94.4",
       },
       "optionalPeers": [
         "@expressive/mvc",
@@ -62,16 +61,15 @@
     },
     "packages/dev": {
       "name": "@expressive/dev",
-      "version": "0.1.5",
+      "version": "0.1.3",
       "bin": {
         "expressive": "dist/cli.js",
       },
       "dependencies": {
-        "@expressive/cli": "^0.1.0",
         "@expressive/dom": "^0.12.0",
         "@expressive/inspect": "^0.6.4",
         "@expressive/router": "^0.10.4",
-        "@expressive/rpc": "^0.4.0",
+        "@expressive/rpc": "^0.2.0",
         "es-module-lexer": "^1.6.0",
         "vite": "^8.0.0",
       },
@@ -82,7 +80,7 @@
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.94.5",
+        "@expressive/mvc": "^0.94.3",
       },
     },
     "packages/dom": {
@@ -111,7 +109,7 @@
         "vite": "^7.3.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.94.5",
+        "@expressive/mvc": "^0.94.4",
         "vite": ">=5",
       },
       "optionalPeers": [
@@ -120,7 +118,7 @@
     },
     "packages/mvc": {
       "name": "@expressive/mvc",
-      "version": "0.94.5",
+      "version": "0.94.4",
       "devDependencies": {
         "@types/node": "^18.19.0",
         "tsdown": "^0.20.1",
@@ -141,7 +139,7 @@
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.94.5",
+        "@expressive/mvc": "^0.94.4",
         "preact": "^10.0.0",
       },
     },
@@ -188,7 +186,7 @@
     },
     "packages/rpc": {
       "name": "@expressive/rpc",
-      "version": "0.4.0",
+      "version": "0.2.0",
       "dependencies": {
         "es-module-lexer": "^1.6.0",
       },
@@ -199,7 +197,7 @@
         "vite": "^8.0.0",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.94.5",
+        "@expressive/mvc": "^0.94.4",
         "vite": "^8.0.0",
       },
       "optionalPeers": [
@@ -218,13 +216,13 @@
     },
     "packages/steps": {
       "name": "@expressive/steps",
-      "version": "0.1.3",
+      "version": "0.1.2",
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.94.5",
+        "@expressive/mvc": "^0.94.4",
       },
     },
     "website": {
