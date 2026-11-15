@@ -37,7 +37,7 @@ async function parity(node: () => any) {
 describe('renderToString', () => {
   it('will render elements, text and attributes as render() leaves them', async () => {
     const html = await parity(() => (
-      <section id="a" title={'say "hi" & <go>'} hidden tabIndex={0} aria-hidden={false} data-n={2} draggable spellcheck={false}>
+      <section id="a" title={'say "hi" & go'} hidden tabIndex={0} aria-hidden={false} data-n={2} draggable spellcheck={false}>
         {'1 < 2 & 3 > 2'}
         {null}
         {undefined}
@@ -202,26 +202,130 @@ describe('renderToString', () => {
     );
   });
 
+  it('will drop declarations a browser would reject and escape markup in the rest', async () => {
+    function Box() {
+      return (
+        <div style={{
+          backgroundImage: 'url(x); position: fixed',
+          color: 'red}body{display:none',
+          width: NaN,
+          height: Infinity,
+          outline: true as any,
+          content: '"</style>"',
+          margin: 'calc((1px)',
+          padding: 'a)b(',
+          fontFamily: '"a;b", \\"x',
+          'line-height': 2,
+          msTransform: 'none'
+        } as any}
+        />
+      );
+    }
+
+    const { html } = await serve(<Box />);
+
+    expect(html).toBe(
+      '<!--fragment--><!--function--><div style="content: &quot;\\3c /style&gt;&quot;; font-family: &quot;a;b&quot;, \\&quot;x; ' +
+      'line-height: 2; -ms-transform: none;"></div><!--/function--><!--/fragment-->'
+    );
+  });
+
+  it('will include root variables a module adds after the first rule', async () => {
+    function Early() {
+      return <i>early</i>;
+    }
+
+    function Late() {
+      return <b>late</b>;
+    }
+
+    style(Early, { color: 'red' });
+
+    function Loader() {
+      class Accent extends Css {
+        $accent = 'blue';
+      }
+
+      Accent.use()(Late, ($) => ({ color: $.accent }));
+
+      return <Late />;
+    }
+
+    const { css } = await serve(<><Early /><Loader /></>);
+
+    expect(css).toContain(':where(:root){--accent: blue;}');
+  });
+
   it('will write form state as attributes and raw text as is', async () => {
     const { html } = await serve(
       <form>
         <input value={'a"b'} checked defaultValue="x" onInput={() => {}} />
-        <input {...{ value: null } as any} checked={false} />
+        <input {...{ value: null } as any} checked={false} defaultChecked />
         <textarea value="t<" />
         <textarea>kept</textarea>
+        <textarea defaultValue={'\nlead'} />
+        <pre>{'\nlead'}</pre>
         <select><option selected>o</option></select>
+        <select value="b"><option>a</option><option value="b">B</option></select>
         <style>{'a > b {}'}{[' i', null, false]}</style>
         <div dangerouslySetInnerHTML={{ __html: '<b>raw</b>' }} />
         <div {...{ dangerouslySetInnerHTML: {} } as any} />
+        <div {...{ dangerouslySetInnerHTML: null } as any}>dropped</div>
+        <div {...{ innerHTML: '<i>set</i>' } as any} />
+        <div {...{ textContent: '<i>text</i>' } as any} />
         <Portal into="body"><p>away</p></Portal>
       </form>
     );
 
     expect(html).toBe(
-      '<!--fragment--><form><input value="x" value="a&quot;b" checked=""><input>' +
-      '<textarea>t&lt;</textarea><textarea>kept</textarea><select><option selected="">o</option></select>' +
-      '<style>a > b {} i</style><div><b>raw</b></div><div></div><!--portal--></form><!--/fragment-->'
+      '<!--fragment--><form><input value="a&quot;b" checked=""><input>' +
+      '<textarea>t&lt;</textarea><textarea>kept</textarea><textarea>\n\nlead</textarea><pre>\n\nlead</pre>' +
+      '<select><option selected="">o</option></select>' +
+      '<select><option>a</option><option value="b" selected="">B</option></select>' +
+      '<style>a > b {} i</style><div><b>raw</b></div><div></div><div></div><div><i>set</i></div>' +
+      '<div>&lt;i&gt;text&lt;/i&gt;</div><!--portal--></form><!--/fragment-->'
     );
+  });
+
+  it('will omit boolean attributes for falsy values', async () => {
+    const { html } = await serve(
+      <div>
+        <button disabled={0 as any} hidden={'' as any} />
+        <button disabled={'yes' as any} hidden={'until-found' as any} title={false as any} />
+      </div>
+    );
+
+    expect(html).toBe(
+      '<!--fragment--><div><button></button><button disabled="" hidden="until-found"></button></div><!--/fragment-->'
+    );
+  });
+
+  it('will escape markup in attributes and closing tags in raw text', async () => {
+    const state = JSON.stringify({ a: '</script><img src=x onerror=alert(1)>', b: '<!-- x' });
+    const { html } = await serve(
+      <head>
+        <meta {...{ content: 'a<b>"c' } as any} />
+        <script type="application/json">{state}</script>
+        <style>{'a{} </STYLE><b>'}</style>
+      </head>
+    );
+
+    expect(html).toBe(
+      '<!--fragment--><head><meta content="a&lt;b&gt;&quot;c">' +
+      '<script type="application/json">{"a":"<\\/script><img src=x onerror=alert(1)>","b":"<\\!-- x"}</script>' +
+      '<style>a{} <\\/STYLE><b></style></head><!--/fragment-->'
+    );
+  });
+
+  it('will drop event attributes and throw for names that break markup', async () => {
+    const { html } = await serve(<div {...{ onclick: 'alert(1)', ONLOAD: 'x', title: 't' } as any} />);
+
+    expect(html).toBe('<!--fragment--><div title="t"></div><!--/fragment-->');
+
+    await expect(serve(<div {...{ 'x"><img src=x onerror=alert(1)>': 'y' } as any} />))
+      .rejects.toThrow('Invalid attribute name "x"><img src=x onerror=alert(1)>".');
+    await expect(serve(createElement('img src=x', {})))
+      .rejects.toThrow('Invalid element name "img src=x".');
   });
 
   it('will await a suspended render and retry it in place', async () => {

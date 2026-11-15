@@ -11,6 +11,7 @@ import { unplaced } from './core/placement';
 import { isThenable, kindOf, source } from './node/kind';
 import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
+import { ALIASES, isStringified } from './node/props';
 import type { Node, VNode } from './node/vnode';
 import { claim, componentProps, placed } from './style/claim';
 import type { Appearance } from './style/claim';
@@ -19,6 +20,7 @@ import type { Declaration } from './style/declarations';
 import { unmatched } from './style/diagnose';
 import { reserved, serving } from './style/protocol';
 import type { Sink } from './style/protocol';
+import { attachRoots } from './style/root';
 
 const UNITLESS = new Set(
   ('animationIterationCount aspectRatio baselineShift borderImageOutset borderImageSlice borderImageWidth columnCount ' +
@@ -30,17 +32,16 @@ const UNITLESS = new Set(
 
 const VOID = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
 const RAW = new Set(['script', 'style']);
-const ALIASES: Record<string, string> = {
-  acceptCharset: 'accept-charset',
-  autoFocus: 'autofocus',
-  contentEditable: 'contenteditable',
-  defaultChecked: 'checked',
-  defaultValue: 'value',
-  htmlFor: 'for',
-  httpEquiv: 'http-equiv'
-};
-const STRINGIFIED = /^(aria-|data-)|^(contentEditable|contenteditable|draggable|spellcheck)$/;
-const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
+const NAMES: Record<string, string> = { ...ALIASES, acceptCharset: 'accept-charset', httpEquiv: 'http-equiv' };
+const BOOLEAN = new Set(
+  ('allowfullscreen async autofocus autoplay checked controls default defer disabled formnovalidate hidden inert ismap ' +
+  'itemscope loop multiple muted nomodule novalidate open playsinline readonly required reversed selected').split(' ')
+);
+const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'defaultChecked', 'defaultValue', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
+const CONTENT = ['textContent', 'innerText'];
+const ATTRIBUTE = /^[^\s"'<>/=\u0000-\u001f\u007f]+$/;
+const TAG = /^[a-zA-Z][^\s"'<>/=\u0000-\u001f\u007f]*$/;
+const CLOSING = { script: /<(\/script|!--)/gi, style: /<(\/style)/gi } as Record<string, RegExp>;
 
 interface Output {
   /** Markup for the container the node mounts in, as `render()` would leave it. */
@@ -52,12 +53,37 @@ interface Output {
 interface Pass {
   contexts: Context[];
   sink: Sink;
+  selected?: string;
 }
 
 function kebab(key: string) {
   if (key.startsWith('--')) return key;
   if (key == 'cssFloat') return 'float';
-  return key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`).replace(/^webkit-/, '-webkit-');
+  return key.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`).replace(/^(webkit|ms)-/, '-$1-');
+}
+
+function camel(key: string) {
+  return key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+}
+
+function contained(value: string) {
+  let depth = 0;
+  let quote = '';
+
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index];
+
+    if (char == '\\') index++;
+    else if (quote) quote = char == quote ? '' : quote;
+    else if (char == '"' || char == "'") quote = char;
+    else if (char == '(') depth++;
+    else if (char == ')') depth--;
+    else if (!depth && (char == ';' || char == '{' || char == '}')) return false;
+
+    if (depth < 0) return false;
+  }
+
+  return !depth && !quote;
 }
 
 function text(declarations: Declaration) {
@@ -66,30 +92,34 @@ function text(declarations: Declaration) {
   for (const key of Object.keys(declarations)) {
     const value = declarations[key];
 
-    if (value == null || value === '') continue;
+    if (value == null || value === '' || typeof value == 'boolean') continue;
+    if (typeof value == 'number' && !Number.isFinite(value)) continue;
 
-    const css = typeof value == 'number' && value !== 0 && !key.startsWith('--') && !UNITLESS.has(key) ? `${value}px` : String(value);
-    output.push(`${kebab(key)}: ${css};`);
+    const css = typeof value == 'number' && value !== 0 && !key.startsWith('--') && !UNITLESS.has(camel(key)) ? `${value}px` : String(value);
+
+    if (contained(css)) output.push(`${kebab(key)}: ${css.replace(/</g, '\\3c ')};`);
   }
 
   return output.join(' ');
 }
 
 function escape(value: string, attribute?: boolean) {
-  const output = value.replace(/&/g, '&amp;').replace(/ /g, '&nbsp;');
+  const output = value
+    .replace(/&/g, '&amp;')
+    .replace(/\u00a0/g, '&nbsp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
-  return attribute
-    ? output.replace(/"/g, '&quot;')
-    : output.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return attribute ? output.replace(/"/g, '&quot;') : output;
 }
 
 /**
  * Render a node to markup and the style rules it emits, waiting on anything it suspends for.
  *
- * `new()` runs; effects and `ready` never do. Every instance is destroyed once rendered.
- * A suspended render is awaited and retried in place; no fallback is drawn.
+ * `new()` runs and is not awaited; effects and `ready` never do. Owned instances are destroyed once rendered.
+ * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
  * A `catch` boundary handles an error once, then renders again; a second error propagates.
- * Portals render nothing.
+ * A portal leaves only its marker.
  */
 async function renderToString(node: Node): Promise<Output> {
   const rules: string[] = [];
@@ -105,6 +135,9 @@ async function renderToString(node: Node): Promise<Output> {
 
   try {
     const html = await range('fragment', walk(node, pass, context));
+
+    if (roots.size) attachRoots(sink);
+
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
 
     return { html, css };
@@ -251,6 +284,8 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
   const { sink } = pass;
   let attributes = '';
 
+  if (!TAG.test(tag)) throw new TypeError(`Invalid element name "${tag}".`);
+
   const claimed = serving(sink, () => {
     const resolved = appearance?.context?.resolve(props, tag);
 
@@ -267,13 +302,11 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
       continue;
     }
 
-    if (SKIPPED.has(key) || /^on[A-Z]/.test(key) || typeof next == 'function') continue;
+    if (SKIPPED.has(key) || /^on/i.test(key) || typeof next == 'function') continue;
     if (key == 'value' || key == 'checked' || key == 'selected') continue;
-    if (next === null || next === undefined || next === false && !STRINGIFIED.test(key)) continue;
+    if (!ATTRIBUTE.test(key)) throw new TypeError(`Invalid attribute name "${key}".`);
 
-    const name = ALIASES[key] || (inSvg ? key : key.toLowerCase());
-
-    attributes += next === true && !STRINGIFIED.test(key) ? ` ${name}=""` : ` ${name}="${escape(String(next), true)}"`;
+    attributes += attribute(NAMES[key] || (inSvg ? key : key.toLowerCase()), key, next);
   }
 
   if (claimed.className) attributes += ` class="${escape(claimed.className, true)}"`;
@@ -282,35 +315,57 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if (style) attributes += ` style="${escape(style, true)}"`;
 
-  for (const key of ['value', 'checked', 'selected']) {
-    const next = props[key];
+  const entry = props.value ?? props.defaultValue;
+  const checked = props.checked ?? props.defaultChecked;
 
-    if (next === null || next === undefined || next === false || tag == 'textarea' && key == 'value') continue;
-
-    attributes += next === true ? ` ${key}=""` : ` ${key}="${escape(String(next), true)}"`;
-  }
+  if (tag != 'textarea' && tag != 'select') attributes += attribute('value', 'value', entry);
+  attributes += attribute('checked', 'checked', checked);
+  attributes += attribute('selected', 'selected', props.selected ?? (tag == 'option' && pass.selected === String(props.value ?? childrenText(props.children)) || undefined));
 
   const open = `<${tag}${attributes}>`;
 
   if (VOID.has(tag) && !inSvg) return open;
 
+  const content = CONTENT.find((key) => props[key] != null);
   let inner: string;
 
-  if (props.dangerouslySetInnerHTML) inner = props.dangerouslySetInnerHTML.__html || '';
-  else if (tag == 'textarea' && props.value != null) inner = escape(String(props.value));
-  else if (RAW.has(tag)) inner = childrenText(props.children);
-  else
-    inner = await walk(
-      props.children,
-      pass,
-      context,
-      claimed.context || appearance?.author
-        ? { author: appearance?.author, context: claimed.context, entries: [] }
-        : undefined,
-      inSvg && tag != 'foreignObject'
-    );
+  if ('dangerouslySetInnerHTML' in props) inner = props.dangerouslySetInnerHTML?.__html || '';
+  else if (props.innerHTML != null) inner = String(props.innerHTML);
+  else if (content) inner = escape(String(props[content]));
+  else if (tag == 'textarea' && entry != null) inner = escape(String(entry));
+  else if (RAW.has(tag)) inner = childrenText(props.children).replace(CLOSING[tag], '<\\$1');
+  else {
+    const outer = pass.selected;
+
+    if (tag == 'select' && entry != null) pass.selected = String(entry);
+
+    try {
+      inner = await walk(
+        props.children,
+        pass,
+        context,
+        claimed.context || appearance?.author
+          ? { author: appearance?.author, context: claimed.context, entries: [] }
+          : undefined,
+        inSvg && tag != 'foreignObject'
+      );
+    } finally {
+      pass.selected = outer;
+    }
+  }
+
+  if ((tag == 'textarea' || tag == 'pre' || tag == 'listing') && inner[0] == '\n') inner = '\n' + inner;
 
   return `${open}${inner}</${tag}>`;
+}
+
+function attribute(name: string, key: string, value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (isStringified(key)) return ` ${name}="${escape(String(value), true)}"`;
+  if (name == 'hidden' && value === 'until-found') return ` ${name}="${value}"`;
+  if (BOOLEAN.has(name) || typeof value == 'boolean') return value ? ` ${name}=""` : '';
+
+  return ` ${name}="${escape(String(value), true)}"`;
 }
 
 function childrenText(value: unknown): string {

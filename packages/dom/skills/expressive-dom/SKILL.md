@@ -333,11 +333,14 @@ import { renderToString } from '@expressive/dom/server';
 const { html, css } = await renderToString(<App />);
 ```
 
-- Suspended renders and lazy components are awaited and retried in place - fallbacks never draw.
-- `new()` runs; effects and `ready` do not. Every instance is destroyed once rendered.
+Put `css` in a `<style>` in the document head. Calls are independent and can run concurrently.
+
+- Suspended renders and lazy components are awaited and retried in place - fallbacks never draw. Load data through `set(async …)` fields; `async new()` is not awaited.
+- `new()` runs; effects and `ready` do not. Owned instances are destroyed once rendered; a placed instance is left as it was.
 - A `catch` boundary handles one error, then its component renders again; a second error rejects.
-- Portals and event handlers render nothing. `value`, `checked` and `selected` become attributes; textarea `value` becomes its text.
-- Numbers in `css` take `px` from a fixed table of unitless properties instead of the CSSOM, and values are not normalized - rule text can differ from the browser's while class names match.
+- Portals leave a `<!--portal-->` marker and event handlers render nothing. `value`, `checked` and `selected` become attributes - a `<select>`'s `value` marks its options; textarea `value` becomes its text.
+- Attribute and tag names that would break markup throw, and closing tags inside `<script>` and `<style>` text are escaped.
+- Numbers in `css` take `px` from a fixed table of unitless properties instead of the CSSOM. A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's while class names match.
 
 There is no hydration: mounting with `render()` replaces the markup.
 
