@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component } from '@expressive/mvc';
 import { Portal, render } from '../index';
-import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
+import { flushMicrotasks, lazy, mockPromise, mount } from '../../test.setup';
 
 describe('Portal', () => {
   it('will resolve a selector target once and move when it changes', async () => {
@@ -169,6 +169,106 @@ describe('head elements', () => {
 
     unmount();
     expect(document.head.querySelector('meta[name=description], link[rel=canonical], title')).toBeNull();
+  });
+
+  it('will let the newest title win as titles mount and unmount in any order', async () => {
+    class Titles extends Component {
+      shown = ['A', 'B'];
+
+      render() {
+        return <div>{this.shown.map((name) => <title key={name}>{name}</title>)}</div>;
+      }
+    }
+
+    const [titles, , release] = mount(Titles);
+
+    expect(document.title).toBe('B');
+
+    for (const [shown, title] of [[['B'], 'B'], [['B', 'A'], 'A'], [['A'], 'A']] as const) {
+      titles.shown = [...shown];
+      await flushMicrotasks();
+      expect(document.title).toBe(title);
+    }
+
+    release();
+  });
+
+  it('will keep a title ahead after its boundary suspends and reveals', async () => {
+    const shell = document.createElement('title');
+    const [Lazy, loaded] = lazy<{ default: () => Component.Node }>();
+
+    shell.textContent = 'Shell';
+    document.head.append(shell);
+
+    class Page extends Component {
+      show = false;
+      fallback = <i>wait</i>;
+
+      render() {
+        return <><title>Page</title>{this.show && <Lazy />}</>;
+      }
+    }
+
+    const [page, root, release] = mount(Page);
+
+    expect(document.title).toBe('Page');
+
+    page.show = true;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('wait');
+
+    loaded.resolve({ default: () => <b>ready</b> });
+    await flushMicrotasks();
+    expect(root.textContent).toBe('ready');
+    expect(document.title).toBe('Page');
+
+    release();
+    shell.remove();
+  });
+
+  it('will move a slot ahead when it switches from meta to title', async () => {
+    const shell = document.createElement('title');
+
+    shell.textContent = 'Shell';
+    document.head.append(shell);
+
+    class Slot extends Component {
+      titled = false;
+
+      render() {
+        return <div>{this.titled ? <title>Page</title> : <meta name="x" content="y" />}</div>;
+      }
+    }
+
+    const [slot, , release] = mount(Slot);
+
+    expect(document.title).toBe('Shell');
+
+    slot.titled = true;
+    await flushMicrotasks();
+    expect(document.title).toBe('Page');
+
+    slot.titled = false;
+    await flushMicrotasks();
+    expect(document.head.querySelector('meta[name=x]')).not.toBeNull();
+    expect(document.title).toBe('Shell');
+
+    release();
+    shell.remove();
+  });
+
+  it('will keep microdata and shadow root elements in place', () => {
+    const root = document.body.appendChild(document.createElement('main'));
+    const unmount = render(<div {...{ itemScope: true } as any}><meta {...{ itemProp: 'price', content: '9' } as any} /></div>, root);
+
+    expect(root.innerHTML).toContain('<div itemscope=""><meta itemprop="price" content="9"></div>');
+    unmount();
+
+    const shadow = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+    const release = render(<link rel="stylesheet" href="/x.css" />, shadow);
+
+    expect(shadow.innerHTML).toContain('<link rel="stylesheet" href="/x.css">');
+    release();
   });
 
   it('will keep an svg title in place, but not one in foreignObject', () => {

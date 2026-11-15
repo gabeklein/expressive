@@ -433,6 +433,64 @@ describe('renderToString', () => {
     expect(head).toBe('<title>A &amp; B</title><meta name="description" content="about">');
   });
 
+  it('will put the latest title first, as render() leaves the head', async () => {
+    const { head } = await serve(
+      <div>
+        <title>Outer</title>
+        <meta name="a" content="1" />
+        <section><title>Inner</title></section>
+        <meta name="b" content="2" />
+      </div>
+    );
+
+    expect(head).toBe('<title>Inner</title><title>Outer</title><meta name="a" content="1"><meta name="b" content="2">');
+  });
+
+  it('will keep head elements only from the render a catch boundary kept', async () => {
+    let failed = false;
+
+    function Risky() {
+      if (!failed) {
+        failed = true;
+        throw new Error('broke');
+      }
+
+      return <p>ok</p>;
+    }
+
+    class Shell extends Component {
+      error = '';
+
+      catch(error: Error) {
+        this.error = error.message;
+      }
+
+      render() {
+        return <main><title>{this.error || 'Loading'}</title><Risky /></main>;
+      }
+    }
+
+    const { head } = await serve(<Shell />);
+
+    expect(head).toBe('<title>broke</title>');
+  });
+
+  it('will render a title from components as text, and keep microdata in place', async () => {
+    function Name() {
+      return 'Hello';
+    }
+
+    const { head, html } = await serve(
+      <div {...{ itemScope: true } as any}>
+        <title><Name /> | Site</title>
+        <meta {...{ itemProp: 'price', content: '9' } as any} />
+      </div>
+    );
+
+    expect(head).toBe('<title>Hello | Site</title>');
+    expect(html).toBe('<!--fragment--><div itemscope=""><!--portal--><meta itemprop="price" content="9"></div><!--/fragment-->');
+  });
+
   it('will await a suspended render and retry it in place', async () => {
     class Data extends Component {
       value = set(async () => 'loaded');

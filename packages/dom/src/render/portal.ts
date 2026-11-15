@@ -1,8 +1,10 @@
 import { Context } from '@expressive/mvc';
 
+import { isHoisted } from '../node/props';
 import { isVNode, PORTAL, vnode } from '../node/vnode';
 import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
+import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
 import { hostOf } from './suspense';
 import { complete } from './mount';
@@ -39,16 +41,17 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
   });
 }
 
-const HOISTED = new Set(['title', 'meta', 'link']);
+const SVG = 'http://www.w3.org/2000/svg';
 const LEAD = Symbol('lead');
 
 function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
-  if (!isVNode(value) || typeof value.type != 'string' || !HOISTED.has(value.type)) return value;
+  if (!isVNode(value) || !isHoisted(value.type, value.props)) return value;
 
   const { head } = parent.ownerDocument!;
-  const host = hostOf(parent);
+  const host = hostOf(parent) as Element;
 
-  if (head.contains(host) || host instanceof SVGElement && host.localName != 'foreignObject') return value;
+  if (head.contains(host) || parent.getRootNode() instanceof ShadowRoot) return value;
+  if (host.namespaceURI == SVG && host.localName != 'foreignObject') return value;
 
   return vnode(PORTAL, { into: head, children: value, [LEAD]: value.type == 'title' }, value.key);
 }
@@ -71,7 +74,24 @@ function reconcilePortal(fiber: Fiber, value: RenderNode, context: Context, boun
   reconcileChildren(fiber, fiber.portalEnd!.parentNode!, fiber.portalEnd!, value, context, boundary, appearance);
 }
 
+function leads(props: object) {
+  return !!(props as Record<symbol, unknown>)[LEAD];
+}
+
+function place(fiber: Fiber, content: globalThis.Node) {
+  if (leads(fiber.props!)) fiber.portalContainer!.prepend(content);
+  else fiber.portalContainer!.append(content);
+}
+
 function patchPortal(fiber: Fiber, value: VNode, context: Context, appearance?: Appearance) {
+  if (leads(fiber.props!) !== leads(value.props) && fiber.portalStart!.parentNode === fiber.portalContainer) {
+    const content = document.createDocumentFragment();
+
+    moveRange(fiber.portalStart!, fiber.portalEnd!, content);
+    fiber.props = value.props;
+    place(fiber, content);
+  }
+
   fiber.appearance = appearance;
   fiber.props = value.props;
   reconcilePortal(fiber, value.props.children, context, fiber.boundary, appearance);
@@ -82,4 +102,4 @@ function unmountPortal(fiber: Fiber) {
   (fiber.portalEnd as ChildNode).remove();
 }
 
-export { hoist, mountPortal, patchPortal, unmountPortal };
+export { hoist, mountPortal, patchPortal, place, unmountPortal };

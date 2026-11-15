@@ -11,7 +11,7 @@ import { unplaced } from './core/placement';
 import { isThenable, kindOf, source } from './node/kind';
 import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
-import { ALIASES, isStringified } from './node/props';
+import { ALIASES, isHoisted, isStringified } from './node/props';
 import type { Node, VNode } from './node/vnode';
 import { claim, componentProps, flatten, placed } from './style/claim';
 import type { Appearance } from './style/claim';
@@ -42,14 +42,17 @@ const CONTENT = ['textContent', 'innerText'];
 const CLOSING: Record<string, RegExp> = { script: /<\/(script)/gi, style: /<\/(style)/gi };
 const ATTRIBUTE = /^[^\s"'<>/=\u0000-\u001f\u007f]+$/;
 const TAG = /^[a-zA-Z][^\s"'<>/=\u0000-\u001f\u007f]*$/;
-const HOISTED = new Set(['title', 'meta', 'link']);
 
 interface Output {
   /** Markup for the container the node mounts in, as `render()` would leave it. */
   html: string;
   /** Rules the render emitted, for a `<style>` in the document head. */
   css: string;
-  /** `<title>`, `<meta>` and `<link>` elements rendered outside SVG, for the document head - `html` keeps a marker in their place. */
+  /**
+   * Hoisted `<title>`, `<meta>` and `<link>` elements, for the document head.
+   *
+   * The latest title comes first. `html` keeps a marker in their place.
+   */
   head: string;
 }
 
@@ -206,9 +209,13 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
     case 'element': {
       const node = value as VNode;
 
-      if (!HOISTED.has(node.type as string) || svg) return element(node, pass, context, appearance, svg);
+      if (!isHoisted(node.type, node.props) || svg) return element(node, pass, context, appearance, svg);
 
-      pass.head.push(await element(node, pass, context, appearance, svg));
+      const markup = await element(node, pass, context, appearance, svg);
+
+      if (node.type == 'title') pass.head.unshift(markup);
+      else pass.head.push(markup);
+
       return marker(pass);
     }
     case 'owned':
@@ -306,6 +313,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
   while (true) {
     let proxy = instance;
     const release = watch(instance, (current) => { proxy = current; });
+    const head = pass.head.slice();
 
     const frame = { count: 0 };
 
@@ -322,6 +330,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
       if (pass.signal?.aborted || index <= reached) throw error;
 
       reached = index;
+      pass.head.splice(0, Infinity, ...head);
       await settle(handler.call(instance, error instanceof Error ? error : new Error(String(error)), instance), pass.signal);
     } finally {
       if (handler) pass.frames.pop();
@@ -419,6 +428,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
     }
   }
 
+  if (tag == 'title') inner = inner.replace(/<!--[^>]*-->/g, '');
   if ((tag == 'textarea' || tag == 'pre' || tag == 'listing') && inner[0] == '\n') inner = '\n' + inner;
 
   return `${open}${inner}</${tag}>`;
