@@ -1,14 +1,46 @@
 import { get, has, Model } from '@expressive/mvc';
 import { event, listener } from '@expressive/mvc/observable';
 
-import { Control } from './control';
 import { Frame } from './frame';
-import { acquire } from './gate';
-import { Steps } from './steps';
-import type { Branch, Gate, Handler, Held, Lineage, Mode, Rescue, Slot, Ticket } from './types';
+import { adopt, chain, type Gate, grouped, type Handler, ISSUED, type Log, type Mode, type Restore, rule, RULES, signal, type Slot, type Ticket } from './shared';
+import { Control, Steps } from './steps';
 import { blame, fire, recover, refill, reset, restore, rewind, unwind } from './unwind';
-import { adopt, chain, grouped, MODES, rule, RULES, serial, signal, TOKEN } from './util';
-import { park, racing, Wait, wake } from './wait';
+import { acquire, park, racing, Wait, wake } from './wait';
+
+const MODES = { failed: 'error', aborted: 'abort', stopped: 'stop' } as const;
+
+const TOKEN = {
+  catch(this: Steps.Node, handler?: unknown) {
+    return ISSUED.get(this)!.rescue(this, handler);
+  }
+};
+
+function serial(error: unknown) {
+  if (!(error instanceof Error)) return error;
+
+  const { name, message, cause } = error;
+
+  return { name, message, ...cause !== undefined && { cause } };
+}
+
+interface Held {
+  prior: Record<string, unknown>;
+  log: Log;
+}
+
+interface Rescue {
+  key?: string;
+  fn?: Function;
+}
+
+interface Branch {
+  failed?: { cause: unknown };
+}
+
+interface Lineage {
+  restore: Restore;
+  caught: Steps.Node;
+}
 
 class Run extends Model {
   control = get(Control);

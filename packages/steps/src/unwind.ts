@@ -1,8 +1,13 @@
 import { Frame } from './frame';
 import { Run } from './run';
+import { chain, type Handler, type Kind, type Log, type Mode, type Restore } from './shared';
 import { Steps } from './steps';
-import type { Handler, Kind, Log, Mode, Restore, Unwound } from './types';
-import { chain } from './util';
+
+interface Unwound {
+  undone: Steps.Entry[];
+  kept: Set<string>;
+  failed?: { cause: unknown };
+}
 
 async function fire(run: Run, on: Handler[] | undefined, kind: Kind, cause: unknown, kept: Set<string>) {
   for (const handler of [...(on || [])].reverse())
@@ -199,4 +204,4 @@ function restore(run: Run, prior: Record<string, unknown>, log: Log) {
   for (const [, undo] of [...log].reverse()) undo();
 }
 
-export { blame, compensate, fire, recover, refill, reset, restore, rewind, undo, unwind };
+export { blame, fire, recover, refill, reset, restore, rewind, unwind };

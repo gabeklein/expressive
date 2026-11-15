@@ -1,40 +1,53 @@
 import { Frame } from './frame';
+import { Run } from './run';
 import { Steps } from './steps';
-import type { Handler, Kind, Ticket } from './types';
 
-const HOOKS = new Set(['before', 'after']);
+type Log = [key: string, undo: () => void][];
 
-const KEYS = ['status', 'active', 'queue', 'waiting', 'runs', 'error'] as const;
+interface Ticket {
+  args: unknown[];
+  promise: Promise<unknown>;
+  resolve(value: unknown): void;
+  reject(error: unknown): void;
+  awaited?: boolean;
+}
 
-const SLACK = 8;
+type Kind = 'reset' | 'catch' | 'abort' | 'close';
 
-const LONGEST = 2 ** 31 - 1;
+type Mode = 'error' | 'abort' | 'stop';
 
-const UNCAUGHT = ['gate', 'end'];
+interface Handler {
+  kind: Kind;
+  node: Steps.Node;
+  bare?: boolean;
+}
 
-const UNPLANNED = ['end', 'gate', 'wait'];
+type Restore = (into?: Frame, all?: boolean, within?: string) => void;
 
-const RESERVED = ['then', 'end', 'gate', 'wait'];
+interface Gate {
+  held: Set<Hold>;
+  queue: Waiter[];
+}
 
-const REFRESH = Symbol.for('@expressive/mvc.refresh');
+interface Hold {
+  run: Run;
+  from: string;
+}
+
+interface Slot {
+  max: number | ((...args: any[]) => number);
+  key: unknown;
+}
+
+interface Waiter {
+  hold: Hold;
+  max(): number;
+  grant(): void;
+}
 
 const ISSUED = new WeakMap<object, Frame>();
 
-const RETRY = new WeakSet<Function>();
-
 const RULES = new WeakSet<Error>();
-
-const KINDS: Kind[] = ['reset', 'catch', 'abort', 'close'];
-
-const MODES = { failed: 'error', aborted: 'abort', stopped: 'stop' } as const;
-
-const UNITS: Record<string, number> = { ms: 1, sec: 1e3, min: 6e4, hr: 36e5, day: 864e5 };
-
-const TOKEN = {
-  catch(this: Steps.Node, handler?: unknown) {
-    return ISSUED.get(this)!.rescue(this, handler);
-  }
-};
 
 function chain(error: unknown, cause: unknown) {
   if (error instanceof Error && error.cause === undefined) error.cause = cause;
@@ -48,24 +61,12 @@ function grouped(on: Handler[]) {
   return out;
 }
 
-function serial(error: unknown) {
-  if (!(error instanceof Error)) return error;
-
-  const { name, message, cause } = error;
-
-  return { name, message, ...cause !== undefined && { cause } };
-}
-
 function rule(message: string) {
   const error = new Error(message);
 
   RULES.add(error);
 
   return error;
-}
-
-function named(key: string) {
-  return key == 'gate' ? 'a gate' : `${key}()`;
 }
 
 function plain(value: unknown) {
@@ -80,16 +81,8 @@ function signal(key: unknown) {
   return typeof key != 'boolean' && key !== null;
 }
 
-function iterable(value: unknown): value is Iterable<unknown> {
-  return value != null && typeof (value as Iterable<unknown>)[Symbol.iterator] == 'function';
-}
-
 function valueless(args: unknown[]) {
   if (args.length) throw rule('end() takes no value; the result is what run returns.');
-}
-
-function outside(key: string, verb = 'called'): never {
-  throw rule(`${key} must be ${verb} inside a step.`);
 }
 
 class Handled<T> extends Promise<T> {
@@ -122,4 +115,5 @@ function adopt(parents: Map<string, string>, items: Steps.Node[], parent: string
   }
 }
 
-export { HOOKS, ISSUED, KEYS, KINDS, LONGEST, MODES, REFRESH, RESERVED, RETRY, RULES, SLACK, TOKEN, UNCAUGHT, UNITS, UNPLANNED, adopt, chain, grouped, handle, iterable, named, outside, plain, rule, serial, signal, valueless };
+export { ISSUED, RULES, adopt, chain, grouped, handle, plain, rule, signal, valueless };
+export type { Gate, Handler, Hold, Kind, Log, Mode, Restore, Slot, Ticket, Waiter };
