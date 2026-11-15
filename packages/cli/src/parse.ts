@@ -120,7 +120,7 @@ class Reader {
 
   private scan(routing: boolean): Spec | undefined {
     const level = this.levels.at(-1)!;
-    const subs = new Map(level.specs.filter((spec) => spec.kind == 'sub').map((spec) => [kebab(spec.key), spec]));
+    const subs = new Map(level.specs.filter((spec) => spec.kind == 'cmd').map((spec) => [kebab(spec.key), spec]));
     const positional = level.specs.some(isPositional);
 
     routing &&= subs.size > 0;
@@ -133,6 +133,11 @@ class Reader {
           const sub = subs.get(token);
 
           if (sub) return sub;
+
+          if (token == 'help') {
+            this.help = true;
+            continue;
+          }
           if (!positional) throw new Usage(`Unknown command "${token}".`);
         }
 

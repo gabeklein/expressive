@@ -2,7 +2,7 @@ import { Model } from '@expressive/mvc';
 import { expect, it } from 'vitest';
 
 import { help, usage } from './help';
-import { arg, args, flag, list, opt, SPECS, sub } from './input';
+import { arg, args, flag, list, opt, SPECS, cmd } from './input';
 
 const specs = (Type: Model.Type) => [SPECS.get(Type.new()) || []];
 
@@ -12,6 +12,7 @@ it('will list operands and options', () => {
     target = arg();
     files = args({ min: 1, help: 'files to check' });
     fix = flag({ short: 'f', help: 'rewrite in place' });
+    cache = flag({ short: 'c', default: true, help: 'skip the cache' });
     port = opt({ short: 'p', default: 3000, help: 'listen port' });
     level = opt({ default: 'info' });
     size = opt({ type: 'number' });
@@ -30,6 +31,7 @@ it('will list operands and options', () => {
       '',
       'Options:',
       '  -f, --fix            rewrite in place',
+      '  --no-cache           skip the cache',
       '  -p, --port <number>  listen port (default: 3000)',
       '  --level <value>      (default: info)',
       '  --size <number>',
@@ -63,8 +65,8 @@ it('will list commands and every option in scope', () => {
   class Parent extends Model {
     force = flag({ short: 'f', help: 'parent force' });
     entry = opt();
-    child = sub(Child, { help: 'go deeper' });
-    other = sub(Child);
+    child = cmd({ from: Child, help: 'go deeper' });
+    other = cmd({ from: Child });
   }
 
   const [parent] = specs(Parent);
@@ -81,15 +83,19 @@ it('will list commands and every option in scope', () => {
       'Options:',
       '  -f, --force      parent force',
       '  --entry <value>',
-      '  -h, --help       show this help'
+      '  -h, --help       show this help',
+      '',
+      'Run "parent help <command>" for a command\'s inputs.'
     ].join('\n')
   );
 
   expect(usage('parent', [parent])).toBe('Usage: parent [options] [command]');
 
-  expect(help('parent child', [parent, child])).toBe(
+  expect(help('parent child', [parent, child], true, 'go deeper')).toBe(
     [
       'Usage: parent child [options]',
+      '',
+      'go deeper',
       '',
       'Options:',
       '  --force          child force',

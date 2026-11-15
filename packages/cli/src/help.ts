@@ -1,4 +1,5 @@
-import type { Spec } from './input';
+import type { Spec, Target } from './input';
+import { locate } from './peer';
 import { isNamed, isPlural, isPositional, isRequired, kebab, label, valueType } from './parse';
 
 function operand(spec: Spec) {
@@ -9,6 +10,8 @@ function operand(spec: Spec) {
 }
 
 function option(spec: Spec) {
+  if (spec.kind == 'flag' && spec.config.default === true) return `--no-${kebab(spec.key)}`;
+
   const name = (spec.config.short ? `-${spec.config.short}, ` : '') + label(spec);
 
   if (spec.kind == 'flag') return name;
@@ -23,6 +26,12 @@ function describe(spec: Spec) {
   const shown = spec.kind != 'flag' && fallback !== undefined && !(Array.isArray(fallback) && !fallback.length);
 
   return shown ? `${help}${help && ' '}(default: ${fallback})`.trim() : help;
+}
+
+function summary({ config, target }: Spec) {
+  const { peer } = target as Target;
+
+  return peer && !locate(peer) ? `${config.help} (not installed)` : config.help || '';
 }
 
 function table(rows: [string, string][]) {
@@ -45,7 +54,7 @@ function scope(levels: Spec[][]) {
 
   return {
     operands: leaf.filter(isPositional),
-    commands: leaf.filter((spec) => spec.kind == 'sub'),
+    commands: leaf.filter((spec) => spec.kind == 'cmd'),
     options
   };
 }
@@ -58,16 +67,18 @@ function usage(name: string, levels: Spec[][], runs = true) {
   return ['Usage:', name, '[options]', ...command, ...operands.map(operand)].join(' ');
 }
 
-/** Full `--help` text - usage, then arguments, commands, and every option in scope with its help. */
-function help(name: string, levels: Spec[][], runs = true) {
+/** Full `--help` text - usage, what the command does, arguments, commands, and every option in scope. */
+function help(name: string, levels: Spec[][], runs = true, about?: string) {
   const { operands, commands, options } = scope(levels);
   const sections = [usage(name, levels, runs)];
+
+  if (about) sections.push(about);
 
   if (operands.length)
     sections.push('Arguments:\n' + table(operands.map((spec) => [operand(spec), describe(spec)])));
 
   if (commands.length)
-    sections.push('Commands:\n' + table(commands.map((spec) => [kebab(spec.key), spec.config.help || ''])));
+    sections.push('Commands:\n' + table(commands.map((spec) => [kebab(spec.key), summary(spec)])));
 
   sections.push(
     'Options:\n' +
@@ -76,6 +87,8 @@ function help(name: string, levels: Spec[][], runs = true) {
         [options.some((spec) => spec.config.short == 'h') ? '--help' : '-h, --help', 'show this help']
       ])
   );
+
+  if (commands.length) sections.push(`Run "${name} help <command>" for a command's inputs.`);
 
   return sections.join('\n\n');
 }

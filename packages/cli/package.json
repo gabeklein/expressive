@@ -1,7 +1,7 @@
 {
   "name": "@expressive/cli",
   "version": "0.1.0",
-  "description": "Commands from Models: argv onto fields, one dispatcher for every expressive command.",
+  "description": "Commands from Models: argv onto fields, subcommands across packages under one shared command.",
   "keywords": [
     "expressive",
     "mvc",
@@ -20,7 +20,8 @@
     "url": "git+https://github.com/gabeklein/expressive.git"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "type": "module",
   "sideEffects": false,
@@ -30,10 +31,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./bin": {
-      "types": "./dist/bin.d.ts",
-      "default": "./dist/bin.js"
     }
   },
   "engines": {

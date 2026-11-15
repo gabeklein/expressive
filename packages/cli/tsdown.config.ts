@@ -7,8 +7,7 @@ export default defineConfig({
   outDir: 'dist',
   outExtensions: () => ({ js: '.js' }),
   entry: {
-    index: 'src/index.ts',
-    bin: 'src/bin.ts'
+    index: 'src/index.ts'
   },
   format: ['esm'],
   outputOptions: {
