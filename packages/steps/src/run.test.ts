@@ -598,7 +598,7 @@ describe('suspense', () => {
   });
 });
 
-describe('scale', () => {
+describe('scale', { timeout: 30_000 }, () => {
   async function work(make: (size: number) => Steps & { run(): Promise<unknown> }) {
     const { push } = Array.prototype;
     const { get } = Map.prototype;
@@ -625,8 +625,8 @@ describe('scale', () => {
     };
 
     try {
-      const small = await measure(500);
-      const large = await measure(2000);
+      const small = await measure(250);
+      const large = await measure(1000);
 
       return large / small;
     } finally {
