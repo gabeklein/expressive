@@ -1,5 +1,11 @@
 # @expressive/rpc
 
+## 0.4.1
+
+### Patch Changes
+
+- [#721](https://github.com/gabeklein/expressive/pull/721) [`0ba15e1`](https://github.com/gabeklein/expressive/commit/0ba15e14cddaa91acb635648e6f14d5f3ab2ba0e) `handler()` and `scoped()` from `@expressive/rpc/http` work in a server the app runs itself (`Bun.serve`, Node, a Worker), with no plugin and no `install()` call. Before, `Current`, a function gate's Models and `Current` in the app's own routes failed with "Could not find Current in context" unless `install()` from `/protocol` ran first. The docs cover serving calls from your own Bun server and a `Bun.serve` deploy for the built bundle.
+
 ## 0.4.0
 
 ### Minor Changes

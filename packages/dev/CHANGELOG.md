@@ -1,5 +1,22 @@
 # @expressive/dev
 
+## 0.2.0
+
+### Minor Changes
+
+- [#716](https://github.com/gabeklein/expressive/pull/716) [`356fbd2`](https://github.com/gabeklein/expressive/commit/356fbd24c6199d0edfe9696acbcf6b91ed0e3bda) **`expressive build` is now `expressive dev build`**, and bare `expressive` lists commands instead of starting the dev server - run `expressive dev`. The commands are built on `@expressive/cli`: `--help` and `help <command>` work at every level, and an unknown option is a usage error instead of being ignored.
+
+  The `expressive` bin is shared: it also runs `expressive sql` when `@expressive/sql` is installed, and lists it as not installed otherwise.
+
+  `expressive dev --no-inspect` runs without the `/__inspect` relay; `runDev` takes `{ inspect: false }` for the same.
+
+### Patch Changes
+
+- Updated dependencies [[`6cabc0b`](https://github.com/gabeklein/expressive/commit/6cabc0bccf7aab2f8b71da382b0fbc2a435fa30c), [`e71f3c9`](https://github.com/gabeklein/expressive/commit/e71f3c9b5d75c63f5efa44a15f3349ec9477afd7), [`a64f20c`](https://github.com/gabeklein/expressive/commit/a64f20c4a3a4b0b1e0c63ddd59fd2d7ba016b503), [`a64f20c`](https://github.com/gabeklein/expressive/commit/a64f20c4a3a4b0b1e0c63ddd59fd2d7ba016b503), [`0ba15e1`](https://github.com/gabeklein/expressive/commit/0ba15e14cddaa91acb635648e6f14d5f3ab2ba0e)]:
+  - @expressive/cli@0.2.0
+  - @expressive/dom@0.12.2
+  - @expressive/rpc@0.4.1
+
 ## 0.1.5
 
 ### Patch Changes

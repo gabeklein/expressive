@@ -1,5 +1,11 @@
 # @expressive/react
 
+## 0.94.5
+
+### Patch Changes
+
+- [#731](https://github.com/gabeklein/expressive/pull/731) [`5f75a62`](https://github.com/gabeklein/expressive/commit/5f75a621ffa50d6a671d40d0511d32adcf70cad2) When installed, the Vite plugin prebundles `@expressive/mvc` and `@expressive/mvc/hot`, the modules it injects. A cold dev start no longer re-optimizes dependencies partway through the first page load, which could load a second copy of mvc.
+
 ## 0.94.4
 
 ### Patch Changes

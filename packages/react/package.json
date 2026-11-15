@@ -1,6 +1,6 @@
 {
   "name": "@expressive/react",
-  "version": "0.94.4",
+  "version": "0.94.5",
   "description": "Class-based reactive state for React. Define state and logic as plain classes; components update when the values they read change.",
   "keywords": [
     "expressive",
