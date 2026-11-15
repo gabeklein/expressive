@@ -758,6 +758,10 @@ class Run extends Model {
   _pending = new Map<string, () => void>();
   _holding = new Map<() => void, string>();
   _dropped = new Set<string>();
+  _version = 0;
+  _below = new Map<string, [number, boolean]>();
+  _flight = new Set<Frame>();
+  _stack: Frame[] = [];
   _spent = new Set<string>();
   _unwinding?: Promise<unknown> = undefined;
   _drained: (() => void)[] = [];
@@ -814,7 +818,7 @@ class Run extends Model {
   }
 
   flight() {
-    return this.frames.filter((frame) => !frame._undo);
+    return [...this._flight];
   }
 
   stale() {
@@ -822,7 +826,39 @@ class Run extends Model {
   }
 
   dropped(id: string) {
-    return this.line(id).some((at) => this._dropped.has(at) || (at !== id && this._dropped.has(at + '^')));
+    return this._dropped.has(id) || this.below(id);
+  }
+
+  below(id: string) {
+    const { _dropped: dropped, _below: memo, _version: version } = this;
+    const path: string[] = [];
+    let result = false;
+
+    for (let at = id; ; ) {
+      const known = memo.get(at);
+
+      if (known && known[0] == version) {
+        result = known[1];
+        break;
+      }
+
+      const parent = this._parent.get(at);
+
+      path.push(at);
+
+      if (!parent) break;
+
+      if (dropped.has(parent) || dropped.has(parent + '^')) {
+        result = true;
+        break;
+      }
+
+      at = parent;
+    }
+
+    for (const at of path) memo.set(at, [version, result]);
+
+    return result;
   }
 
   line(id: string) {
@@ -892,6 +928,7 @@ class Run extends Model {
     const restore = await this.serial(() => (failed ? this.rewind(id, cause) : this.recover(item!, cause, 'error', false)));
 
     this._dropped.delete(shield);
+    this._version++;
 
     if (this.stale()) return restore();
 
@@ -977,9 +1014,13 @@ class Run extends Model {
   }
 
   racing(item: Steps.Node) {
+    const races = this.waits.filter((wait) => !!wait._race && wait.answers.includes(item.key));
+
+    if (!races.length) return;
+
     const line = this.line(item.id);
 
-    return this.waits.filter((wait) => !!wait._race && line.includes(wait.id) && wait.answers.includes(item.key))[0];
+    return races.find((wait) => line.includes(wait.id));
   }
 
   lose(wait: Wait, won: string[], answer: Steps.Node) {
@@ -989,6 +1030,7 @@ class Run extends Model {
 
     for (const racer of losers) {
       this._dropped.add(racer.id);
+      this._version++;
       this._lost.add(racer.id);
     }
 
@@ -1149,6 +1191,7 @@ class Run extends Model {
 
     branch.failed = { cause: error };
     this._dropped.add(at);
+    this._version++;
 
     for (const frame of this.discard()) frame._abort.abort();
 
@@ -1285,6 +1328,7 @@ class Run extends Model {
 
     wait._answer = answer;
     this._parent.set(node.id, wait.id);
+    this._version++;
     this.waits.delete(wait);
 
     if (wait._race) this.lose(wait, won, node);
@@ -1308,6 +1352,9 @@ class Run extends Model {
     const lineage = this._lineage.get(id);
     const fn = inline || control._steps.get(key)!;
     const frame = this.frames.add({ id, key, args, _wake: wake, _undo: undo, _owner: this._owner.get(id), _retried: this.retried(node), ...lineage && { _restore: lineage.restore, _caught: lineage.caught } });
+
+    if (!undo) this._stack.push(frame), this._flight.add(frame);
+
     const input = this._errors.has(id) ? [this._errors.get(id)] : args;
     let body = false;
 
@@ -1411,12 +1458,18 @@ class Run extends Model {
         }
       } else this.fault(frame._fixed || entry, !on && !frame._fixed, error);
     } finally {
+      const { _stack: stack, _flight: flight } = this;
+
       this.frames.delete(frame);
-      control.active = this.flight().at(-1)?.key;
+      flight.delete(frame);
+
+      while (stack.length && !flight.has(stack.at(-1)!)) stack.pop();
+
+      control.active = stack.at(-1)?.key;
 
       for (const check of [...this._quiet]) check();
 
-      if (!this.flight().length) for (const resolve of this._drained.splice(0)) resolve();
+      if (!flight.size) for (const resolve of this._drained.splice(0)) resolve();
     }
   }
 
@@ -1483,7 +1536,7 @@ class Run extends Model {
   }
 
   drain() {
-    if (this.flight().length) return new Promise<void>((resolve) => this._drained.push(resolve));
+    if (this._flight.size) return new Promise<void>((resolve) => this._drained.push(resolve));
   }
 
   finish() {
@@ -1521,6 +1574,8 @@ class Run extends Model {
     this._held.clear();
     this._on.clear();
     this.frames.clear();
+    this._flight.clear();
+    this._stack = [];
     this.waits.clear();
   }
 

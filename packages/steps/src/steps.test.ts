@@ -9940,3 +9940,100 @@ describe('review', () => {
     expect(caught).toEqual([]);
   });
 });
+
+describe('scale', () => {
+  async function work(make: (size: number) => Steps & { run(): Promise<unknown> }) {
+    const { push } = Array.prototype;
+    const { get } = Map.prototype;
+    let count = 0;
+
+    const measure = async (size: number) => {
+      const test = make(size);
+
+      count = 0;
+      await test.run();
+      await test;
+
+      return count;
+    };
+
+    Array.prototype.push = function (this: unknown[], ...items: unknown[]) {
+      count++;
+      return push.apply(this, items);
+    };
+
+    Map.prototype.get = function (this: Map<unknown, unknown>, key: unknown) {
+      count++;
+      return get.call(this, key);
+    };
+
+    try {
+      const small = await measure(500);
+      const large = await measure(2000);
+
+      return large / small;
+    } finally {
+      Array.prototype.push = push;
+      Map.prototype.get = get;
+    }
+  }
+
+  class Chain extends Steps {
+    size = 0;
+    count = 0;
+
+    async run() {
+      this.page(0);
+    }
+
+    protected async page(index: number) {
+      await Promise.resolve();
+      this.count = index + 1;
+
+      if (this.count < this.size) this.page(this.count);
+    }
+  }
+
+  it('will grow linearly with a chain of steps', async () => {
+    const growth = await work((size) => Chain.new({ size }));
+
+    expect(growth).toBeLessThan(5);
+  });
+
+  it('will grow linearly with a chain of steps after a caught failure', async () => {
+    class Test extends Chain {
+      async run() {
+        this.fail().catch();
+        this.page(0);
+      }
+
+      protected async fail() {
+        throw new Error('skipped');
+      }
+    }
+
+    const growth = await work((size) => Test.new({ size }));
+
+    expect(growth).toBeLessThan(5);
+  });
+
+  it('will grow linearly with a wide group of steps', async () => {
+    class Test extends Steps {
+      size = 0;
+      found = map<number, number>();
+
+      async run() {
+        this.then(Array.from({ length: this.size }, (_, index) => index), this.visit);
+      }
+
+      protected async visit(index: number) {
+        await Promise.resolve();
+        this.found.set(index, index);
+      }
+    }
+
+    const growth = await work((size) => Test.new({ size }));
+
+    expect(growth).toBeLessThan(5);
+  });
+});
