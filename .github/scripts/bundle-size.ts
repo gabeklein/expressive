@@ -1,9 +1,11 @@
 import { gzipSync } from 'bun';
 import type { BunPlugin } from 'bun';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { withWorkspaceLinks } from './workspace-links';
+
+const STEP = 0.05;
 
 /**
  * Gzip bytes per import shape, measured against built dist and written to
@@ -13,14 +15,13 @@ import { withWorkspaceLinks } from './workspace-links';
  * shaking.
  *
  * With `--base <report>` each shape is compared to that report, and `--gate`
- * fails when one grows by more than {@link STEP} in a single change. Feature
+ * fails when one grows by more than `STEP` in a single change. Feature
  * growth stays well under it; a broken `sideEffects` flag or a module pulled
  * into the wrong entry does not. There are no absolute budgets to re-set.
  *
  * `--partial` skips a shape that fails to bundle, for measuring a base that
  * predates it.
  */
-const STEP = 0.05;
 
 const CASES = [
   {
@@ -111,7 +112,12 @@ const release = withWorkspaceLinks();
 
 const flag = (name: string) => {
   const at = process.argv.indexOf(name);
-  return at < 0 ? undefined : process.argv[at + 1];
+  if (at < 0) return undefined;
+
+  const value = process.argv[at + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${name} needs a path.`);
+
+  return value;
 };
 
 const out = flag('--out') ?? 'size-report.json';
@@ -137,12 +143,12 @@ try {
       format: 'esm',
       external: ['react', 'react-dom', 'react/jsx-runtime'],
       define: { 'process.env.NODE_ENV': '"production"' }
-    }).catch((error) => ({ success: false, logs: [error], outputs: [] }) as const);
+    }).catch((cause) => {
+      if (partial) return console.warn(`Skipped "${probe.name}": ${cause.message}`);
+      throw new Error(`Failed to bundle "${probe.name}".`, { cause });
+    });
 
-    if (!built.success) {
-      if (partial) continue;
-      throw new AggregateError(built.logs, `Failed to bundle "${probe.name}".`);
-    }
+    if (!built) continue;
 
     const source = await built.outputs[0].text();
     const bytes = gzipSync(Buffer.from(source), { level: 9 }).length;
@@ -159,7 +165,7 @@ await Bun.write(
   JSON.stringify(Object.fromEntries(results.map(({ name, bytes }) => [name, bytes])), null, 2)
 );
 
-if (basePath && existsSync(basePath)) {
+if (basePath) {
   const base: Record<string, number> = JSON.parse(readFileSync(basePath, 'utf8'));
   for (const result of results) result.base = base[result.name];
 }
@@ -171,7 +177,8 @@ const delta = (result: { bytes: number; base?: number }) => {
   const ratio = change(result);
   if (ratio === undefined) return 'new';
   const diff = result.bytes - result.base!;
-  return `${diff > 0 ? '+' : ''}${diff} B (${(ratio * 100).toFixed(1)}%)`;
+  const sign = diff > 0 ? '+' : '';
+  return `${sign}${diff} B (${sign}${(ratio * 100).toFixed(1).replace(/^-0\.0$/, '0.0')}%)`;
 };
 const jumped = results.filter((result) => (change(result) ?? 0) > STEP);
 
@@ -181,7 +188,7 @@ for (const result of results)
     (basePath ? `  ${delta(result)}${jumped.includes(result) ? '  JUMP' : ''}` : '')
   );
 
-if (process.env.GITHUB_STEP_SUMMARY)
+if (process.env.GITHUB_STEP_SUMMARY && basePath)
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
     [

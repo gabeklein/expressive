@@ -12,7 +12,7 @@ install in the `setup` action doubles as the internal-dependency desync guard -
 a workspace version that falls outside a sibling's range cannot reach main.
 
 Non-blocking signal: `changeset status` (a preview of which packages would
-bump). `build:site` measures bundle size for the figures the site quotes.
+bump).
 
 Beside `verify`, one run per push also holds:
 

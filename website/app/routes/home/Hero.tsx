@@ -3,11 +3,13 @@ import type { CSSProperties } from 'react';
 
 declare const __LIB_VERSION__: string;
 declare const __LIB_TESTS__: number;
+declare const __LIB_SIZES__: Record<string, number> | null;
+
+const typical = __LIB_SIZES__?.['react: typical app'];
 import { Link } from 'react-router';
 import CopyPill from '@/components/CopyPill';
 import Playground from '@/components/Playground';
 import code from '@/components/Snippet';
-import { sizes } from '../../components/Size';
 
 export function Hero() {
   return (
@@ -62,7 +64,7 @@ export function Hero() {
           </p>
           <p className="mx-auto mt-2 max-w-md text-center font-mono text-xs text-fd-muted-foreground/80 lg:mx-0">
             {__LIB_TESTS__.toLocaleString('en-US')} tests · 100% coverage
-            {sizes && ` · ${(sizes['react: typical app'] / 1024).toFixed(1)} kB min+gzip`} · v{__LIB_VERSION__}
+            {typeof typical === 'number' && ` · ${(typical / 1024).toFixed(1)} kB min+gzip`} · v{__LIB_VERSION__}
           </p>
         </div>
       </div>

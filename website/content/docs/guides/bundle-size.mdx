@@ -3,7 +3,7 @@ title: Bundle Size
 description: What Expressive costs your bundle, measured per import shape
 ---
 
-Every figure on this page is produced by `.github/scripts/bundle-size.ts` when the site is built, which bundles the built packages and gzips the result — the numbers are measured, not typed in, so they cannot drift from the release they describe.
+Every import-shape figure on this page is measured when the site is built: `.github/scripts/bundle-size.ts` bundles the built packages and gzips the result, so the numbers cannot drift from the code they describe.
 
 ## What it costs
 
@@ -53,4 +53,4 @@ The practical consequence: Expressive rewards using more of what you have alread
 
 ## How growth is caught
 
-Shapes are measured one per import rather than as a single total — the point is to notice when the adapter floor grows, or when a formerly shakeable export stops shaking, neither of which a total would reveal. Every pull request measures each shape against its base branch and lists the difference in its checks. A shape that grows more than 5% in one change fails the check: ordinary feature growth stays well under that, while lost tree-shaking does not. The check is advisory — intended growth is explained in the pull request and merged.
+Each import shape is measured separately rather than as one total — the point is to notice when the adapter floor grows, or when a formerly shakeable export stops shaking, neither of which a total would reveal. Every pull request measures each shape against its base branch and lists the difference in its checks. A shape that grows more than 5% in one change fails the check: ordinary feature growth stays well under that, while lost tree-shaking does not. The check is advisory — intended growth is explained in the pull request and merged.
