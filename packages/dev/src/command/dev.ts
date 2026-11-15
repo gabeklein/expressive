@@ -4,7 +4,7 @@ import { Model } from "@expressive/mvc";
 export default class Dev extends Model {
   build = cmd({
     lazy: () => import("./build"),
-    help: "dist/client (static app) and dist/server/index.js (node service)",
+    help: "Build for production - dist/client (static app) and dist/server/index.js (node service).",
   });
 
   async run() {

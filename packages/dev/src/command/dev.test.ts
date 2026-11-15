@@ -37,5 +37,5 @@ it("will build as a subcommand", async () => {
 
 it("will list build in help", async () => {
   expect(await dev(["--help"], out, "expressive dev")).toBe(0);
-  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive dev \[options\] \[command\]\n[^]*build +dist\/client/);
+  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive dev \[options\] \[command\]\n[^]*build +Build for production/);
 });
