@@ -1,4 +1,4 @@
-import './render/adapter';
+import './core/adapter';
 import './jsx-runtime';
 
 export { Css } from './style/css';

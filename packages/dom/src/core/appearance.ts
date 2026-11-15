@@ -8,15 +8,23 @@ import { unmatched } from '../style/diagnose';
 import type { Appearance, Style } from '../style/claim';
 import { enterAppearance } from '../style/protocol';
 import { owner } from './adapter';
-import type { Fiber } from './fiber';
 import { latest } from './hot';
+
+interface Rendered {
+  kind: string;
+  type?: unknown;
+  props?: Record<string, any>;
+  instance?: object;
+  appearance?: Appearance;
+  consumed?: boolean;
+}
 
 let rendering: object | undefined;
 
 let touched = false;
 
 const observed = new WeakMap<object, Record<string, any>>();
-const bare = new WeakMap<Fiber, Appearance>();
+const bare = new WeakMap<Rendered, Appearance>();
 
 function observe(props: Record<string, any>) {
   if (!('style' in props)) return props;
@@ -45,7 +53,7 @@ function observe(props: Record<string, any>) {
   return output;
 }
 
-function consume(fiber: Fiber, render: () => RenderNode) {
+function consume(fiber: Rendered, render: () => RenderNode) {
   const previous = rendering;
   const read = touched;
 
@@ -62,7 +70,7 @@ function consume(fiber: Fiber, render: () => RenderNode) {
   }
 }
 
-function renderedAppearance(fiber: Fiber): Appearance | undefined {
+function renderedAppearance(fiber: Rendered): Appearance | undefined {
   if (fiber.kind != 'component' && fiber.kind != 'function') return fiber.appearance;
 
   const style = fiber.props?.style as Style;
@@ -95,7 +103,7 @@ function authored(value: RenderNode, appearance: Appearance | undefined): Appear
 
   if (!author || !appearance || author === appearance.author) return appearance;
 
-  for (let fiber = appearance.author as Fiber | undefined; fiber; fiber = fiber.appearance?.author as Fiber | undefined)
+  for (let fiber = appearance.author as Rendered | undefined; fiber; fiber = fiber.appearance?.author as Rendered | undefined)
     if (fiber.appearance?.author === author)
       return { author, context: fiber.appearance.lexical, entries: appearance.entries };
 
@@ -103,3 +111,4 @@ function authored(value: RenderNode, appearance: Appearance | undefined): Appear
 }
 
 export { authored, consume, observe, renderedAppearance };
+export type { Rendered };

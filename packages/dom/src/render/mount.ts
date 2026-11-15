@@ -1,17 +1,19 @@
-import { Component, Context, Model } from '@expressive/mvc';
+import { Context } from '@expressive/mvc';
+import type { Component } from '@expressive/mvc';
 import { Fragment } from '@expressive/mvc/jsx-runtime';
 
-import { isVNode, PORTAL, VNODE } from '../node/vnode';
+import { kindOf } from '../node/kind';
+import type { Collection } from '../node/kind';
 import type { Node as RenderNode, VNode } from '../node/vnode';
 import { placed } from '../style/claim';
 import type { Appearance } from '../style/claim';
-import { dispose } from './adapter';
-import { isCollection, mountCollection } from './collection';
-import { mountComponent, mountFunction, mountOwnedComponent, renderable, unmountComponent } from './component';
+import { dispose } from '../core/adapter';
+import { mountCollection } from './collection';
+import { mountComponent, mountFunction, mountOwnedComponent, unmountComponent } from './component';
 import { mountElement, unmountElement } from './element';
 import { range, removeRange } from './fiber';
 import type { Boundary, Fiber } from './fiber';
-import { untrack } from './hot';
+import { untrack } from '../core/hot';
 import { mountPortal, unmountPortal } from './portal';
 import { reconcile } from './reconcile';
 import { rendering } from './render';
@@ -30,30 +32,27 @@ function complete<T extends Fiber>(fiber: T, work: () => void): T {
 }
 
 function mount(value: RenderNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance): Fiber {
-  if (typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint') {
-    const text = document.createTextNode(String(value));
-    parent.insertBefore(text, before);
-    return { kind: 'text', value, context, start: text, end: text, children: [] };
+  switch (kindOf(value, rendering)) {
+    case 'text': {
+      const text = document.createTextNode(String(value));
+      parent.insertBefore(text, before);
+      return { kind: 'text', value, context, start: text, end: text, children: [] };
+    }
+    case 'component':
+      return mountComponent(value as Component, parent, before, context, boundary, placed(appearance));
+    case 'collection':
+      return mountCollection(value as Collection, parent, before, context, boundary, appearance);
+    case 'fragment':
+      return mountFragment(value as VNode, parent, before, context, boundary, appearance);
+    case 'portal':
+      return mountPortal(value as VNode, parent, before, context, boundary, appearance);
+    case 'element':
+      return mountElement(value as VNode, parent, before, context, boundary, appearance);
+    case 'owned':
+      return mountOwnedComponent(value as VNode, parent, before, context, boundary, appearance);
+    default:
+      return mountFunction(value as VNode, parent, before, context, boundary, appearance);
   }
-
-  if (renderable(value)) return mountComponent(value, parent, before, context, boundary, placed(appearance));
-  if (value instanceof Model) notRenderable(value.constructor);
-  if (isCollection(value))
-    return mountCollection(value, parent, before, context, boundary, appearance);
-
-  if (!isVNode(value)) throw unrenderable(value);
-
-  if (value.type === Fragment) return mountFragment(value, parent, before, context, boundary, appearance);
-  if (value.type === PORTAL) return mountPortal(value, parent, before, context, boundary, appearance);
-  if (typeof value.type == 'string') return mountElement(value, parent, before, context, boundary, appearance);
-  if (typeof value.type != 'function') throw unrenderable(value.type, true);
-
-  if (value.type === Component || value.type.prototype instanceof Component)
-    return mountOwnedComponent(value, parent, before, context, boundary, appearance);
-
-  if (value.type.prototype instanceof Model) notRenderable(value.type);
-
-  return mountFunction(value, parent, before, context, boundary, appearance);
 }
 
 function mountFragment(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
@@ -100,32 +99,4 @@ function unmountFiber(fiber: Fiber) {
   removeRange(fiber.start, fiber.end);
 }
 
-function unrenderable(value: unknown, asType?: boolean) {
-  const foreign = typeof value == 'symbol'
-    ? value.description == PORTAL.description
-    : !!value && typeof value == 'object' && !isVNode(value) && Object.getOwnPropertySymbols(value).some((key) => key.description == VNODE.description);
-  const what = foreign ? `${typeof value == 'symbol' ? 'a portal' : 'an element'} from another copy of @expressive/dom` : describe(value);
-  const message = asType ? `Cannot use ${what} as an element type` : `Cannot render ${what}`;
-
-  return new TypeError(`${message}${within()}.${foreign ? ' Is the package loaded twice?' : ''}`);
-}
-
-function describe(value: unknown) {
-  if (typeof value == 'function') return value.name ? `function ${value.name}` : 'an anonymous function';
-  if (!value || typeof value != 'object') return String(value);
-  if (isVNode(value)) return 'an element';
-
-  const type = Object.getPrototypeOf(value)?.constructor;
-
-  return type && type !== Object ? `an instance of ${type.name || 'an anonymous class'}` : 'a plain object';
-}
-
-function within() {
-  return rendering ? ` in ${(rendering.type as Function).name || 'an anonymous component'}` : '';
-}
-
-function notRenderable(type: Function): never {
-  throw new Error(`${type.name}${within()} is a Model - extend Component to render it, or provide it with <Component for={${type.name}}>.`);
-}
-
-export { complete, mount, notRenderable, patchFragment, patchText, unmountFiber };
+export { complete, mount, patchFragment, patchText, unmountFiber };

@@ -1,18 +1,19 @@
-import { Context, Model } from '@expressive/mvc';
+import { Context } from '@expressive/mvc';
 
+import { isCollection, renderable, source } from '../node/kind';
 import { isVNode } from '../node/vnode';
 import type { Key, Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
-import { isCollection, patchCollection } from './collection';
+import { patchCollection } from './collection';
 import { attach } from './commits';
-import { patchComponent, patchFunction, renderable } from './component';
+import { patchComponent, patchFunction } from './component';
 import { patchProps } from './element';
 import { move } from './fiber';
 import type { Boundary, Fiber } from './fiber';
-import { same } from './hot';
+import { same } from '../core/hot';
 import { mount, patchFragment, patchText, unmountFiber } from './mount';
 import { patchPortal } from './portal';
-import { authored } from './style';
+import { authored } from '../core/appearance';
 import { gather } from './suspense';
 
 function reconcile(fiber: Fiber, value: RenderNode, context: Context, boundary?: Boundary, appearance?: Appearance) {
@@ -108,14 +109,6 @@ function compatible(fiber: Fiber, value: RenderNode) {
   return true;
 }
 
-function source(value: RenderNode): RenderNode {
-  if (value instanceof Model) return value.is;
-
-  while (isCollection(value) && isCollection(Object.getPrototypeOf(value)))
-    value = Object.getPrototypeOf(value);
-
-  return value;
-}
 
 function slotsOf(value: unknown) {
   const output: [RenderNode, string][] = [];
@@ -134,4 +127,4 @@ function keyOf(value: RenderNode): Key {
   return isVNode(value) ? value.key : undefined;
 }
 
-export { reconcile, reconcileChildren, source };
+export { reconcile, reconcileChildren };

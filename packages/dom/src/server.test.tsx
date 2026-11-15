@@ -316,12 +316,34 @@ describe('renderToString', () => {
     root.remove();
   });
 
-  it('will throw for what it cannot render', async () => {
+  it('will throw what render() throws for what it cannot render', async () => {
     class Plain extends Model {}
 
-    await expect(serve(Plain.new() as any)).rejects.toThrow('Plain is a Model');
-    await expect(serve(createElement(Plain as any))).rejects.toThrow('Plain is a Model');
-    await expect(serve({} as any)).rejects.toThrow('Cannot render [object Object].');
-    await expect(serve(createElement(Symbol.iterator as any))).rejects.toThrow('Cannot render Symbol(Symbol.iterator).');
+    function Holder() {
+      return <div>{{} as any}</div>;
+    }
+
+    const nodes = [
+      Plain.new() as any,
+      createElement(Plain as any),
+      {} as any,
+      createElement(Symbol.iterator as any),
+      <Holder />
+    ];
+
+    for (const node of nodes) {
+      let expected = '';
+
+      try {
+        render(node, document.createElement('main'));
+      } catch (error) {
+        expected = (error as Error).message;
+      }
+
+      expect(expected).not.toBe('');
+      await expect(serve(node)).rejects.toThrow(expected);
+    }
+
+    await expect(serve(<Holder />)).rejects.toThrow('Cannot render a plain object in Holder.');
   });
 });

@@ -10,7 +10,7 @@ import type { Boundary, Fiber } from './fiber';
 import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
 import { focusing } from './render';
-import { afterFlush } from './scheduler';
+import { afterFlush } from '../core/scheduler';
 import { hostOf } from './suspense';
 
 const SVG = 'http://www.w3.org/2000/svg';

@@ -1,26 +1,21 @@
 import './jsx-runtime';
 
-import { Component, Context, Model, unbind } from '@expressive/mvc';
+import { Component, Context, unbind } from '@expressive/mvc';
 import { watch } from '@expressive/mvc/observable';
-import { Fragment } from '@expressive/mvc/jsx-runtime';
 
+import { call, dispose, enter } from './core/adapter';
+import type { Scope } from './core/adapter';
+import { authored, consume, observe, renderedAppearance } from './core/appearance';
+import type { Rendered } from './core/appearance';
+import { unplaced } from './core/placement';
+import { isThenable, kindOf, source } from './node/kind';
+import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
-import { isVNode, PORTAL } from './node/vnode';
 import type { Node, VNode } from './node/vnode';
-import { call, dispose, enter } from './render/adapter';
-import type { Scope } from './render/adapter';
-import { isCollection } from './render/collection';
-import { renderable, unplaced } from './render/component';
-import type { Fiber, Placement } from './render/fiber';
-import { latest } from './render/hot';
-import { notRenderable } from './render/mount';
-import { source } from './render/reconcile';
-import { authored, consume, observe, renderedAppearance } from './render/style';
-import { isThenable } from './render/suspense';
 import { claim, componentProps, placed } from './style/claim';
 import type { Appearance } from './style/claim';
-import type { Declaration } from './style/declarations';
 import { serialize } from './style/declarations';
+import type { Declaration } from './style/declarations';
 import { unmatched } from './style/diagnose';
 import { reserved, serving } from './style/protocol';
 import type { Sink } from './style/protocol';
@@ -133,25 +128,29 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
 
   if (value === null || value === undefined || typeof value == 'boolean') return '';
 
+  const by = appearance?.author as Rendered | undefined;
+
   value = source(value);
   appearance = authored(value, appearance);
 
-  if (typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint') return escape(String(value));
-  if (renderable(value)) return range('component', component(value, pass, context, placed(appearance), svg));
-  if (value instanceof Model) notRenderable(value.constructor);
-  if (isCollection(value)) return range('collection', collection(value, pass, context, appearance, svg));
-  if (!isVNode(value)) throw new TypeError(`Cannot render ${String(value)}.`);
-  if (value.type === Fragment) return range('fragment', walk(value.props.children, pass, context, appearance, svg));
-  if (value.type === PORTAL) return '<!--portal-->';
-  if (typeof value.type == 'string') return element(value, pass, context, appearance, svg);
-  if (typeof value.type != 'function') throw new Error(`Cannot render ${String(value.type)}.`);
-
-  if (value.type === Component || value.type.prototype instanceof Component)
-    return range('component', owned(value, pass, context, appearance, svg));
-
-  if (value.type.prototype instanceof Model) notRenderable(value.type);
-
-  return range('function', fn(value, pass, context, appearance, svg));
+  switch (kindOf(value, by)) {
+    case 'text':
+      return escape(String(value));
+    case 'component':
+      return range('component', component(value as Component, pass, context, placed(appearance), svg));
+    case 'collection':
+      return range('collection', collection(value as Collection, pass, context, appearance, svg));
+    case 'fragment':
+      return range('fragment', walk((value as VNode).props.children, pass, context, appearance, svg));
+    case 'portal':
+      return '<!--portal-->';
+    case 'element':
+      return element(value as VNode, pass, context, appearance, svg);
+    case 'owned':
+      return range('component', owned(value as VNode, pass, context, appearance, svg));
+    default:
+      return range('function', fn(value as VNode, pass, context, appearance, svg));
+  }
 }
 
 async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
@@ -164,7 +163,7 @@ async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
     }
 }
 
-function scoped(context: Context, fiber: Fiber, render: () => Node) {
+function scoped(context: Context, fiber: Rendered, render: () => Node) {
   const scope = { active: true, context, subscriptions: [] } as unknown as Scope;
 
   try {
@@ -176,13 +175,13 @@ function scoped(context: Context, fiber: Fiber, render: () => Node) {
 
 async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
   const resolved = serving(pass.sink, () => componentProps(value.type, value.props, appearance));
-  const type = latest(value.type as Function);
+  const type = value.type as Function;
   const fiber = {
     kind: 'function',
     type: value.type,
     props: observe(resolved.props),
     appearance: resolved.appearance
-  } as Fiber;
+  } as Rendered;
 
   const output = await attempt(pass, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
 
@@ -202,7 +201,7 @@ async function owned(value: VNode, pass: Pass, context: Context, appearance?: Ap
 
 async function component(instance: Component, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean, props?: Record<string, any>): Promise<string> {
   const child = context.push(instance, props ? () => instance.set(null) : undefined);
-  const placement = (props || {}) as Placement;
+  const placement = (props || {}) as Pick<Component, 'catch'>;
   const handler = placement.catch || instance.catch;
   const fiber = {
     kind: 'component',
@@ -210,7 +209,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
     props: props || instance.props,
     instance,
     appearance
-  } as Fiber;
+  } as Rendered;
   let caught = false;
 
   pass.contexts.push(child);
