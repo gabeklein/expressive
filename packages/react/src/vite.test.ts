@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseAst } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,10 +47,47 @@ it('will apply during serve only, after other transforms', () => {
   expect(expressive()).toMatchObject({ apply: 'serve', enforce: 'post' });
 });
 
-it('will prebundle the runtime it injects', () => {
-  const config = expressive().config as Function;
+describe('prebundle', () => {
+  const dirs: string[] = [];
 
-  expect(config()).toEqual({ optimizeDeps: { include: ['@expressive/mvc', '@expressive/mvc/hot'] } });
+  function project(entries: string[], linked?: boolean) {
+    const root = mkdtempSync(join(tmpdir(), 'expressive-vite-'));
+    const source = join(root, linked ? 'packages' : 'node_modules', '@expressive/mvc');
+    const exports = Object.fromEntries(entries.map((entry) => [entry ? `./${entry}` : '.', `./${entry || 'index'}.js`]));
+
+    dirs.push(root);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@expressive/mvc', exports }));
+    for (const entry of entries) writeFileSync(join(source, `${entry || 'index'}.js`), '');
+
+    if (linked) {
+      mkdirSync(join(root, 'node_modules', '@expressive'), { recursive: true });
+      symlinkSync(source, join(root, 'node_modules', '@expressive/mvc'), 'junction');
+    }
+
+    return root;
+  }
+
+  function include(root: string) {
+    return (expressive().config as Function)({ root }).optimizeDeps.include;
+  }
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('will prebundle the installed modules it injects', () => {
+    expect(include(project(['', 'hot']))).toEqual(['@expressive/mvc', '@expressive/mvc/hot']);
+  });
+
+  it('will not prebundle a linked or missing module', () => {
+    expect(include(project(['', 'hot'], true))).toEqual([]);
+    expect(include(project(['hot']))).toEqual(['@expressive/mvc/hot']);
+  });
+
+  it('will resolve from the working directory without a root', () => {
+    expect((expressive().config as Function)({}).optimizeDeps.include).toEqual([]);
+  });
 });
 
 it.each([
