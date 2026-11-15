@@ -1,5 +1,7 @@
 interface Claiming {
   root: globalThis.Node;
+  to: globalThis.Node | null;
+  adopted: WeakSet<globalThis.Node>;
   cursors: Map<globalThis.Node, globalThis.Node | null>;
   claimed: WeakSet<globalThis.Node>;
   touched: Set<globalThis.Node>;
@@ -13,13 +15,15 @@ function claiming(parent: globalThis.Node) {
 }
 
 function next(parent: globalThis.Node) {
-  const { claimed, cursors, touched } = state!;
+  const { claimed, cursors, root, to, touched } = state!;
+  const stop = parent === root ? to : null;
   let node = cursors.has(parent) ? cursors.get(parent)! : parent.firstChild;
 
   touched.add(parent);
-  while (node && claimed.has(node)) node = node.nextSibling;
+  if (node?.parentNode !== parent) return null;
+  while (node && node !== stop && claimed.has(node)) node = node.nextSibling;
 
-  return node;
+  return node === stop ? null : node;
 }
 
 function adopt<T extends globalThis.Node>(
@@ -38,6 +42,7 @@ function adopt<T extends globalThis.Node>(
 
   if (candidate && match(candidate)) {
     state!.claimed.add(candidate);
+    state!.adopted.add(candidate);
     state!.cursors.set(parent, candidate.nextSibling);
     return candidate as T;
   }
@@ -46,6 +51,30 @@ function adopt<T extends globalThis.Node>(
   parent.insertBefore(node, candidate || before);
   state!.claimed.add(node);
   return node;
+}
+
+function adopted(node: globalThis.Node) {
+  return !!state?.adopted.has(node);
+}
+
+function touch(node: globalThis.Node) {
+  state!.touched.add(node);
+}
+
+function aside<T>(work: () => T): T {
+  const previous = state;
+
+  state = undefined;
+
+  try {
+    return work();
+  } finally {
+    state = previous;
+  }
+}
+
+function reserve(start: globalThis.Node, end: globalThis.Node) {
+  state?.kept.set(start, end);
 }
 
 function adoptText(parent: globalThis.Node, before: globalThis.Node | null, value: string) {
@@ -63,7 +92,7 @@ function adoptText(parent: globalThis.Node, before: globalThis.Node | null, valu
 function adoptRange(parent: globalThis.Node, before: globalThis.Node | null, kind: string) {
   const start = adopt(parent, before, () => document.createComment(kind), (node) => isComment(node, kind));
 
-  if (!claiming(parent) || !state!.cursors.has(parent) || state!.cursors.get(parent) !== start.nextSibling)
+  if (!adopted(start))
     return [start, place(parent, start, document.createComment(`/${kind}`))];
 
   const end = closer(start, kind);
@@ -85,6 +114,7 @@ function closer(start: globalThis.Node, kind: string) {
 
   for (let node = start.nextSibling; node; node = node.nextSibling) {
     if (node.nodeType != 8) continue;
+    if (state!.claimed.has(node)) return;
 
     const { data } = node as Comment;
 
@@ -100,10 +130,10 @@ function isComment(node: globalThis.Node, data: string) {
 
 /** Leave a suspended range's server markup in place until it renders. */
 function keep(start: globalThis.Node, end: globalThis.Node) {
-  if (!state || !claiming(start.parentNode!)) return false;
+  if (!adopted(start)) return false;
 
-  state.kept.set(start, end);
-  state.cursors.set(start.parentNode!, end.nextSibling);
+  state!.kept.set(start, end);
+  state!.cursors.set(start.parentNode!, end.nextSibling);
   return true;
 }
 
@@ -116,9 +146,11 @@ function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Nod
   const previous = state;
   const current: Claiming = (state = {
     root,
+    to,
+    adopted: new WeakSet(),
     cursors: new Map(from ? [[root, from.nextSibling]] : []),
     claimed: new WeakSet(from && to ? [from, to] : []),
-    touched: new Set(),
+    touched: new Set(from ? [root] : []),
     kept: new Map()
   });
 
@@ -140,4 +172,4 @@ function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Nod
   }
 }
 
-export { adopt, adoptRange, adoptText, hydrating, keep };
+export { adopt, adopted, adoptRange, adoptText, aside, hydrating, isComment, keep, reserve, touch };

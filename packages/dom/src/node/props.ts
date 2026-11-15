@@ -1,4 +1,10 @@
-const ALIASES: Record<string, string> = { autoFocus: 'autofocus', contentEditable: 'contenteditable', htmlFor: 'for' };
+const ALIASES: Record<string, string> = {
+  acceptCharset: 'accept-charset',
+  autoFocus: 'autofocus',
+  contentEditable: 'contenteditable',
+  htmlFor: 'for',
+  httpEquiv: 'http-equiv'
+};
 const ENUMERATED = ['contentEditable', 'contenteditable', 'draggable', 'spellcheck'];
 const HOISTED = new Set(['title', 'meta', 'link']);
 

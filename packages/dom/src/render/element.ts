@@ -12,11 +12,12 @@ import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
 import { focusing } from './render';
 import { afterFlush } from '../core/scheduler';
-import { adopt } from './hydrate';
+import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
+const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
 const restoring = new WeakSet<Document>();
 
@@ -43,15 +44,43 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     events: new Map()
   };
 
+  const adopting = adopted(element);
+
+  if (adopting) {
+    prune(element, value.props);
+    fiber.claimed = { className: element.getAttribute('class') || '', declarations: {} };
+    if (tag != 'textarea' && !CONTENT.some((key) => key in value.props)) touch(element);
+  }
+
   complete(fiber, () => {
-    patchProps(fiber, value.props, appearance);
+    patchProps(fiber, value.props, appearance, adopting);
   });
 
-  if (value.props.autofocus || value.props.autoFocus) focusing.push(element);
+  if (!adopting && (value.props.autofocus || value.props.autoFocus)) focusing.push(element);
   return fiber;
 }
 
-function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appearance) {
+function attributeOf(key: string) {
+  return ALIASES[key] || key;
+}
+
+function prune(element: Element, props: Record<string, any>) {
+  const expected = new Set(['class']);
+
+  for (const key of Object.keys(props)) {
+    const value = props[key];
+
+    if (value == null || value === false || typeof value == 'function') continue;
+
+    expected.add(attributeOf(key).toLowerCase());
+    if (key == 'defaultValue' || key == 'defaultChecked') expected.add(key.slice(7).toLowerCase());
+  }
+
+  for (const name of element.getAttributeNames())
+    if (name == 'style' || !expected.has(name.toLowerCase())) element.removeAttribute(name);
+}
+
+function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appearance, adopting?: boolean) {
   const element = fiber.start as Element;
   const previous = fiber.props!;
   const raw = 'dangerouslySetInnerHTML' in next;
@@ -73,6 +102,7 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
 
     if (key == 'children' || key == 'className' || key == 'key' || key == 'ref' || key == 'style' || CONTROLS.includes(key)) continue;
     if (previous[key] === next[key]) continue;
+    if (adopting && unchanged(element, key, next[key])) continue;
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
@@ -149,7 +179,7 @@ function patchProp(fiber: Fiber, element: Element, key: string, previous: any, n
     return;
   }
 
-  const name = ALIASES[key] || key;
+  const name = attributeOf(key);
 
   if (isStringified(key) && next != null) {
     element.setAttribute(name, String(next));
@@ -178,6 +208,10 @@ function patchProp(fiber: Fiber, element: Element, key: string, previous: any, n
     } catch {}
 
   element.setAttribute(name, next === true ? '' : String(next));
+}
+
+function unchanged(element: Element, key: string, value: unknown) {
+  return (typeof value == 'string' || typeof value == 'number') && element.getAttribute(attributeOf(key)) === String(value);
 }
 
 function restoreTarget(event: Event) {

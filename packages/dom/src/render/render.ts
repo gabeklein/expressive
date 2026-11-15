@@ -30,8 +30,9 @@ function render(node: RenderNode, container: Container): () => void {
 }
 
 /**
- * Mount a node over markup `renderToString` left in the container, adopting its nodes instead of replacing them.
+ * Mount a node over `renderToString` markup in the container, adopting its nodes.
  *
+ * Nodes the render does not claim are removed.
  * Mismatched nodes are replaced where they differ. A subtree that suspends keeps its server markup until it renders.
  * Returns the unmount, as `render()` does.
  */

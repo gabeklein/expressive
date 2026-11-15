@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { Component, set } from '@expressive/mvc';
 
 import { hydrate, Portal, render, style } from '../index';
 import { renderToString } from '../server';
+import { adoptRange, hydrating } from './hydrate';
 import { flushMicrotasks, mockPromise } from '../../test.setup';
 
 async function served(node: () => any) {
@@ -164,6 +165,206 @@ describe('hydrate', () => {
     expect(document.body.lastElementChild!.textContent).toBe('away');
 
     unmount();
+  });
+
+  it('will mend a range of another kind without sharing its end', async () => {
+    const Fn = () => <p>fn</p>;
+
+    class Child extends Component {
+      render() {
+        return <p>child</p>;
+      }
+    }
+
+    let client = false;
+
+    class App extends Component {
+      show = true;
+
+      render() {
+        return this.show ? client ? <Child /> : <Fn /> : <i>none</i>;
+      }
+    }
+
+    let app!: App;
+    const root = await served(() => <App />);
+
+    client = true;
+    hydrate(<App is={(x: App) => { app = x; }} />, root);
+    expect(root.innerHTML).toBe(rendered(<App />));
+
+    app.show = false;
+    await flushMicrotasks();
+    expect(root.innerHTML).toBe('<!--fragment--><!--component--><i>none</i><!--/component--><!--/fragment-->');
+  });
+
+  it('will not claim past a resumed range, and show a fallback for one the server lacked', async () => {
+    const data = mockPromise<string>();
+
+    class Widget extends Component {
+      value = set(() => data);
+      fallback = <i>wait</i>;
+
+      render() {
+        return <div>{this.value}</div>;
+      }
+    }
+
+    let client = false;
+    const node = () => <main>{client && <Widget />}<div>footer</div></main>;
+    const root = await served(node);
+    const footer = root.querySelector('div')!;
+
+    client = true;
+    hydrate(node(), root);
+    expect(root.textContent).toBe('waitfooter');
+
+    data.resolve('widget');
+    await flushMicrotasks();
+    expect(root.innerHTML).toBe('<!--fragment--><main><!--component--><div>widget</div><!--/component--><div>footer</div></main><!--/fragment-->');
+    expect(root.querySelectorAll('div')[1]).toBe(footer);
+  });
+
+  it('will clear a kept range that resolves to nothing', async () => {
+    const data = mockPromise<null>();
+
+    class Widget extends Component {
+      value = set(() => data);
+
+      render() {
+        return this.value;
+      }
+    }
+
+    const root = document.body.appendChild(document.createElement('main'));
+
+    root.innerHTML = '<!--fragment--><!--component--><b>stale</b><!--/component--><!--/fragment-->';
+    hydrate(<Widget />, root);
+    expect(root.textContent).toBe('stale');
+
+    data.resolve(null);
+    await flushMicrotasks();
+    expect(root.innerHTML).toBe('<!--fragment--><!--component--><!--/component--><!--/fragment-->');
+  });
+
+  it('will show a catch fallback for a render that fails on the client', async () => {
+    let fail = false;
+
+    class Profile extends Component {
+      render() {
+        if (fail) throw new Error('boom');
+        return <p>a</p>;
+      }
+    }
+
+    class Page extends Component {
+      fallback = <i>oops</i>;
+
+      catch() {
+        return new Promise<void>(() => {});
+      }
+
+      render() {
+        return <Profile />;
+      }
+    }
+
+    const root = await served(() => <Page />);
+
+    fail = true;
+    hydrate(<Page />, root);
+    expect(root.textContent).toBe('oops');
+  });
+
+  it('will keep a portal into the hydrated root working', async () => {
+    class App extends Component {
+      items = ['a'];
+
+      render() {
+        return (
+          <section>
+            <div id="modal" />
+            <Portal into="#modal">{this.items.map((item) => <i key={item}>{item}</i>)}</Portal>
+          </section>
+        );
+      }
+    }
+
+    let app!: App;
+    const root = await served(() => <App />);
+
+    hydrate(<App is={(x: App) => { app = x; }} />, root);
+    expect(root.querySelector('#modal')!.textContent).toBe('a');
+
+    app.items = ['a', 'b'];
+    await flushMicrotasks();
+    expect(root.querySelector('#modal')!.textContent).toBe('ab');
+  });
+
+  it('will drop server children and attributes the client does not render', () => {
+    const root = document.body.appendChild(document.createElement('main'));
+
+    root.innerHTML = '<!--fragment--><ul class="stale" title="x" style="color: red;"><li>a</li></ul><!--/fragment-->';
+    hydrate(<ul data-n={1}>{[]}</ul>, root);
+    expect(root.innerHTML).toBe('<!--fragment--><ul data-n="1"></ul><!--/fragment-->');
+  });
+
+  it('will not rewrite matching attributes or move focus', async () => {
+    const node = () => <><img src="/a.png" /><input autoFocus /><input /></>;
+    const root = await served(node);
+    const image = root.querySelector('img')!;
+    const other = root.querySelectorAll('input')[1];
+    const write = vi.spyOn(image, 'src', 'set');
+
+    other.focus();
+    hydrate(node(), root);
+
+    expect(write).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(other);
+  });
+
+  it('will keep text a textarea or raw markup carries, and a default value', async () => {
+    const node = () => (
+      <form>
+        <textarea defaultValue="typed" />
+        <div dangerouslySetInnerHTML={{ __html: '<b>raw</b>' }} />
+        <input defaultValue="x" />
+      </form>
+    );
+    const root = await served(node);
+
+    hydrate(node(), root);
+    expect(root.querySelector('textarea')!.value).toBe('typed');
+    expect(root.querySelector('div')!.innerHTML).toBe('<b>raw</b>');
+    expect(root.querySelector('input')!.getAttribute('value')).toBe('x');
+  });
+
+  it('will not close a range on the end of the one resuming around it', () => {
+    const root = document.createElement('div');
+
+    root.innerHTML = '<!--component--><!--component--><!--/component-->';
+
+    const [from, , to] = [...root.childNodes];
+    const [, end] = hydrating(root, () => adoptRange(root, to, 'component'), from, to);
+
+    expect(end).not.toBe(to);
+  });
+
+  it('will replace the server copy of a head element', async () => {
+    const node = () => <div><title>Page</title><meta name="description" content="about" /></div>;
+    const { head, html } = await renderToString(node());
+    const root = document.body.appendChild(document.createElement('main'));
+
+    document.head.insertAdjacentHTML('afterbegin', head);
+    root.innerHTML = html;
+
+    const unmount = hydrate(node(), root);
+
+    expect(document.head.querySelectorAll('title, meta[name=description]').length).toBe(2);
+    expect(document.title).toBe('Page');
+
+    unmount();
+    expect(document.head.querySelector('title, meta[name=description]')).toBeNull();
   });
 
   it('will mend markup missing a closing marker or holding a foreign one', () => {
