@@ -80,13 +80,20 @@ describe('prebundle', () => {
     expect(include(project(['', 'hot']))).toEqual(['@expressive/mvc', '@expressive/mvc/hot']);
   });
 
-  it('will not prebundle a linked or missing module', () => {
+  it('will not prebundle a linked module', () => {
     expect(include(project(['', 'hot'], true))).toEqual([]);
+  });
+
+  it('will not prebundle a missing module', () => {
     expect(include(project(['hot']))).toEqual(['@expressive/mvc/hot']);
   });
 
-  it('will resolve from the working directory without a root', () => {
-    expect((expressive().config as Function)({}).optimizeDeps.include).toEqual([]);
+  it('will resolve from the working directory, or a root relative to it', () => {
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(project(['', 'hot']));
+
+    expect((expressive().config as Function)({}).optimizeDeps.include).toEqual(['@expressive/mvc', '@expressive/mvc/hot']);
+    expect(include('.')).toEqual(['@expressive/mvc', '@expressive/mvc/hot']);
+    cwd.mockRestore();
   });
 });
 
