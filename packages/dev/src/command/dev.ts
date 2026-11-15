@@ -2,7 +2,7 @@ import { cmd, flag } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
 export default class Dev extends Model {
-  inspect = flag({ default: true, help: "serve the /__inspect relay agents use to read and drive the page" });
+  inspect = flag({ default: true, help: "skip the /__inspect relay agents use to read and drive the page" });
 
   build = cmd({
     lazy: () => import("./build"),
