@@ -73,8 +73,8 @@ function renderedAppearance(fiber: Fiber): Appearance | undefined {
     ? enterAppearance(latest(sub.owner.constructor), sub.key)
     : enterAppearance(latest(fiber.type as Function));
 
-  if (instance && Object.hasOwn(instance, 'render'))
-    context = enterAppearance(latest(unbind((instance as Component).render)), undefined, context);
+  if (instance)
+    context = enterAppearance(unbind((instance as Component).render), undefined, context);
 
   unmatched(fiber.props!, [fiber.appearance?.lexical, context], fiber.appearance?.author, instance);
 

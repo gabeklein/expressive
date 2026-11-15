@@ -281,7 +281,7 @@ function emit(block: Block, depth: number, document: Document) {
   ).join('');
   const selector = `${scope}.%${states ? `:where(${states})` : ''}${element}`;
   const css = block.group ? `\0${groups++}` : serialize(document, block.declarations);
-  const key = [...at, selector, css].join('\0');
+  const key = [...at, selector, css, block.ordinal].join('\0');
   const label = [
     depth ? `${block.name}-d${depth}` : block.name,
     ...when.map((condition) => typeof condition == 'string' ? condition : condition.on.name + condition.state),

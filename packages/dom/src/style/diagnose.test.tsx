@@ -37,6 +37,20 @@ describe('unmatched flags', () => {
     expect(warn.mock.calls).toEqual([['"_note" matches no rule - Bare has no style().']]);
   });
 
+  it('will not warn for a flag a render field styles', () => {
+    const Page = () => <p _box />;
+
+    style(Page, { _box: { color: 'red' } });
+
+    class Login extends Component {
+      render = Page;
+    }
+
+    place(<Login />);
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('will warn for a flag written outside any component', () => {
     place(<p _loose />);
 
