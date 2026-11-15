@@ -5,6 +5,7 @@ import { Run } from './run';
 import { Steps } from './steps';
 import type { Change, Collection, Handler, Kind, Log, Restore, Slot } from './types';
 import { ISSUED, KINDS, RETRY, SLACK, UNCAUGHT, UNITS, UNPLANNED, adopt, grouped, iterable, named, plain, rule, valueless } from './util';
+import { route, wake } from './wait';
 
 class Frame extends Model {
   run = get(Run);
@@ -130,9 +131,9 @@ class Frame extends Model {
   answer(key: string, args: unknown[]) {
     const { run } = this;
     let live = run.control._current === run;
-    const wait = live && run.route(key, args, this);
+    const wait = live && route(run, key, args, this);
 
-    if (wait) return run.wake(wait, key, args);
+    if (wait) return wake(run, wait, key, args);
 
     throw rule(`${this.key} has settled; ${key} cannot run.`);
   }

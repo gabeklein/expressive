@@ -5,6 +5,7 @@ import { Run } from './run';
 import { Aborted, Steps, Stopped } from './steps';
 import type { Gate, Ticket } from './types';
 import { handle, rule, signal } from './util';
+import { accepts, route, wake } from './wait';
 
 class Control extends Model {
   status: Steps.Status = 'idle';
@@ -35,15 +36,15 @@ class Control extends Model {
     if (key == 'run') return this.start(args);
 
     const { _current: current } = this;
-    const wait = current && current.route(key, args);
+    const wait = current && route(current, key, args);
 
-    if (wait) return current!.wake(wait, key, args);
+    if (wait) return wake(current!, wait, key, args);
 
     throw rule(`${key} cannot be called from outside; call run() to start a run.`);
   }
 
   accepts(key: string) {
-    return !!this._current?.accepts(key);
+    return !!this._current && accepts(this._current, key);
   }
 
   hook(key: string, ...args: unknown[]) {

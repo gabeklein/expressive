@@ -1,13 +1,13 @@
 import { get, has, Model } from '@expressive/mvc';
-import { event, listener, watch } from '@expressive/mvc/observable';
+import { event, listener } from '@expressive/mvc/observable';
 
 import { Control } from './control';
 import { Frame } from './frame';
-import { GATES, gate, pump } from './gate';
-import { Aborted, Steps } from './steps';
-import type { Answer, Branch, Gate, Handler, Held, Hold, Kind, Lineage, Log, Mode, Rescue, Restore, Slot, Ticket, Unwound, Waiter } from './types';
-import { MODES, RULES, TOKEN, adopt, chain, grouped, handle, rule, serial, signal } from './util';
-import { Wait } from './wait';
+import { acquire } from './gate';
+import { Steps } from './steps';
+import type { Branch, Gate, Handler, Held, Kind, Lineage, Log, Mode, Rescue, Restore, Slot, Ticket, Unwound } from './types';
+import { MODES, RULES, TOKEN, adopt, chain, grouped, rule, serial, signal } from './util';
+import { Wait, park, racing, wake } from './wait';
 
 class Run extends Model {
   control = get(Control);
@@ -87,16 +87,6 @@ class Run extends Model {
     return Object.assign(Object.create(TOKEN), { id: `${key}#${count}`, key, args }) as Steps.Node;
   }
 
-  route(key: string, args: unknown[], from?: Frame) {
-    const open = this.waits.filter((wait) => wait.answers.includes(key));
-
-    return open.find((wait) => wait._from === from) || open.find((wait) => wait.args[0] === args[0]) || open[0];
-  }
-
-  accepts(key: string, except?: Wait) {
-    return this.waits.any((wait) => wait !== except && wait._open && wait.answers.includes(key));
-  }
-
   flight() {
     return [...this._flight];
   }
@@ -162,7 +152,7 @@ class Run extends Model {
     }
 
     if (item.answers) {
-      const answer = await this.park(item, from!);
+      const answer = await park(this, item, from!);
 
       if (answer) {
         const frame = await answer.frame;
@@ -174,9 +164,9 @@ class Run extends Model {
     }
     else if (item.key == 'end') await this.terminate(item);
     else {
-      const wait = this.racing(item);
+      const wait = racing(this, item);
 
-      if (wait) return void this.wake(wait, item.key, item.args, item);
+      if (wait) return void wake(this, wait, item.key, item.args, item);
 
       const frame = await this.invoke(item);
 
@@ -291,56 +281,6 @@ class Run extends Model {
     else if (kind == 'catch' && this._inline.has(node.id)) node.args = [cause];
 
     return node;
-  }
-
-  racing(item: Steps.Node) {
-    const races = this.waits.filter((wait) => !!wait._race && wait.answers.includes(item.key));
-
-    if (!races.length) return;
-
-    const line = this.line(item.id);
-
-    return races.find((wait) => line.includes(wait.id));
-  }
-
-  lose(wait: Wait, won: string[], answer: Steps.Node) {
-    const race = wait._race!;
-    const losers = (race.group || [race]).filter((racer) => !won.includes(racer.id));
-    const cause = new Aborted(`${answer.key} answered ${wait.id}.`);
-
-    for (const racer of losers) {
-      this._dropped.add(racer.id);
-      this._version++;
-      this._lost.add(racer.id);
-    }
-
-    for (const frame of this.discard()) frame._abort.abort(cause);
-    for (const [release, from] of this._holding) if (this.dropped(from)) release();
-
-    for (const racer of losers)
-      this._losing.set(
-        racer.id,
-        this.serial(async () => {
-          await this.quiet(racer.id);
-          (await this.recover(racer, cause, 'abort'))(undefined, false, racer.id);
-        })
-      );
-  }
-
-  quiet(id: string) {
-    const busy = () => this.flight().some((frame) => this.line(frame.id).includes(id));
-
-    return new Promise<void>((resolve) => {
-      const check = () => {
-        if (busy()) return;
-
-        this._quiet.delete(check);
-        resolve();
-      };
-
-      this._quiet.add(check);
-      check();
-    });
   }
 
   terminate(item: Steps.Node) {
@@ -496,7 +436,7 @@ class Run extends Model {
         continue;
       }
 
-      const release = await this.acquire(item, from);
+      const release = await acquire(this, item, from);
 
       if (!release) return;
 
@@ -508,114 +448,6 @@ class Run extends Model {
 
       return;
     }
-  }
-
-  acquire(item: Steps.Node, from: Frame) {
-    if (this.stale() || this.dropped(item.id)) return;
-
-    const { id } = item;
-    const { max, key } = this._slots.get(id)!;
-    const gate = this.gate(from, key);
-    const line = this.line(from.id);
-    const hold: Hold = { run: this, from: from.id };
-    const inside = [...gate.held].some((each) => each.run === this && line.includes(each.from));
-    const self = this.control._self;
-
-    return new Promise<(() => void) | undefined>((resolve) => {
-      let quiet: (() => void) | undefined;
-      let limit = 0;
-      let over = false;
-
-      const finish = (release?: () => void) => {
-        over = true;
-        quiet?.();
-        this._pending.delete(id);
-        resolve(release);
-      };
-
-      const release = () => {
-        if (!gate.held.delete(hold)) return;
-
-        this._holding.delete(release);
-        pump(gate);
-      };
-
-      const waiter: Waiter = {
-        hold,
-        max: typeof max != 'function' ? () => max : max.length ? () => limit : (max as () => number),
-        grant: () => {
-          this._holding.set(release, from.id);
-          finish(release);
-        }
-      };
-
-      if (inside) return finish(() => {});
-
-      this._pending.set(id, () => {
-        gate.queue = gate.queue.filter((each) => each !== waiter);
-        finish();
-      });
-
-      if (typeof max == 'function')
-        quiet = max.length
-          ? watch(self, ($) => {
-              limit = max($);
-              pump(gate);
-
-              return over ? null : undefined;
-            })
-          : listener(self, (key) => void (signal(key) && pump(gate)));
-
-      gate.queue.push(waiter);
-      pump(gate);
-    });
-  }
-
-  gate(from: Frame, key: unknown) {
-    const { control } = this;
-
-    if (key instanceof Object) return gate(GATES, key);
-    if (key !== undefined) return gate(control._gates, key);
-
-    const group = this.line(from.id).find((id) => this._groups.has(id));
-
-    return group ? gate(this._gates, group) : gate(control._gates, control);
-  }
-
-  park(item: Steps.Node, from: Frame) {
-    return new Promise<Answer | undefined>((resolve) => {
-      const { id, answers, race, args } = item;
-      const until = answers!.length ? undefined : Date.now() + (args[0] as number);
-
-      this.waits.add({ id, step: from.key, args: from.args, answers, until, _race: race, _from: from, _park: resolve });
-
-      if (race) void this.exec(race, from);
-    });
-  }
-
-  wake(wait: Wait, key: string, args: unknown[], node = this.node(key, args)) {
-    const { _ticket } = this;
-    let done!: () => void;
-    let fail!: (error: unknown) => void;
-
-    const answered = handle<void>(_ticket, (res, rej) => {
-      done = res;
-      fail = rej;
-    });
-
-    const answer = { done: () => (this._halted ? fail(this.reason()) : done()), fail } as Answer;
-    const won = this.line(node.id);
-
-    wait._answer = answer;
-    this._parent.set(node.id, wait.id);
-    this._version++;
-    this.waits.delete(wait);
-
-    if (wait._race) this.lose(wait, won, node);
-
-    answer.frame = this.invoke(node, wait.id);
-
-    return answered;
   }
 
   release() {
