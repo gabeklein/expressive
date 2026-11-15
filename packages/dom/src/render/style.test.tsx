@@ -293,4 +293,20 @@ describe('authoring scope without macros', () => {
     expect(root.querySelector('section')!.className).toBe('Box_box');
     expect(root.querySelector('p')!.className).toBe('');
   });
+
+  it('will style a render field with its function', () => {
+    const Page = () => <div _box><p _note /></div>;
+
+    style(Page, { _box: { color: 'red' } });
+
+    class Login extends Component {
+      render = Page;
+    }
+
+    style(Login, { _note: { color: 'blue' } });
+
+    const root = place(<Login />);
+    expect(root.querySelector('div')!.className).toBe('Page_box');
+    expect(root.querySelector('p')!.className).toBe('Login_note');
+  });
 });
