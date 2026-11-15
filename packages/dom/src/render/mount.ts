@@ -100,34 +100,32 @@ function unmountFiber(fiber: Fiber) {
   removeRange(fiber.start, fiber.end);
 }
 
-function unrenderable(value: unknown, type?: boolean) {
-  const owner = rendering ? ` in ${nameOf(rendering.type)}` : '';
-  let what: string;
-  let hint = '';
+function unrenderable(value: unknown, asType?: boolean) {
+  const foreign = typeof value == 'symbol'
+    ? value.description == PORTAL.description
+    : !!value && typeof value == 'object' && !isVNode(value) && Object.getOwnPropertySymbols(value).some((key) => key.description == VNODE.description);
+  const what = foreign ? `${typeof value == 'symbol' ? 'a portal' : 'an element'} from another copy of @expressive/dom` : describe(value);
+  const message = asType ? `Cannot use ${what} as an element type` : `Cannot render ${what}`;
 
-  if (typeof value == 'function') what = `function ${nameOf(value)}`;
-  else if (typeof value != 'object') what = String(value);
-  else if (isVNode(value)) what = 'an element';
-  else {
-    const type = Object.getPrototypeOf(value)?.constructor;
-
-    what = type && type !== Object ? `${nameOf(type)} instance` : 'plain object';
-
-    if (Object.getOwnPropertySymbols(value).some((key) => key.description == VNODE.description)) {
-      what = 'an element from another copy of @expressive/dom';
-      hint = ' Is the package loaded twice?';
-    }
-  }
-
-  return new TypeError(type ? `Cannot use ${what} as an element type${owner}.` : `Cannot render ${what}${owner}.${hint}`);
+  return new TypeError(`${message}${within()}.${foreign ? ' Is the package loaded twice?' : ''}`);
 }
 
-function nameOf(type: unknown) {
-  return (type as Function).name || 'anonymous';
+function describe(value: unknown) {
+  if (typeof value == 'function') return value.name ? `function ${value.name}` : 'an anonymous function';
+  if (!value || typeof value != 'object') return String(value);
+  if (isVNode(value)) return 'an element';
+
+  const type = Object.getPrototypeOf(value)?.constructor;
+
+  return type && type !== Object ? `an instance of ${type.name || 'an anonymous class'}` : 'a plain object';
+}
+
+function within() {
+  return rendering ? ` in ${(rendering.type as Function).name || 'an anonymous component'}` : '';
 }
 
 function notRenderable(type: Function): never {
-  throw new Error(`${type.name} is a Model - extend Component to render it, or provide it with <Component for={${type.name}}>.`);
+  throw new Error(`${type.name}${within()} is a Model - extend Component to render it, or provide it with <Component for={${type.name}}>.`);
 }
 
 export { complete, mount, patchFragment, patchText, unmountFiber };

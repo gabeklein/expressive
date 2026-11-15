@@ -81,7 +81,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
 
   const run = () => pass(() => {
     const parent = rendering;
-    rendering = fiber;
+    rendering = fiber.type ? fiber : parent;
 
     try {
       const output = probed ? probed.output as RenderNode : consume(fiber, render);

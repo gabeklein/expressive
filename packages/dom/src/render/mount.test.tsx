@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { Component, Model } from '@expressive/mvc';
+import { Component, has, Model } from '@expressive/mvc';
 import { render } from '../index';
 import { flushMicrotasks, mount } from '../../test.setup';
 import { vnode } from '../node/vnode';
@@ -48,10 +48,11 @@ describe('mount', () => {
   it('will reject unsupported render values and element types', () => {
     const root = document.createElement('main');
 
-    expect(() => render({} as never, root)).toThrow('Cannot render plain object.');
+    expect(() => render({} as never, root)).toThrow('Cannot render a plain object.');
     expect(() => render(Symbol('loose') as never, root)).toThrow('Cannot render Symbol(loose).');
     expect(() => render(vnode(Symbol('unknown'), {}), root)).toThrow('Cannot use Symbol(unknown) as an element type.');
     expect(() => render(vnode(<div /> as never, {}), root)).toThrow('Cannot use an element as an element type.');
+    expect(() => render(vnode(null as never, {}), root)).toThrow('Cannot use null as an element type.');
     expect(root.textContent).toBe('');
   });
 
@@ -62,6 +63,7 @@ describe('mount', () => {
     const Mistaken = () => Loose as never;
     const Bare = () => Object.create(null);
     const Anonymous = [() => new (class {})() as never][0];
+    const Unnamed = () => [() => null][0] as never;
 
     class Page extends Component {
       render() {
@@ -71,20 +73,39 @@ describe('mount', () => {
 
     const root = document.createElement('main');
 
-    expect(() => render(<Loose />, root)).toThrow('Cannot render Promise instance in Loose.');
-    expect(() => render(<Page />, root)).toThrow('Cannot render Row instance in Detached.');
+    expect(() => render(<Loose />, root)).toThrow('Cannot render an instance of Promise in Loose.');
+    expect(() => render(<Page />, root)).toThrow('Cannot render an instance of Row in Detached.');
     expect(() => render(<Mistaken />, root)).toThrow('Cannot render function Loose in Mistaken.');
-    expect(() => render(<Bare />, root)).toThrow('Cannot render plain object in Bare.');
-    expect(() => render(<Anonymous />, root)).toThrow('Cannot render anonymous instance in anonymous.');
+    expect(() => render(<Bare />, root)).toThrow('Cannot render a plain object in Bare.');
+    expect(() => render(<Anonymous />, root)).toThrow('Cannot render an instance of an anonymous class in an anonymous component.');
+    expect(() => render(<Unnamed />, root)).toThrow('Cannot render an anonymous function in Unnamed.');
   });
 
-  it('will name an element made by another copy of the package', () => {
+  it('will name an element or portal made by another copy of the package', () => {
     const foreign = { [Symbol('@expressive/dom.vnode')]: true, type: 'div', props: {} };
     const Page = () => foreign as never;
+    const Nested = () => vnode(foreign as never, {});
+    const Portal = () => vnode(Symbol('@expressive/dom.portal'), {});
+    const root = document.createElement('main');
 
-    expect(() => render(<Page />, document.createElement('main'))).toThrow(
+    expect(() => render(<Page />, root)).toThrow(
       'Cannot render an element from another copy of @expressive/dom in Page. Is the package loaded twice?'
     );
+    expect(() => render(<Nested />, root)).toThrow(
+      'Cannot use an element from another copy of @expressive/dom as an element type in Nested. Is the package loaded twice?'
+    );
+    expect(() => render(<Portal />, root)).toThrow(
+      'Cannot use a portal from another copy of @expressive/dom as an element type in Portal. Is the package loaded twice?'
+    );
+  });
+
+  it('will name the component rendering a collection of unrenderable values', () => {
+    const list = new has.List([{ bad: 1 }] as never[]);
+    const Page = () => <ul>{list}</ul>;
+    const root = document.createElement('main');
+
+    expect(() => render(<Page />, root)).toThrow('Cannot render a plain object in Page.');
+    expect(() => render(list, root)).toThrow('Cannot render a plain object.');
   });
 
   it('will throw if a Model class is rendered as an element', () => {
@@ -100,8 +121,13 @@ describe('mount', () => {
     class Bare extends Model {}
     const bare = Bare.new();
 
+    const Page = () => <div>{bare as never}</div>;
+
     expect(() => render(<div>{bare as never}</div>, document.createElement('main'))).toThrow(
       'Bare is a Model - extend Component to render it, or provide it with <Component for={Bare}>.'
+    );
+    expect(() => render(<Page />, document.createElement('main'))).toThrow(
+      'Bare in Page is a Model - extend Component to render it, or provide it with <Component for={Bare}>.'
     );
     bare.set(null);
   });
