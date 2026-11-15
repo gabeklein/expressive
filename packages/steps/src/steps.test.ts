@@ -1,7 +1,7 @@
 import { Component, Context, has, map, set, Model } from '@expressive/mvc';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
-import { flushMicrotasks, Journal, mockPromise, mockUncaught, mockWarn, record } from '../test.setup';
+import { fails, flushMicrotasks, ids, Journal, mockPromise, mockUncaught, mockWarn, ran, record, start } from '../test.setup';
 import { accept } from '@expressive/mvc/hot';
 
 import { Steps } from './steps';
@@ -193,11 +193,10 @@ describe('steps', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test, 3);
 
-    await test.run(3);
     expect(test.count).toBe(3);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'tick#1', 'tick#2', 'tick#3', 'tick#4']);
+    expect(ids(test)).toEqual(['run#1', 'tick#1', 'tick#2', 'tick#3', 'tick#4']);
   });
 
   it('will throw if a step calls run', async () => {
@@ -211,7 +210,7 @@ describe('steps', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run is the entry - loop with a step: a step which schedules itself again.');
+    await fails(Test, 'run is the entry - loop with a step: a step which schedules itself again.');
   });
 
   it('will record which fields each step wrote', async () => {
@@ -231,9 +230,8 @@ describe('steps', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(record(test).map((entry) => entry.wrote)).toEqual([['a'], ['b', 'a']]);
     expect(record(test).some((entry) => 'prior' in entry || 'patch' in entry)).toBe(false);
   });
@@ -275,9 +273,8 @@ describe('steps', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.value).toBe(4);
     expect(self).toBe(test);
     expect(record(test)[0].wrote).toEqual(['value']);
@@ -298,9 +295,8 @@ describe('steps', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.get()).toEqual({ value: 4, label: 'doubled' });
     expect(record(test)[0].wrote).toEqual(['value']);
   });
@@ -450,7 +446,7 @@ describe('steps', () => {
       protected async first() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run awaited work before its plan - it takes arguments, calls steps and awaits this.');
+    await fails(Test, 'run awaited work before its plan - it takes arguments, calls steps and awaits this.');
   });
 
   it('will fail if run awaits other work and returns', async () => {
@@ -462,7 +458,7 @@ describe('steps', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run awaited work before its plan - it takes arguments, calls steps and awaits this.');
+    await fails(Test, 'run awaited work before its plan - it takes arguments, calls steps and awaits this.');
   });
 
   it('will reject with what run throws after its run', async () => {
@@ -478,9 +474,8 @@ describe('steps', () => {
       protected async first() {}
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'tail');
 
-    await expect(test.run()).rejects.toThrow('tail');
     expect(test.then.status).toBe('failed');
     expect(test.then.error).toEqual(new Error('tail'));
   });
@@ -656,9 +651,8 @@ describe('groups', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(record(test).map((entry) => [entry.key, entry.wrote])).toEqual([
       ['run', []],
       ['b', ['y']],
@@ -707,7 +701,7 @@ describe('groups', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('a step cannot await its own run.');
+    await fails(Test, 'a step cannot await its own run.');
   });
 
   it('will map an iterable to a group', async () => {
@@ -740,7 +734,7 @@ describe('groups', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('a step cannot await its own run.');
+    await fails(Test, 'a step cannot await its own run.');
   });
 
   it('will fail if a group holds what the step did not call', async () => {
@@ -750,7 +744,7 @@ describe('groups', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then() takes steps called by run.');
+    await fails(Test, 'then() takes steps called by run.');
   });
 
   it('will not take an array of tokens as a group', async () => {
@@ -763,7 +757,7 @@ describe('groups', () => {
       b() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then() takes steps called by run.');
+    await fails(Test, 'then() takes steps called by run.');
   });
 
   it('will group a single token', async () => {
@@ -775,9 +769,8 @@ describe('groups', () => {
       a() {}
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(record(test)[0].next).toEqual([
       { id: 'then#1', key: 'then', args: [], group: [{ id: 'a#1', key: 'a', args: [] }] }
     ]);
@@ -799,7 +792,7 @@ describe('functions', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then() takes steps, not a function - declare the work as a step.');
+    await fails(Test, 'then() takes steps, not a function - declare the work as a step.');
   });
 
   it('will run a function reset with no arguments', async () => {
@@ -820,9 +813,8 @@ describe('functions', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(refund).toHaveBeenCalledWith();
     expect(record(test)[1]).toMatchObject({ on: { reset: [{ id: 'then#1', key: 'then', args: [] }] }, unwound: true });
     expect(record(test)[1].next).toEqual([{ id: 'fail#1', key: 'fail', args: [] }]);
@@ -849,9 +841,8 @@ describe('end', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(seen).toEqual(['run', 'first']);
 
     seen.length = 0;
@@ -872,7 +863,7 @@ describe('end', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('after end');
+    await fails(Test, 'after end');
   });
 
   it('will end at its place and drop what is left', async () => {
@@ -916,7 +907,7 @@ describe('end', () => {
 
     expect(await test.run()).toBe('early');
     expect(order).toEqual(['a', 'b', 'b1', 'result']);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'a#1', 'b#1', 'b1#1', 'end#1']);
+    expect(ids(test)).toEqual(['run#1', 'a#1', 'b#1', 'b1#1', 'end#1']);
   });
 
   it('will fail if a class declares end', () => {
@@ -958,7 +949,7 @@ describe('end', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('end must be the last call in a step.');
+    await fails(Test, 'end must be the last call in a step.');
     expect(a).not.toHaveBeenCalled();
   });
 
@@ -1027,15 +1018,13 @@ describe('end', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     slow.resolve();
 
     expect(await result).toBe('fast');
     expect(after).not.toHaveBeenCalled();
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'fast#1', 'slow#1', 'end#1']);
+    expect(ids(test)).toEqual(['run#1', 'fast#1', 'slow#1', 'end#1']);
   });
 
   it('will resolve with nothing when run returns nothing', async () => {
@@ -1097,7 +1086,7 @@ describe('end', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('end must be the last call in a step.');
+    await fails(Test, 'end must be the last call in a step.');
   });
 
   it('will do nothing if ended from outside while idle', () => {
@@ -1160,7 +1149,7 @@ describe('end', () => {
     more.resolve();
 
     expect(await queued).toBe('ended:1');
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'load#1', 'end#1']);
+    expect(ids(test)).toEqual(['run#1', 'load#1', 'end#1']);
   });
 
   it('will end from outside while waiting', async () => {
@@ -1205,10 +1194,8 @@ describe('end', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.end();
     work.resolve();
 
@@ -1589,9 +1576,7 @@ describe('then', () => {
       a() {}
     }
 
-    const test = Test.new();
-
-    await test.run();
+    const [test] = await ran(Test);
 
     const snapshot = { ...test.then };
 
@@ -1632,10 +1617,8 @@ describe('stop', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
     expect(test.then.status).toBe('stopped');
 
@@ -1643,7 +1626,7 @@ describe('stop', () => {
     await expect(result).rejects.toMatchObject({ name: 'Stopped' });
     expect(later).not.toHaveBeenCalled();
     expect(test.value).toBe(1);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'load#1']);
+    expect(ids(test)).toEqual(['run#1', 'load#1']);
     expect(test.then.status).toBe('stopped');
     expect(test.then.runs).toBe(1);
   });
@@ -1692,10 +1675,8 @@ describe('stop', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.abort();
     expect(test.then.status).toBe('aborted');
     work.resolve();
@@ -1729,10 +1710,8 @@ describe('stop', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
     work.resolve();
 
@@ -1763,10 +1742,8 @@ describe('stop', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.abort('cancelled');
     work.resolve();
 
@@ -1805,10 +1782,8 @@ describe('stop', () => {
     }
 
     for (const expected of [{ message: 'stuck', cause: 'own' }, 'stuck']) {
-      const test = Test.new();
-      const result = test.run();
+      const [test, result] = await start(Test);
 
-      await flushMicrotasks();
       test.then.abort();
 
       expect(await result.catch((error) => error)).toEqual(typeof expected == 'string' ? expected : expect.objectContaining(expected));
@@ -1885,10 +1860,8 @@ describe('stop', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
     work.resolve();
 
@@ -1913,10 +1886,8 @@ describe('stop', () => {
       async reply() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
 
     expect(await result).toBe('Stopped');
@@ -2043,10 +2014,8 @@ describe('wait', () => {
       later() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(test.then.status).toBe('waiting');
     expect(test.then.waiting).toEqual([{ id: 'wait#1', step: 'ask', args: ['question'], answers: ['reply', 'skip'] }]);
 
@@ -2056,7 +2025,7 @@ describe('wait', () => {
 
     await result;
     expect(test.answer).toBe('yes');
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'ask#1', 'reply#1', 'thanks#1', 'later#1']);
+    expect(ids(test)).toEqual(['run#1', 'ask#1', 'reply#1', 'thanks#1', 'later#1']);
     expect(record(test)[1].next).toEqual([{ id: 'wait#1', key: 'wait', args: [], answers: ['reply', 'skip'] }]);
     expect(record(test)[2]).toMatchObject({ wake: 'wait#1', wrote: ['answer'] });
   });
@@ -2080,10 +2049,8 @@ describe('wait', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(order).toEqual([]);
 
     test.reply();
@@ -2172,9 +2139,8 @@ describe('wait', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.count).toBe(1);
   });
 
@@ -2195,10 +2161,8 @@ describe('wait', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.reply('b');
 
     expect(test.then.waiting.map((wait) => wait.args[0])).toEqual(['a']);
@@ -2237,10 +2201,7 @@ describe('wait', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
-
-    await flushMicrotasks();
+    const [test, result] = await start(Test);
 
     const answered = test.reply().then(() => order.push('answered'));
 
@@ -2272,10 +2233,7 @@ describe('wait', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
-
-    await flushMicrotasks();
+    const [test, result] = await start(Test);
 
     const answered = test.reply();
 
@@ -2298,10 +2256,7 @@ describe('wait', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
-
-    await flushMicrotasks();
+    const [test, result] = await start(Test);
 
     await expect(test.reply()).rejects.toThrow('boom');
     await expect(result).rejects.toThrow('boom');
@@ -2317,10 +2272,8 @@ describe('wait', () => {
       other() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(test.other).toBeUndefined();
 
     test.reply();
@@ -2334,7 +2287,7 @@ describe('wait', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run cannot answer a wait.');
+    await fails(Test, 'run cannot answer a wait.');
   });
 
   it('will not wait on a step of another instance', async () => {
@@ -2360,10 +2313,7 @@ describe('wait', () => {
       reply() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
-
-    await flushMicrotasks();
+    const [test, result] = await start(Test);
 
     const { reply } = test;
 
@@ -2811,10 +2761,8 @@ describe('races', () => {
       reply() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(watch).not.toHaveBeenCalled();
 
     work.resolve();
@@ -2897,9 +2845,8 @@ describe('races', () => {
       reply() {}
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'racer');
 
-    await expect(test.run()).rejects.toThrow('racer');
     expect(test.value).toBe(1);
     expect(test.then.waiting).toEqual([]);
     expect(test.then.status).toBe('failed');
@@ -2979,7 +2926,7 @@ describe('races', () => {
       reply() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then() races steps called for it - this.then(this.allow, this.timeout(call)).');
+    await fails(Test, 'then() races steps called for it - this.then(this.allow, this.timeout(call)).');
   });
 
   it('will throw if given other functions beside answers', async () => {
@@ -2991,7 +2938,7 @@ describe('races', () => {
       reply() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then() takes steps uncalled to answer and called ones to race - not other functions.');
+    await fails(Test, 'then() takes steps uncalled to answer and called ones to race - not other functions.');
   });
 
   it('will type racers beside answers', () => {
@@ -3111,7 +3058,7 @@ describe('durations', () => {
       }
     }
 
-    await expect(Empty.new().run()).rejects.toThrow('then() takes a duration of ms, sec, min, hr and day as numbers - got none.');
+    await fails(Empty, 'then() takes a duration of ms, sec, min, hr and day as numbers - got none.');
 
     class Test extends Steps {
       async run(duration: object) {
@@ -3132,7 +3079,7 @@ describe('durations', () => {
       protected a() {}
     }
 
-    await expect(Beside.new().run()).rejects.toThrow('then() takes a duration alone - this.then({ sec: 10 }).');
+    await fails(Beside, 'then() takes a duration alone - this.then({ sec: 10 }).');
   });
 });
 
@@ -3161,10 +3108,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(started).toEqual(['a', 'b']);
 
     work.get('b')!.resolve();
@@ -3206,10 +3151,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(started).toEqual(['a']);
 
     test.limit = 2;
@@ -3256,10 +3199,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(started).toEqual(['a']);
 
     test.settings.limit = 3;
@@ -3305,10 +3246,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(reads.mock.calls).toEqual([['a'], ['b']]);
 
     settings.limit = 0.5;
@@ -3346,10 +3285,8 @@ describe('gate', () => {
       protected async scan() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(reads).toHaveBeenCalledTimes(1);
 
     test.then.stop();
@@ -3480,10 +3417,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(started).toEqual(['x']);
 
     work.get('x')!.resolve();
@@ -3514,9 +3449,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(order).toEqual(['a', 'b']);
     expect(record(test)[0].next.map((node) => node.id)).toEqual(['gate#1', 'a#1', 'b#1']);
   });
@@ -3544,9 +3478,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
+    await ran(Test);
 
-    await test.run();
     expect(done.mock.calls).toEqual([['a'], ['b']]);
   });
 
@@ -3855,9 +3788,8 @@ describe('gate', () => {
       }
     }
 
-    const test = Test.new();
+    await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(never).not.toHaveBeenCalled();
   });
 
@@ -3869,7 +3801,7 @@ describe('gate', () => {
     }
 
     expect(() => Test.new().then.only(1)).toThrow('only must be called inside a step.');
-    await expect(Test.new().run()).rejects.toThrow('only() takes a count, or a function returning one.');
+    await fails(Test, 'only() takes a count, or a function returning one.');
   });
 
   it('will type a count read from the instance', () => {
@@ -3913,9 +3845,8 @@ describe('catch', () => {
       protected async b() {}
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.value).toBe(0);
     expect(undo).toHaveBeenCalledWith();
     expect(record(test)).toEqual([
@@ -3978,7 +3909,7 @@ describe('catch', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('after');
+    await fails(Test, 'after');
   });
 
   it('will run a step in the caught branch\'s place given the error', async () => {
@@ -4003,9 +3934,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(seen.mock.calls).toEqual([[new Error('x is down'), 0], ['after']]);
     expect(record(test)[0].next[0]).toEqual({ id: 'scan#1', key: 'scan', args: ['x'], rescue: 'fallback' });
     expect(record(test).map((entry) => [entry.id, entry.args])).toEqual([
@@ -4040,9 +3970,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'a is down');
 
-    await expect(test.run()).rejects.toThrow('a is down');
     expect(retries).toEqual([0, 1, 2]);
     expect(record(test).map(({ id, retried, error }) => [id, retried, (error as Error)?.message])).toEqual([
       ['run#1', undefined, undefined],
@@ -4081,9 +4010,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(order).toEqual(['a x 0', 'b y 0', 'a x 1', 'b y 1']);
     expect(record(test)[0].next).toMatchObject([{ key: 'then', rescue: 'again', group: [{ key: 'a' }, { key: 'b' }] }]);
   });
@@ -4170,9 +4098,9 @@ describe('catch', () => {
       protected async fail() {}
     }
 
-    await expect(Outside.new().run()).rejects.toThrow('retry() must be called in a .catch handler.');
-    await expect(Settled.new().run()).rejects.toThrow('handle has settled; retry cannot run.');
-    await expect(Bare.new().run()).rejects.toThrow('catch() retries from a handler: .catch(this.rescan), rescan(error) { if (this.then.retried >= 3) throw error; this.then.retry(); }');
+    await fails(Outside, 'retry() must be called in a .catch handler.');
+    await fails(Settled, 'handle has settled; retry cannot run.');
+    await fails(Bare, 'catch() retries from a handler: .catch(this.rescan), rescan(error) { if (this.then.retried >= 3) throw error; this.then.retry(); }');
   });
 
   it('will back off a retry with a duration', async () => {
@@ -4232,9 +4160,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.value).toBe('down');
     expect(record(test)[0].next).toEqual([{ id: 'scan#1', key: 'scan', args: [], rescue: 'then' }]);
     expect(record(test).at(-1)).toMatchObject({ id: 'then#1', key: 'then', args: [new Error('down')], wrote: ['value'] });
@@ -4256,9 +4183,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.found.get()).toEqual(['a', 'c']);
   });
 
@@ -4294,10 +4220,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     gate.resolve();
 
     await result;
@@ -4321,10 +4245,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     await test.answer();
 
     await result;
@@ -4351,9 +4273,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'undo');
 
-    await expect(test.run()).rejects.toThrow('undo');
     expect(record(test)[1]).toMatchObject({ id: 'a#1', unwound: 'failed' });
   });
 
@@ -4376,10 +4297,8 @@ describe('catch', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
     gate.resolve();
 
@@ -4403,7 +4322,7 @@ describe('catch', () => {
       protected async b() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('a wrote value after scheduling b.');
+    await fails(Test, 'a wrote value after scheduling b.');
   });
 
   it('will not catch end', async () => {
@@ -4432,7 +4351,7 @@ describe('catch', () => {
       protected async a() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('catch() takes a step, a function or nothing.');
+    await fails(Test, 'catch() takes a step, a function or nothing.');
   });
 
   it('will throw retry, catch and reset outside a step', () => {
@@ -4461,10 +4380,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(tries).toBe(1);
     expect(test.then.status).toBe('running');
     expect(test.then.active).toBe('run');
@@ -4534,10 +4451,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.price = 4;
 
     await result;
@@ -4585,10 +4500,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     pending.reject(new Error('gone'));
 
     await expect(result).rejects.toThrow('gone');
@@ -4618,10 +4531,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     pending.resolve();
 
     await result;
@@ -4651,10 +4562,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     pending.reject(new Error('gone'));
 
     await result;
@@ -4681,10 +4590,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.price = 1;
 
     await result;
@@ -4702,10 +4609,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
 
     await expect(result).rejects.toMatchObject({ name: 'Stopped' });
@@ -4723,10 +4628,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.end();
     test.price = 1;
 
@@ -4747,10 +4650,8 @@ describe('suspense', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
     work.resolve();
 
@@ -4818,9 +4719,8 @@ describe('hooks', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(order).toEqual([
       ['before', 'run', []],
       ['after', 'run', 'run#1'],
@@ -4861,7 +4761,7 @@ describe('hooks', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('hook');
+    await fails(Test, 'hook');
   });
 
   it('will clean up in the tail on every outcome', async () => {
@@ -4919,7 +4819,7 @@ describe('hooks', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(order).toEqual(['undo', 'tail: boom']);
   });
 
@@ -4935,10 +4835,8 @@ describe('hooks', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
     work.resolve();
 
@@ -5000,9 +4898,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(order).toEqual(['undo first b=2', 'undo zero a=1']);
     expect(test.get()).toMatchObject({ a: 0, b: 0, c: 0 });
     expect(record(test).map((entry) => [entry.key, entry.on?.reset?.length, entry.unwound])).toEqual([
@@ -5033,9 +4930,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.get()).toMatchObject({ kept: 1, value: 0 });
     expect(record(test).map((entry) => [entry.id, entry.unwound])).toEqual([
       ['run#1', undefined],
@@ -5059,9 +4955,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(record(test)[1].unwound).toBeUndefined();
   });
 
@@ -5089,9 +4984,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.value).toBe(0);
     expect(test.count).toBe(2);
   });
@@ -5119,9 +5013,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(undo).toHaveBeenCalledWith();
     expect(test.value).toBe(0);
     expect(record(test).map((entry) => [entry.key, entry.unwound])).toEqual([
@@ -5157,12 +5050,11 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(undo).toHaveBeenCalledWith('r1');
     expect(record(test)[1].on?.reset).toEqual([{ id: 'then#1', key: 'then', args: [] }]);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'first#1', 'second#1', 'release#1']);
+    expect(ids(test)).toEqual(['run#1', 'first#1', 'second#1', 'release#1']);
   });
 
   it('will run what a compensation\'s steps schedule, groups included, before older compensations', async () => {
@@ -5206,7 +5098,7 @@ describe('undo', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(order).toEqual(['refund', 'notify a', 'notify b', 'log', 'first']);
   });
 
@@ -5234,9 +5126,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'refund failed');
 
-    await expect(test.run()).rejects.toThrow('refund failed');
     expect(record(test)[1].unwound).toBe('failed');
   });
 
@@ -5259,7 +5150,7 @@ describe('undo', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(order).toEqual(['b', 'a']);
   });
 
@@ -5288,12 +5179,11 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'declined');
 
-    await expect(test.run()).rejects.toThrow('declined');
     expect(seen).toEqual([1]);
     expect(test.get()).toMatchObject({ value: 0, other: 5 });
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'charge#1']);
+    expect(ids(test)).toEqual(['run#1', 'charge#1']);
   });
 
   it('will restore a step failing while the run ends before compensating it', async () => {
@@ -5315,10 +5205,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.end();
     work.resolve();
 
@@ -5352,9 +5240,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.get()).toMatchObject({ value: 0, notice: 'took back 1' });
   });
 
@@ -5385,9 +5272,8 @@ describe('undo', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'undo failed');
 
-    await expect(test.run()).rejects.toThrow('undo failed');
     expect(order).toEqual([]);
     expect(record(test).map((entry) => entry.unwound)).toEqual([undefined, undefined, 'failed', undefined]);
   });
@@ -5420,7 +5306,7 @@ describe('undo', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run cleans up in its tail - try/catch around await this.');
+    await fails(Test, 'run cleans up in its tail - try/catch around await this.');
   });
 
   it('will throw for a handler not a step or function, or an unknown outcome', async () => {
@@ -5456,7 +5342,7 @@ describe('undo', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('first has settled; on cannot run.');
+    await fails(Test, 'first has settled; on cannot run.');
   });
 
 });
@@ -5525,7 +5411,7 @@ describe('on', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(order).toEqual(['close z', 'abort b: Error', 'reset b', 'close b', 'abort a: Error', 'reset a', 'close a', 'reset z']);
   });
 
@@ -5543,7 +5429,7 @@ describe('on', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('own');
+    await fails(Test, 'own');
     expect(order).toEqual(['abort a: Error', 'reset a', 'close a']);
   });
 
@@ -5720,12 +5606,11 @@ describe('on', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(notes).toEqual(['x', 'y']);
     expect(record(test)[1].on).toMatchObject({ close: [{ key: 'then', group: [{ key: 'note', args: ['x'] }, { key: 'note', args: ['y'] }] }] });
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'a#1', 'b#1', 'note#1', 'note#2']);
+    expect(ids(test)).toEqual(['run#1', 'a#1', 'b#1', 'note#1', 'note#2']);
   });
 
   it('will fail the run if close throws', async () => {
@@ -5756,7 +5641,7 @@ describe('on', () => {
       }
     }
 
-    await expect(Clean.new().run()).rejects.toThrow('close');
+    await fails(Clean, 'close');
 
     const caught = vi.fn();
 
@@ -5841,9 +5726,8 @@ describe('on catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(order).toEqual(['undo b', 'catch boom', 'close a', 'c']);
     expect(test.kept).toBe('a');
     expect(test.lost).toBe('');
@@ -5928,11 +5812,10 @@ describe('on catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(seen).toEqual(['b']);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'a#1', 'fail#1', 'fallback#1']);
+    expect(ids(test)).toEqual(['run#1', 'a#1', 'fail#1', 'fallback#1']);
   });
 
   it('will run a step method given for catch with the error, recorded', async () => {
@@ -5966,9 +5849,8 @@ describe('on catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test, false);
 
-    await test.run(false);
     expect(seen).toEqual([new Error('boom'), 'later']);
     expect(record(test).find((entry) => entry.key == 'fallback')).toMatchObject({ args: [{ name: 'Error', message: 'boom' }] });
 
@@ -6002,7 +5884,7 @@ describe('on catch', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('undo');
+    await fails(Test, 'undo');
     expect(caught).not.toHaveBeenCalled();
   });
 
@@ -6057,8 +5939,8 @@ describe('on catch', () => {
       }
     }
 
-    await expect(Before.new().run()).rejects.toThrow('early');
-    await expect(Twice.new().run()).rejects.toThrow('then.on() takes one catch per step.');
+    await fails(Before, 'early');
+    await fails(Twice, 'then.on() takes one catch per step.');
     expect(caught).not.toHaveBeenCalled();
   });
 
@@ -6101,9 +5983,8 @@ describe('on catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(order).toEqual(['undo a', 'catch own', 'b', 'close a', 'c']);
     expect(test.value).toBe(0);
     expect(test.note).toBe('undone');
@@ -6150,9 +6031,7 @@ describe('on catch', () => {
     await restored.run('restore');
     await written.run('write');
 
-    const changed = Test.new();
-
-    await changed.run('collection');
+    const [changed] = await ran(Test, 'collection');
 
     expect(seen).toEqual([1, 1, 1, 1, 0, 0, 1, 1, 1, 1]);
     expect([...changed.items]).toEqual(['x', 'y']);
@@ -6188,9 +6067,8 @@ describe('on catch', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(tries).toEqual([0, 1, 2]);
     expect(values).toEqual([0, 0, 0]);
     expect(test.value).toBe(1);
@@ -6215,7 +6093,7 @@ describe('on catch', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('undo');
+    await fails(Test, 'undo');
     expect(caught).not.toHaveBeenCalled();
   });
 
@@ -6235,7 +6113,7 @@ describe('on catch', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('after');
+    await fails(Test, 'after');
   });
 
   it('will pass a rethrow of its own body on, aborting with the error', async () => {
@@ -6471,9 +6349,7 @@ describe('second review', () => {
       }
     }
 
-    const test = Test.new();
-
-    await test.run();
+    const [test] = await ran(Test);
 
     const [handler] = record(test)[1].on!.catch!;
 
@@ -6615,9 +6491,8 @@ describe('third pass', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(record(test).at(-1)).toMatchObject({ id: 'a#1', error: new Error('boom') });
   });
 
@@ -6641,7 +6516,7 @@ describe('third pass', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then.on() cannot run in a handler step - use try/finally inside it.');
+    await fails(Test, 'then.on() cannot run in a handler step - use try/finally inside it.');
   });
 
   it('will end gracefully - what runs finishes, what it schedules is dropped', async () => {
@@ -6691,7 +6566,7 @@ describe('third pass', () => {
     expect(await result).toBe(1);
     expect(order).toEqual(['close']);
     expect(test.then.status).toBe('idle');
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'stop#1', 'slow#1', 'end#1']);
+    expect(ids(test)).toEqual(['run#1', 'stop#1', 'slow#1', 'end#1']);
   });
 });
 
@@ -6726,7 +6601,7 @@ describe('outcome order', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(order).toEqual(['catch', 'abort', 'reset', 'close']);
   });
 });
@@ -6893,7 +6768,7 @@ describe('races and halts', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('after');
+    await fails(Test, 'after');
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
@@ -7070,9 +6945,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.items.get()).toEqual(['a', 'b', 'c']);
     expect(record(test)).toEqual([expect.objectContaining({ id: 'run#1' }), expect.objectContaining({ wrote: ['items'], unwound: true }), expect.objectContaining({ id: 'fail#1', error: new Error('boom') })]);
   });
@@ -7087,9 +6961,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(record(test)[0].wrote).toEqual(['count']);
   });
 
@@ -7102,9 +6975,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test, 'a');
 
-    await test.run('a');
     await test.run('b');
     expect(record(test)).toEqual([{ id: 'run#1', key: 'run', args: ['b'], next: [], wrote: ['items'] }]);
   });
@@ -7118,9 +6990,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(record(test)[0].wrote).toEqual([]);
   });
 
@@ -7141,9 +7012,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.items.get()).toEqual(['try 2']);
     expect(record(test).map((entry) => entry.wrote)).toEqual([[], [], ['items']]);
   });
@@ -7174,10 +7044,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     gate.resolve();
 
     await expect(result).rejects.toThrow('boom');
@@ -7211,10 +7079,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(test.items.get()).toEqual(['good', 'bad']);
 
     gate.resolve();
@@ -7245,9 +7111,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.items.get()).toEqual(['steady', 'flaky 2']);
   });
 
@@ -7275,10 +7140,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(test.items.get()).toEqual(['first', 'z', 'b', 'x', 'y', 'last']);
 
     gate.resolve();
@@ -7311,10 +7174,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     gate.resolve();
 
     await result;
@@ -7332,9 +7193,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.items.get()).toEqual(['a', 'b', 'a', 'c', 'a']);
   });
 
@@ -7354,9 +7214,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(record(test)[0].wrote).toEqual(['items']);
     expect(test.items.size).toBe(0);
   });
@@ -7373,9 +7232,8 @@ describe('collections', () => {
       protected async later() {}
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'run wrote items after scheduling later.');
 
-    await expect(test.run()).rejects.toThrow('run wrote items after scheduling later.');
     expect(test.items.get()).toEqual(['a']);
   });
 
@@ -7391,9 +7249,8 @@ describe('collections', () => {
       protected async later() {}
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.then.status).toBe('idle');
   });
 
@@ -7408,9 +7265,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     items.push('late');
     expect(test.list.get()).toEqual(['late']);
     expect(record(test)[0].wrote).toEqual([]);
@@ -7426,9 +7282,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.same).toBe(true);
   });
 
@@ -7459,10 +7314,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     second.resolve();
     await flushMicrotasks();
     first.resolve();
@@ -7491,9 +7344,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.values.get()).toEqual(new Map([['a', 1], ['b', 2], ['c', 3]]));
   });
 
@@ -7517,9 +7369,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.values.get('a')).toBe(guest);
     expect(record(test)[1].irreversible).toBeUndefined();
   });
@@ -7546,9 +7397,7 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-
-    await expect(test.run()).rejects.toThrow('boom');
+    const [test] = await fails(Test, 'boom');
 
     expect(record(test)[1]).toMatchObject({ wrote: ['items'], unwound: true });
     expect(test.items.map((item) => item.name)).toEqual(['kept']);
@@ -7566,9 +7415,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.items.size).toBe(0);
     expect(added.get(null)).toBe(true);
   });
@@ -7598,10 +7446,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     gate.resolve();
 
     await result;
@@ -7623,9 +7469,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.values.get()).toEqual(new Map([['a', 1], ['b', 2]]));
   });
 
@@ -7645,9 +7490,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.values.size).toBe(0);
     expect(test.plain.size).toBe(0);
     expect(record(test)).toEqual([expect.objectContaining({ id: 'run#1', error: new Error('boom') })]);
@@ -7682,10 +7526,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     gate.resolve();
 
     await result;
@@ -7708,9 +7550,8 @@ describe('collections', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.items.size).toBe(0);
     expect(record(test)).toEqual([expect.objectContaining({ id: 'run#1', error: new Error('boom') })]);
   });
@@ -7749,9 +7590,8 @@ describe('irreversible', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.value).toBe(2);
     expect(test.then.error).toEqual(new Error('boom'));
     expect(record(test).map((entry) => [entry.key, entry.irreversible, entry.halted, entry.unwound])).toEqual([
@@ -7793,9 +7633,8 @@ describe('irreversible', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.value).toBe(0);
     expect(record(test).map((entry) => [entry.key, entry.unwound])).toEqual([
       ['run', undefined],
@@ -7836,9 +7675,8 @@ describe('irreversible', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(undo).toHaveBeenCalledTimes(1);
     expect(test.items.size).toBe(0);
     expect([...test.values.keys()]).toEqual(['c']);
@@ -7866,9 +7704,8 @@ describe('irreversible', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.values.get('a')!.name).toBe('b');
     expect(record(test)[0]).toMatchObject({ irreversible: ['values'], halted: true });
   });
@@ -7898,12 +7735,11 @@ describe('irreversible', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(attempt).toHaveBeenCalledTimes(1);
     expect(test.value).toBe(1);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'drop#1']);
+    expect(ids(test)).toEqual(['run#1', 'drop#1']);
     expect(warn).toHaveBeenCalledWith(`${test} stopped unwinding at drop#1: items cannot be restored.`);
   });
 
@@ -7930,9 +7766,8 @@ describe('irreversible', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.value).toBe(2);
     expect(record(test).map((entry) => [entry.key, entry.halted, entry.unwound])).toEqual([['run', undefined, undefined], ['drop', true, undefined]]);
     expect(warn).toHaveBeenCalledWith(`${test} stopped unwinding at drop#1: items cannot be restored.`);
@@ -7971,9 +7806,8 @@ describe('commit', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(recall).toHaveBeenCalled();
     expect(refund).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
@@ -8004,12 +7838,11 @@ describe('commit', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(attempt).toHaveBeenCalledTimes(1);
     expect(test.value).toBe(1);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'pay#1']);
+    expect(ids(test)).toEqual(['run#1', 'pay#1']);
   });
 
   it('will throw if commit is called outside a step', () => {
@@ -8033,7 +7866,7 @@ describe('commit', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run has settled; commit cannot run.');
+    await fails(Test, 'run has settled; commit cannot run.');
   });
 });
 
@@ -8065,13 +7898,12 @@ describe('durable handlers', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(released).toHaveBeenCalledWith('h1', 'h2');
     expect(test.hold).toBe('');
     expect(record(test)[1]).toMatchObject({ next: [{ key: 'fail' }], on: { reset: [{ id: 'release#1', key: 'release', args: ['h1'] }] } });
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'reserve#1', 'fail#1', 'release#1']);
+    expect(ids(test)).toEqual(['run#1', 'reserve#1', 'fail#1', 'release#1']);
   });
 
   it('will run steps called for one compensation as a group', async () => {
@@ -8102,9 +7934,8 @@ describe('durable handlers', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(order).toEqual(['cancel a', 'refund b', 'cancelled']);
     expect(record(test)[1].on?.reset).toMatchObject([{ key: 'then', group: [{ key: 'cancel' }, { key: 'refund' }] }]);
   });
@@ -8126,9 +7957,8 @@ describe('durable handlers', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(seen).toHaveBeenCalledWith(new Error('boom'));
     expect(record(test)[0].next).toEqual([{ id: 'pay#1', key: 'pay', args: [], rescue: 'note' }]);
     expect(record(test).at(-1)).toMatchObject({ id: 'note#1', args: [{ name: 'Error', message: 'boom', cause: 'card' }] });
@@ -8149,9 +7979,8 @@ describe('durable handlers', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test, false);
 
-    await test.run(false);
     expect(undo).not.toHaveBeenCalled();
 
     await expect(test.run(true)).rejects.toThrow('declined');
@@ -8343,9 +8172,8 @@ describe('recover', () => {
       protected async backorder() {}
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(refund).toHaveBeenCalledWith();
     expect(release).not.toHaveBeenCalled();
     expect(test.get()).toMatchObject({ hold: 'h1', charge: '', notice: 'backordered' });
@@ -8416,9 +8244,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.get()).toMatchObject({ value: 5, other: 0 });
   });
 
@@ -8451,9 +8278,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(seen).toEqual([0, 0]);
     expect(test.get()).toMatchObject({ value: 0, other: 9 });
   });
@@ -8482,9 +8308,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.items.get()).toEqual([]);
     expect(test.kept.get()).toEqual(['b', 'c']);
   });
@@ -8512,9 +8337,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.items.get()).toEqual(['b']);
   });
 
@@ -8549,9 +8373,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.value).toBe(0);
   });
 
@@ -8578,9 +8401,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.value).toBe(0);
   });
 
@@ -8595,7 +8417,7 @@ describe('recover', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('restore() must be called in a .catch handler.');
+    await fails(Test, 'restore() must be called in a .catch handler.');
   });
 
   it('will abort and compensate parallel steps a caught failure discards', async () => {
@@ -8667,11 +8489,10 @@ describe('recover', () => {
       answer() {}
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.answer).toBeUndefined();
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'ask#1', 'cancel#1']);
+    expect(ids(test)).toEqual(['run#1', 'ask#1', 'cancel#1']);
   });
 
   it('will halt at a committed step and continue the run', async () => {
@@ -8699,9 +8520,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(recall).toHaveBeenCalledTimes(1);
     expect(refund).not.toHaveBeenCalled();
     expect(record(test).map((entry) => [entry.id, entry.halted, entry.unwound])).toEqual([
@@ -8738,9 +8558,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.then.status).toBe('idle');
     expect(warn).toHaveBeenCalledWith(`${test} stopped unwinding at drop#1: items cannot be restored.`);
     expect(record(test).map((entry) => [entry.id, entry.halted])).toEqual([
@@ -8822,7 +8641,7 @@ describe('recover', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
@@ -8879,9 +8698,8 @@ describe('recover', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'undo');
 
-    await expect(test.run()).rejects.toThrow('undo');
     expect(undo).not.toHaveBeenCalled();
     expect(record(test).map((entry) => [entry.id, entry.unwound])).toEqual([
       ['run#1', undefined],
@@ -9013,10 +8831,8 @@ describe('signal', () => {
       later() {}
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.stop();
 
     await expect(result).rejects.toMatchObject({ name: 'Stopped' });
@@ -9051,10 +8867,8 @@ describe('signal', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.then.end();
     expect(signal.aborted).toBe(false);
     work.resolve();
@@ -9083,9 +8897,8 @@ describe('signal', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(signal.aborted).toBe(true);
     expect(test.then.error).toEqual(new Error('boom'));
   });
@@ -9126,9 +8939,8 @@ describe('failures', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'sync');
 
-    await expect(test.run()).rejects.toThrow('sync');
     expect(test.then.status).toBe('failed');
     expect(test.then.error).toEqual(new Error('sync'));
   });
@@ -9147,7 +8959,7 @@ describe('failures', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('after scheduling');
+    await fails(Test, 'after scheduling');
     expect(called).not.toHaveBeenCalled();
   });
 
@@ -9162,7 +8974,7 @@ describe('failures', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('first returned a value; a step returns nothing - its undo is this.then.on({ reset }).');
+    await fails(Test, 'first returned a value; a step returns nothing - its undo is this.then.on({ reset }).');
   });
 
   it('will reject when a step writes after scheduling', async () => {
@@ -9177,9 +8989,8 @@ describe('failures', () => {
       first() {}
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'run wrote value after scheduling first.');
 
-    await expect(test.run()).rejects.toThrow('run wrote value after scheduling first.');
     expect(test.value).toBe(0);
   });
 
@@ -9199,9 +9010,7 @@ describe('failures', () => {
       first() {}
     }
 
-    const test = Test.new();
-
-    await test.run();
+    const [test] = await ran(Test);
 
     expect(test.value).toBe(1);
     expect(record(test)[0].wrote).toEqual([]);
@@ -9217,7 +9026,7 @@ describe('failures', () => {
       second() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('run kept working after scheduling second.');
+    await fails(Test, 'run kept working after scheduling second.');
   });
 
   it('will throw if a step is called after its caller settled', async () => {
@@ -9331,9 +9140,8 @@ describe('failures', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test, 'a');
 
-    await test.run('a');
     await test.run('b');
     expect([...test.items]).toEqual(['a', 'b']);
   });
@@ -9414,9 +9222,8 @@ describe('Steps', () => {
       protected async third() {}
     }
 
-    const test = C.new();
+    const [test] = await ran(C);
 
-    await test.run();
     expect(record(test).map((entry) => entry.key)).toEqual(['run', 'first', 'second', 'third']);
   });
 
@@ -9447,7 +9254,7 @@ describe('Steps', () => {
       }
     }
 
-    await expect(Test.new().run()).rejects.toThrow('boom');
+    await fails(Test, 'boom');
     expect(order).toEqual([
       ['before', 'run'],
       ['after', 'run', 'run#1'],
@@ -9464,9 +9271,8 @@ describe('Steps', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'end() takes no value; the result is what run returns.');
 
-    await expect(test.run()).rejects.toThrow('end() takes no value; the result is what run returns.');
     // @ts-expect-error - end takes no value
     expect(() => test.then.end('x')).toThrow('end() takes no value; the result is what run returns.');
   });
@@ -9608,25 +9414,22 @@ describe('hot update', () => {
     const seen: string[] = [];
     const Test = body(seen, 'a1');
     const patch = hot(Test);
-    const test = Test.new();
-
-    await test.run();
+    const [test] = await ran(Test);
 
     expect(patch(body(seen, 'a2'))).toBe(Test);
 
     await flushMicrotasks();
     await test.run();
     expect(seen).toEqual(['a1', 'a2']);
-    expect(record(test).map((entry) => entry.id)).toEqual(['run#1', 'a#1']);
+    expect(ids(test)).toEqual(['run#1', 'a#1']);
   });
 
   it('will wire a step added by a patch, and a patched run and hook', async () => {
     const seen: string[] = [];
     const Test = removed(seen, 'after');
     const patch = hot(Test);
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(patch(added(seen, 'after2'))).toBe(Test);
 
     await flushMicrotasks();
@@ -9639,10 +9442,8 @@ describe('hot update', () => {
     const work = mockPromise();
     const Test = added(seen, 'after', work);
     const patch = hot(Test);
-    const test = Test.new();
-    const result = test.run();
+    const [, result] = await start(Test);
 
-    await flushMicrotasks();
     expect(patch(removed(seen, 'after', work))).toBe(Test);
 
     await flushMicrotasks();
@@ -9712,10 +9513,8 @@ describe('review', () => {
       }
     }
 
-    const test = Test.new();
-    const result = test.run();
+    const [test, result] = await start(Test);
 
-    await flushMicrotasks();
     test.price = 3;
     pending.resolve(3);
 
@@ -9738,7 +9537,7 @@ describe('review', () => {
       protected async b() {}
     }
 
-    await expect(Test.new().run()).rejects.toThrow('then() takes steps, not a function - declare the work as a step.');
+    await fails(Test, 'then() takes steps, not a function - declare the work as a step.');
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -9765,9 +9564,8 @@ describe('review', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.value).toBe(1);
   });
 
@@ -9794,9 +9592,8 @@ describe('review', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await fails(Test, 'boom');
 
-    await expect(test.run()).rejects.toThrow('boom');
     expect(test.notice).toBe('taken back');
   });
 
@@ -9887,9 +9684,8 @@ describe('review', () => {
       }
     }
 
-    const test = Test.new();
+    const [test] = await ran(Test);
 
-    await test.run();
     expect(test.items.get()).toEqual(['a', 'b']);
   });
 
