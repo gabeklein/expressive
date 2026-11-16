@@ -105,11 +105,23 @@
     "packages/env": {
       "name": "@expressive/env",
       "version": "0.0.0",
+      "bin": {
+        "expressive": "dist/cli.js",
+      },
+      "dependencies": {
+        "@expressive/cli": "^0.2.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "@types/node": "^25.2.0",
         "tsdown": "^0.20.1",
       },
+      "peerDependencies": {
+        "@expressive/mvc": "^0.94.5",
+      },
+      "optionalPeers": [
+        "@expressive/mvc",
+      ],
     },
     "packages/inspect": {
       "name": "@expressive/inspect",

@@ -1,6 +1,18 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnv } from "node:util";
+
+export const EXAMPLE = ".env.example";
+
+const ENV_FILE = /^\.env(\.[\w.-]+)?$/;
+const ASSIGN = /^\s*(?:export\s+)?([\w.-]+)\s*=\s*(.*)$/;
+const COMMENT = /^\s*#\s?(.*)$/;
+
+export interface Key {
+  name: string;
+  doc?: string;
+  section?: string;
+}
 
 export function mode(): string {
   return process.env.NODE_ENV || "development";
@@ -14,6 +26,13 @@ export function read(path: string): string | undefined {
   if (statSync(path, { throwIfNoEntry: false })?.isFile()) return readFileSync(path, "utf8").replace(/^\uFEFF/, "");
 }
 
+export function envFiles(root: string): string[] {
+  const found = readdirSync(root).filter(name => ENV_FILE.test(name)).sort();
+  const first = [EXAMPLE, ".env"].filter(name => found.includes(name));
+
+  return [...first, ...found.filter(name => !first.includes(name))];
+}
+
 export function parse(path: string): Record<string, string> {
   const text = read(path);
 
@@ -22,4 +41,48 @@ export function parse(path: string): Record<string, string> {
 
 export function load(root: string, mode: string): Record<string, string> {
   return Object.assign({}, ...files(mode).map(file => parse(join(root, file))));
+}
+
+export function source(root: string, mode: string, key: string): string | undefined {
+  if (key in process.env) return "process.env";
+
+  return files(mode).reverse().find(file => key in parse(join(root, file)));
+}
+
+export function scan(text: string): Key[] {
+  const keys: Key[] = [];
+  let block: string[] = [];
+  let section: string | undefined;
+  let quote: string | undefined;
+
+  for (const line of text.split(/\r?\n/)) {
+    if (quote) {
+      if (line.includes(quote)) quote = undefined;
+      continue;
+    }
+
+    const comment = COMMENT.exec(line);
+
+    if (comment && !ASSIGN.test(comment[1])) {
+      block.push(comment[1].trimEnd());
+      continue;
+    }
+
+    const assign = ASSIGN.exec(line);
+
+    if (assign) {
+      const [, name, value] = assign;
+      const open = /^["'`]/.exec(value)?.[0];
+
+      if (open && !value.slice(1).includes(open)) quote = open;
+
+      keys.push({ name, doc: block.join("\n").trim() || undefined, section });
+    } else if (!comment && block.length) {
+      section = block.join(" ").trim() || section;
+    }
+
+    block = [];
+  }
+
+  return keys;
 }
