@@ -242,6 +242,36 @@ call through the owner (`order.line.bump()`). Assigning a new instance on the se
 child twin; clearing the field leaves it `undefined`. A public `get()` field fails the build - make
 it `protected` or `private`.
 
+A `has()` pool of a Model class - `jobs = has(Render)` or `has(Render, "id")` - is a collection of
+children: the twin's field is a read-only pool of member twins, in the server's order, each patched
+on its own. Adding or removing a member sends only the list of member ids; a member keeps its twin
+while it stays in the pool. Member methods call through the owner (`job.cancel()`). A public `has()`
+of plain values, a factory, or a class that is not a Model fails the build.
+
+```ts
+// app/studio/remote.ts
+export default class Studio extends Model {
+  jobs = has(Render, "id");
+
+  async start(prompt: string) {
+    this.jobs.add(crypto.randomUUID()).run(prompt);
+  }
+}
+```
+
+```tsx
+// app/studio/index.tsx
+import type Studio from "./remote";
+
+export class Page extends Route {
+  declare remote: Studio;
+
+  render() {
+    return <ul>{this.remote.jobs.map(job => <li key={job.id}>{job.progress}%</li>)}</ul>;
+  }
+}
+```
+
 A value still pending on the server - a `set()` field not yet assigned, or a getter waiting on one -
 is pending on the twin too: reading it suspends until the server assigns it. A value the twin already
 holds stays, unless the server rebuilt the instance.

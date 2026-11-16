@@ -109,6 +109,7 @@ export class Page extends Component {
 - Values cross with rpc's codec - a `Date`, `Map`, `Set` or `BigInt` field arrives as one. Values change on the server only; assigning a twin field throws. Every call's reply carries what changed on the tab's twins; changes from elsewhere arrive on a stream and the twin pulls.
 - Entering a seated folder waits for the twin's first pull (`Loading` on a cold load). A refused pull reaches the nearest `Catch`; an error with a 3xx `status` and `location` redirects.
 - A field holding a Model the seat owns (`line = new Line()`, or `line?: Line`) is a child twin.
+- A `has(Render)` / `has(Render, 'id')` field is a read-only pool of member twins, each patched on its own; member methods call through the owner. A public `has()` of values or a factory fails the build.
 - Other exported Model classes are pooled: each `new Cart()` a Component owns, or `Cart.new()`, gets its own server instance.
 - A public `get()` field fails the build - declare it `protected`.
 - Reload the page when a call changes what a `key()` returns (login, logout): twins keep the context they were built in.
