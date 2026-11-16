@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -100,4 +100,17 @@ it("will not write process.env", () => {
 
   expect(read.ONLY_IN_FILE).toBe("1");
   expect(process.env.ONLY_IN_FILE).toBeUndefined();
+});
+
+it("will skip a directory named like a .env file", () => {
+  mkdirSync(join(root, ".env"));
+  write({ ".env.local": "A=1" });
+
+  expect(read.A).toBe("1");
+});
+
+it("will read past a byte order mark", () => {
+  write({ ".env": "\uFEFFA=1" });
+
+  expect(read.A).toBe("1");
 });
