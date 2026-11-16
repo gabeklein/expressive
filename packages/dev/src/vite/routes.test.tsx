@@ -4,13 +4,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import { Component, Model } from "@expressive/mvc";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route } from "../client";
-import { generateRoutes, remoteOf } from "./routes";
+import { generateRoutes, remoteOf, staticPaths } from "./routes";
 import { scanExports } from "./scan";
 
 describe("app/ routing (codegen)", () => {
@@ -38,6 +38,43 @@ describe("app/ routing (codegen)", () => {
 
     return generateRoutes(appDir, join(root, "out"), scanExports);
   }
+
+  it("will list the static pages for a build to render ahead", async () => {
+    const root = mkdtempSync(join(tmpdir(), "routes-"));
+    dirs.push(root);
+
+    const appDir = join(root, "app");
+    const files = {
+      "index.tsx": PAGE,
+      "(about).tsx": PAGE,
+      "(helper).tsx": "export const x = 1;",
+      "docs/index.tsx": PAGE,
+      "docs/(intro).tsx": PAGE,
+      "docs/guide/(setup).tsx": PAGE,
+      "blog/[slug].tsx": PAGE + "; export const paths = () => [];",
+      "blog/[slug]/(edit).tsx": PAGE + "; export const paths = () => [];",
+      "files/[...].tsx": PAGE,
+      "(paths).tsx": PAGE + "; export const paths = () => [];",
+      "tally/[id].tsx": PAGE + "; export const paths = () => [];",
+      "tally/index.tsx": PAGE,
+      "tally/(sub).tsx": PAGE,
+      "tally/remote.ts": "export async function add() {}",
+      "shop/index.tsx": PAGE,
+      "shop/cart/index.tsx": PAGE,
+      "shop/remote/index.ts": SCOPE,
+    };
+
+    for (const [path, src] of Object.entries(files)) {
+      mkdirSync(dirname(join(appDir, path)), { recursive: true });
+      writeFileSync(join(appDir, path), src);
+    }
+
+    const { paths, sources } = await staticPaths(appDir, scanExports);
+
+    expect(paths.sort()).toEqual(["/", "/about", "/docs", "/docs/guide/setup", "/docs/intro", "/paths"]);
+    expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx"]);
+  });
+
 
   const PAGE = "export function Page(){ return null }";
   const LAYOUT = "export function Layout({ children }){ return children }";
@@ -315,7 +352,7 @@ describe("app/ routing (codegen)", () => {
 
   it("module always exports a default App component, host-neutral", async () => {
     const out = await generate({ "index.tsx": PAGE });
-    expect(out).toContain("const App = () => (");
+    expect(out).toContain("const App = (props) => (");
     expect(out).toContain("export default App;");
     expect(out).not.toContain("@expressive/router");
     expect(out).not.toContain("@expressive/react");
