@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { build, createLogger, createServer, type Rollup, type ViteDevServer } from "vite";
@@ -15,6 +15,10 @@ let root: string;
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "env-")));
   writeFileSync(join(root, ".env"), "PUBLIC_URL=https://public.test\nSECRET=s3cret\n");
+  mkdirSync(join(root, "node_modules/@expressive/env"), { recursive: true });
+  writeFileSync(join(root, "node_modules/@expressive/env/package.json"), JSON.stringify({ name: "@expressive/env", type: "module", exports: { ".": { browser: "./browser.js", default: "./index.js" } } }));
+  writeFileSync(join(root, "node_modules/@expressive/env/browser.js"), `export const env = "installed stub";`);
+  writeFileSync(join(root, "node_modules/@expressive/env/index.js"), `export const env = "installed server";`);
   writeFileSync(join(root, "main.js"), `import { env } from "@expressive/env";\nexport const url = env.PUBLIC_URL;\nexport const all = env;\n`);
 });
 

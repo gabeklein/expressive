@@ -44,9 +44,11 @@ import { env } from "@expressive/env/vite";
 export default { plugins: [env()] };
 ```
 
-Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; a prefixed key absent at build throws too. `env({ prefix: "CLIENT_" })` changes the prefix. `env({ prefix: false })` sends every key in the `.env` files - secrets included - and the build says how many. A prefixed `process.env` key reaches the client too; with `false`, `process.env` adds nothing.
+Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; so does a prefixed key absent at build. `env({ prefix: "CLIENT_" })` changes the prefix; `env({ prefix: false })` sends every key in the `.env` files, secrets included, and the build logs the count. `process.env` adds prefixed keys only.
 
-Without the plugin, a browser bundle gets a stub that throws on any key.
+The client reads Vite's `root` and `mode`; the server reads the working directory and `NODE_ENV`. Keep them aligned - `vite build --mode staging` otherwise gives each side different files. Neither side expands `$VAR`.
+
+Without the plugin, a browser bundle gets a stub that throws on any uppercase key.
 
 In dev the plugin writes `env.d.ts` on start and on every root `.env*` change, then reloads the page.
 

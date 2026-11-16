@@ -1,5 +1,5 @@
-import { basename, dirname } from "node:path";
-import type { Plugin } from "vite";
+import { posix } from "node:path";
+import { normalizePath, type Plugin } from "vite";
 
 import { write } from "./declaration";
 import { reset } from "./env";
@@ -22,7 +22,8 @@ export interface EnvOptions {
 /**
  * Serves `env` from `@expressive/env` to the client - only keys with the prefix, read at build.
  *
- * Server code keeps the real module.
+ * Server code keeps the real module, which reads from the working directory with mode `NODE_ENV`.
+ * The client reads from Vite's `root` with Vite's `mode` - align them, or `--mode staging` gives each side different files.
  * In dev, writes `env.d.ts` and reloads when a root `.env*` file changes.
  */
 export function env({ prefix = "PUBLIC_" }: EnvOptions = {}): Plugin {
@@ -32,6 +33,7 @@ export function env({ prefix = "PUBLIC_" }: EnvOptions = {}): Plugin {
 
   return {
     name: "expressive:env",
+    enforce: "pre",
 
     config: () => ({ optimizeDeps: { exclude: [ID] } }),
 
@@ -59,7 +61,9 @@ export function env({ prefix = "PUBLIC_" }: EnvOptions = {}): Plugin {
       write(root);
 
       server.watcher.on("all", (_event, file) => {
-        if (dirname(file) !== root || !ENV_FILE.test(basename(file))) return;
+        const path = normalizePath(file);
+
+        if (posix.dirname(path) !== root || !ENV_FILE.test(posix.basename(path))) return;
 
         reset();
         write(root);
