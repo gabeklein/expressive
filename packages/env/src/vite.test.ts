@@ -122,6 +122,7 @@ describe("dev server", () => {
     reset.mockClear();
     server.watcher.emit("all", "change", join(root, "main.js"));
     server.watcher.emit("all", "change", join(root, "nested", ".env"));
+    server.watcher.emit("all", "change", join(root, ".env.swp"));
 
     expect(reset).not.toHaveBeenCalled();
   });

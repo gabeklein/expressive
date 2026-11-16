@@ -3,11 +3,11 @@ import { normalizePath, type Plugin } from "vite";
 
 import { write } from "./declaration";
 import { reset } from "./env";
+import { isEnvFile } from "./files";
 import { client, exposed } from "./client";
 
 const ID = "@expressive/env";
 const VIRTUAL = "\0@expressive/env";
-const ENV_FILE = /^\.env(\.[\w.-]+)?$/;
 
 export interface EnvOptions {
   /**
@@ -63,7 +63,7 @@ export function env({ prefix = "PUBLIC_" }: EnvOptions = {}): Plugin {
       server.watcher.on("all", (_event, file) => {
         const path = normalizePath(file);
 
-        if (posix.dirname(path) !== root || !ENV_FILE.test(posix.basename(path))) return;
+        if (posix.dirname(path) !== root || !isEnvFile(posix.basename(path))) return;
 
         reset();
         write(root);
