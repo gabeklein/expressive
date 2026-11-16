@@ -52,13 +52,15 @@ const TWIN = /^[\w$-]{1,80}$/;
 
 const connections = new Map<string, Connection>();
 
+const epochOf = () => randomBytes(6).toString("base64url");
+
 export function connect(id: unknown): Connection | undefined {
   if (typeof id != "string" || !UUID.test(id)) return;
 
   let connection = connections.get(id);
 
   if (!connection) {
-    connection = { id, epoch: randomBytes(6).toString("base64url"), twins: new Map(), busy: 0, queued: false, scheduled: false };
+    connection = { id, epoch: epochOf(), twins: new Map(), busy: 0, queued: false, scheduled: false };
     connections.set(id, connection);
   }
 
@@ -96,6 +98,31 @@ export function listen(connection: Connection, sink: Sink): () => void {
     connection.sink = undefined;
     expire(connection);
   };
+}
+
+/** Release twins whose instance is gone and give their connections - or with `all`, every connection - a new epoch to rejoin under. */
+export function rotate(all = false): void {
+  for (const connection of connections.values()) {
+    const dead = [...connection.twins].filter(([, held]) => held.instance.get(null)).map(([twin]) => twin);
+
+    if (!all && !dead.length) continue;
+
+    release(connection, dead.join(","));
+    connection.epoch = epochOf();
+    connection.sink?.("hello", { epoch: connection.epoch });
+  }
+}
+
+export function counts(): { connections: number; twins: number; watchers: number } {
+  let twins = 0;
+  let watchers = 0;
+
+  for (const connection of connections.values()) {
+    twins += connection.twins.size;
+    connection.twins.forEach(held => (watchers += held.watching.size));
+  }
+
+  return { connections: connections.size, twins, watchers };
 }
 
 export function begin(connection: Connection): void {

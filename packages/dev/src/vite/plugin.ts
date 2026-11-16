@@ -11,10 +11,12 @@ import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, type Remote } from "./routes";
 import { isCall, toNode } from "@expressive/rpc/http";
-import { dispatch, verify, type Seats } from "@expressive/rpc/protocol";
+import { dispatch, stats, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
+import { counts } from "../server/connection";
+import { reloads } from "./reload";
 import { twins, type Endpoint, type Exports, type Pooled } from "../server/twin";
 import { hasSeat, scanExports, scanRemote } from "./scan";
 
@@ -22,6 +24,7 @@ const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
 const SERVER = "server.ts";
 const CALL = "call.ts";
+const STATS = "/.expressive/stats";
 const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
 
 /** The plugin's API - `config()` loads the app's `index.ts` settings. */
@@ -67,6 +70,7 @@ export function expressive(): Plugin<Host> {
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
+  let unload: (() => void) | undefined;
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -213,14 +217,21 @@ export function expressive(): Plugin<Host> {
       handler: html => ensureBootstrap(html),
     },
 
+    closeBundle() {
+      unload?.();
+      unload = undefined;
+    },
+
     configureServer(server) {
       const host = (runner = createServerModuleRunner(server.environments.ssr));
       install();
+      unload = reloads(host);
       watchRoutes(server, project, routesId);
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
 
       server.middlewares.use(toNode(async request => {
+        if (request.method === "GET" && new URL(request.url).pathname === STATS) return Response.json({ ...counts(), ...stats() });
         if (isStream(request)) return stream(request);
         if (isCall(request)) return dispatch(request, endpoints, true, seatsOf(host, project), twins);
       }));

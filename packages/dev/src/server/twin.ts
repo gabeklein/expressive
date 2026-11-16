@@ -36,18 +36,18 @@ export async function twins(incoming: Incoming<Exports>, fn?: Call): Promise<Han
 
     if (!connection) return reply(400, { message: "Expected an x-expressive-connection id." });
 
-    const epoch = { "x-expressive-epoch": connection.epoch };
+    const epoch = () => ({ "x-expressive-epoch": connection.epoch });
 
     release(connection, header("x-expressive-release"));
 
     const twin = pull || method || pooled ? twinOf(header("x-expressive-twin")) : undefined;
 
-    if ((pull || method || pooled) && !twin) return reply(400, { message: "Expected an x-expressive-twin id." }, epoch);
+    if ((pull || method || pooled) && !twin) return reply(400, { message: "Expected an x-expressive-twin id." }, epoch());
 
     const held = twin ? connection.twins.get(twin) : undefined;
     const mismatch = pooled ? held && held.pool?.id !== pooled.id || pooled.method && !held : held?.pool;
 
-    if (mismatch) return reply(404, { message: "Not found." }, epoch);
+    if (mismatch) return reply(404, { message: "Not found." }, epoch());
 
     const since = header("if-none-match");
 
@@ -58,11 +58,11 @@ export async function twins(incoming: Incoming<Exports>, fn?: Call): Promise<Han
         ? await inPool(request, connection, pooled, twin!, since, args, list, seats, at)
         : await atFolder(incoming, connection, { pull, method, fn: plain, twin, since, args });
 
-      return result ? reply(200, result, epoch) : reply(304, undefined, epoch);
+      return result ? reply(200, result, epoch()) : reply(304, undefined, epoch());
     } catch (error) {
-      if (error instanceof Moved) return reply(409, { message: error.message }, epoch);
+      if (error instanceof Moved) return reply(409, { message: error.message }, epoch());
 
-      return failure(error, list, dev, epoch);
+      return failure(error, list, dev, epoch());
     } finally {
       if (!pull) end(connection);
     }
