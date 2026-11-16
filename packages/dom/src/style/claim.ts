@@ -1,6 +1,6 @@
 import { applyDeclarations } from './declarations';
 import { appearanceToken, createAppearanceToken, emitClass, reserved } from './protocol';
-import type { AppearanceContext, ResolvedAppearance } from './protocol';
+import type { AppearanceContext, Block, ResolvedAppearance, Target } from './protocol';
 
 type Style = string | Record<string, unknown> | false | null | undefined | readonly Style[];
 
@@ -31,6 +31,10 @@ interface Claim {
   className: string;
   context?: AppearanceContext;
   declarations: Record<string, unknown>;
+}
+
+interface Claimed extends Claim {
+  plain: [number, Block][];
 }
 
 interface Ticket {
@@ -81,12 +85,12 @@ function door(value: Style) {
 }
 
 function claim(
-  element: Element,
+  target: Target,
   appearance: Appearance | undefined,
   resolved: ResolvedAppearance | undefined,
   className: unknown,
   value: Style
-): Claim {
+): Claimed {
   const collected: Collected = { classes: [], declarations: {}, tokens: [] };
   const entries = appearance?.entries || [];
 
@@ -97,17 +101,32 @@ function claim(
   for (let index = entries.length - 1; index >= 0; index--)
     collect(entries[index].style, collected, entries[index].hops);
 
+  const plain: [number, Block][] = [];
+
   for (const { appearance, doors } of collected.tokens) {
-    for (const block of appearance.blocks || [])
-      collected.classes.push(emitClass(block, doors, element.ownerDocument));
+    for (const block of appearance.blocks || []) {
+      collected.classes.push(emitClass(block, doors, target));
+      if (!block.group && !block.when?.length) plain.push([doors, block]);
+    }
     if (appearance.classes) collected.classes.push(...appearance.classes);
   }
 
   return {
     className: [...new Set(collected.classes)].join(' '),
     context: resolved?.context || appearance?.context,
-    declarations: collected.declarations
+    declarations: collected.declarations,
+    plain
   };
+}
+
+function flatten({ declarations, plain }: Claimed) {
+  return Object.assign(
+    {},
+    ...plain
+      .sort(([a, x], [b, y]) => a - b || x.ordinal - y.ordinal)
+      .map(([, block]) => block.declarations),
+    declarations
+  ) as Record<string, unknown>;
 }
 
 function applyClaim(element: Element, before: Claim | undefined, after: Claim) {
@@ -157,5 +176,5 @@ function appendClasses(classes: string[], value: unknown) {
   if (typeof value == 'string') classes.push(...value.split(/\s+/).filter(Boolean));
 }
 
-export { applyClaim, claim, componentProps, door, placed };
+export { applyClaim, claim, componentProps, door, flatten, placed };
 export type { Appearance, Claim, Style };

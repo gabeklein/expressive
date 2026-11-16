@@ -6,7 +6,7 @@ import { range } from './fiber';
 import type { Container, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
-import { consume, renderedAppearance } from './style';
+import { consume, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
 
 const roots = new WeakMap<Container, () => void>();

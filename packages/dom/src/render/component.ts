@@ -6,16 +6,17 @@ import { isVNode } from '../node/vnode';
 import type { Key, Node as RenderNode, VNode } from '../node/vnode';
 import { componentProps, placed } from '../style/claim';
 import type { Appearance } from '../style/claim';
-import { call, enter } from './adapter';
+import { call, enter } from '../core/adapter';
 import { inserted } from './commits';
 import { makeScope, range } from './fiber';
 import type { Boundary, Fiber, Placement } from './fiber';
-import { latest, track, untrack } from './hot';
+import { latest, track, untrack } from '../core/hot';
 import { complete } from './mount';
 import { attempt, passiveRender } from './render';
-import { claim as dequeue, schedule, settle as absorb, transition } from './scheduler';
-import { consume, observe } from './style';
-import { isThenable } from './suspense';
+import { claim as dequeue, schedule, settle as absorb, transition } from '../core/scheduler';
+import { consume, observe } from '../core/appearance';
+import { isThenable } from '../node/kind';
+import { placing } from '../core/placement';
 
 function mountFunction(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const fiber = range('function', parent, before, context);
@@ -38,14 +39,6 @@ function mountFunction(value: VNode, parent: globalThis.Node, before: globalThis
   });
 }
 
-const PLACED = new WeakMap<Component, Promise<void>>();
-
-Component.on({
-  setup(self) {
-    return PLACED.get(self);
-  }
-});
-
 function mountOwnedComponent(
   value: VNode,
   parent: globalThis.Node,
@@ -58,9 +51,7 @@ function mountOwnedComponent(
   const Type = value.type as new (props: unknown) => Component;
   const props = observe(resolved.props);
   const instance = new Type(props);
-  let place!: () => void;
-
-  PLACED.set(instance, new Promise<void>((resolve) => (place = resolve)));
+  const place = placing(instance);
 
   return mountComponent(instance, parent, before, context, boundary, resolved.appearance, true, value.key, props, place);
 }
@@ -192,8 +183,5 @@ function unmountComponent(fiber: Fiber) {
   fiber.childContext?.pop();
 }
 
-function renderable(value: unknown): value is Component {
-  return value instanceof Component;
-}
 
-export { mountComponent, mountFunction, mountOwnedComponent, patchComponent, patchFunction, renderable, unmountComponent };
+export { mountComponent, mountFunction, mountOwnedComponent, patchComponent, patchFunction, unmountComponent };

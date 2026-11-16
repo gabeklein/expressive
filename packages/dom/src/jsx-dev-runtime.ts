@@ -17,5 +17,5 @@ function jsxDEV(
 }
 
 export { Fragment, jsxDEV };
-export { hot } from './render/hot';
+export { hot } from './core/hot';
 export type { JSX } from '@expressive/mvc/jsx-runtime';

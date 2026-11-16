@@ -1,5 +1,6 @@
 import { Context } from '@expressive/mvc';
 
+import { ALIASES, isEvent, isStringified } from '../node/props';
 import type { VNode } from '../node/vnode';
 import { applyClaim, claim } from '../style/claim';
 import type { Appearance } from '../style/claim';
@@ -10,13 +11,11 @@ import type { Boundary, Fiber } from './fiber';
 import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
 import { focusing } from './render';
-import { afterFlush } from './scheduler';
+import { afterFlush } from '../core/scheduler';
 import { hostOf } from './suspense';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
-const ENUMERATED = ['contentEditable', 'contenteditable', 'draggable', 'spellcheck'];
-const ALIASES: Record<string, string> = { autoFocus: 'autofocus', contentEditable: 'contenteditable', htmlFor: 'for' };
 const controlled = new WeakMap<Element, Fiber>();
 const restoring = new WeakSet<Document>();
 
@@ -74,7 +73,7 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(element, appearance, resolved, next.className, next.style);
+  const claimed = claim(element.ownerDocument, appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;
@@ -132,7 +131,7 @@ function patchProp(fiber: Fiber, element: Element, key: string, previous: any, n
     return;
   }
 
-  if (/^on[A-Z]/.test(key)) {
+  if (isEvent(key)) {
     const capture = key.endsWith('Capture');
     const lower = (capture ? key.slice(2, -7) : key.slice(2)).toLowerCase();
     const name = lower == 'doubleclick' ? 'dblclick' : lower;
@@ -149,7 +148,7 @@ function patchProp(fiber: Fiber, element: Element, key: string, previous: any, n
 
   const name = ALIASES[key] || key;
 
-  if ((key.startsWith('aria-') || key.startsWith('data-') || ENUMERATED.includes(key)) && next != null) {
+  if (isStringified(key) && next != null) {
     element.setAttribute(name, String(next));
     return;
   }

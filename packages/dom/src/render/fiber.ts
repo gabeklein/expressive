@@ -2,7 +2,7 @@ import { Component, Context } from '@expressive/mvc';
 
 import type { Key, Node as RenderNode } from '../node/vnode';
 import type { Appearance, Claim } from '../style/claim';
-import type { Scope } from './adapter';
+import type { Scope } from '../core/adapter';
 
 type Container = Element | DocumentFragment;
 

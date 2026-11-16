@@ -1,10 +1,11 @@
+import { isThenable } from '../node/kind';
 import { fragment } from './commits';
 import { move, moveRange, range } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
-import { release, schedule, transition } from './scheduler';
+import { release, schedule, transition } from '../core/scheduler';
 
 const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();
@@ -196,8 +197,5 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) 
   );
 }
 
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return !!value && typeof (value as PromiseLike<unknown>).then == 'function';
-}
 
-export { gather, hold, hostOf, isThenable, settle, suspend, unwait };
+export { gather, hold, hostOf, settle, suspend, unwait };

@@ -7,7 +7,7 @@ import { makeScope, range } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { complete } from './mount';
 import { attempt, passiveRender } from './render';
-import { schedule, transition } from './scheduler';
+import { schedule, transition } from '../core/scheduler';
 
 function mountCollection(value: has.List<unknown> | has.Pool<unknown> | map.Managed<unknown, unknown>, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const fiber = range('collection', parent, before, context);
@@ -42,8 +42,5 @@ function patchCollection(fiber: Fiber, appearance?: Appearance) {
   runCollection(fiber, passiveRender);
 }
 
-function isCollection(value: unknown): value is has.List<unknown> | has.Pool<unknown> | map.Managed<unknown, unknown> {
-  return value instanceof has.List || value instanceof has.Pool || value instanceof map.Managed;
-}
 
-export { isCollection, mountCollection, patchCollection };
+export { mountCollection, patchCollection };

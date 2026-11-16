@@ -9,7 +9,7 @@ description: Expressive MVC's DOM renderer (@expressive/dom) - renders Model/Com
 
 ## Status
 
-A tested browser renderer, pre-1.0 - not an LTS contract. Use it for applications prepared to track minor releases. The documented behavior is intentional; package shape and extension seams may change before stabilization. Renderer internals are private—import only the package root and its JSX runtime entries.
+A tested browser renderer, pre-1.0 - not an LTS contract. Use it for applications prepared to track minor releases. The documented behavior is intentional; package shape and extension seams may change before stabilization. Renderer internals are private—import only the package root, its JSX runtime entries and `/server`.
 
 ```jsonc
 {
@@ -323,6 +323,30 @@ await pending(() => {
 return <Portal into={document.body}><Dialog /></Portal>;
 ```
 
+## Server rendering
+
+`renderToString(node)` from `@expressive/dom/server` renders without a DOM and resolves to `{ html, css }`: the container's markup as `render()` leaves it, range comments included, and the style rules it emitted.
+
+```tsx
+import { renderToString } from '@expressive/dom/server';
+
+const { html, css } = await renderToString(<App />);
+```
+
+Put `css` in a `<style>` in the document head. Calls are independent and can run concurrently.
+
+- Suspended renders and lazy components are awaited and retried in place - fallbacks never draw. Load data through `set(async …)` fields; `async new()` is not awaited.
+- `new()` runs; effects and `ready` do not. Owned instances are destroyed once rendered; a placed instance is left as it was.
+- A `catch` boundary handles an error, then renders again - each failing component recovers once. A retry that fails no further into the subtree than the last rejects; an error an inner boundary gives up on reaches the outer one.
+- `renderToString(node, { signal })` rejects with the signal's reason once it aborts - use it for a timeout (`AbortSignal.timeout(ms)`).
+- `markers: false` leaves out the range comments - the output can't be hydrated.
+- `inline: true` writes each element's plain class rules into its `style`, in cascade order before its own inline style - for email. Inlined declarations outrank the states and media queries left in `css`. States, media queries and descendant scopes stay in `css` only, and `var()` references are not resolved.
+- Portals leave a `<!--portal-->` marker and event handlers render nothing. `value`, `checked` and `selected` become attributes - a `<select>`'s `value` marks its options; textarea `value` becomes its text.
+- Attribute and tag names that would break markup throw, and closing tags inside `<script>` and `<style>` text are escaped.
+- Numbers in `css` take `px` from a fixed table of unitless properties instead of the CSSOM. A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's while class names match.
+
+There is no hydration: mounting with `render()` replaces the markup.
+
 ## Hot reload (Vite)
 
 ```ts
@@ -338,4 +362,4 @@ A top-level function component (`function View()`, `const View = () => …`, Pas
 
 ## Boundaries
 
-The renderer is browser-only: no native target, SSR, or hydration. It has no general hook API, memo wrapper, synthetic events, or devtools ownership. Build-time expressive-jsx extraction is not included.
+The renderer targets the browser, with `renderToString` for servers: no native target, streaming, or hydration. It has no general hook API, memo wrapper, synthetic events, or devtools ownership. Build-time expressive-jsx extraction is not included.
