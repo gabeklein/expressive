@@ -44,6 +44,7 @@ Bare-named files under `app/` are support modules. Siblings match static before 
 - `default`, read by kind:
   - a function is the entry hook: runs with the Route before render, may be async; a returned string redirects, `null` falls through to the 404. Under a seat it runs after the first pull - type it `(route: Route & { remote: Seat })`.
   - a Model or Component class renders around the content (around `Layout` if present) and is provided below.
+- `paths` - below a `[param]` or `[...]`, the absolute paths a prerendering build renders; may be async.
 
 Each module is its own chunk, loaded on first entry, unless it is the root or exports `Loading` or `Catch`.
 
@@ -127,3 +128,12 @@ node dist/server/index.js      run the built service (port from index.ts, defaul
 ```
 
 Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+
+## Prerendering
+
+`runBuild(root, { prerender: true })` from `@expressive/dev/vite` builds, then renders each page with `renderToString` (`expressive-dom/SKILL.md#server-rendering`) to `dist/client/<path>/index.html` - markup in `#root`, its `head` ahead of the shell's `<title>`, its `css` as a `<style>`. The client hydrates a page prerendered for its path and renders anything else fresh.
+
+- Rendered: every page with no `[param]` or `[...]` above it, plus what `paths()` lists below one.
+- Skipped: every folder with a `remote.ts` or `remote/`, and everything below it - the build never runs server code. A page that redirects, renders nothing or throws is skipped with a warning.
+- `new()` runs at build and effects do not - DOM listeners and browser-only reads belong in effects.
+- The empty shell is kept as `200.html`; the built service serves `<path>/index.html`, then it. A static host should fall back to `200.html`. One that falls back to the root `index.html` (Cloudflare Pages without a `404.html`) still boots the right page, after showing the home page until scripts load.

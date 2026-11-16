@@ -288,7 +288,40 @@ are virtual, addressed under `/.expressive/`. The router module regenerates when
 vanish under `app/`.
 
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
-adds it and `@expressive/inspect/vite`. Server-only API - `config`, `serve`, `Current` - is
+adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
+
+### Prerendering
+
+`runBuild(root, { prerender: true })` renders each page in Node with `renderToString` from
+`@expressive/dom/server` after the build, and writes it to `dist/client/<path>/index.html`: the
+markup goes in `#root`, its hoisted `<title>`, `<meta>` and `<link>` go ahead of the shell's own
+`<title>`, and the style rules it used go in a `<style>`. The client hydrates a page prerendered
+for its own path, adopting the markup in place, and renders anything else fresh.
+
+```ts
+import { runBuild } from "@expressive/dev/vite";
+
+await runBuild(process.cwd(), { prerender: true });
+```
+
+Only pages that need nothing at request time are rendered. A `[param]` or `[...]` route is skipped
+unless its module exports `paths()`, returning the absolute paths to render:
+
+```tsx
+// app/blog/[slug].tsx
+export const paths = async () => (await listPosts()).map(post => `/blog/${post.slug}`);
+```
+
+Every folder with a `remote.ts` or `remote/` folder is skipped, along with everything below it:
+those pages stay client-rendered, and the build never runs server code. A page that redirects,
+renders nothing or throws is skipped with a warning. `new()` runs during the render and effects
+never do, so DOM listeners and browser-only reads belong in effects.
+
+The empty shell is kept as `dist/client/200.html`. The built service serves `<path>/index.html`,
+then falls back to the shell, and a static host should fall back to `200.html` too. A host that
+falls back to the root `index.html` (Cloudflare Pages without a `404.html`) serves the prerendered
+home page there. The client notices the page was rendered for another path and renders the right
+one, but the home page shows until scripts load. Server-only API - `config`, `serve`, `Current` - is
 `@expressive/dev/server`; the generated server entry imports `serve` from there.
 
 ## Example
