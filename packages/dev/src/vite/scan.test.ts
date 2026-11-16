@@ -266,6 +266,51 @@ describe("twin scan", () => {
     });
   });
 
+  it("will scan a has() of a Model class as a collection of children", async () => {
+    const { twin: scanned, problems } = await twin(`${HEAD}
+      import { has } from "@expressive/mvc";
+      import { Render } from "./render";
+      class Note extends Model { text = ""; }
+      export default class Studio extends Model {
+        jobs = has(Render, "id");
+        notes = has(Note);
+        protected log = has<string>();
+      }
+    `, { "/app/render.ts": `${HEAD} export class Render extends Model { id = ""; async cancel() {} }` });
+
+    expect(problems).toEqual([]);
+    expect(scanned).toEqual({
+      name: "Studio",
+      methods: [],
+      fields: ["jobs", "notes"],
+      children: {
+        jobs: { name: "Render", methods: ["cancel"], fields: ["id"], many: true },
+        notes: { name: "Note", methods: [], fields: ["text"], many: true },
+      },
+    });
+  });
+
+  it("will refuse a public has() it cannot send", async () => {
+    const { problems } = await twin(`${HEAD}
+      import { has } from "@expressive/mvc";
+      class Point { x = 0; }
+      const make = () => new Point();
+      export default class Studio extends Model {
+        log = has<string>();
+        made = has(make);
+        points = has(Point);
+        gone = has(Gone);
+      }
+    `);
+
+    expect(problems).toEqual([
+      "Studio.log is a public has() of values or a factory - only has(ModelClass) crosses; declare it protected or private.",
+      "Studio.made is a public has() of values or a factory - only has(ModelClass) crosses; declare it protected or private.",
+      "Studio.points holds Point, which is not a Model - only has() of a Model class crosses.",
+      "Studio.gone holds Gone, which is not a Model - only has() of a Model class crosses.",
+    ]);
+  });
+
   it("will scan an owned child whose class is imported as a type only", async () => {
     const { twin: scanned } = await twin(`${HEAD} import type { Line } from "./line"; export default class Shop extends Model { line?: Line; }`, {
       "/app/line.ts": `${HEAD} export class Line extends Model { qty = 1; }`,

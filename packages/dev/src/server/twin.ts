@@ -1,9 +1,10 @@
-import { Model } from "@expressive/mvc";
+import { has, Model } from "@expressive/mvc";
 
 import { construct, failure, inFolder, seated, seatsAlong, walkOf, within, type Call, type Endpoint as Base, type Exports as Plain, type Handle, type Incoming, type Seats } from "@expressive/rpc/protocol";
 import { reply } from "@expressive/rpc/http";
 
 import { begin, catchUp, connect, end, frameOf, hold, release, renew, twinOf, type Connection, type Shape } from "./connection";
+import { idOf } from "./version";
 
 export interface Exports extends Plain {
   seat?: Shape & { methods: Record<string, string> };
@@ -50,13 +51,14 @@ export async function twins(incoming: Incoming<Exports>, fn?: Call): Promise<Han
     if (mismatch) return reply(404, { message: "Not found." }, epoch());
 
     const since = header("if-none-match");
+    const items = header("x-expressive-items")?.split(",") ?? [];
 
     if (!pull) begin(connection);
 
     try {
       const result = pooled
-        ? await inPool(request, connection, pooled, twin!, since, args, list, seats, at)
-        : await atFolder(incoming, connection, { pull, method, fn: plain, twin, since, args });
+        ? await inPool(request, connection, pooled, twin!, since, args, items, list, seats, at)
+        : await atFolder(incoming, connection, { pull, method, fn: plain, twin, since, args, items });
 
       return result ? reply(200, result, epoch()) : reply(304, undefined, epoch());
     } catch (error) {
@@ -80,10 +82,11 @@ interface Invocation {
   twin?: string;
   since?: string;
   args: unknown[];
+  items: string[];
 }
 
 async function atFolder(incoming: Incoming<Exports>, connection: Connection, invocation: Invocation) {
-  const { pull, method, fn, twin, since, args } = invocation;
+  const { pull, method, fn, twin, since, args, items } = invocation;
   const { pathname, exports } = incoming;
   const shape = exports!.seat ?? { fields: [] };
 
@@ -94,7 +97,7 @@ async function atFolder(incoming: Incoming<Exports>, connection: Connection, inv
     if (twin) hold(connection, twin, pathname, seat!, shape, since);
     if (pull) return caughtUp(connection, twin!);
 
-    const value = await (method ? invoke(seat!, method, args) : fn!(...args));
+    const value = await (method ? invoke(seat!, method, args, items) : fn!(...args));
 
     return { value, frame: frameOf(connection) };
   });
@@ -105,7 +108,7 @@ interface Target extends Pooled {
   method?: string;
 }
 
-async function inPool(request: Request, connection: Connection, target: Target, twin: string, since: string | undefined, args: unknown[], list: Endpoint[], seats: Seats, at: string[]) {
+async function inPool(request: Request, connection: Connection, target: Target, twin: string, since: string | undefined, args: unknown[], items: string[], list: Endpoint[], seats: Seats, at: string[]) {
   const off = "/" + at.join("/") === DETACHED;
   const walk = off ? { segments: [], pattern: [] } : walkOf(list, at);
   const along = off ? [] : await seatsAlong(seats, walk.pattern);
@@ -126,7 +129,7 @@ async function inPool(request: Request, connection: Connection, target: Target, 
 
     if (!target.method) return caughtUp(connection, twin);
 
-    const value = await invoke(instance, target.method, args);
+    const value = await invoke(instance, target.method, args, items);
 
     return { value, frame: frameOf(connection) };
   }, along);
@@ -137,12 +140,20 @@ function caughtUp(connection: Connection, twin: string) {
   return Object.keys(frame).length ? { frame } : undefined;
 }
 
-function invoke(instance: Model, method: string, args: unknown[]): unknown {
+function invoke(instance: Model, method: string, args: unknown[], items: string[]): unknown {
   const path = method.split(".");
   const name = path.pop()!;
+  const ids = [...items];
   let target: unknown = instance;
 
-  for (const field of path) target = (target as any)[field];
+  for (const field of path) {
+    target = (target as any)[field];
+
+    if (target instanceof has.Pool) {
+      const id = ids.shift();
+      target = target.get(item => item instanceof Model && idOf(item) === id);
+    }
+  }
 
   if (!(target instanceof Model)) throw new Error(`${path.join(".")} is not set on ${instance}.`);
 

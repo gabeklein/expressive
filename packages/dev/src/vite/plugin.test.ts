@@ -346,6 +346,49 @@ describe("vite host", () => {
     });
   });
 
+  const STUDIO = `
+    ${HOST}
+    import { has } from "@expressive/mvc";
+    class Render extends Model {
+      id = "";
+      progress = 0;
+      async step(by: number) { return (this.progress += by); }
+    }
+    export default class Studio extends Model {
+      static ttl = 60;
+      jobs = has(Render, "id");
+      async start(id: string) { this.jobs.add(id); }
+    }
+  `;
+
+  it("will twin a seat's has() of a Model as a collection, patching each member under its id", async () => {
+    const root = project({ "app/index.tsx": PAGE, "app/studio/remote.ts": STUDIO });
+    const server = await serve(root, expressive(), hostMvc(root));
+    const stub = (await server.transformRequest("/app/studio/remote.ts"))?.code;
+    await server.listen(0);
+
+    const post = async (headers: Record<string, string>, body = "[]") => (await fetch(new URL("/studio", server.resolvedUrls!.local[0]), {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-expressive-connection": TAB, "x-expressive-twin": "Studio-A", ...headers },
+      body,
+    })).json();
+
+    expect(stub).toMatch(/"name": "Render",\s*"fields": \["id", "progress"\],\s*"methods": \{\s*"step": "default\.jobs\.step"\s*\},\s*"many": true/);
+
+    const { frame } = await post({ "x-expressive-get": "default" });
+    const started = await post({ "x-expressive-call": "default.start", "if-none-match": frame["Studio-A"].version }, '["r1"]');
+    const [id] = started.frame["Studio-A"].patch.jobs.$items;
+
+    expect(started.frame).toEqual({
+      "Studio-A": { patch: { jobs: { $items: [id] } }, version: expect.any(String) },
+      [`Studio-A.jobs.${id}`]: { patch: { id: "r1", progress: 0 }, version: expect.any(String) },
+    });
+    expect(await post({ "x-expressive-call": "default.jobs.step", "x-expressive-items": id, "if-none-match": started.frame["Studio-A"].version }, "[4]")).toEqual({
+      value: 4,
+      frame: { [`Studio-A.jobs.${id}`]: { patch: { progress: 4 }, version: expect.any(String) } },
+    });
+  });
+
   it("will throw if a sidecar exports what the client cannot call", async () => {
     const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add", "app/tally/remote.ts": "export const add = 1" });
     const server = await serve(root);

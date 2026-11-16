@@ -189,10 +189,10 @@ export function expressive(): Plugin<Host> {
       switch (id) {
         case callId:
           return [
-            `import { Context, Model, def } from "@expressive/mvc";`,
+            `import { Context, Model, def, has } from "@expressive/mvc";`,
             `import { Route } from "@expressive/dev";`,
             `import { client } from "@expressive/rpc";`,
-            `export const { call, define, twin } = (${runtime})(client, Model, def, Context, Route);`,
+            `export const { call, define, twin } = (${runtime})(client, Model, def, Context, Route, has);`,
           ].join("\n");
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
