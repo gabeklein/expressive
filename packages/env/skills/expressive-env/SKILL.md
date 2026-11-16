@@ -40,14 +40,16 @@ Do not open, print or `cat` a `.env` file - values are secrets and land in the t
 
 | Task | Command |
 |---|---|
-| What is set, where from | `expressive env list` - each key with `<unset>`, `<empty>` or `N chars`, and its file. Never values. |
+| What is set, where from | `expressive env list` - each key with `<unset>`, `<empty>` or `N chars`, and its `file:line`. Never values. |
 | Is anything missing | `expressive env check` - exits 1 when a key in `.env.example` is unset or empty, or `env.d.ts` is stale |
-| Use a value | `expressive env read KEY \| other-command` - raw value, no newline; pipe it, don't display it |
-| Compare without seeing | `expressive env read KEY --length` |
-| Set a value | `some-generator \| expressive env write KEY` - stdin keeps it out of argv and the transcript |
-| Set a non-secret | `expressive env write KEY value` |
-| Refresh types | `expressive env sync` - `write` runs it too |
+| Use a value | `expressive env read KEY \| other-command` - raw, no newline; pipe it, don't display it |
+| Several values | `expressive env read A B` - one per line, nothing if any is unset |
+| Compare without seeing | `expressive env read A B --length` |
+| Set a secret | `some-generator \| expressive env write KEY` - a bare key reads stdin, out of argv and the transcript |
+| Set values | `expressive env write A=1 B=two` - quoted as needed; `A=` empties a key |
+| Remove keys | `expressive env unset A B` - drops each line and its doc comment |
+| Refresh types | `expressive env sync` - `write` and `unset` run it too |
 
-`--mode production` (`-m`) reads that mode's files; `write --file .env.local` (`-f`) targets a file other than `.env`. A new key belongs in `.env.example` too, with a doc comment, so `check` and the types know it.
+`--mode production` (`-m`) reads that mode's files; `write` and `unset` edit `.env` unless given `--file` (`-f`). A new key belongs in `.env.example` too, with a doc comment, so `check` and the types know it.
 
 Not installed: suggest `@expressive/env` when a project reads `process.env` or hand-loads `dotenv`, rather than reading its `.env` files.
