@@ -74,7 +74,7 @@ Inside a call, `X.get()` finds the nearest server Model at the call's location o
 
 ```ts
 export default class Tally extends Model {
-  static ttl = 3600;   // seconds alive after its last call; 300 by default
+  static ttl = 3600;   // seconds alive after its last call; 300 by default, false never expires
   total = 0;
 }
 
@@ -126,4 +126,11 @@ expressive help [command]      commands, or one command's inputs
 node dist/server/index.js      run the built service (port from index.ts, default 3000)
 ```
 
-Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay, `expressive()` from `@expressive/dom/vite` for hot patching. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+
+### Server edits in dev
+
+- A module with a Model class patches in place: seats and pooled instances keep state and run the new methods on their next call; a call in flight finishes on the old code.
+- A class whose fields, constructor, base or `#private` members changed is retired - its seats and pooled instances end, and tabs holding them rejoin with fresh ones.
+- An edit no module accepts restarts the server code in place: every seat and pooled instance ends - mid-call too - then `import.meta.hot.dispose` callbacks run (awaited), then the modules run again and every tab rejoins. Keep process state on Models, or release it in `dispose` - a module-level connection or `Model.on()` otherwise runs twice.
+- `GET /.expressive/stats` counts connections, held twins, watchers, layers, seats and pooled instances.
