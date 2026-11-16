@@ -493,6 +493,43 @@ describe("stream", () => {
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   });
 
+  it("will hold a heartbeat that lands before a reply the server counted, and keep its twins once it applies", async () => {
+    const { fetch, tally, source, id } = await attached();
+    let replied!: (res: Response) => void;
+
+    fetch.mockReturnValueOnce(new Promise<Response>(resolve => (replied = resolve)));
+
+    const bumped = call(["tally"], "bump", []);
+    source.emit("beat", { sum: fnv(`${id}@g:2`) });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    replied(new Response(JSON.stringify({ value: 1, frame: { [id]: { patch: { total: 1 }, version: "g:2" } } }), { headers: { "x-expressive-epoch": "e1" } }));
+    await bumped;
+    await settle();
+
+    expect(tally.total).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("will pass a heartbeat sent before a reply it already applied, but not the same one twice", async () => {
+    const { fetch, tally, source, id } = await attached(
+      { body: () => ({ value: 1, frame: { [id]: { patch: { total: 1 }, version: "g:2" } } }) },
+      { body: null, status: 304 },
+    );
+
+    await call(["tally"], "bump", []);
+    expect(tally.total).toBe(1);
+
+    source.emit("beat", { sum: fnv(`${id}@g:1`) });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    source.emit("beat", { sum: fnv(`${id}@g:1`) });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    expect(headers(fetch, 2)).not.toHaveProperty("if-none-match");
+  });
+
   it("will leave a twin without a version out of the checksum", async () => {
     const { fetch, source, id } = await attached({ body: snap({}, "o:1") });
     twin(["tally"], {}, [], "Other").new();

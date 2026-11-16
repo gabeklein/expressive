@@ -55,8 +55,11 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   let source: EventSource | undefined;
   let epoch: string | undefined;
   let syncing = false;
+  let flying = 0;
+  let beat: number | undefined;
+  let sums = new Set<number>();
 
-  const { send, define, pathOf } = client({
+  const { send: post, define, pathOf } = client({
     headers() {
       const release: Record<string, string> = released.size ? { "x-expressive-release": [...released].join(",") } : {};
       released.clear();
@@ -69,6 +72,26 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
       if (next && adopt(next)) await rejoin();
     },
   });
+
+  async function send(...args: Parameters<typeof post>): Promise<any> {
+    flying++;
+
+    try {
+      return await post(...args);
+    } finally {
+      flying--;
+      setTimeout(compare);
+    }
+  }
+
+  function compare(): void {
+    if (beat === undefined || flying) return;
+
+    if (beat !== checksum() && !sums.has(beat)) held().forEach(twin => refresh(twin, true));
+
+    beat = undefined;
+    sums = new Set();
+  }
 
   function of(twin: Model): Root {
     return entries.get(twin) as Root;
@@ -99,7 +122,10 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
       const twin = twins.get(key.split(".")[0])?.deref();
       if (twin) refresh(twin);
     }));
-    on("beat", ({ sum }) => sum !== checksum() && held().forEach(twin => refresh(twin, true)));
+    on("beat", ({ sum }) => {
+      beat = sum;
+      compare();
+    });
   }
 
   function refresh(twin: Model, whole?: boolean): void {
@@ -143,6 +169,8 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   }
 
   function apply(frame: Record<string, Patch>, ready?: Model): void {
+    sums.add(checksum());
+
     for (const key of Object.keys(frame).sort()) {
       const [id, ...path] = key.split(".");
       const twin = twins.get(id)?.deref();
