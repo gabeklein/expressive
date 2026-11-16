@@ -60,6 +60,11 @@ type Attributes<T extends Element> = EventAttributes<T> & {
   autoFocus?: boolean;
   onDoubleClick?: (event: MouseEvent & { currentTarget: T }) => unknown;
   dangerouslySetInnerHTML?: { __html: string };
+  itemProp?: string;
+  itemScope?: boolean;
+  itemType?: string;
+  itemID?: string;
+  itemRef?: string;
   key?: string | number | null;
   ref?: ((node: T | null) => unknown) | { current: T | null };
   style?: Style;
@@ -69,7 +74,8 @@ type Attributes<T extends Element> = EventAttributes<T> & {
 };
 
 type Intrinsics = {
-  [K in keyof HTMLElementTagNameMap]: Attributes<HTMLElementTagNameMap[K]>;
+  [K in keyof HTMLElementTagNameMap]: Attributes<HTMLElementTagNameMap[K]>
+    & (K extends 'meta' ? { charSet?: string; property?: string } : {});
 } & {
   [K in keyof SVGElementTagNameMap]: Attributes<SVGElementTagNameMap[K]> & SVGAttributes;
 };

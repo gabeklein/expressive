@@ -267,9 +267,16 @@ describe('head elements', () => {
 
   it('will keep microdata and shadow root elements in place', () => {
     const root = document.body.appendChild(document.createElement('main'));
-    const unmount = render(<div {...{ itemScope: true } as any}><meta {...{ itemProp: 'price', content: '9' } as any} /></div>, root);
+    const unmount = render(
+      <div itemScope itemType="https://schema.org/Product" itemID="p1">
+        <meta itemProp="price" content="9" />
+      </div>,
+      root
+    );
 
-    expect(root.innerHTML).toContain('<div itemscope=""><meta itemprop="price" content="9"></div>');
+    expect(root.innerHTML).toContain(
+      '<div itemscope="" itemtype="https://schema.org/Product" itemid="p1"><meta itemprop="price" content="9"></div>'
+    );
     unmount();
 
     const shadow = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });

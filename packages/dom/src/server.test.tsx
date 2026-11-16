@@ -449,13 +449,13 @@ describe('renderToString', () => {
   it('will leave head elements in a head it renders, as for a whole document', async () => {
     const { head, html } = await serve(
       <html>
-        <head><meta name="viewport" content="width=device-width" /><title>Shell</title></head>
+        <head><meta charSet="utf-8" /><meta property="og:title" content="Shell" /><title>Shell</title></head>
         <body><title>Page</title></body>
       </html>
     );
 
     expect(html).toBe(
-      '<!--fragment--><html><head><meta name="viewport" content="width=device-width"><title>Shell</title></head>' +
+      '<!--fragment--><html><head><meta charset="utf-8"><meta property="og:title" content="Shell"><title>Shell</title></head>' +
       '<body><!--portal--></body></html><!--/fragment-->'
     );
     expect(head).toBe('<title>Page</title>');
@@ -496,9 +496,9 @@ describe('renderToString', () => {
     }
 
     const { head, html } = await serve(
-      <div {...{ itemScope: true } as any}>
+      <div itemScope>
         <title><Name /> | Site</title>
-        <meta {...{ itemProp: 'price', content: '9' } as any} />
+        <meta itemProp="price" content="9" />
       </div>
     );
 
