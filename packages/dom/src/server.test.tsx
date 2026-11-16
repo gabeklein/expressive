@@ -256,6 +256,52 @@ describe('renderToString', () => {
     expect(css).toContain(':where(:root){--accent: blue;}');
   });
 
+  it('will leave out range comments without markers', async () => {
+    class Note extends Component {
+      render() {
+        return <p>{[<b key="a">a</b>]}</p>;
+      }
+    }
+
+    const { html } = await renderToString(
+      <main><Note /><Portal into="body"><i>away</i></Portal></main>,
+      { markers: false }
+    );
+
+    expect(html).toBe('<main><p><b>a</b></p></main>');
+  });
+
+  it('will inline plain class rules in cascade order, before inline style', async () => {
+    class Pack extends Css {}
+
+    const styled = Pack.use();
+
+    function Card(props: { children?: any }) {
+      return <div _active style={{ marginTop: 2 }}>{props.children}<span>plain</span></div>;
+    }
+
+    function Page() {
+      return <Card _card>page</Card>;
+    }
+
+    styled(Card, {
+      padding: 4,
+      color: 'red',
+      _active: { fontWeight: 700, ':hover': { color: 'blue' } },
+      '@media (min-width: 1px)': { margin: 1 }
+    });
+    styled(Page, { _card: { color: 'green' } });
+
+    const { css, html } = await renderToString(<Page />, { inline: true, markers: false });
+
+    expect(html).toBe(
+      '<div class="Card_active Card_active-hover Page_card-d1 Card Card-media_min-width_1px" style="padding: 4px; color: red; font-weight: 700; color: green; margin-top: 2px;">' +
+      'page<span>plain</span></div>'
+    );
+    expect(css).toContain(':hover');
+    expect(css).toContain('@media (min-width: 1px)');
+  });
+
   it('will write form state as attributes and raw text as is', async () => {
     const { html } = await serve(
       <form>

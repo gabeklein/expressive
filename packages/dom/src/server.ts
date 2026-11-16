@@ -50,9 +50,21 @@ interface Output {
   css: string;
 }
 
+interface Options {
+  /** Rejects with its reason once aborted, bypassing `catch` boundaries. */
+  signal?: AbortSignal;
+  /** Leave out the range comments `hydrate()` needs. Default `true`. */
+  markers?: boolean;
+  /** Write each element's plain class rules into its `style` attribute, as email clients need. */
+  inline?: boolean;
+}
+
 interface Pass {
   contexts: Context[];
   frames: Map<unknown, number>[];
+  inline?: Map<string, string>;
+  markers: boolean;
+  rules: string[];
   signal?: AbortSignal;
   sink: Sink;
   selected?: string;
@@ -122,26 +134,30 @@ function escape(value: string, attribute?: boolean) {
  * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
  * A `catch` boundary handles each failing component once, then renders again; a second error there propagates.
  * A portal leaves only its marker.
- *
- * @param options.signal Rejects with its reason once aborted, bypassing `catch` boundaries.
  */
-async function renderToString(node: Node, options: { signal?: AbortSignal } = {}): Promise<Output> {
+async function renderToString(node: Node, options: Options = {}): Promise<Output> {
+  const { inline, markers = true, signal } = options;
   const rules: string[] = [];
+  const plain = inline ? new Map<string, string>() : undefined;
   const roots = new Map<object, string>();
   const sink: Sink = {
-    insert: (rule, index) => rules.splice(index, 0, rule),
+    insert: (rule, index) => {
+      const [, name] = /^\.([\w-]+)\{/.exec(rule) || [];
+
+      if (name) plain?.set(name, rule);
+      rules.splice(index, 0, rule);
+    },
     root: (key, css) => roots.set(key, css),
     serialize: text,
     unitless: (property) => UNITLESS.has(property)
   };
   const context = new Context(Context.root);
-  const { signal } = options;
-  const pass: Pass = { contexts: [context], frames: [], signal, sink };
+  const pass: Pass = { contexts: [context], frames: [], inline: plain, markers, rules, signal, sink };
 
   try {
     signal?.throwIfAborted();
 
-    const html = await range('fragment', walk(node, pass, context));
+    const html = await range(pass, 'fragment', walk(node, pass, context));
 
     if (roots.size) attachRoots(sink);
 
@@ -155,8 +171,26 @@ async function renderToString(node: Node, options: { signal?: AbortSignal } = {}
   }
 }
 
-async function range(kind: string, inner: Promise<string>) {
-  return `<!--${kind}-->${await inner}<!--/${kind}-->`;
+async function range(pass: Pass, kind: string, inner: Promise<string>) {
+  return pass.markers ? `<!--${kind}-->${await inner}<!--/${kind}-->` : inner;
+}
+
+function marker(pass: Pass) {
+  return pass.markers ? '<!--portal-->' : '';
+}
+
+function inlined(pass: Pass, className: string) {
+  const { inline, rules } = pass;
+
+  if (!inline || !className) return '';
+
+  return className
+    .split(' ')
+    .map((name) => inline.get(name)!)
+    .filter(Boolean)
+    .sort((a, b) => rules.indexOf(a) - rules.indexOf(b))
+    .map((rule) => rule.slice(rule.indexOf('{') + 1, -1))
+    .join(' ');
 }
 
 async function walk(value: Node, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean): Promise<string> {
@@ -179,19 +213,19 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
     case 'text':
       return escape(String(value));
     case 'component':
-      return range('component', component(value as Component, pass, context, placed(appearance), svg));
+      return range(pass, 'component', component(value as Component, pass, context, placed(appearance), svg));
     case 'collection':
-      return range('collection', collection(value as Collection, pass, context, appearance, svg));
+      return range(pass, 'collection', collection(value as Collection, pass, context, appearance, svg));
     case 'fragment':
-      return range('fragment', walk((value as VNode).props.children, pass, context, appearance, svg));
+      return range(pass, 'fragment', walk((value as VNode).props.children, pass, context, appearance, svg));
     case 'portal':
-      return '<!--portal-->';
+      return marker(pass);
     case 'element':
       return element(value as VNode, pass, context, appearance, svg);
     case 'owned':
-      return range('component', owned(value as VNode, pass, context, appearance, svg));
+      return range(pass, 'component', owned(value as VNode, pass, context, appearance, svg));
     default:
-      return range('function', fn(value as VNode, pass, context, appearance, svg));
+      return range(pass, 'function', fn(value as VNode, pass, context, appearance, svg));
   }
 }
 
@@ -348,7 +382,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if (claimed.className) attributes += ` class="${escape(claimed.className, true)}"`;
 
-  const style = serialize(sink, claimed.declarations);
+  const style = [inlined(pass, claimed.className), serialize(sink, claimed.declarations)].filter(Boolean).join(' ');
 
   if (style) attributes += ` style="${escape(style, true)}"`;
 

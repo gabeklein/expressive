@@ -339,6 +339,8 @@ Put `css` in a `<style>` in the document head. Calls are independent and can run
 - `new()` runs; effects and `ready` do not. Owned instances are destroyed once rendered; a placed instance is left as it was.
 - A `catch` boundary handles each failing component once, then renders again; a second error from the same component rejects.
 - `renderToString(node, { signal })` rejects with the signal's reason once it aborts - use it for a timeout (`AbortSignal.timeout(ms)`).
+- `markers: false` leaves out the range comments - the output can't be hydrated.
+- `inline: true` writes each element's plain class rules into its `style`, in cascade order before its own inline style - for email. States, media queries and descendant scopes stay in `css` only, and `var()` references are not resolved.
 - Portals leave a `<!--portal-->` marker and event handlers render nothing. `value`, `checked` and `selected` become attributes - a `<select>`'s `value` marks its options; textarea `value` becomes its text.
 - Attribute and tag names that would break markup throw, and closing tags inside `<script>` and `<style>` text are escaped.
 - Numbers in `css` take `px` from a fixed table of unitless properties instead of the CSSOM. A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's while class names match.
