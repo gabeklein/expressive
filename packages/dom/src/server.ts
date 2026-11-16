@@ -39,6 +39,7 @@ const BOOLEAN = new Set(
 );
 const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'defaultChecked', 'defaultValue', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
 const CONTENT = ['textContent', 'innerText'];
+const CLOSING: Record<string, RegExp> = { script: /<\/(script)/gi, style: /<\/(style)/gi };
 const ATTRIBUTE = /^[^\s"'<>/=\u0000-\u001f\u007f]+$/;
 const TAG = /^[a-zA-Z][^\s"'<>/=\u0000-\u001f\u007f]*$/;
 
@@ -290,6 +291,8 @@ async function component(instance: Component, pass: Pass, context: Context, appe
 
   pass.contexts.push(child);
 
+  if (handler && pass.frames.length) pass.frames[pass.frames.length - 1].count++;
+
   while (true) {
     let proxy = instance;
     const release = watch(instance, (current) => { proxy = current; });
@@ -421,7 +424,7 @@ function attribute(name: string, key: string, value: unknown) {
 }
 
 function raw(tag: string, text: string) {
-  const output = text.replace(new RegExp(`</(${tag})`, 'gi'), '<\\/$1');
+  const output = text.replace(CLOSING[tag], '<\\/$1');
 
   return tag == 'script' ? output.replace(/<!--/g, '\\u003C!--') : output;
 }

@@ -562,6 +562,37 @@ describe('renderToString', () => {
     expect(recovered.mock.calls[1][0].message).toBe('always');
   });
 
+  it('will count each inner boundary that gives up as its own failure', async () => {
+    const failing = new Set(['a', 'b']);
+    const outer = vi.fn();
+
+    function Fails(props: { id: string }) {
+      if (failing.has(props.id)) throw new Error(props.id);
+      return <i>{props.id}</i>;
+    }
+
+    class Inner extends Component {
+      id = '';
+
+      catch() {}
+
+      render() {
+        return <Fails id={this.id} />;
+      }
+    }
+
+    const { html } = await serve(
+      <Component catch={(error: Error) => { outer(error.message); failing.delete(error.message); }}>
+        <Inner id="a" />
+        <Inner id="b" />
+      </Component>
+    );
+
+    expect(outer.mock.calls).toEqual([['a'], ['b']]);
+    expect(html).toContain('<i>a</i>');
+    expect(html).toContain('<i>b</i>');
+  });
+
   it('will stop at an aborted signal, skipping catch boundaries', async () => {
     const pending = mockPromise<string>();
     const handled = vi.fn();
