@@ -49,7 +49,7 @@ function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
 
   const host = hostOf(parent) as Element;
 
-  if (host.closest?.('head') || parent.getRootNode() instanceof ShadowRoot) return value;
+  if (host.closest?.('head') || host.getRootNode() instanceof ShadowRoot) return value;
   if (host.namespaceURI == SVG && host.localName != 'foreignObject') return value;
 
   return vnode(PORTAL, { into: parent.ownerDocument!.head, children: value, [LEAD]: value.type == 'title' }, value.key);
@@ -83,16 +83,18 @@ function place(fiber: Fiber, content: globalThis.Node) {
 }
 
 function patchPortal(fiber: Fiber, value: VNode, context: Context, appearance?: Appearance) {
-  if (leads(fiber.props!) !== leads(value.props) && fiber.portalStart!.parentNode === fiber.portalContainer) {
-    const content = document.createDocumentFragment();
-
-    moveRange(fiber.portalStart!, fiber.portalEnd!, content);
-    fiber.props = value.props;
-    place(fiber, content);
-  }
+  const moved = leads(fiber.props!) !== leads(value.props) && fiber.portalStart!.parentNode === fiber.portalContainer;
 
   fiber.appearance = appearance;
   fiber.props = value.props;
+
+  if (moved) {
+    const content = document.createDocumentFragment();
+
+    moveRange(fiber.portalStart!, fiber.portalEnd!, content);
+    place(fiber, content);
+  }
+
   reconcilePortal(fiber, value.props.children, context, fiber.boundary, appearance);
 }
 

@@ -386,7 +386,7 @@ describe('renderToString', () => {
 
     expect(html).toBe(
       '<!--fragment--><head><base target="a&lt;b&gt;&quot;c">' +
-      '<script type="application/json">{"a":"<\/script><img src=x onerror=alert(1)>","b":"\u003C!-- x"}</script>' +
+      '<script type="application/json">{"a":"<\\/script><img src=x onerror=alert(1)>","b":"\\u003C!-- x"}</script>' +
       '<style>a{} <\\/STYLE><b></style></head><!--/fragment-->'
     );
   });
@@ -488,6 +488,14 @@ describe('renderToString', () => {
     const { head } = await serve(<Shell />);
 
     expect(head).toBe('<title>broke</title>');
+  });
+
+  it('will keep range comments in an svg title, as render() does', async () => {
+    function Label() {
+      return 'icon';
+    }
+
+    await parity(() => <svg><title><Label /></title></svg>);
   });
 
   it('will render a title from components as text, and keep microdata in place', async () => {

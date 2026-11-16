@@ -430,7 +430,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
     }
   }
 
-  if (tag == 'title') inner = inner.replace(/<!--[^>]*-->/g, '');
+  if (tag == 'title' && !inSvg) inner = inner.replace(/<!--[^>]*-->/g, '');
   if ((tag == 'textarea' || tag == 'pre' || tag == 'listing') && inner[0] == '\n') inner = '\n' + inner;
 
   return `${open}${inner}</${tag}>`;
