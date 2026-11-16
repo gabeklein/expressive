@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { set, Model } from "@expressive/mvc";
 
@@ -432,6 +432,7 @@ describe("connection", () => {
       class List extends Model {
         items: string[] = [];
         tags = new Set<string>();
+        scores = new Map<string, bigint>();
         count = 0;
         loop: Record<string, unknown> = {};
 
@@ -441,8 +442,8 @@ describe("connection", () => {
         }
       }
 
-      const SHAPE = { fields: ["items", "tags", "count", "loop"] };
-      let warn: ReturnType<typeof vi.spyOn>;
+      const SHAPE = { fields: ["items", "tags", "scores", "count", "loop"] };
+      let warn: MockInstance<typeof console.warn>;
 
       beforeEach(() => {
         vi.useFakeTimers();
@@ -483,14 +484,14 @@ describe("connection", () => {
 
         list.items.push("a");
         list.tags.add("x");
+        list.scores.set("a", 1n);
         vi.advanceTimersByTime(15_000);
 
-        expect(warn).toHaveBeenCalledTimes(2);
+        expect(warn.mock.calls.map(([message]) => message.split(" ")[0])).toEqual(["List.items", "List.tags", "List.scores"]);
         expect(warn.mock.calls[0][0]).toMatch(/^List\.items changed in place/);
-        expect(warn.mock.calls[1][0]).toMatch(/^List\.tags changed in place/);
 
         vi.advanceTimersByTime(15_000);
-        expect(warn).toHaveBeenCalledTimes(2);
+        expect(warn).toHaveBeenCalledTimes(3);
       });
 
       it("will not warn for a field assigned since it was sent, nor one it could not encode", async () => {
@@ -510,6 +511,20 @@ describe("connection", () => {
         vi.advanceTimersByTime(15_000);
         expect(warn).toHaveBeenCalledOnce();
         expect(warn.mock.calls[0][0]).toMatch(/^List\.items/);
+      });
+
+      it("will check only what it sent while auditing", () => {
+        const { connection, list } = listed();
+        const other = List.new();
+
+        audit(true);
+        track(other);
+        hold(connection, "M", "/m", other, SHAPE);
+        list.items.push("a");
+        other.items.push("a");
+        vi.advanceTimersByTime(15_000);
+
+        expect(warn).not.toHaveBeenCalled();
       });
 
       it("will keep what a seat twin was sent across calls that hold it again", () => {

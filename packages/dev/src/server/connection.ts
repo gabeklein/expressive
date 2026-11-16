@@ -339,7 +339,7 @@ function drifted(connection: Connection): void {
       const fields = held.sent?.get(path);
       const seen = held.seen.get(path);
 
-      if (!fields || !seen) continue;
+      if (!fields) continue;
 
       const assigned = changedSince(instance, seen, [...fields.keys()]);
 
@@ -358,7 +358,7 @@ function drifted(connection: Connection): void {
 
 function digest(value: () => unknown): number {
   try {
-    return fnv(JSON.stringify(value(), (_, item) => (item instanceof Map || item instanceof Set ? [...item] : typeof item == "bigint" ? `${item}` : item)) ?? "");
+    return fnv(JSON.stringify(value(), (_, item) => (item instanceof Map || item instanceof Set ? [...item] : typeof item == "bigint" ? `${item}` : item))!);
   } catch {
     return -1;
   }
