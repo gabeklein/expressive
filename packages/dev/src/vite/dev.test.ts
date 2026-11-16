@@ -7,7 +7,7 @@ vi.mock("vite", async importOriginal => ({ ...(await importOriginal<object>()), 
 vi.mock("@expressive/inspect/vite", () => ({ default: () => ({ name: "inspect" }) }));
 vi.mock("./plugin", () => ({ expressive: () => ({ name: "expressive", api: { config: async () => ({ port: 4000 }) } }) }));
 
-import { runDev } from "./dev";
+import { runDev, unlessAdded } from "./dev";
 
 it("will listen on the configured port", async () => {
   await runDev("/app");
@@ -27,8 +27,24 @@ it("will add the inspect relay unless turned off", async () => {
   const names = () => createServer.mock.lastCall![0].plugins.map((plugin) => plugin.name);
 
   await runDev("/app");
-  expect(names()).toEqual(["expressive", "inspect"]);
+  expect(names()).toEqual(["expressive", "@expressive/dom:hot", "inspect"]);
 
   await runDev("/app", { inspect: false });
-  expect(names()).toEqual(["expressive"]);
+  expect(names()).toEqual(["expressive", "@expressive/dom:hot"]);
+});
+
+it("will transform only when the app's config adds no plugin of the same name", () => {
+  const configResolved = vi.fn();
+  const transform = vi.fn(() => "out");
+  const plugin = unlessAdded({ name: "hot", configResolved, transform });
+  const run = () => (plugin.transform as Function).call({}, "code", "id");
+  const resolve = (plugins: { name: string }[]) => (plugin.configResolved as Function).call({}, { plugins });
+
+  resolve([plugin, { name: "other" }]);
+  expect(run()).toBe("out");
+  expect(configResolved).toHaveBeenCalled();
+
+  resolve([{ name: "hot" }, plugin]);
+  expect(run()).toBeUndefined();
+  expect(transform).toHaveBeenCalledTimes(1);
 });
