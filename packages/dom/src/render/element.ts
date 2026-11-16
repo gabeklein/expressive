@@ -65,7 +65,7 @@ function attributeOf(key: string) {
 }
 
 function prune(element: Element, props: Record<string, any>) {
-  const expected = new Set(['class']);
+  const expected = new Set(['class', element.localName == 'option' ? 'selected' : 'class']);
 
   for (const key of Object.keys(props)) {
     const value = props[key];

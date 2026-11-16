@@ -435,6 +435,16 @@ describe('hydrate', () => {
     expect(document.head.querySelector('title, link[rel=stylesheet]')).toBeNull();
   });
 
+  it('will keep the option a server select marked', async () => {
+    const node = () => <select {...{ defaultValue: 'b' } as any}><option>a</option><option>b</option></select>;
+    const root = await served(node);
+    const select = root.querySelector('select')!;
+
+    expect(select.value).toBe('b');
+    hydrate(node(), root);
+    expect(select.value).toBe('b');
+  });
+
   it('will replace the server copy of a head element', async () => {
     const node = () => <div><title>Page</title><meta name="description" content="about" /></div>;
     const { head, html } = await renderToString(node());
