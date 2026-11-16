@@ -297,6 +297,33 @@ export class Cart extends Model {
 }
 ```
 
+`Render.open(key)` twins an instance the server already holds instead of building one - a job by id
+out of a seat's `has()`. Use it where `new Cart()` goes: a field of a Component under the route. The class declares `static open(key: string)`, returning that instance or
+`undefined`; it runs after the route walk and every `key()` above, so it finds the instance through
+them (`Studio.get()`), never a module-level map. dev refuses an instance no seat of the request owns,
+on the first pull and every call after. Releasing the twin leaves the instance alive. Reads suspend
+until the first pull; a key `open()` does not find - or a class without `open()` - replies 404, which
+reports to the twin's `catch` as `setup` and destroys it. A pull refused after the instance ends
+replies 409, as for a pooled twin whose context was replaced.
+
+```ts
+// app/studio/remote.ts
+export class Render extends Model {
+  id = "";
+  progress = 0;
+
+  static open(id: string) {
+    return Studio.get().jobs.get(job => job.id === id);
+  }
+}
+
+// a component under /studio - <JobRow id="r1" />
+class JobRow extends Component {
+  id = "";
+  job = set(() => Render.open(this.id));
+}
+```
+
 Reload the page when a call changes what a seat's `key()` returns - a login, a logout, switching
 accounts. Twins hold the context they were built in; a pooled twin's next request is refused once that
 context is replaced, but values already shown, client state under the route and replies to other

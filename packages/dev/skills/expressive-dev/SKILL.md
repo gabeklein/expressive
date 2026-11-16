@@ -111,6 +111,7 @@ export class Page extends Component {
 - A field holding a Model the seat owns (`line = new Line()`, or `line?: Line`) is a child twin.
 - A `has(Render)` / `has(Render, 'id')` field is a read-only pool of member twins, each patched on its own; member methods call through the owner. A public `has()` of values or a factory fails the build.
 - Other exported Model classes are pooled: each `new Cart()` a Component owns, or `Cart.new()`, gets its own server instance.
+- `Render.open(key)` (a field, like `new Cart()`) twins an instance the server holds: the class declares `static open(key)`, run after the route's `key()` gates, finding it through a seat (`Studio.get().jobs.get(...)`). An instance no seat of the request owns, or none, is a 404 - reported to the twin's `catch` as `setup`. Releasing never destroys it.
 - A public `get()` field fails the build - declare it `protected`.
 - Reload the page when a call changes what a `key()` returns (login, logout): twins keep the context they were built in.
 
