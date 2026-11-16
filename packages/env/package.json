@@ -54,11 +54,6 @@
   "peerDependencies": {
     "@expressive/mvc": "^0.94.5"
   },
-  "peerDependenciesMeta": {
-    "@expressive/mvc": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@expressive/mvc": "workspace:*",
     "@types/node": "^25.2.0",

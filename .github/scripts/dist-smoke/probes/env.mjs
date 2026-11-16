@@ -19,7 +19,7 @@ console.log('env: .env read without touching process.env ok');
 const bin = fileURLToPath(new URL('../node_modules/@expressive/env/dist/cli.js', import.meta.url));
 const expressive = (...args) => execFileSync('node', [bin, ...args], { cwd: root, encoding: 'utf8' });
 
-assert.match(expressive('env', 'list'), /^PROBE_KEY {2}9 chars {2}\.env$/m);
+assert.match(expressive('env', 'list'), /^PROBE_KEY {2}9 chars {2}\.env:4$/m);
 expressive('env', 'sync');
 assert.match(readFileSync(join(root, 'env.d.ts'), 'utf8'), /A probe key\.[\s\S]*@category Probe section[\s\S]*readonly PROBE_KEY: string;/);
 

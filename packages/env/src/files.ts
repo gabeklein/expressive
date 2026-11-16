@@ -5,18 +5,17 @@ import { parseEnv } from "node:util";
 export const EXAMPLE = ".env.example";
 
 const ENV_FILE = /^\.env(\.[\w.-]+)?$/;
-const ASSIGN = /^\s*(?:export\s+)?([\w.-]+)\s*=\s*(.*)$/;
+const NOT_ENV = /\.(swp|bak|tmp|orig|vault|keys|d\.ts)$/;
+const ASSIGN = /^\s*(?:export +)?([^\s=#][^=]*?)\s*=\s*(.*)$/;
+const COMMENTED_KEY = /^(?:export\s+)?[\w.-]+\s*=/;
 const COMMENT = /^\s*#\s?(.*)$/;
 
 export interface Key {
   name: string;
   doc?: string;
   section?: string;
-  /** Zero-based line of the assignment. */
   line: number;
-  /** First line of its doc comment, else `line`. */
   start: number;
-  /** Line after its value - past a multi-line value's close. */
   end: number;
 }
 
@@ -32,8 +31,14 @@ export function read(path: string): string | undefined {
   if (statSync(path, { throwIfNoEntry: false })?.isFile()) return readFileSync(path, "utf8").replace(/^\uFEFF/, "");
 }
 
+export function isEnvFile(name: string): boolean {
+  return ENV_FILE.test(name) && !NOT_ENV.test(name);
+}
+
 export function envFiles(root: string): string[] {
-  const found = readdirSync(root).filter(name => ENV_FILE.test(name)).sort();
+  const found = readdirSync(root)
+    .filter(name => isEnvFile(name) && statSync(join(root, name)).isFile())
+    .sort();
   const first = [EXAMPLE, ".env"].filter(name => found.includes(name));
 
   return [...first, ...found.filter(name => !first.includes(name))];
@@ -54,15 +59,17 @@ export function where(root: string, mode: string, key: string): string | undefin
 
   const file = files(mode).reverse().find(file => key in parse(join(root, file)));
 
-  return file && `${file}:${line(join(root, file), key)}`;
+  return file && at(join(root, file), file, key);
 }
 
-export function line(path: string, key: string): number {
-  return scan(readFileSync(path, "utf8")).findLast(found => found.name === key)!.line + 1;
+export function at(path: string, file: string, key: string): string {
+  const found = scan(read(path) ?? "").findLast(entry => entry.name === key);
+
+  return found ? `${file}:${found.line + 1}` : file;
 }
 
 export function scan(text: string): Key[] {
-  const lines = text.split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   const keys: Key[] = [];
   let block: string[] = [];
   let section: string | undefined;
@@ -81,7 +88,7 @@ export function scan(text: string): Key[] {
 
     const comment = COMMENT.exec(line);
 
-    if (comment && !ASSIGN.test(comment[1])) {
+    if (comment && !COMMENTED_KEY.test(comment[1])) {
       block.push(comment[1].trimEnd());
       continue;
     }
@@ -92,7 +99,7 @@ export function scan(text: string): Key[] {
       const [, name, value] = assign;
       const open = /^["'`]/.exec(value)?.[0];
 
-      if (open && !value.slice(1).includes(open)) quote = open;
+      if (open && !value.slice(1).includes(open) && lines.slice(index + 1).some(rest => rest.includes(open))) quote = open;
 
       keys.push({ name, doc: block.join("\n").trim() || undefined, section, line: index, start: index - block.length, end: index + 1 });
     } else if (!comment && block.length) {

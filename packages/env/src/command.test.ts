@@ -62,7 +62,7 @@ describe("check", () => {
     await run("sync");
 
     expect(await run("check")).toBe(0);
-    expect(logged().pop()).toBe("Every key in .env.example is set; env.d.ts is current.");
+    expect(logged().pop()).toBe("env.d.ts declares every key; every key in .env.example is set.");
   });
 
   it("will fail on unset, empty and stale", async () => {
@@ -72,8 +72,16 @@ describe("check", () => {
     expect(errors()).toEqual([
       "A is empty - .env.example lists it.",
       "B is unset - .env.example lists it.",
-      "env.d.ts is out of date - run `expressive env sync`.",
+      "env.d.ts does not declare A, B, C - run `expressive env sync`.",
     ]);
+  });
+
+  it("will say when there is no example", async () => {
+    files({ ".env": "A=1" });
+    await run("sync");
+
+    expect(await run("check")).toBe(0);
+    expect(logged().pop()).toBe("env.d.ts declares every key; no .env.example to check values against.");
   });
 
   it("will check the given mode", async () => {
@@ -222,6 +230,15 @@ describe("write", () => {
 
     expect(await run("write", "A", "B=2")).toBe(0);
     expect(file(".env")).toBe("A=from-pipe\nB=2\n");
+  });
+
+  it("will refuse empty stdin", async () => {
+    files({ ".env": "A=secret" });
+    piped.mockResolvedValueOnce("");
+
+    expect(await run("write", "A")).toBe(2);
+    expect(file(".env")).toBe("A=secret");
+    expect(errors()).toEqual(["stdin was empty - A= empties a key."]);
   });
 
   it("will fail with no value and no pipe", async () => {

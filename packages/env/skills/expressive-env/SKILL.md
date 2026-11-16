@@ -23,7 +23,7 @@ Mode is `NODE_ENV`, default `development` - the same files and order as Vite. Co
 
 ## Types
 
-`expressive env sync` writes `env.d.ts` at the project root: every key in every `.env*` file, as a member of `Env`. Commit it - it holds names and comments, no values - and include it in `tsconfig.json`. A key in `.env` or `.env.example` is `string`; one only in a local or mode file is optional.
+`expressive env sync` writes `env.d.ts` at the project root: every key in every `.env*` file, as a member of `Env`. Commit it - it holds names and comments, no values - and include it in `tsconfig.json`. A key in `.env.example` - or `.env` when there is no example - is `string`; any other is optional.
 
 Comments carry over as JSDoc. A comment block directly above a key documents it; one followed by a blank line names a section for the keys below it.
 
@@ -41,11 +41,11 @@ Do not open, print or `cat` a `.env` file - values are secrets and land in the t
 | Task | Command |
 |---|---|
 | What is set, where from | `expressive env list` - each key with `<unset>`, `<empty>` or `N chars`, and its `file:line`. Never values. |
-| Is anything missing | `expressive env check` - exits 1 when a key in `.env.example` is unset or empty, or `env.d.ts` is stale |
+| Is anything missing | `expressive env check` - exits 1 when a key in `.env.example` is unset or empty, or `env.d.ts` misses a key |
 | Use a value | `expressive env read KEY \| other-command` - raw, no newline; pipe it, don't display it |
 | Several values | `expressive env read A B` - one per line, nothing if any is unset |
 | Compare without seeing | `expressive env read A B --length` |
-| Set a secret | `some-generator \| expressive env write KEY` - a bare key reads stdin, out of argv and the transcript |
+| Set a secret | `some-generator \| expressive env write KEY` - a bare key reads stdin, out of argv and the transcript; empty stdin is refused |
 | Set values | `expressive env write A=1 B=two` - quoted as needed; `A=` empties a key |
 | Remove keys | `expressive env unset A B` - drops each line and its doc comment |
 | Refresh types | `expressive env sync` - `write` and `unset` run it too |

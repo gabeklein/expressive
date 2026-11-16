@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { args, cmd, flag, opt } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
-import { DECLARATION, stale, write } from "./declaration";
-import { EXAMPLE, line, load, mode, parse, scan, where } from "./files";
+import { DECLARATION, undeclared, write } from "./declaration";
+import { EXAMPLE, at, load, mode, parse, read, scan, where } from "./files";
 import { piped } from "./stdin";
 
 const KEY = /^[A-Za-z_][\w.-]*$/;
@@ -52,9 +52,6 @@ function edit(text: string, key: string, replace?: string): string | undefined {
   return lines.join(eol);
 }
 
-function read(path: string): string {
-  return existsSync(path) ? readFileSync(path, "utf8") : "";
-}
 
 class Sync extends Model {
   run() {
@@ -79,10 +76,12 @@ class Check extends Model {
       .filter(key => !value(key))
       .map(key => `${key} is ${value(key) === undefined ? "unset" : "empty"} - ${EXAMPLE} lists it.`);
 
-    if (stale(root)) problems.push(`${DECLARATION} is out of date - run \`expressive env sync\`.`);
+    const missing = undeclared(root);
+
+    if (missing.length) problems.push(`${DECLARATION} does not declare ${missing.join(", ")} - run \`expressive env sync\`.`);
 
     for (const problem of problems) console.error(problem);
-    if (!problems.length) console.log(`Every key in ${EXAMPLE} is set; ${DECLARATION} is current.`);
+    if (!problems.length) console.log(`${DECLARATION} declares every key; ${read(join(root, EXAMPLE)) === undefined ? `no ${EXAMPLE} to check values against` : `every key in ${EXAMPLE} is set`}.`);
 
     return !problems.length;
   }
@@ -99,7 +98,7 @@ class List extends Model {
       const found = value(key);
       const state = found === undefined ? "<unset>" : found ? `${found.length} chars` : "<empty>";
 
-      return [key, state, where(root, this.mode, key) ?? `${EXAMPLE}:${line(join(root, EXAMPLE), key)}`];
+      return [key, state, where(root, this.mode, key) ?? at(join(root, EXAMPLE), EXAMPLE, key)];
     });
 
     const width = (column: number) => Math.max(0, ...rows.map(row => row[column].length));
@@ -144,8 +143,8 @@ class Write extends Model {
     if (bare.length) {
       const value = await piped();
 
-      if (value === undefined) {
-        console.error(`Give ${bare[0][0]} a value - ${bare[0][0]}=value - or pipe one in.`);
+      if (!value) {
+        console.error(value === undefined ? `Give ${bare[0][0]} a value - ${bare[0][0]}=value - or pipe one in.` : `stdin was empty - ${bare[0][0]}= empties a key.`);
         return 2;
       }
 
@@ -155,7 +154,7 @@ class Write extends Model {
     const root = process.cwd();
     const path = join(root, this.file);
     const lines = entries.map(([key, value]) => [key, `${key}=${quote(value!)}`, value!.length] as const);
-    let text = read(path);
+    let text = read(path) ?? "";
 
     for (const [key, line] of lines)
       text = edit(text, key, line) ?? text + (text && !text.endsWith("\n") ? "\n" : "") + line + "\n";
@@ -174,7 +173,7 @@ class Unset extends Model {
   run() {
     const root = process.cwd();
     const path = join(root, this.file);
-    let text = read(path);
+    let text = read(path) ?? "";
     let ok = true;
 
     for (const key of this.keys) {

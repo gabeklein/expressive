@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { envFiles, scan, where } from "./files";
+import { parseEnv } from "node:util";
+
+import { at, envFiles, scan, where } from "./files";
 
 describe("scan", () => {
   it("will list keys in order", () => {
@@ -37,6 +39,20 @@ describe("scan", () => {
     expect(keys).toEqual([{ name: "A", doc: undefined, section: undefined, line: 2, start: 2, end: 3 }]);
   });
 
+  it("will read keys as node does", () => {
+    const text = "A=1\nMY KEY=2\nA:B=3\nA#B=4\nexport\tC=5\n# note: x=y\nD=6";
+
+    expect(scan(text).map(key => key.name).sort()).toEqual(Object.keys(parseEnv(text)).sort());
+    expect(scan("\uFEFF" + text)[0].name).toBe("A");
+    expect(scan(text).find(key => key.name === "D")?.doc).toBe("note: x=y");
+  });
+
+  it("will treat an unclosed quote as one line, as node does", () => {
+    const text = 'A="hello\nB=1\nC=2';
+
+    expect(scan(text).map(key => key.name).sort()).toEqual(Object.keys(parseEnv(text)).sort());
+  });
+
   it("will skip the lines of a multi-line value", () => {
     const keys = scan("KEY='-----BEGIN\n# not a comment\nNOT=a key\nEND-----'\nB=\"one line\"\nC=2");
 
@@ -57,8 +73,9 @@ describe("files", () => {
   });
 
   it("will order .env.example and .env first", () => {
-    for (const name of [".env.production", ".env", ".env.example", ".env.local", "env.d.ts", ".envrc"])
+    for (const name of [".env.production", ".env", ".env.example", ".env.local", "env.d.ts", ".envrc", ".env.swp", ".env.d.ts"])
       writeFileSync(join(root, name), "");
+    mkdirSync(join(root, ".env.dir"));
 
     expect(envFiles(root)).toEqual([".env.example", ".env", ".env.local", ".env.production"]);
   });
@@ -72,5 +89,12 @@ describe("files", () => {
     expect(where(root, "development", "B")).toBe(".env.local:2");
     expect(where(root, "development", "C")).toBe("process.env");
     expect(where(root, "development", "D")).toBeUndefined();
+  });
+
+  it("will name the file alone when the line can't be found", () => {
+    writeFileSync(join(root, ".env"), "A=1");
+
+    expect(at(join(root, ".env"), ".env", "B")).toBe(".env");
+    expect(at(join(root, "missing"), "missing", "B")).toBe("missing");
   });
 });
