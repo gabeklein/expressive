@@ -37,6 +37,7 @@ interface Root extends Entry {
   name: string;
   pattern: string[];
   pool?: string;
+  key?: string;
   path?: string;
   attaching?: Promise<void>;
   early?: Map<string, Patch>;
@@ -61,6 +62,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   let beat: number | undefined;
   let sums = new Set<number>();
   let flush: ReturnType<typeof setTimeout> | undefined;
+  let opening: string | undefined;
 
   const { send: post, define, pathOf } = client({
     headers() {
@@ -295,8 +297,9 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
   async function attach(twin: Model, whole?: boolean): Promise<void> {
     const entry = of(twin);
-    const { id, pool } = entry;
-    const reply = await send(where(twin), { "x-expressive-get": pool ?? "default", "x-expressive-twin": id, ...(whole ? {} : since(twin)) }, []);
+    const { id, pool, key } = entry;
+    const opened: Record<string, string> = key === undefined ? {} : { "x-expressive-key": encodeURIComponent(key) };
+    const reply = await send(where(twin), { "x-expressive-get": pool ?? "default", "x-expressive-twin": id, ...opened, ...(whole ? {} : since(twin)) }, []);
 
     if (twin.get(null)) return void drop(id);
     if (reply) apply(reply.frame, twin);
@@ -473,14 +476,27 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
     return path.split("/").filter(Boolean);
   }
 
+  function open(this: new () => Model, key: string): Model {
+    opening = key;
+
+    try {
+      return new this();
+    } finally {
+      opening = undefined;
+    }
+  }
+
   function twin(pattern: string[], ids: Record<string, string>, fields: string[], name: string, pool?: string, children?: Record<string, Definition>): Model.Type {
     const named = {
       [name]: class extends Base {
         constructor(...args: any[]) {
-          super(...args, ...(pool ? [] : [(self: Model) => of(self).attaching]));
+          const key = opening;
+
+          opening = undefined;
+          super(...args, ...(pool && key === undefined ? [] : [(self: Model) => of(self).attaching]));
 
           const id = `${name}-${uid()}`;
-          const entry: Root = { root: this, id, name, pattern, pool, shape: { fields, children }, pending: new Set(), kids: new Map(), items: [] };
+          const entry: Root = { root: this, id, name, pattern, pool, key, shape: { fields, children }, pending: new Set(), kids: new Map(), items: [] };
 
           entries.set(this, entry);
           twins.set(id, new WeakRef(this));
@@ -498,6 +514,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
     methods(Twin, ids);
 
+    if (pool) Object.defineProperty(Twin, "open", { configurable: true, writable: true, value: open });
     if (!pool) Twin.on({ catch: (error, kind) => (kind == "setup" ? undefined : error) });
 
     return Twin;

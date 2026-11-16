@@ -931,3 +931,62 @@ describe("collection twin", () => {
     expect(() => (studio.jobs = undefined)).toThrow();
   });
 });
+
+describe("opened twin", () => {
+  it("will pull its class by key, URI-encoded, for a subclass too", async () => {
+    const fetch = serve({ body: snap({ progress: 3 }, "r:1") }, { body: snap({ progress: 1 }, "s:1") });
+    const Render = twin(["studio"], {}, ["progress"], "Render", "/studio#Render") as any;
+
+    class Local extends Render {}
+
+    const job = Context.root.push(Render.open("r/1")).get(Render) as any;
+    await vi.waitFor(() => expect(job.progress).toBe(3));
+
+    const other = Context.root.push(Local.open("é")).get(Local as any) as any;
+    await vi.waitFor(() => expect(other.progress).toBe(1));
+
+    expect(other).toBeInstanceOf(Local);
+    expect(headers(fetch, 0)).toMatchObject({ "x-expressive-get": "/studio#Render", "x-expressive-key": "r%2F1" });
+    expect(headers(fetch, 1)["x-expressive-key"]).toBe("%C3%A9");
+  });
+
+  it("will leave a constructed twin without a key", async () => {
+    const fetch = serve({ body: snap({ progress: 0 }, "r:1") }, { body: snap({ progress: 0 }, "r:1") });
+    const Render = twin(["studio"], {}, ["progress"], "Render", "/studio#Render") as any;
+
+    Context.root.push(Render.open("a"));
+    const made = Render.new();
+    await vi.waitFor(() => expect(made.progress).toBe(0));
+
+    expect(headers(fetch, 1)).not.toHaveProperty("x-expressive-key");
+  });
+
+  it("will be destroyed, through its catch, when the server finds nothing", async () => {
+    serve({ body: { message: "Not found." }, status: 404 });
+    const Render = twin(["studio"], {}, ["progress"], "Render", "/studio#Render") as any;
+    const caught = vi.fn();
+
+    Render.on({ catch: (error: unknown, kind: string) => void caught(kind, (error as Error).message) });
+    const job = Context.root.push(Render.open("gone")).get(Render) as any;
+
+    await vi.waitFor(() => expect(job.get(null)).toBe(true));
+    expect(caught).toHaveBeenCalledWith("setup", "Not found.");
+  });
+
+  it("will build under the route of the component that owns it", async () => {
+    history.replaceState(null, "", "/studio/r1");
+    const fetch = serve({ body: snap({ progress: 0 }, "r:1") });
+    const Render = twin(["studio", ":id"], {}, ["progress"], "Render", "/studio/:id#Render") as any;
+    const context = Context.root.push();
+
+    context.add(Spot.new({ base: "/studio", to: ":id" }));
+    const job = context.push(Render.open("r1")).get(Render) as any;
+
+    await vi.waitFor(() => expect(job.progress).toBe(0));
+    expect(fetch).toHaveBeenCalledWith("/studio/r1", expect.anything());
+  });
+
+  it("will not offer open() on a seat twin", () => {
+    expect(twin(["tally"], {}, ["total"], "Tally")).not.toHaveProperty("open");
+  });
+});
