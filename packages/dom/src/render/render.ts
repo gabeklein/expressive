@@ -39,7 +39,7 @@ function render(node: RenderNode, container: Container): () => void {
 function hydrate(node: RenderNode, container: Container): () => void {
   roots.get(container)?.();
 
-  return hydrating(container, () => mountRoot(node, container));
+  return batched(() => hydrating(container, () => mountRoot(node, container)));
 }
 
 function mountRoot(node: RenderNode, container: Container): () => void {
@@ -100,7 +100,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   const dehydrated = fiber.dehydrated;
   fiber.dehydrated = undefined;
 
-  const run = () => pass(() => dehydrated ? hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end) : update());
+  const run = () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update());
   const update = () => {
     const parent = rendering;
     rendering = fiber.type ? fiber : parent;

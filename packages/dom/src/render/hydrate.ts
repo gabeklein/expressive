@@ -147,7 +147,7 @@ function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Nod
   const current: Claiming = (state = {
     root,
     to,
-    adopted: new WeakSet(),
+    adopted: new WeakSet(from ? [from] : []),
     cursors: new Map(from ? [[root, from.nextSibling]] : []),
     claimed: new WeakSet(from && to ? [from, to] : []),
     touched: new Set(from ? [root] : []),
@@ -160,7 +160,7 @@ function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Nod
     state = previous;
 
     for (const parent of current.touched) {
-      let node: globalThis.Node | null = parent === root && from ? from.nextSibling : parent.firstChild;
+      let node: globalThis.Node | null = parent !== root || !from ? parent.firstChild : current.kept.has(from) ? to : from.nextSibling;
 
       while (node && !(parent === root && node === to)) {
         const following: globalThis.Node | null = (current.kept.get(node) || node).nextSibling;

@@ -363,7 +363,7 @@ Put `css` in a `<style>` in the document head. Calls are independent and can run
 
 - Text the parser merged is split back; markup that differs is replaced where it differs, and leftover nodes and attributes are removed. Matching attributes are not rewritten and `autoFocus` does not refocus.
 - A subtree that suspends keeps its server markup - no fallback, no listeners - and is adopted once it renders. One the server did not render shows its fallback.
-- A head element replaces its identical server copy from `head`.
+- A head element replaces its identical server copy from `head` - a stylesheet link once the new one loads. Without `head` in the page, an identical shell element is replaced instead.
 - The page's rules come from `css` until the client emits its own - keep that `<style>`; their class names match.
 
 ## Hot reload (Vite)

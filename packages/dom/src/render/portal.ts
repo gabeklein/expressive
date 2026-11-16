@@ -56,7 +56,16 @@ function replace(fiber: Fiber, adopting: boolean) {
 
   if (adopting)
     for (const twin of fiber.portalContainer!.children)
-      if (!hoisted.has(twin) && twin.isEqualNode(element)) return twin.remove();
+      if (!hoisted.has(twin) && twin.outerHTML == element.outerHTML) return retire(twin, element);
+}
+
+function retire(twin: Element, element: Element) {
+  if (!/\bstylesheet\b/i.test(String(element.getAttribute('rel')))) return twin.remove();
+
+  const remove = () => twin.remove();
+
+  element.addEventListener('load', remove, { once: true });
+  element.addEventListener('error', remove, { once: true });
 }
 
 const SVG = 'http://www.w3.org/2000/svg';

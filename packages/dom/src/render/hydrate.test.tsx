@@ -372,6 +372,69 @@ describe('hydrate', () => {
     expect(box.getAttribute('style')).toBe('margin-top: 2px;');
   });
 
+  it('will keep server markup through a second suspension on resume', async () => {
+    const first = mockPromise<string>();
+    const second = mockPromise<string>();
+
+    class Pair extends Component {
+      a = set(() => first);
+      b = set(() => second);
+
+      render() {
+        return <b>{this.a}{this.b}</b>;
+      }
+    }
+
+    const root = document.body.appendChild(document.createElement('main'));
+
+    root.innerHTML = '<!--fragment--><!--component--><b>xy</b><!--/component--><!--/fragment-->';
+
+    const bold = root.querySelector('b')!;
+
+    hydrate(<Pair />, root);
+
+    first.resolve('x');
+    await flushMicrotasks();
+    expect(root.querySelector('b')).toBe(bold);
+    expect(bold.textContent).toBe('xy');
+
+    second.resolve('y');
+    await flushMicrotasks();
+    expect(root.querySelector('b')).toBe(bold);
+    expect(bold.textContent).toBe('xy');
+  });
+
+  it('will keep nodes a ref adds while hydrating', async () => {
+    const node = () => <section ref={(el) => { el?.appendChild(document.createElement('canvas')); }} />;
+    const root = await served(node);
+
+    hydrate(node(), root);
+    expect(root.querySelector('section > canvas')).not.toBeNull();
+  });
+
+  it('will replace an interpolated title and wait for a stylesheet to load', async () => {
+    const node = () => <div><title>Post {3} | Site</title><link rel="stylesheet" href="data:text/css," /></div>;
+    const { head, html } = await renderToString(node());
+    const root = document.body.appendChild(document.createElement('main'));
+
+    document.head.insertAdjacentHTML('afterbegin', head);
+    root.innerHTML = html;
+
+    const unmount = hydrate(node(), root);
+
+    expect(document.head.querySelectorAll('title').length).toBe(1);
+    expect(document.title).toBe('Post 3 | Site');
+
+    const links = document.head.querySelectorAll('link[rel=stylesheet]');
+
+    expect(links.length).toBe(2);
+    links[1].dispatchEvent(new Event('load'));
+    expect(document.head.querySelectorAll('link[rel=stylesheet]').length).toBe(1);
+
+    unmount();
+    expect(document.head.querySelector('title, link[rel=stylesheet]')).toBeNull();
+  });
+
   it('will replace the server copy of a head element', async () => {
     const node = () => <div><title>Page</title><meta name="description" content="about" /></div>;
     const { head, html } = await renderToString(node());
