@@ -1,37 +1,46 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { join, posix } from "node:path";
 
 import { PRERENDERED, resolveProject } from "./project";
+import type { BuildOptions } from "./build";
 import { launch, type Page } from "./render";
 import { staticPaths } from "./routes";
 import { scanExports } from "./scan";
 
-export const SHELL = "200.html";
+export const FALLBACK = "200.html";
 
-const ROOT = /(<div\b[^>]*\bid=["']root["'][^>]*)>\s*<\/div>/;
+const ROOT = /(<div\b[^>]*(?<![-\w])id=["']root["'][^>]*)>\s*<\/div>/;
 const HEAD = /<(title|meta|link)\b/g;
 const PATH = /^\/[^?#]*$/;
 
 /** Write `dist/client/<path>/index.html` for each static page, keeping the empty shell as `200.html`. */
-export async function prerender(root: string): Promise<string[]> {
+export async function prerender(root: string, options: BuildOptions = {}): Promise<string[]> {
   const project = resolveProject(root);
   const dir = join(root, "dist", "client");
   const shell = readFileSync(join(dir, "index.html"), "utf8");
   const written: string[] = [];
 
-  if (!ROOT.test(shell)) throw new Error("Prerendering needs an empty #root element in the shell.");
+  if (!ROOT.test(shell) || !shell.includes("</head>")) throw new Error(`Prerendering needs a <head> and an empty <div id="root"> in the shell.`);
 
-  writeFileSync(join(dir, SHELL), shell);
+  writeFileSync(join(dir, FALLBACK), shell);
 
-  const { paths, render, close } = await launch(root);
+  const { paths: listed, sources } = project.appDir ? await staticPaths(project.appDir, scanExports) : { paths: ["/"], sources: [] };
+
+  if (!listed.length && !sources.length) {
+    console.log("Prerendered 0 pages.");
+    return written;
+  }
+
+  const { paths, render, close } = await launch(root, options);
 
   try {
-    const listed = project.appDir ? (await staticPaths(project.appDir, scanExports)).paths : ["/"];
-    const queue = new Set([...listed, ...(await paths()).map(path => path.replace(/(.)\/$/, "$1"))]);
+    const queue = new Set<unknown>([...listed, ...(await paths())]);
 
-    for (const path of queue) {
-      if (!PATH.test(path) || normalize(path) !== path) {
-        console.warn(`${path} is not an absolute path - not prerendered.`);
+    for (const entry of queue) {
+      const path = canonical(entry);
+
+      if (!path) {
+        console.warn(`${String(entry)} is not an absolute path - not prerendered.`);
         continue;
       }
 
@@ -48,8 +57,10 @@ export async function prerender(root: string): Promise<string[]> {
           continue;
         }
 
-        mkdirSync(join(dir, path), { recursive: true });
-        writeFileSync(join(dir, path, "index.html"), fill(shell, page));
+        const folder = join(dir, decodeURI(path));
+
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, "index.html"), fill(shell, page));
         written.push(path);
       } catch (error) {
         console.warn(`${path} was not prerendered: ${(error as Error).message}`);
@@ -64,15 +75,25 @@ export async function prerender(root: string): Promise<string[]> {
   return written;
 }
 
-/** Put a rendered page into the shell: markup in `#root`, hoisted elements ahead of any `<title>`, rules last in the head. */
+function canonical(path: unknown): string | undefined {
+  if (typeof path != "string") return;
+
+  try {
+    const decoded = decodeURI(path).replace(/(.)\/$/, "$1");
+
+    if (PATH.test(decoded) && posix.normalize(decoded) === decoded) return encodeURI(decoded);
+  } catch {}
+}
+
+/** Put a rendered page into the shell: markup in `#root`, hoisted elements ahead of the head's `<title>`, rules last in the head. */
 export function fill(shell: string, { html, css, head, path }: Page): string {
-  const at = path.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  const mark = path.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   const marked = head.replace(HEAD, `<$1 ${PRERENDERED}`);
-  const style = css ? `<style ${PRERENDERED}>${css}</style>\n` : "";
-  let out = shell.replace(ROOT, (_, open) => `${open} ${PRERENDERED}="${at}">${html}</div>`);
-  const title = out.search(/<title\b/);
+  const style = css ? `<style ${PRERENDERED}>${css.replace(/<\/(style)/gi, "<\\/$1")}</style>\n` : "";
+  const end = shell.indexOf("</head>");
+  const title = shell.slice(0, end).replace(/<!--[\s\S]*?-->/g, match => " ".repeat(match.length)).search(/<title\b/);
+  const spot = title >= 0 ? title : end;
+  const out = shell.slice(0, spot) + marked + shell.slice(spot, end) + style + shell.slice(end);
 
-  if (marked) out = title >= 0 ? out.slice(0, title) + marked + out.slice(title) : out.replace("</head>", `${marked}</head>`);
-
-  return out.replace("</head>", `${style}</head>`);
+  return out.replace(ROOT, (_, open) => `${open} ${PRERENDERED}="${mark}">${html}</div>`);
 }

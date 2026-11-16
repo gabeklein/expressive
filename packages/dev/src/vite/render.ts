@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "vite";
 
-import { prerenderBuild } from "./build";
+import { prerenderBuild, type BuildOptions } from "./build";
 
 export interface Page {
   html: string;
@@ -19,12 +19,12 @@ export interface Renderer {
 }
 
 /** Bundle the app for Node with client transforms - remote modules stay call stubs - and render pages from it. */
-export async function launch(root: string): Promise<Renderer> {
+export async function launch(root: string, options: BuildOptions = {}): Promise<Renderer> {
   const outDir = join(root, "dist", ".prerender");
   const close = () => rmSync(outDir, { recursive: true, force: true });
 
   try {
-    await build(prerenderBuild(root, outDir));
+    await build(prerenderBuild(root, outDir, options));
 
     const url = pathToFileURL(join(outDir, "prerender.js"));
     url.search = String(Date.now());

@@ -58,6 +58,10 @@ function appEntry(root: string): Pick<Project, "appDir" | "appPath"> {
 
 export const PRERENDERED = "data-prerender";
 
+export const PRERENDER_ENTRY = `/${GENERATED}/prerender.tsx`;
+
+const SETTLE = 30_000;
+
 export function bootstrap(appImport: string): string {
   return `\
 import { hydrate, render } from "@expressive/dev";
@@ -94,11 +98,14 @@ export async function paths() {
 export default async function page(path) {
   let router;
   const stop = Router.on({ setup(self) { router = self; } });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
 
   try {
-    const output = await renderToString(jsx(App, { path }));
+    const output = await renderToString(jsx(App, { path }), { signal: abort.signal });
     return { ...output, path: router ? router.path : path };
   } finally {
+    clearTimeout(timer);
     stop();
   }
 }

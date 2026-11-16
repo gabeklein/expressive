@@ -696,11 +696,12 @@ describe("vite host", () => {
     expect(resolve).toHaveBeenCalledWith("@expressive/dom/server", expect.stringMatching(/plugin\.ts$/), { skipSelf: true });
   });
 
-  it("will leave a build's own input alone", async () => {
+  it("will keep the prerender entry as a build's input, and the shell otherwise", async () => {
     const root = project({ "app.tsx": "export default () => <h1>hi</h1>" });
-    const config = await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [expressive()], build: { rollupOptions: { input: "/x.ts" } } }, "build");
+    const input = async (input: string) => (await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [expressive()], build: { rollupOptions: { input } } }, "build")).build.rollupOptions.input;
 
-    expect(config.build.rollupOptions.input).toBe("/x.ts");
+    expect(await input("/.expressive/prerender.tsx")).toBe("/.expressive/prerender.tsx");
+    expect(await input("/x.ts")).toBe(join(realpathSync(root), "index.html"));
   });
 
   it("will throw if config is read before the dev server runs", async () => {

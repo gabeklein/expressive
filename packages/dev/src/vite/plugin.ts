@@ -6,7 +6,7 @@ import { createServerModuleRunner, runnerImport, type Plugin, type ViteDevServer
 import type { ModuleRunner } from "vite/module-runner";
 
 import type { AppConfig } from "../server/config";
-import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, resolveProject, serverEntry, type Project } from "./project";
+import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_ENTRY, resolveProject, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
@@ -111,7 +111,7 @@ export function expressive(): Plugin<Host> {
         optimizeDeps: { entries, include: DEPS },
         resolve: { alias: hosted() },
         environments: { ssr: { resolve: { external: SHARED } } },
-        build: env.isSsrBuild || user.build?.rollupOptions?.input ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
+        build: env.isSsrBuild || user.build?.rollupOptions?.input === PRERENDER_ENTRY ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
       };
     },
 

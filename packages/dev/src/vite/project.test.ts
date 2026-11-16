@@ -106,6 +106,12 @@ describe("bootstrap", () => {
     expect(document.getElementById("root")!.hasAttribute("data-prerender")).toBe(false);
   });
 
+  it("will hydrate a path the browser reports encoded", () => {
+    page("/blog/a b", "", `<div id="root" data-prerender="/blog/a%20b"><h1>a b</h1></div>`);
+
+    expect(boot().hydrate).toHaveBeenCalled();
+  });
+
   it("will render over a root prerendered for another path, dropping its head", () => {
     page("/blog/three", `<title data-prerender>Home</title><style data-prerender></style><title>Shell</title>`, `<div id="root" data-prerender="/"><h1>Home</h1></div>`);
 
@@ -124,6 +130,6 @@ describe("prerenderEntry", () => {
 
     expect(entry).toContain(`import { paths as p0 } from "../app/blog/[slug].tsx";`);
     expect(entry).toContain("await Promise.all([p0()])");
-    expect(entry).toContain(`jsx(App, { path })`);
+    expect(entry).toContain(`renderToString(jsx(App, { path }), { signal: abort.signal })`);
   });
 });

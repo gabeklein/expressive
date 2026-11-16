@@ -17,10 +17,13 @@ it("will build the client, then the server", async () => {
   expect(prerender).not.toHaveBeenCalled();
 });
 
-it("will prerender after both builds when asked", async () => {
-  await runBuild("/app", { prerender: true });
+it("will prerender after both builds when asked, unless building in memory", async () => {
+  await runBuild("/app", { prerender: true, pretty: true });
+  expect(prerender).toHaveBeenCalledWith("/app", { prerender: true, pretty: true });
 
-  expect(prerender).toHaveBeenCalledWith("/app");
+  prerender.mockClear();
+  await runBuild("/app", { prerender: true, write: false });
+  expect(prerender).not.toHaveBeenCalled();
 });
 
 it("will bundle the prerender entry as one module", () => {
@@ -28,6 +31,8 @@ it("will bundle the prerender entry as one module", () => {
     root: "/app",
     build: { outDir: "/app/dist/.prerender", rollupOptions: { input: "/.expressive/prerender.tsx", output: { entryFileNames: "prerender.js", codeSplitting: false } } },
   });
+  expect((prerenderBuild("/app", "/out").build!.rollupOptions!.output as any).assetFileNames).toBeUndefined();
+  expect(prerenderBuild("/app", "/out", { pretty: true }).build!.rollupOptions!.output).toMatchObject({ assetFileNames: "[name].[ext]" });
 });
 
 it("will build the working directory by default", async () => {

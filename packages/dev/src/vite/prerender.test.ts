@@ -66,7 +66,7 @@ describe("prerender", () => {
     expect(page("")).toContain(`<div id="root" data-prerender="/">/</div>`);
     expect(page("docs/intro")).toContain(">/docs/intro</div>");
     expect(close).toHaveBeenCalled();
-    expect(launch).toHaveBeenCalledWith(root);
+    expect(launch).toHaveBeenCalledWith(root, {});
     expect(log).toHaveBeenCalledWith("Prerendered 4 pages.");
   });
 
@@ -78,7 +78,7 @@ describe("prerender", () => {
       if (path == "/b") return { html: "<!--fragment--> <!--/fragment-->" };
       if (path == "/c") throw new Error("broke");
       return {};
-    }, ["relative", "/x/../d", "/q?x=1"]);
+    }, ["relative", "/x/../d", "/q?x=1", "/%E0%A4%A", 7 as any]);
 
     expect(await prerender(root)).toEqual(["/d"]);
     expect(warn.mock.calls.map(([message]: unknown[]) => message)).toEqual([
@@ -88,8 +88,31 @@ describe("prerender", () => {
       "relative is not an absolute path - not prerendered.",
       "/x/../d is not an absolute path - not prerendered.",
       "/q?x=1 is not an absolute path - not prerendered.",
+      "/%E0%A4%A is not an absolute path - not prerendered.",
+      "7 is not an absolute path - not prerendered.",
     ]);
     expect(log).toHaveBeenCalledWith("Prerendered 1 page.");
+  });
+
+  it("will render a path encoded, as a browser reports it, into its decoded folder", async () => {
+    const root = built({ "app/blog/[slug].tsx": PAGE + "; export const paths = () => [];" });
+    const render = vi.fn((path: string) => ({ html: path }));
+
+    renderer(render, ["/blog/a b", "/blog/caf%C3%A9"]);
+
+    expect(await prerender(root, { pretty: true })).toEqual(["/blog/a%20b", "/blog/caf%C3%A9"]);
+    expect(render.mock.calls.map(([path]) => path)).toEqual(["/blog/a%20b", "/blog/caf%C3%A9"]);
+    expect(readFileSync(join(root, "dist", "client", "blog", "a b", "index.html"), "utf8")).toContain(`data-prerender="/blog/a%20b"`);
+    expect(readFileSync(join(root, "dist", "client", "blog", "café", "index.html"), "utf8")).toContain(">/blog/caf%C3%A9</div>");
+    expect(launch).toHaveBeenCalledWith(root, { pretty: true });
+  });
+
+  it("will not bundle the app when no page can be rendered", async () => {
+    const root = built({ "app/index.tsx": PAGE, "app/remote.ts": "export async function add() {}" });
+
+    expect(await prerender(root)).toEqual([]);
+    expect(launch).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("Prerendered 0 pages.");
   });
 
   it("will render a single-file app at its root", async () => {
@@ -110,10 +133,11 @@ describe("prerender", () => {
     expect(close).toHaveBeenCalled();
   });
 
-  it("will throw if the shell has no empty root", async () => {
-    const root = built({ "app.tsx": "" }, "<html><body></body></html>");
+  it("will throw if the shell has no head or no empty root", async () => {
+    const message = `Prerendering needs a <head> and an empty <div id="root"> in the shell.`;
 
-    await expect(prerender(root)).rejects.toThrow("Prerendering needs an empty #root element in the shell.");
+    await expect(prerender(built({ "app.tsx": "" }, `<html><head></head><body><div data-id="root"></div></body></html>`))).rejects.toThrow(message);
+    await expect(prerender(built({ "app.tsx": "" }, `<html><body><div id="root"></div></body></html>`))).rejects.toThrow(message);
     expect(launch).not.toHaveBeenCalled();
   });
 });
@@ -126,6 +150,22 @@ describe("fill", () => {
       `<html><head><title data-prerender>Hi</title><meta data-prerender name="x" content="y"><link data-prerender rel="icon" href="/i"><title>Shell</title>` +
       `<style data-prerender>.a{color: red;}</style>\n</head><body><div id="root" data-prerender="/a&quot;&amp;b"><h1>Hi</h1></div></body></html>`
     );
+  });
+
+  it("will insert content verbatim, escaping a style end tag in the rules", () => {
+    const out = fill(SHELL, { html: "$'", css: `.a::after{content: "$&"} </style>`, head: "<title>$`</title>", path: "/" });
+
+    expect(out).toBe(
+      `<html><head><title data-prerender>$\`</title><title>Shell</title><style data-prerender>.a::after{content: "$&"} <\\/style></style>\n</head>` +
+      `<body><div id="root" data-prerender="/">$'</div></body></html>`
+    );
+  });
+
+  it("will look for the shell's title only in its head, outside comments", () => {
+    const shell = `<html><head><!-- <title>old</title> --></head><body><div id="root"></div></body></html>`;
+    const out = fill(shell, { html: "<svg><title>icon</title></svg>", css: "", head: "<title>Hi</title>", path: "/" });
+
+    expect(out).toBe(`<html><head><!-- <title>old</title> --><title data-prerender>Hi</title></head><body><div id="root" data-prerender="/"><svg><title>icon</title></svg></div></body></html>`);
   });
 
   it("will put head elements at the end of a head without a title, and skip what is empty", () => {
