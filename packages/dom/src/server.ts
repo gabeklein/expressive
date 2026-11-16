@@ -13,7 +13,7 @@ import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
 import { ALIASES, isStringified } from './node/props';
 import type { Node, VNode } from './node/vnode';
-import { claim, componentProps, placed } from './style/claim';
+import { claim, componentProps, flatten, placed } from './style/claim';
 import type { Appearance } from './style/claim';
 import { serialize } from './style/declarations';
 import type { Declaration } from './style/declarations';
@@ -62,9 +62,8 @@ interface Options {
 interface Pass {
   contexts: Context[];
   frames: Map<unknown, number>[];
-  inline?: Map<string, string>;
+  inline?: boolean;
   markers: boolean;
-  rules: string[];
   signal?: AbortSignal;
   sink: Sink;
   selected?: string;
@@ -138,21 +137,15 @@ function escape(value: string, attribute?: boolean) {
 async function renderToString(node: Node, options: Options = {}): Promise<Output> {
   const { inline, markers = true, signal } = options;
   const rules: string[] = [];
-  const plain = inline ? new Map<string, string>() : undefined;
   const roots = new Map<object, string>();
   const sink: Sink = {
-    insert: (rule, index) => {
-      const [, name] = /^\.([\w-]+)\{/.exec(rule) || [];
-
-      if (name) plain?.set(name, rule);
-      rules.splice(index, 0, rule);
-    },
+    insert: (rule, index) => rules.splice(index, 0, rule),
     root: (key, css) => roots.set(key, css),
     serialize: text,
     unitless: (property) => UNITLESS.has(property)
   };
   const context = new Context(Context.root);
-  const pass: Pass = { contexts: [context], frames: [], inline: plain, markers, rules, signal, sink };
+  const pass: Pass = { contexts: [context], frames: [], inline, markers, signal, sink };
 
   try {
     signal?.throwIfAborted();
@@ -177,20 +170,6 @@ async function range(pass: Pass, kind: string, inner: Promise<string>) {
 
 function marker(pass: Pass) {
   return pass.markers ? '<!--portal-->' : '';
-}
-
-function inlined(pass: Pass, className: string) {
-  const { inline, rules } = pass;
-
-  if (!inline || !className) return '';
-
-  return className
-    .split(' ')
-    .map((name) => inline.get(name)!)
-    .filter(Boolean)
-    .sort((a, b) => rules.indexOf(a) - rules.indexOf(b))
-    .map((rule) => rule.slice(rule.indexOf('{') + 1, -1))
-    .join(' ');
 }
 
 async function walk(value: Node, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean): Promise<string> {
@@ -382,7 +361,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if (claimed.className) attributes += ` class="${escape(claimed.className, true)}"`;
 
-  const style = [inlined(pass, claimed.className), serialize(sink, claimed.declarations)].filter(Boolean).join(' ');
+  const style = serialize(sink, pass.inline ? flatten(claimed) : claimed.declarations);
 
   if (style) attributes += ` style="${escape(style, true)}"`;
 

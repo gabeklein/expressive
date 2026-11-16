@@ -295,7 +295,7 @@ describe('renderToString', () => {
     const { css, html } = await renderToString(<Page />, { inline: true, markers: false });
 
     expect(html).toBe(
-      '<div class="Card_active Card_active-hover Page_card-d1 Card Card-media_min-width_1px" style="padding: 4px; color: red; font-weight: 700; color: green; margin-top: 2px;">' +
+      '<div class="Card_active Card_active-hover Page_card-d1 Card Card-media_min-width_1px" style="padding: 4px; color: green; font-weight: 700; margin-top: 2px;">' +
       'page<span>plain</span></div>'
     );
     expect(css).toContain(':hover');
