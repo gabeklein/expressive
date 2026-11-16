@@ -125,6 +125,32 @@ describe('hydrate', () => {
     expect(root.textContent).toBe('hello');
   });
 
+  it('will adopt suspended markup holding a hoisted head element once it renders', async () => {
+    const data = mockPromise<string>();
+
+    class Lazy extends Component {
+      value = set(() => data);
+
+      render() {
+        return <><title>Page</title><h1>{this.value}</h1></>;
+      }
+    }
+
+    const root = document.body.appendChild(document.createElement('div'));
+    root.innerHTML = '<!--fragment--><!--component--><!--fragment--><!--portal--><h1>ok</h1><!--/fragment--><!--/component--><!--/fragment-->';
+    const heading = root.querySelector('h1');
+
+    const unmount = hydrate(<Lazy />, root);
+
+    data.resolve('ok');
+    await flushMicrotasks();
+
+    expect(root.querySelector('h1')).toBe(heading);
+    expect(document.title).toBe('Page');
+
+    unmount();
+  });
+
   it('will keep suspended markup without any boundary, and drop what no longer renders after', async () => {
     const data = mockPromise<string>();
 
