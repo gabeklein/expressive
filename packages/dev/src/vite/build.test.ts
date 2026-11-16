@@ -9,21 +9,32 @@ vi.mock("./prerender", () => ({ prerender }));
 
 import { clientBuild, prerenderBuild, runBuild, serverBuild } from "./build";
 
-it("will build the client, then the server", async () => {
+it("will build the client, the server, then prerender", async () => {
   await runBuild("/app", { pretty: true });
 
   expect(build.mock.calls.map(([config]: any) => config.build.outDir)).toEqual(["dist/client", "dist/server"]);
   expect(build.mock.calls[0]).toMatchObject([{ root: "/app", build: { minify: false } }]);
+  expect(prerender).toHaveBeenCalledWith("/app", { pretty: true });
+});
+
+it("will not prerender when opted out or building in memory", async () => {
+  prerender.mockClear();
+
+  await runBuild("/app", { prerender: false });
+  await runBuild("/app", { write: false });
+
   expect(prerender).not.toHaveBeenCalled();
 });
 
-it("will prerender after both builds when asked, unless building in memory", async () => {
-  await runBuild("/app", { prerender: true, pretty: true });
-  expect(prerender).toHaveBeenCalledWith("/app", { prerender: true, pretty: true });
+it("will warn and keep the client build if prerendering fails", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-  prerender.mockClear();
-  await runBuild("/app", { prerender: true, write: false });
-  expect(prerender).not.toHaveBeenCalled();
+  prerender.mockRejectedValueOnce(new Error("window is not defined"));
+
+  await expect(runBuild("/app")).resolves.toBeUndefined();
+  expect(warn).toHaveBeenCalledWith("Prerendering failed - every page renders in the browser: window is not defined");
+
+  warn.mockRestore();
 });
 
 it("will bundle the prerender entry as one module", () => {
