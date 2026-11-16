@@ -350,6 +350,28 @@ describe('hydrate', () => {
     expect(end).not.toBe(to);
   });
 
+  it('will adopt inlined markup, keeping only its own inline style', async () => {
+    function Box() {
+      return <p style={{ marginTop: 2 }}>box</p>;
+    }
+
+    style(Box, { color: 'red' });
+
+    const { html } = await renderToString(<Box />, { inline: true });
+    const root = document.body.appendChild(document.createElement('main'));
+
+    root.innerHTML = html;
+
+    const box = root.querySelector('p')!;
+
+    expect(box.getAttribute('style')).toBe('color: red; margin-top: 2px;');
+
+    hydrate(<Box />, root);
+    expect(root.querySelector('p')).toBe(box);
+    expect(box.className).toBe('Box');
+    expect(box.getAttribute('style')).toBe('margin-top: 2px;');
+  });
+
   it('will replace the server copy of a head element', async () => {
     const node = () => <div><title>Page</title><meta name="description" content="about" /></div>;
     const { head, html } = await renderToString(node());
