@@ -1,9 +1,12 @@
 import { Context } from '@expressive/mvc';
 
-import { PORTAL } from '../node/vnode';
+import { isHoisted } from '../node/props';
+import { isVNode, PORTAL, vnode } from '../node/vnode';
 import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
+import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
+import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 
@@ -14,7 +17,8 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
   const portalEnd = document.createComment('/portal-root');
 
   parent.insertBefore(marker, before);
-  container.append(portalStart, portalEnd);
+  if (value.props[LEAD]) container.prepend(portalStart, portalEnd);
+  else container.append(portalStart, portalEnd);
 
   const output: Fiber = {
     kind: 'portal',
@@ -37,6 +41,20 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
   });
 }
 
+const SVG = 'http://www.w3.org/2000/svg';
+const LEAD = Symbol('lead');
+
+function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
+  if (!isVNode(value) || !isHoisted(value.type, value.props)) return value;
+
+  const host = hostOf(parent) as Element;
+
+  if (host.closest?.('head') || host.getRootNode() instanceof ShadowRoot) return value;
+  if (host.namespaceURI == SVG && host.localName != 'foreignObject') return value;
+
+  return vnode(PORTAL, { into: parent.ownerDocument!.head, children: value, [LEAD]: value.type == 'title' }, value.key);
+}
+
 function target(into: unknown, parent: globalThis.Node): Container {
   if (typeof into != 'string') return into as Container;
 
@@ -55,9 +73,28 @@ function reconcilePortal(fiber: Fiber, value: RenderNode, context: Context, boun
   reconcileChildren(fiber, fiber.portalEnd!.parentNode!, fiber.portalEnd!, value, context, boundary, appearance);
 }
 
+function leads(props: object) {
+  return !!(props as Record<symbol, unknown>)[LEAD];
+}
+
+function place(fiber: Fiber, content: globalThis.Node) {
+  if (leads(fiber.props!)) fiber.portalContainer!.prepend(content);
+  else fiber.portalContainer!.append(content);
+}
+
 function patchPortal(fiber: Fiber, value: VNode, context: Context, appearance?: Appearance) {
+  const moved = leads(fiber.props!) !== leads(value.props) && fiber.portalStart!.parentNode === fiber.portalContainer;
+
   fiber.appearance = appearance;
   fiber.props = value.props;
+
+  if (moved) {
+    const content = document.createDocumentFragment();
+
+    moveRange(fiber.portalStart!, fiber.portalEnd!, content);
+    place(fiber, content);
+  }
+
   reconcilePortal(fiber, value.props.children, context, fiber.boundary, appearance);
 }
 
@@ -66,4 +103,4 @@ function unmountPortal(fiber: Fiber) {
   (fiber.portalEnd as ChildNode).remove();
 }
 
-export { mountPortal, patchPortal, unmountPortal };
+export { hoist, mountPortal, patchPortal, place, unmountPortal };

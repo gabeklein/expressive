@@ -11,7 +11,7 @@ import { unplaced } from './core/placement';
 import { isThenable, kindOf, source } from './node/kind';
 import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
-import { ALIASES, isStringified } from './node/props';
+import { ALIASES, isHoisted, isStringified } from './node/props';
 import type { Node, VNode } from './node/vnode';
 import { claim, componentProps, flatten, placed } from './style/claim';
 import type { Appearance } from './style/claim';
@@ -48,6 +48,12 @@ interface Output {
   html: string;
   /** Rules the render emitted, for a `<style>` in the document head. */
   css: string;
+  /**
+   * Hoisted `<title>`, `<meta>` and `<link>` elements, for the document head.
+   *
+   * The latest title comes first. `html` keeps a marker in their place.
+   */
+  head: string;
 }
 
 interface Options {
@@ -62,10 +68,12 @@ interface Options {
 interface Pass {
   contexts: Context[];
   frames: { count: number }[];
+  head: string[];
   inline?: boolean;
   markers: boolean;
   signal?: AbortSignal;
   sink: Sink;
+  inHead?: boolean;
   selected?: string;
 }
 
@@ -132,7 +140,7 @@ function escape(value: string, attribute?: boolean) {
  * `new()` runs and is not awaited; effects and `ready` never do. Owned instances are destroyed once rendered.
  * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
  * A `catch` boundary handles an error, then renders again; a retry that fails no further than the last rejects.
- * A portal leaves only its marker.
+ * A portal leaves only its marker; `<title>`, `<meta>` and `<link>` go to `head`, as `render()` hoists them.
  */
 async function renderToString(node: Node, options: Options = {}): Promise<Output> {
   const { inline, markers = true, signal } = options;
@@ -145,7 +153,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
     unitless: (property) => UNITLESS.has(property)
   };
   const context = new Context(Context.root);
-  const pass: Pass = { contexts: [context], frames: [], inline, markers, signal, sink };
+  const pass: Pass = { contexts: [context], frames: [], head: [], inline, markers, signal, sink };
 
   try {
     signal?.throwIfAborted();
@@ -156,7 +164,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
 
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
 
-    return { html, css };
+    return { html, css, head: pass.head.join('') };
   } catch (thrown) {
     throw thrown instanceof Failure ? thrown.error : thrown;
   } finally {
@@ -199,8 +207,18 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
       return range(pass, 'fragment', walk((value as VNode).props.children, pass, context, appearance, svg));
     case 'portal':
       return marker(pass);
-    case 'element':
-      return element(value as VNode, pass, context, appearance, svg);
+    case 'element': {
+      const node = value as VNode;
+
+      if (!isHoisted(node.type, node.props) || svg || pass.inHead) return element(node, pass, context, appearance, svg);
+
+      const markup = await element(node, pass, context, appearance, svg);
+
+      if (node.type == 'title') pass.head.unshift(markup);
+      else pass.head.push(markup);
+
+      return marker(pass);
+    }
     case 'owned':
       return range(pass, 'component', owned(value as VNode, pass, context, appearance, svg));
     default:
@@ -296,6 +314,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
   while (true) {
     let proxy = instance;
     const release = watch(instance, (current) => { proxy = current; });
+    const head = pass.head.slice();
 
     const frame = { count: 0 };
 
@@ -312,6 +331,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
       if (pass.signal?.aborted || index <= reached) throw error;
 
       reached = index;
+      pass.head.splice(0, Infinity, ...head);
       await settle(handler.call(instance, error instanceof Error ? error : new Error(String(error)), instance), pass.signal);
     } finally {
       if (handler) pass.frames.pop();
@@ -390,9 +410,10 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
   else if (tag == 'textarea' && entry != null) inner = escape(String(entry));
   else if (RAW.has(tag)) inner = raw(tag, childrenText(props.children));
   else {
-    const outer = pass.selected;
+    const { inHead, selected } = pass;
 
     if (tag == 'select' && entry != null) pass.selected = String(entry);
+    if (tag == 'head') pass.inHead = true;
 
     try {
       inner = await walk(
@@ -405,10 +426,11 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
         inSvg && tag != 'foreignObject'
       );
     } finally {
-      pass.selected = outer;
+      Object.assign(pass, { inHead, selected });
     }
   }
 
+  if (tag == 'title' && !inSvg) inner = inner.replace(/<!--[^>]*-->/g, '');
   if ((tag == 'textarea' || tag == 'pre' || tag == 'listing') && inner[0] == '\n') inner = '\n' + inner;
 
   return `${open}${inner}</${tag}>`;

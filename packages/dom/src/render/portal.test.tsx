@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component } from '@expressive/mvc';
 import { Portal, render } from '../index';
-import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
+import { flushMicrotasks, lazy, mockPromise, mount } from '../../test.setup';
 
 describe('Portal', () => {
   it('will resolve a selector target once and move when it changes', async () => {
@@ -113,5 +113,185 @@ describe('Portal', () => {
 
     release();
     expect(nextPortal.textContent).toBe('');
+  });
+});
+
+describe('head elements', () => {
+  it('will hoist a title ahead of the document title, and restore it on unmount', async () => {
+    const shell = document.createElement('title');
+    shell.textContent = 'Shell';
+    document.head.append(shell);
+
+    class Page extends Component {
+      name = 'One';
+      order = ['a', 'b'];
+
+      render() {
+        return (
+          <main>
+            {this.order.map((key) => <p key={key}>{key}</p>)}
+            <title key="t">{`Page ${this.name}`}</title>
+          </main>
+        );
+      }
+    }
+
+    const [page, root, release] = mount(Page);
+
+    expect(document.title).toBe('Page One');
+    expect(root.innerHTML).toContain('<main><p>a</p><p>b</p><!--portal--></main>');
+
+    page.name = 'Two';
+    page.order = ['b', 'a'];
+    await flushMicrotasks();
+    expect(document.title).toBe('Page Two');
+    expect(root.querySelector('title')).toBeNull();
+
+    release();
+    expect(document.title).toBe('Shell');
+    shell.remove();
+  });
+
+  it('will let the latest title win, and append meta and link', () => {
+    const unmount = render(
+      <div>
+        <title>Outer</title>
+        <section><title>Inner</title></section>
+        <meta name="description" content="about" />
+        <link rel="canonical" href="/x" />
+      </div>,
+      document.body.appendChild(document.createElement('main'))
+    );
+
+    expect(document.title).toBe('Inner');
+    expect(document.head.querySelector('meta[name=description]')!.getAttribute('content')).toBe('about');
+    expect(document.head.lastElementChild!.outerHTML).toBe('<link rel="canonical" href="/x">');
+
+    unmount();
+    expect(document.head.querySelector('meta[name=description], link[rel=canonical], title')).toBeNull();
+  });
+
+  it('will let the newest title win as titles mount and unmount in any order', async () => {
+    class Titles extends Component {
+      shown = ['A', 'B'];
+
+      render() {
+        return <div>{this.shown.map((name) => <title key={name}>{name}</title>)}</div>;
+      }
+    }
+
+    const [titles, , release] = mount(Titles);
+
+    expect(document.title).toBe('B');
+
+    for (const [shown, title] of [[['B'], 'B'], [['B', 'A'], 'A'], [['A'], 'A']] as const) {
+      titles.shown = [...shown];
+      await flushMicrotasks();
+      expect(document.title).toBe(title);
+    }
+
+    release();
+  });
+
+  it('will keep a title ahead after its boundary suspends and reveals', async () => {
+    const shell = document.createElement('title');
+    const [Lazy, loaded] = lazy<{ default: () => Component.Node }>();
+
+    shell.textContent = 'Shell';
+    document.head.append(shell);
+
+    class Page extends Component {
+      show = false;
+      fallback = <i>wait</i>;
+
+      render() {
+        return <><title>Page</title>{this.show && <Lazy />}</>;
+      }
+    }
+
+    const [page, root, release] = mount(Page);
+
+    expect(document.title).toBe('Page');
+
+    page.show = true;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('wait');
+
+    loaded.resolve({ default: () => <b>ready</b> });
+    await flushMicrotasks();
+    expect(root.textContent).toBe('ready');
+    expect(document.title).toBe('Page');
+
+    release();
+    shell.remove();
+  });
+
+  it('will move a slot ahead when it switches from meta to title', async () => {
+    const shell = document.createElement('title');
+
+    shell.textContent = 'Shell';
+    document.head.append(shell);
+
+    class Slot extends Component {
+      titled = false;
+
+      render() {
+        return <div>{this.titled ? <title>Page</title> : <meta name="x" content="y" />}</div>;
+      }
+    }
+
+    const [slot, , release] = mount(Slot);
+
+    expect(document.title).toBe('Shell');
+
+    slot.titled = true;
+    await flushMicrotasks();
+    expect(document.title).toBe('Page');
+
+    slot.titled = false;
+    await flushMicrotasks();
+    expect(document.head.querySelector('meta[name=x]')).not.toBeNull();
+    expect(document.title).toBe('Shell');
+
+    release();
+    shell.remove();
+  });
+
+  it('will keep head elements in a head element it renders', () => {
+    const root = document.body.appendChild(document.createElement('main'));
+    const unmount = render(<head><title>Inner</title></head>, root);
+
+    expect(root.querySelector('head > title')!.textContent).toBe('Inner');
+    unmount();
+  });
+
+  it('will keep microdata and shadow root elements in place', () => {
+    const root = document.body.appendChild(document.createElement('main'));
+    const unmount = render(
+      <div itemScope itemType="https://schema.org/Product" itemID="p1">
+        <meta itemProp="price" content="9" />
+      </div>,
+      root
+    );
+
+    expect(root.innerHTML).toContain(
+      '<div itemscope="" itemtype="https://schema.org/Product" itemid="p1"><meta itemprop="price" content="9"></div>'
+    );
+    unmount();
+
+    const shadow = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+    const release = render(<link rel="stylesheet" href="/x.css" />, shadow);
+
+    expect(shadow.innerHTML).toContain('<link rel="stylesheet" href="/x.css">');
+    release();
+  });
+
+  it('will keep an svg title in place, but not one in foreignObject', () => {
+    const root = document.body.appendChild(document.createElement('main'));
+    const unmount = render(<svg><title>icon</title><foreignObject><title>page</title></foreignObject></svg>, root);
+
+    expect(root.querySelector('svg > title')!.textContent).toBe('icon');
+    expect(document.title).toBe('page');
+    unmount();
   });
 });

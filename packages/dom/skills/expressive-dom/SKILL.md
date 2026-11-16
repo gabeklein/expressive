@@ -323,9 +323,23 @@ await pending(() => {
 return <Portal into={document.body}><Dialog /></Portal>;
 ```
 
+## Head elements
+
+`<title>`, `<meta>` and `<link>` render into `document.head` from anywhere, leaving a `<!--portal-->` marker in place - write them where their data lives. A title goes ahead of the head's existing titles, so the latest mounted wins and unmounting restores the one before. Meta and link append and are not de-duplicated - the first matching one wins.
+
+They stay in place inside `<svg>` (not `<foreignObject>`), inside a shadow root, inside a `<head>` - including one a whole-document render writes - or with `itemProp` (microdata). Microdata props (`itemProp`, `itemScope`, `itemType`, `itemID`, `itemRef`) and `<meta charSet>`/`property` are typed with React's names.
+
+```tsx
+render() {
+  const { title, summary } = this.post;
+
+  return <article><title>{title}</title><meta name="description" content={summary} />…</article>;
+}
+```
+
 ## Server rendering
 
-`renderToString(node)` from `@expressive/dom/server` renders without a DOM and resolves to `{ html, css }`: the container's markup as `render()` leaves it, range comments included, and the style rules it emitted.
+`renderToString(node)` from `@expressive/dom/server` renders without a DOM and resolves to `{ html, css, head }`: the container's markup as `render()` leaves it, range comments included, the style rules it emitted, and its head elements - latest title first. Place `head` before any static `<title>` in the shell. Head elements inside a `<Portal>` are dropped, as the portal's content is.
 
 ```tsx
 import { renderToString } from '@expressive/dom/server';

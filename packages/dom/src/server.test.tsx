@@ -378,14 +378,14 @@ describe('renderToString', () => {
     const state = JSON.stringify({ a: '</script><img src=x onerror=alert(1)>', b: '<!-- x' });
     const { html } = await serve(
       <head>
-        <meta {...{ content: 'a<b>"c' } as any} />
+        <base {...{ target: 'a<b>"c' } as any} />
         <script type="application/json">{state}</script>
         <style>{'a{} </STYLE><b>'}</style>
       </head>
     );
 
     expect(html).toBe(
-      '<!--fragment--><head><meta content="a&lt;b&gt;&quot;c">' +
+      '<!--fragment--><head><base target="a&lt;b&gt;&quot;c">' +
       '<script type="application/json">{"a":"<\\/script><img src=x onerror=alert(1)>","b":"\\u003C!-- x"}</script>' +
       '<style>a{} <\\/STYLE><b></style></head><!--/fragment-->'
     );
@@ -415,6 +415,103 @@ describe('renderToString', () => {
       .rejects.toThrow('Invalid attribute name "x"><img src=x onerror=alert(1)>".');
     await expect(serve(createElement('img src=x', {})))
       .rejects.toThrow('Invalid element name "img src=x".');
+  });
+
+  it('will collect head elements, leaving the marker render() leaves', async () => {
+    const node = () => (
+      <div>
+        <title>{'A & B'}</title>
+        <meta name="description" content="about" />
+        <svg><title>icon</title></svg>
+      </div>
+    );
+
+    const html = await parity(node);
+    const { head } = await serve(node());
+
+    expect(html).toBe('<!--fragment--><div><!--portal--><!--portal--><svg><title>icon</title></svg></div><!--/fragment-->');
+    expect(head).toBe('<title>A &amp; B</title><meta name="description" content="about">');
+  });
+
+  it('will put the latest title first, as render() leaves the head', async () => {
+    const { head } = await serve(
+      <div>
+        <title>Outer</title>
+        <meta name="a" content="1" />
+        <section><title>Inner</title></section>
+        <meta name="b" content="2" />
+      </div>
+    );
+
+    expect(head).toBe('<title>Inner</title><title>Outer</title><meta name="a" content="1"><meta name="b" content="2">');
+  });
+
+  it('will leave head elements in a head it renders, as for a whole document', async () => {
+    const { head, html } = await serve(
+      <html>
+        <head><meta charSet="utf-8" /><meta property="og:title" content="Shell" /><title>Shell</title></head>
+        <body><title>Page</title></body>
+      </html>
+    );
+
+    expect(html).toBe(
+      '<!--fragment--><html><head><meta charset="utf-8"><meta property="og:title" content="Shell"><title>Shell</title></head>' +
+      '<body><!--portal--></body></html><!--/fragment-->'
+    );
+    expect(head).toBe('<title>Page</title>');
+  });
+
+  it('will keep head elements only from the render a catch boundary kept', async () => {
+    let failed = false;
+
+    function Risky() {
+      if (!failed) {
+        failed = true;
+        throw new Error('broke');
+      }
+
+      return <p>ok</p>;
+    }
+
+    class Shell extends Component {
+      error = '';
+
+      catch(error: Error) {
+        this.error = error.message;
+      }
+
+      render() {
+        return <main><title>{this.error || 'Loading'}</title><Risky /></main>;
+      }
+    }
+
+    const { head } = await serve(<Shell />);
+
+    expect(head).toBe('<title>broke</title>');
+  });
+
+  it('will keep range comments in an svg title, as render() does', async () => {
+    function Label() {
+      return 'icon';
+    }
+
+    await parity(() => <svg><title><Label /></title></svg>);
+  });
+
+  it('will render a title from components as text, and keep microdata in place', async () => {
+    function Name() {
+      return 'Hello';
+    }
+
+    const { head, html } = await serve(
+      <div itemScope>
+        <title><Name /> | Site</title>
+        <meta itemProp="price" content="9" />
+      </div>
+    );
+
+    expect(head).toBe('<title>Hello | Site</title>');
+    expect(html).toBe('<!--fragment--><div itemscope=""><!--portal--><meta itemprop="price" content="9"></div><!--/fragment-->');
   });
 
   it('will await a suspended render and retry it in place', async () => {

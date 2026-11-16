@@ -3,6 +3,7 @@ import { fragment } from './commits';
 import { move, moveRange, range } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { unmountFiber } from './mount';
+import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
 import { release, schedule, transition } from '../core/scheduler';
@@ -105,7 +106,7 @@ function reveal(owner: Fiber) {
   owner.end.parentNode!.insertBefore(owner.stash!, owner.end);
 
   for (const [portal, content] of owner.portals!)
-    if (!portal.dead) portal.portalContainer!.append(content);
+    if (!portal.dead) place(portal, content);
 
   owner.portals = undefined;
   owner.placeholder = undefined;
