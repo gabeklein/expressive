@@ -230,6 +230,32 @@ describe('renderToString', () => {
     );
   });
 
+  it('will include root variables first defined after the sheet opened', async () => {
+    function First() {
+      return <i>first</i>;
+    }
+
+    function Later() {
+      return <b>later</b>;
+    }
+
+    style(First, { color: 'blue' });
+
+    function Loader() {
+      class Fresh extends Css {
+        $fresh = 'red';
+      }
+
+      Fresh.use()(Later, ($) => ({ color: $.fresh }));
+
+      return <Later />;
+    }
+
+    const { css } = await renderToString(<><First /><Loader /></>);
+
+    expect(css).toContain(':where(:root){--fresh: red;}');
+  });
+
   it('will include root variables a module adds after the first rule', async () => {
     function Early() {
       return <i>early</i>;
@@ -358,9 +384,24 @@ describe('renderToString', () => {
 
     expect(html).toBe(
       '<!--fragment--><head><meta content="a&lt;b&gt;&quot;c">' +
-      '<script type="application/json">{"a":"<\\/script><img src=x onerror=alert(1)>","b":"<\\!-- x"}</script>' +
+      '<script type="application/json">{"a":"<\\/script><img src=x onerror=alert(1)>","b":"\\u003C!-- x"}</script>' +
       '<style>a{} <\\/STYLE><b></style></head><!--/fragment-->'
     );
+  });
+
+  it('will keep escaped JSON parseable and raw content props unescaped', async () => {
+    const state = { a: '</script>', b: '<!-- x' };
+    const { html } = await serve(
+      <div>
+        <script type="application/json">{JSON.stringify(state)}</script>
+        <script {...{ textContent: 'if (a < b && c) x()' } as any} />
+        <style {...{ textContent: 'a > b {}' } as any} />
+      </div>
+    );
+    const json = html.slice(html.indexOf('json">') + 6, html.indexOf('</script>'));
+
+    expect(JSON.parse(json)).toEqual(state);
+    expect(html).toContain('<script>if (a < b && c) x()</script><style>a > b {}</style>');
   });
 
   it('will drop event attributes and throw for names that break markup', async () => {
@@ -447,6 +488,76 @@ describe('renderToString', () => {
 
     expect(handled).toHaveBeenCalledTimes(2);
     expect(html).toContain('<i>a</i><!--/function--><!--function--><i>b</i>');
+  });
+
+  it('will not retry a boundary that gets no further', async () => {
+    const handled = vi.fn();
+
+    class Shell extends Component {
+      catch = handled;
+
+      render() {
+        const Inner = () => {
+          throw new Error('always');
+        };
+
+        return <main><Inner /></main>;
+      }
+    }
+
+    await expect(serve(<Shell />)).rejects.toThrow('always');
+    expect(handled).toHaveBeenCalledOnce();
+  });
+
+  it('will recover children whose new() fails, and an error an inner boundary gives up on', async () => {
+    const failing = new Set(['a', 'b']);
+    const outer = vi.fn();
+
+    class Setup extends Component {
+      name = '';
+
+      new() {
+        if (failing.delete(this.name)) throw new Error(this.name);
+      }
+
+      render() {
+        return <i>{this.name}</i>;
+      }
+    }
+
+    const { html } = await serve(<Component catch={outer}><Setup name="a" /><Setup name="b" /></Component>);
+
+    expect(outer).toHaveBeenCalledTimes(2);
+    expect(html).toContain('<i>a</i>');
+    expect(html).toContain('<i>b</i>');
+
+    let once = true;
+
+    function Risky() {
+      if (once) {
+        once = false;
+        throw new Error('once');
+      }
+
+      return <i>ok</i>;
+    }
+
+    function Always(): any {
+      throw new Error('always');
+    }
+
+    const recovered = vi.fn();
+    const inner = vi.fn();
+
+    await expect(serve(
+      <Component catch={recovered}>
+        <Risky />
+        <Component catch={inner}><Always /></Component>
+      </Component>
+    )).rejects.toThrow('always');
+
+    expect(recovered).toHaveBeenCalledTimes(2);
+    expect(recovered.mock.calls[1][0].message).toBe('always');
   });
 
   it('will stop at an aborted signal, skipping catch boundaries', async () => {

@@ -337,10 +337,10 @@ Put `css` in a `<style>` in the document head. Calls are independent and can run
 
 - Suspended renders and lazy components are awaited and retried in place - fallbacks never draw. Load data through `set(async …)` fields; `async new()` is not awaited.
 - `new()` runs; effects and `ready` do not. Owned instances are destroyed once rendered; a placed instance is left as it was.
-- A `catch` boundary handles each failing component once, then renders again; a second error from the same component rejects.
+- A `catch` boundary handles an error, then renders again - each failing component recovers once. A retry that fails no further into the subtree than the last rejects; an error an inner boundary gives up on reaches the outer one.
 - `renderToString(node, { signal })` rejects with the signal's reason once it aborts - use it for a timeout (`AbortSignal.timeout(ms)`).
 - `markers: false` leaves out the range comments - the output can't be hydrated.
-- `inline: true` writes each element's plain class rules into its `style`, in cascade order before its own inline style - for email. States, media queries and descendant scopes stay in `css` only, and `var()` references are not resolved.
+- `inline: true` writes each element's plain class rules into its `style`, in cascade order before its own inline style - for email. Inlined declarations outrank the states and media queries left in `css`. States, media queries and descendant scopes stay in `css` only, and `var()` references are not resolved.
 - Portals leave a `<!--portal-->` marker and event handlers render nothing. `value`, `checked` and `selected` become attributes - a `<select>`'s `value` marks its options; textarea `value` becomes its text.
 - Attribute and tag names that would break markup throw, and closing tags inside `<script>` and `<style>` text are escaped.
 - Numbers in `css` take `px` from a fixed table of unitless properties instead of the CSSOM. A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's while class names match.

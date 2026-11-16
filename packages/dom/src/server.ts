@@ -41,7 +41,6 @@ const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'de
 const CONTENT = ['textContent', 'innerText'];
 const ATTRIBUTE = /^[^\s"'<>/=\u0000-\u001f\u007f]+$/;
 const TAG = /^[a-zA-Z][^\s"'<>/=\u0000-\u001f\u007f]*$/;
-const CLOSING = { script: /<(\/script|!--)/gi, style: /<(\/style)/gi } as Record<string, RegExp>;
 
 interface Output {
   /** Markup for the container the node mounts in, as `render()` would leave it. */
@@ -53,7 +52,7 @@ interface Output {
 interface Options {
   /** Rejects with its reason once aborted, bypassing `catch` boundaries. */
   signal?: AbortSignal;
-  /** Leave out the range comments `hydrate()` needs. Default `true`. */
+  /** Emit the range comments `hydrate()` needs. Default `true`; `false` gives static markup. */
   markers?: boolean;
   /** Write each element's plain class rules into its `style` attribute, as email clients need. */
   inline?: boolean;
@@ -61,7 +60,7 @@ interface Options {
 
 interface Pass {
   contexts: Context[];
-  frames: Map<unknown, number>[];
+  frames: { count: number }[];
   inline?: boolean;
   markers: boolean;
   signal?: AbortSignal;
@@ -131,7 +130,7 @@ function escape(value: string, attribute?: boolean) {
  *
  * `new()` runs and is not awaited; effects and `ready` never do. Owned instances are destroyed once rendered.
  * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
- * A `catch` boundary handles each failing component once, then renders again; a second error there propagates.
+ * A `catch` boundary handles an error, then renders again; a retry that fails no further than the last rejects.
  * A portal leaves only its marker.
  */
 async function renderToString(node: Node, options: Options = {}): Promise<Output> {
@@ -152,7 +151,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
 
     const html = await range(pass, 'fragment', walk(node, pass, context));
 
-    if (roots.size) attachRoots(sink);
+    if (rules.length || roots.size) attachRoots(sink);
 
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
 
@@ -209,20 +208,18 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
 }
 
 class Failure {
-  constructor(readonly error: unknown, readonly site: unknown, readonly index: number) {}
+  constructor(readonly error: unknown, readonly index: number) {}
 }
 
-async function attempt<T>(pass: Pass, site: unknown, run: () => T): Promise<T> {
+async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
   const frame = pass.frames[pass.frames.length - 1];
-  const index = frame?.get(site) || 0;
-
-  frame?.set(site, index + 1);
+  const index = frame ? frame.count++ : 0;
 
   while (true)
     try {
       return serving(pass.sink, run);
     } catch (thrown) {
-      if (!isThenable(thrown)) throw new Failure(thrown, site, index);
+      if (!isThenable(thrown)) throw new Failure(thrown, index);
       await settle(thrown, pass.signal);
     }
 }
@@ -260,7 +257,7 @@ async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appea
     appearance: resolved.appearance
   } as Rendered;
 
-  const output = await attempt(pass, type, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
+  const output = await attempt(pass, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
 
   return walk(output, pass, context, serving(pass.sink, () => renderedAppearance(fiber)), svg);
 }
@@ -287,7 +284,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
     instance,
     appearance
   } as Rendered;
-  const failed = new Map<unknown, Set<number>>();
+  let reached = -1;
 
   pass.contexts.push(child);
 
@@ -295,18 +292,21 @@ async function component(instance: Component, pass: Pass, context: Context, appe
     let proxy = instance;
     const release = watch(instance, (current) => { proxy = current; });
 
-    if (handler) pass.frames.push(new Map());
+    const frame = { count: 0 };
+
+    if (handler) pass.frames.push(frame);
 
     try {
-      const output = await attempt(pass, fiber.type, () => scoped(child, fiber, () => unbind(proxy.render).call(proxy, fiber.props)));
+      const output = await attempt(pass, () => scoped(child, fiber, () => unbind(proxy.render).call(proxy, fiber.props)));
       return await walk(output, pass, child, serving(pass.sink, () => renderedAppearance(fiber)), svg);
     } catch (thrown) {
-      const { error, site, index } = thrown instanceof Failure ? thrown : new Failure(thrown, undefined, 0);
-      const sites = failed.get(site) || new Set();
+      if (!handler) throw thrown;
 
-      if (!handler || pass.signal?.aborted || sites.has(index)) throw thrown;
+      const { error, index } = thrown instanceof Failure ? thrown : new Failure(thrown, frame.count);
 
-      failed.set(site, sites.add(index));
+      if (pass.signal?.aborted || index <= reached) throw error;
+
+      reached = index;
       await settle(handler.call(instance, error instanceof Error ? error : new Error(String(error)), instance), pass.signal);
     } finally {
       if (handler) pass.frames.pop();
@@ -320,7 +320,7 @@ async function collection(value: Parameters<typeof watch>[0], pass: Pass, contex
   const release = watch(value, (current) => { proxy = current; });
 
   try {
-    const output = await attempt(pass, value, () => (proxy as unknown as { render(): Node }).render());
+    const output = await attempt(pass, () => (proxy as unknown as { render(): Node }).render());
     return walk(output, pass, context, appearance, svg);
   } finally {
     release();
@@ -381,9 +381,9 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if ('dangerouslySetInnerHTML' in props) inner = props.dangerouslySetInnerHTML?.__html || '';
   else if (props.innerHTML != null) inner = String(props.innerHTML);
-  else if (content) inner = escape(String(props[content]));
+  else if (content) inner = RAW.has(tag) ? raw(tag, String(props[content])) : escape(String(props[content]));
   else if (tag == 'textarea' && entry != null) inner = escape(String(entry));
-  else if (RAW.has(tag)) inner = childrenText(props.children).replace(CLOSING[tag], '<\\$1');
+  else if (RAW.has(tag)) inner = raw(tag, childrenText(props.children));
   else {
     const outer = pass.selected;
 
@@ -416,6 +416,12 @@ function attribute(name: string, key: string, value: unknown) {
   if (BOOLEAN.has(name) || typeof value == 'boolean') return value ? ` ${name}=""` : '';
 
   return ` ${name}="${escape(String(value), true)}"`;
+}
+
+function raw(tag: string, text: string) {
+  const output = text.replace(new RegExp(`</(${tag})`, 'gi'), '<\\/$1');
+
+  return tag == 'script' ? output.replace(/<!--/g, '\\u003C!--') : output;
 }
 
 function childrenText(value: unknown): string {
