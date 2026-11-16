@@ -446,6 +446,21 @@ describe('renderToString', () => {
     expect(head).toBe('<title>Inner</title><title>Outer</title><meta name="a" content="1"><meta name="b" content="2">');
   });
 
+  it('will leave head elements in a head it renders, as for a whole document', async () => {
+    const { head, html } = await serve(
+      <html>
+        <head><meta name="viewport" content="width=device-width" /><title>Shell</title></head>
+        <body><title>Page</title></body>
+      </html>
+    );
+
+    expect(html).toBe(
+      '<!--fragment--><html><head><meta name="viewport" content="width=device-width"><title>Shell</title></head>' +
+      '<body><!--portal--></body></html><!--/fragment-->'
+    );
+    expect(head).toBe('<title>Page</title>');
+  });
+
   it('will keep head elements only from the render a catch boundary kept', async () => {
     let failed = false;
 

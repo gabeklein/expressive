@@ -47,13 +47,12 @@ const LEAD = Symbol('lead');
 function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
   if (!isVNode(value) || !isHoisted(value.type, value.props)) return value;
 
-  const { head } = parent.ownerDocument!;
   const host = hostOf(parent) as Element;
 
-  if (head.contains(host) || parent.getRootNode() instanceof ShadowRoot) return value;
+  if (host.closest?.('head') || parent.getRootNode() instanceof ShadowRoot) return value;
   if (host.namespaceURI == SVG && host.localName != 'foreignObject') return value;
 
-  return vnode(PORTAL, { into: head, children: value, [LEAD]: value.type == 'title' }, value.key);
+  return vnode(PORTAL, { into: parent.ownerDocument!.head, children: value, [LEAD]: value.type == 'title' }, value.key);
 }
 
 function target(into: unknown, parent: globalThis.Node): Container {

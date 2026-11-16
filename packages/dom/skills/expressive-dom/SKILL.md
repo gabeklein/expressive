@@ -327,7 +327,7 @@ return <Portal into={document.body}><Dialog /></Portal>;
 
 `<title>`, `<meta>` and `<link>` render into `document.head` from anywhere, leaving a `<!--portal-->` marker in place - write them where their data lives. A title goes ahead of the head's existing titles, so the latest mounted wins and unmounting restores the one before. Meta and link append and are not de-duplicated - the first matching one wins.
 
-They stay in place inside `<svg>` (not `<foreignObject>`), inside a shadow root, already in the head, or with `itemProp` (microdata).
+They stay in place inside `<svg>` (not `<foreignObject>`), inside a shadow root, inside a `<head>` - including one a whole-document render writes - or with `itemProp` (microdata).
 
 ```tsx
 render() {

@@ -257,6 +257,14 @@ describe('head elements', () => {
     shell.remove();
   });
 
+  it('will keep head elements in a head element it renders', () => {
+    const root = document.body.appendChild(document.createElement('main'));
+    const unmount = render(<head><title>Inner</title></head>, root);
+
+    expect(root.querySelector('head > title')!.textContent).toBe('Inner');
+    unmount();
+  });
+
   it('will keep microdata and shadow root elements in place', () => {
     const root = document.body.appendChild(document.createElement('main'));
     const unmount = render(<div {...{ itemScope: true } as any}><meta {...{ itemProp: 'price', content: '9' } as any} /></div>, root);

@@ -73,6 +73,7 @@ interface Pass {
   markers: boolean;
   signal?: AbortSignal;
   sink: Sink;
+  inHead?: boolean;
   selected?: string;
 }
 
@@ -209,7 +210,7 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
     case 'element': {
       const node = value as VNode;
 
-      if (!isHoisted(node.type, node.props) || svg) return element(node, pass, context, appearance, svg);
+      if (!isHoisted(node.type, node.props) || svg || pass.inHead) return element(node, pass, context, appearance, svg);
 
       const markup = await element(node, pass, context, appearance, svg);
 
@@ -409,9 +410,10 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
   else if (tag == 'textarea' && entry != null) inner = escape(String(entry));
   else if (RAW.has(tag)) inner = raw(tag, childrenText(props.children));
   else {
-    const outer = pass.selected;
+    const { inHead, selected } = pass;
 
     if (tag == 'select' && entry != null) pass.selected = String(entry);
+    if (tag == 'head') pass.inHead = true;
 
     try {
       inner = await walk(
@@ -424,7 +426,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
         inSvg && tag != 'foreignObject'
       );
     } finally {
-      pass.selected = outer;
+      Object.assign(pass, { inHead, selected });
     }
   }
 
