@@ -10,7 +10,7 @@ import { withWorkspaceLinks } from './workspace-links';
  * in SKILL.md after #289 deleted it), and a link to an anchor that was removed
  * with it.
  */
-const SCOPES = ['@expressive/mvc', '@expressive/react', '@expressive/router', '@expressive/steps', '@expressive/dom', '@expressive/inspect', '@expressive/rpc', '@expressive/dev'];
+const SCOPES = ['@expressive/mvc', '@expressive/react', '@expressive/router', '@expressive/steps', '@expressive/dom', '@expressive/inspect', '@expressive/rpc', '@expressive/env', '@expressive/dev'];
 
 /** Written at build time by the serve-llm plugin, so it has no source file. */
 const GENERATED_LLM = 'examples/index.md';
