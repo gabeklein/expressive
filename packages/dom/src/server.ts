@@ -52,6 +52,8 @@ interface Output {
 
 interface Pass {
   contexts: Context[];
+  frames: Map<unknown, number>[];
+  signal?: AbortSignal;
   sink: Sink;
   selected?: string;
 }
@@ -118,10 +120,12 @@ function escape(value: string, attribute?: boolean) {
  *
  * `new()` runs and is not awaited; effects and `ready` never do. Owned instances are destroyed once rendered.
  * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
- * A `catch` boundary handles an error once, then renders again; a second error propagates.
+ * A `catch` boundary handles each failing component once, then renders again; a second error there propagates.
  * A portal leaves only its marker.
+ *
+ * @param options.signal Rejects with its reason once aborted, bypassing `catch` boundaries.
  */
-async function renderToString(node: Node): Promise<Output> {
+async function renderToString(node: Node, options: { signal?: AbortSignal } = {}): Promise<Output> {
   const rules: string[] = [];
   const roots = new Map<object, string>();
   const sink: Sink = {
@@ -131,9 +135,12 @@ async function renderToString(node: Node): Promise<Output> {
     unitless: (property) => UNITLESS.has(property)
   };
   const context = new Context(Context.root);
-  const pass: Pass = { contexts: [context], sink };
+  const { signal } = options;
+  const pass: Pass = { contexts: [context], frames: [], signal, sink };
 
   try {
+    signal?.throwIfAborted();
+
     const html = await range('fragment', walk(node, pass, context));
 
     if (roots.size) attachRoots(sink);
@@ -141,6 +148,8 @@ async function renderToString(node: Node): Promise<Output> {
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
 
     return { html, css };
+  } catch (thrown) {
+    throw thrown instanceof Failure ? thrown.error : thrown;
   } finally {
     for (const context of pass.contexts.reverse()) context.pop();
   }
@@ -186,14 +195,36 @@ async function walk(value: Node, pass: Pass, context: Context, appearance?: Appe
   }
 }
 
-async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
+class Failure {
+  constructor(readonly error: unknown, readonly site: unknown, readonly index: number) {}
+}
+
+async function attempt<T>(pass: Pass, site: unknown, run: () => T): Promise<T> {
+  const frame = pass.frames[pass.frames.length - 1];
+  const index = frame?.get(site) || 0;
+
+  frame?.set(site, index + 1);
+
   while (true)
     try {
       return serving(pass.sink, run);
     } catch (thrown) {
-      if (!isThenable(thrown)) throw thrown;
-      await thrown;
+      if (!isThenable(thrown)) throw new Failure(thrown, site, index);
+      await settle(thrown, pass.signal);
     }
+}
+
+function settle<T>(work: T | PromiseLike<T>, signal?: AbortSignal) {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal!.reason);
+
+    Promise.resolve(work)
+      .then(resolve, reject)
+      .finally(() => signal?.removeEventListener('abort', abort));
+
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 function scoped(context: Context, fiber: Rendered, render: () => Node) {
@@ -216,7 +247,7 @@ async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appea
     appearance: resolved.appearance
   } as Rendered;
 
-  const output = await attempt(pass, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
+  const output = await attempt(pass, type, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
 
   return walk(output, pass, context, serving(pass.sink, () => renderedAppearance(fiber)), svg);
 }
@@ -243,7 +274,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
     instance,
     appearance
   } as Rendered;
-  let caught = false;
+  const failed = new Map<unknown, Set<number>>();
 
   pass.contexts.push(child);
 
@@ -251,15 +282,21 @@ async function component(instance: Component, pass: Pass, context: Context, appe
     let proxy = instance;
     const release = watch(instance, (current) => { proxy = current; });
 
+    if (handler) pass.frames.push(new Map());
+
     try {
-      const output = await attempt(pass, () => scoped(child, fiber, () => unbind(proxy.render).call(proxy, fiber.props)));
+      const output = await attempt(pass, fiber.type, () => scoped(child, fiber, () => unbind(proxy.render).call(proxy, fiber.props)));
       return await walk(output, pass, child, serving(pass.sink, () => renderedAppearance(fiber)), svg);
     } catch (thrown) {
-      if (!handler || caught) throw thrown;
+      const { error, site, index } = thrown instanceof Failure ? thrown : new Failure(thrown, undefined, 0);
+      const sites = failed.get(site) || new Set();
 
-      caught = true;
-      await handler.call(instance, thrown instanceof Error ? thrown : new Error(String(thrown)), instance);
+      if (!handler || pass.signal?.aborted || sites.has(index)) throw thrown;
+
+      failed.set(site, sites.add(index));
+      await settle(handler.call(instance, error instanceof Error ? error : new Error(String(error)), instance), pass.signal);
     } finally {
+      if (handler) pass.frames.pop();
       release();
     }
   }
@@ -270,7 +307,7 @@ async function collection(value: Parameters<typeof watch>[0], pass: Pass, contex
   const release = watch(value, (current) => { proxy = current; });
 
   try {
-    const output = await attempt(pass, () => (proxy as unknown as { render(): Node }).render());
+    const output = await attempt(pass, value, () => (proxy as unknown as { render(): Node }).render());
     return walk(output, pass, context, appearance, svg);
   } finally {
     release();

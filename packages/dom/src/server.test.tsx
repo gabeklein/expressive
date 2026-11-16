@@ -4,17 +4,17 @@ import { Component, get, has, map, Model, set } from '@expressive/mvc';
 
 import { createElement, Css, Fragment, Portal, render, style } from './index';
 import { renderToString } from './server';
-import { flushMicrotasks, mount } from '../test.setup';
+import { flushMicrotasks, mockPromise, mount } from '../test.setup';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function serve(node: any) {
+async function serve(node: any, signal?: AbortSignal) {
   vi.stubGlobal('document', undefined);
 
   try {
-    return await renderToString(node);
+    return await renderToString(node, { signal });
   } finally {
     vi.unstubAllGlobals();
   }
@@ -379,6 +379,72 @@ describe('renderToString', () => {
     const { html } = await serve(<Shell />);
 
     expect(html).toContain('<main>broke<!--function--><p>fine</p>');
+  });
+
+  it('will recover each failing child once, as render() does', async () => {
+    const failing = new Set(['a', 'b']);
+    const handled = vi.fn();
+
+    function Risky(props: { name: string }) {
+      if (failing.delete(props.name)) throw new Error(props.name);
+      return <i>{props.name}</i>;
+    }
+
+    const node = () => (
+      <Component catch={handled}>
+        <Risky name="a" />
+        <Risky name="b" />
+      </Component>
+    );
+
+    const { html } = await serve(node());
+
+    expect(handled).toHaveBeenCalledTimes(2);
+    expect(html).toContain('<i>a</i><!--/function--><!--function--><i>b</i>');
+  });
+
+  it('will stop at an aborted signal, skipping catch boundaries', async () => {
+    const pending = mockPromise<string>();
+    const handled = vi.fn();
+    const controller = new AbortController();
+
+    class Slow extends Component {
+      value = set(() => pending);
+
+      render() {
+        return <p>{this.value}</p>;
+      }
+    }
+
+    const rendering = serve(<Component catch={handled}><Slow /></Component>, controller.signal);
+
+    controller.abort(new Error('timed out'));
+    await expect(rendering).rejects.toThrow('timed out');
+    expect(handled).not.toHaveBeenCalled();
+
+    await expect(serve(<Slow />, AbortSignal.abort('gone'))).rejects.toBe('gone');
+  });
+
+  it('will abort while a catch boundary recovers', async () => {
+    const controller = new AbortController();
+    const recovering = mockPromise<void>();
+
+    function Broken(): any {
+      throw new Error('broke');
+    }
+
+    const rendering = serve(<Component catch={() => recovering}><Broken /></Component>, controller.signal);
+
+    await flushMicrotasks();
+    controller.abort('stop');
+    await expect(rendering).rejects.toBe('stop');
+  });
+
+  it('will resolve normally with a signal that never aborts', async () => {
+    const { html } = await serve(<p>ok</p>, new AbortController().signal);
+
+    expect(html).toBe('<!--fragment--><p>ok</p><!--/fragment-->');
+    expect((await renderToString(<p>ok</p>)).html).toBe(html);
   });
 
   it('will use a placement catch and propagate a second error', async () => {
