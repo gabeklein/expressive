@@ -34,6 +34,22 @@ Comments carry over as JSDoc. A comment block directly above a key documents it;
 DATABASE_URL=
 ```
 
+## Client
+
+`env()` from `@expressive/env/vite` serves the same import to the browser, holding only keys that start with `PUBLIC_`, read at build.
+
+```ts
+import { env } from "@expressive/env/vite";
+
+export default { plugins: [env()] };
+```
+
+Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; a prefixed key absent at build throws too. `env({ prefix: "CLIENT_" })` changes the prefix. `env({ prefix: false })` sends every key in the `.env` files - secrets included - and the build says how many. A prefixed `process.env` key reaches the client too; with `false`, `process.env` adds nothing.
+
+Without the plugin, a browser bundle gets a stub that throws on any key.
+
+In dev the plugin writes `env.d.ts` on start and on every root `.env*` change, then reloads the page.
+
 ## Agents: manage .env through the command
 
 Do not open, print or `cat` a `.env` file - values are secrets and land in the transcript. Read `env.d.ts` for names and docs, then:

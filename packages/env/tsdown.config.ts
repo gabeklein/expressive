@@ -9,7 +9,8 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     browser: 'src/browser.ts',
-    cli: 'src/cli.ts'
+    cli: 'src/cli.ts',
+    'vite/index': 'src/vite.ts'
   },
   platform: 'node',
   format: ['esm'],

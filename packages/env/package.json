@@ -34,6 +34,10 @@
       "types": "./dist/index.d.ts",
       "browser": "./dist/browser.js",
       "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite/index.d.ts",
+      "default": "./dist/vite/index.js"
     }
   },
   "engines": {
@@ -52,11 +56,18 @@
     "@expressive/cli": "^0.2.0"
   },
   "peerDependencies": {
-    "@expressive/mvc": "^0.94.5"
+    "@expressive/mvc": "^0.94.5",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@expressive/mvc": "workspace:*",
     "@types/node": "^25.2.0",
-    "tsdown": "^0.20.1"
+    "tsdown": "^0.20.1",
+    "vite": "^8.0.0"
   }
 }
