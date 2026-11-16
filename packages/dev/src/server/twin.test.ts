@@ -539,3 +539,106 @@ describe("collection dispatch", () => {
     });
   });
 });
+
+describe("open dispatch", () => {
+  const ALL = new Map<string, Model>();
+
+  class Render extends Model {
+    id = "";
+    progress = 0;
+    async step() { return ++this.progress; }
+
+    static open(id: string) {
+      return Studio.get().jobs.get(job => job.id === id);
+    }
+  }
+
+  class Leak extends Model {
+    static open(id: string) {
+      return ALL.get(id);
+    }
+  }
+
+  class Studio extends Model {
+    static ttl = 60;
+    jobs = has(Render, "id");
+
+    static key() {
+      return Current.get().request.headers.get("x-user") ?? undefined;
+    }
+
+    async start(id: string) { ALL.set(id, this.jobs.add(id)); }
+    async finish(id: string) { ALL.get(id)!.set(null); }
+  }
+
+  const POOL = {
+    "/studio#Render": { Type: Render, fields: ["id", "progress"], methods: { "/studio#Render.step": "step" } },
+    "/studio#Leak": { Type: Leak, fields: [], methods: {} },
+    "/studio#Cart": { Type: class Cart extends Model {}, fields: [], methods: {} },
+  };
+  const seats: Seats = async pattern => (pattern.join("/") === "studio" ? (Studio as any) : undefined);
+  const endpoints: Endpoint[] = [
+    { pattern: ["studio"], exports: async () => ({ calls: {}, classes: {}, seat: { fields: [], methods: { "default.start": "start", "default.finish": "finish" } }, pool: POOL }) },
+  ];
+
+  function tab(user: string) {
+    const id = crypto.randomUUID();
+    const as = (extra: Record<string, string>, name?: string) =>
+      send(endpoints, request("/studio", name, name ? `["${extra.arg ?? ""}"]` : "[]", "application/json", { "x-expressive-connection": id, "x-user": user, ...extra }), false, seats);
+
+    return {
+      id,
+      start: (job: string) => as({ "x-expressive-twin": "Studio-A", arg: job }, "default.start"),
+      finish: (job: string) => as({ "x-expressive-twin": "Studio-A", arg: job }, "default.finish"),
+      open: (twin: string, key: string, Type = "Render", extra: Record<string, string> = {}) =>
+        as({ "x-expressive-get": `/studio#${Type}`, "x-expressive-twin": twin, "x-expressive-key": encodeURIComponent(key), ...extra }),
+      step: (twin: string, extra: Record<string, string> = {}) => as({ "x-expressive-twin": twin, ...extra }, "/studio#Render.step"),
+    };
+  }
+
+  install();
+
+  it("will hold the instance open() returns, call it in place, and not destroy it on release", async () => {
+    const mine = tab("u1");
+    await mine.start("r/1");
+
+    expect(await mine.open("Render-A", "r/1")).toEqual({ status: 200, body: { frame: { "Render-A": { patch: { id: "r/1", progress: 0 }, version: expect.any(String) } } } });
+    expect((await mine.step("Render-A")).body.value).toBe(1);
+    expect(connect(mine.id)!.twins.get("Render-A")!.instance).toBe(ALL.get("r/1"));
+
+    await mine.open("Render-B", "r/1", "Render", { "x-expressive-release": "Render-A" });
+    expect(ALL.get("r/1")!.get(null)).toBe(false);
+    expect((await mine.step("Render-B")).body.value).toBe(2);
+  });
+
+  it("will reply 404 when open() finds nothing, or the class has no open()", async () => {
+    const mine = tab("u2");
+
+    expect(await mine.open("Render-A", "none")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect((await mine.open("Cart-A", "x", "Cart")).status).toBe(404);
+    expect(connect(mine.id)!.twins.has("Render-A")).toBe(false);
+  });
+
+  it("will refuse an instance no seat of the request owns", async () => {
+    await tab("u3").start("r3");
+
+    expect((await tab("u4").open("Leak-A", "r3", "Leak")).status).toBe(404);
+    expect((await tab("u3").open("Leak-A", "r3", "Leak")).status).toBe(200);
+  });
+
+  it("will refuse a held twin once its request reaches another seat, or its instance ends", async () => {
+    const mine = tab("u5");
+    await mine.start("r5");
+    await mine.open("Leak-A", "r5", "Leak");
+    await mine.open("Render-A", "r5");
+
+    expect((await mine.step("Render-A", { "x-user": "u6" })).status).toBe(409);
+
+    await mine.finish("r5");
+    expect((await mine.open("Leak-A", "r5", "Leak")).status).toBe(409);
+  });
+
+  it("will reply 400 to a key that is not URI-encoded", async () => {
+    expect((await tab("u7").open("Render-A", "x", "Render", { "x-expressive-key": "%" })).status).toBe(400);
+  });
+});

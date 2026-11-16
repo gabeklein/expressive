@@ -28,6 +28,7 @@ interface Entry {
 
 export interface Pool {
   id: string;
+  open?: true;
   drop(): void;
   current(): boolean;
 }

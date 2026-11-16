@@ -389,6 +389,49 @@ describe("vite host", () => {
     });
   });
 
+  it("will open a pooled twin onto the member its static open() finds", async () => {
+    const root = project({
+      "app/index.tsx": PAGE,
+      "app/studio/remote.ts": `
+        ${HOST}
+        import { has } from "@expressive/mvc";
+        export class Render extends Model {
+          id = "";
+          progress = 0;
+          async step() { return ++this.progress; }
+          static open(id: string) { return Studio.get().jobs.get(job => job.id === id); }
+        }
+        export default class Studio extends Model {
+          static ttl = 60;
+          jobs = has(Render, "id");
+          async start(id: string) { this.jobs.add(id); }
+        }
+      `,
+    });
+    const server = await serve(root, expressive(), hostMvc(root));
+    const stub = (await server.transformRequest("/app/studio/remote.ts"))?.code;
+    await server.listen(0);
+
+    const post = async (headers: Record<string, string>, body = "[]") => {
+      const res = await fetch(new URL("/studio", server.resolvedUrls!.local[0]), {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-expressive-connection": TAB, ...headers },
+        body,
+      });
+      return { status: res.status, body: await res.json() };
+    };
+    const pooled = stub!.match(/export const Render = twin\(at, \{ "step": "([^"]+)" \}, \["id", "progress"\], "Render", "([^"]+)"\)/)!;
+
+    await post({ "x-expressive-call": "default.start", "x-expressive-twin": "Studio-A" }, '["r1"]');
+
+    expect(await post({ "x-expressive-get": pooled[2], "x-expressive-twin": "Render-A", "x-expressive-key": "r1" })).toEqual({
+      status: 200,
+      body: { frame: { "Render-A": { patch: { id: "r1", progress: 0 }, version: expect.any(String) } } },
+    });
+    expect((await post({ "x-expressive-call": pooled[1], "x-expressive-twin": "Render-A" })).body.value).toBe(1);
+    expect((await post({ "x-expressive-get": pooled[2], "x-expressive-twin": "Render-B", "x-expressive-key": "r2" })).status).toBe(404);
+  });
+
   it("will throw if a sidecar exports what the client cannot call", async () => {
     const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add", "app/tally/remote.ts": "export const add = 1" });
     const server = await serve(root);
