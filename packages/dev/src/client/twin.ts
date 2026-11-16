@@ -49,7 +49,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   const released = new Set<string>();
   const lost = new FinalizationRegistry<string>(id => {
     twins.delete(id);
-    released.add(id);
+    drop(id);
   });
   const connection = crypto.randomUUID();
   let source: EventSource | undefined;
@@ -58,6 +58,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   let flying = 0;
   let beat: number | undefined;
   let sums = new Set<number>();
+  let flush: ReturnType<typeof setTimeout> | undefined;
 
   const { send: post, define, pathOf } = client({
     headers() {
@@ -82,6 +83,25 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
       flying--;
       setTimeout(compare);
     }
+  }
+
+  function drop(id: string): void {
+    released.add(id);
+    flush ??= setTimeout(() => {
+      const ids = [...released];
+
+      flush = undefined;
+
+      if (!ids.length) return;
+
+      released.clear();
+      fetch(stream(), { method: "POST", headers: { "x-expressive-release": ids.join(",") }, keepalive: true })
+        .catch(() => ids.forEach(id => released.add(id)));
+    }, 2000);
+  }
+
+  function stream(): string {
+    return `/.expressive/stream?connection=${connection}`;
   }
 
   function compare(): void {
@@ -115,7 +135,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
     const on = (event: string, handle: (data: any) => void) =>
       source!.addEventListener(event, message => handle(JSON.parse((message as MessageEvent).data)));
 
-    source = new EventSource(`/.expressive/stream?connection=${connection}`);
+    source = new EventSource(stream());
 
     on("hello", ({ epoch }) => adopt(epoch) && rejoin());
     on("stale", stale => Object.keys(stale).forEach(key => {
@@ -266,7 +286,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
     const { id, pool } = entry;
     const reply = await send(where(twin), { "x-expressive-get": pool ?? "default", "x-expressive-twin": id, ...(whole ? {} : since(twin)) }, []);
 
-    if (twin.get(null)) return void released.add(id);
+    if (twin.get(null)) return void drop(id);
     if (reply) apply(reply.frame, twin);
 
     const { early } = entry;
@@ -347,7 +367,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
     lost.unregister(twin);
     twins.delete(id);
-    released.add(id);
+    drop(id);
   }
 
   async function invoke(twin: Model, name: string, args: unknown[]): Promise<unknown> {

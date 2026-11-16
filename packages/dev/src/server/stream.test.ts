@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { connect } from "./connection";
+import { Model } from "@expressive/mvc";
+
+import { connect, hold } from "./connection";
+import { track } from "./version";
 import { isStream, stream } from "./stream";
+
+class Item extends Model {}
 
 const request = (url: string, method = "GET", signal?: AbortSignal) => new Request(`http://localhost${url}`, { method, signal });
 
@@ -14,9 +19,9 @@ function opened() {
 }
 
 describe("stream", () => {
-  it("will identify a GET of the stream path, whatever its query", () => {
+  it("will identify a GET or POST of the stream path, whatever its query", () => {
     expect(isStream(request("/.expressive/stream?connection=x"))).toBe(true);
-    expect(isStream(request("/.expressive/stream", "POST"))).toBe(false);
+    expect(isStream(request("/.expressive/stream", "PUT"))).toBe(false);
     expect(isStream(request("/.expressive/streams"))).toBe(false);
   });
 
@@ -49,5 +54,31 @@ describe("stream", () => {
     expect(connection.sink).toBeUndefined();
 
     expect(() => aborted.abort()).not.toThrow();
+  });
+
+  it("will release the twins a POST names, holding no stream open", () => {
+    const id = crypto.randomUUID();
+    const connection = connect(id)!;
+    const drop = vi.fn();
+    const twin = () => {
+      const instance = Item.new();
+      track(instance);
+      return instance;
+    };
+
+    hold(connection, "A", "/a", twin(), { fields: [] }, undefined, { id: "/a#A", drop, current: () => true });
+    hold(connection, "B", "/a", twin(), { fields: [] });
+
+    const posted = new Request(`http://localhost/.expressive/stream?connection=${id}`, { method: "POST", headers: { "x-expressive-release": "A" } });
+
+    expect(isStream(posted)).toBe(true);
+
+    const response = stream(posted);
+
+    expect(response.status).toBe(204);
+    expect(drop).toHaveBeenCalledOnce();
+    expect([...connection.twins.keys()]).toEqual(["B"]);
+    expect(connection.sink).toBeUndefined();
+    expect(stream(request("/.expressive/stream", "POST")).status).toBe(400);
   });
 });

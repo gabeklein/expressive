@@ -1,15 +1,20 @@
-import { connect, listen } from "./connection";
+import { connect, listen, release } from "./connection";
 
 export const STREAM = "/.expressive/stream";
 
 export function isStream(request: Request): boolean {
-  return request.method === "GET" && new URL(request.url).pathname === STREAM;
+  return (request.method === "GET" || request.method === "POST") && new URL(request.url).pathname === STREAM;
 }
 
 export function stream(request: Request): Response {
   const connection = connect(new URL(request.url).searchParams.get("connection"));
 
   if (!connection) return new Response(null, { status: 400 });
+
+  if (request.method === "POST") {
+    release(connection, request.headers.get("x-expressive-release"));
+    return new Response(null, { status: 204 });
+  }
 
   const encode = new TextEncoder();
   let close: (() => void) | undefined;

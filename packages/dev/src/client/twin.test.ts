@@ -58,7 +58,17 @@ class Registry {
   }
 }
 
+const started: ReturnType<typeof setTimeout>[] = [];
+
 beforeEach(() => {
+  const start = setTimeout;
+
+  vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+    const timer = start(...args);
+    started.push(timer);
+    return timer;
+  }) as typeof setTimeout);
+
   Source.opened = [];
   Registry.made = [];
   vi.stubGlobal("EventSource", Source);
@@ -68,6 +78,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  started.splice(0).forEach(clearTimeout);
   vi.unstubAllGlobals();
   history.replaceState(null, "", "/");
 });
@@ -615,6 +628,51 @@ describe("pooled twin", () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(headers(fetch, 1)).toMatchObject({ "x-expressive-release": id });
+  });
+
+  it("will send releases no call carried on their own, after a moment, keeping them for a call if that fails", async () => {
+    const fetch = serve({ body: snap({ items: 0 }, "c:1") }, { body: { frame: {} } });
+    const Cart = twin(["shop"], {}, ["items"], "Cart", "/shop#Cart");
+    const cart = Cart.new() as any;
+    const kept = Cart.new() as any;
+    const [registry] = Registry.made;
+
+    await vi.waitFor(() => expect(cart.items).toBe(0));
+    vi.useFakeTimers();
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    fetch.mockRejectedValueOnce(new TypeError("offline"));
+
+    const id = registry.held.get(cart)!;
+    registry.cleanup(id);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenLastCalledWith(Source.opened[0].url, { method: "POST", headers: { "x-expressive-release": id }, keepalive: true });
+
+    kept.set(null);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetch).toHaveBeenCalledTimes(4);
+
+    fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ frame: {} }), { headers: { "x-expressive-epoch": "e1" } }));
+    await call([], "bump", []);
+    expect(headers(fetch, 4)).toMatchObject({ "x-expressive-release": idOf(fetch, 1) });
+  });
+
+  it("will not send releases on their own that a call carried", async () => {
+    const fetch = serve({ body: snap({ items: 0 }, "c:1") }, { body: { frame: {} } });
+    const cart = twin(["shop"], {}, ["items"], "Cart", "/shop#Cart").new() as any;
+
+    await vi.waitFor(() => expect(cart.items).toBe(0));
+    vi.useFakeTimers();
+
+    cart.set(null);
+    await call([], "bump", []);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(headers(fetch, 1)).toMatchObject({ "x-expressive-release": idOf(fetch, 0) });
   });
 
   it("will stop watching for collection once destroyed", async () => {
