@@ -214,6 +214,7 @@ class Failure {
 async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
   const frame = pass.frames[pass.frames.length - 1];
   const index = frame ? frame.count++ : 0;
+  let spins = 0;
 
   while (true)
     try {
@@ -221,6 +222,7 @@ async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
     } catch (thrown) {
       if (!isThenable(thrown)) throw new Failure(thrown, index);
       await settle(thrown, pass.signal);
+      if (pass.signal && ++spins % 64 == 0) await settle(new Promise((resolve) => setTimeout(resolve)), pass.signal);
     }
 }
 
@@ -411,7 +413,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
 function attribute(name: string, key: string, value: unknown) {
   if (value === null || value === undefined) return '';
-  if (isStringified(key)) return ` ${name}="${escape(String(value), true)}"`;
+  if (isStringified(key) || key == 'value') return ` ${name}="${escape(String(value), true)}"`;
   if (name == 'hidden' && value === 'until-found') return ` ${name}="${value}"`;
   if (BOOLEAN.has(name) || typeof value == 'boolean') return value ? ` ${name}=""` : '';
 
@@ -431,4 +433,4 @@ function childrenText(value: unknown): string {
 }
 
 export { renderToString };
-export type { Output };
+export type { Options, Output };

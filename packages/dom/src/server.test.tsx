@@ -364,11 +364,13 @@ describe('renderToString', () => {
       <div>
         <button disabled={0 as any} hidden={'' as any} />
         <button disabled={'yes' as any} hidden={'until-found' as any} title={false as any} />
+        <input value={true as any} /><input value={false as any} />
       </div>
     );
 
     expect(html).toBe(
-      '<!--fragment--><div><button></button><button disabled="" hidden="until-found"></button></div><!--/fragment-->'
+      '<!--fragment--><div><button></button><button disabled="" hidden="until-found"></button>' +
+      '<input value="true"><input value="false"></div><!--/fragment-->'
     );
   });
 
@@ -580,6 +582,14 @@ describe('renderToString', () => {
     expect(handled).not.toHaveBeenCalled();
 
     await expect(serve(<Slow />, AbortSignal.abort('gone'))).rejects.toBe('gone');
+  });
+
+  it('will let a timeout interrupt a render that suspends forever', async () => {
+    function Spinning(): any {
+      throw Promise.resolve();
+    }
+
+    await expect(serve(<Spinning />, AbortSignal.timeout(20))).rejects.toMatchObject({ name: 'TimeoutError' });
   });
 
   it('will abort while a catch boundary recovers', async () => {
