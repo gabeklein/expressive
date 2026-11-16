@@ -13,7 +13,13 @@ const PAIR = /^([A-Za-z_][\w.-]*)(?:=([\s\S]*))?$/;
 
 const inMode = () => opt({ short: "m", default: mode(), help: "mode whose files load - default NODE_ENV, else development" });
 const keysArg = () => args({ min: 1, valid: (key: string) => KEY.test(key), help: "key names" });
-const inFile = () => opt({ short: "f", default: ".env", help: "file to edit" });
+const inFile = () =>
+  opt({
+    short: "f",
+    default: ".env",
+    parse: (file: string) => (/^[^./][^/]*$/.test(file) ? `.env.${file}` : file),
+    help: "file to edit - `example`, `local`, `production.local` mean .env.<name>",
+  });
 
 function resolved(root: string, mode: string) {
   const files = load(root, mode);

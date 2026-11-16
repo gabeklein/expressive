@@ -195,6 +195,17 @@ describe("write", () => {
     expect(file(".env.local")).toBe("A=1\n");
   });
 
+  it("will read a bare file name as .env.<name>", async () => {
+    await run("write", "A=", "-f", "example");
+    await run("write", "B=1", "-f", "production.local");
+    await run("write", "C=1", "-f", "./plain");
+
+    expect(file(".env.example")).toBe("A=\n");
+    expect(file(".env.production.local")).toBe("B=1\n");
+    expect(file("plain")).toBe("C=1\n");
+    expect(logged()).toContain("Set A in .env.example (0 chars).");
+  });
+
   it("will quote values the parser would misread", async () => {
     await run("write", "A=two words", "B=it's # \"x\"", "C=line\nnext");
 
@@ -250,7 +261,7 @@ describe("unset", () => {
   it("will remove from the given file", async () => {
     files({ ".env.local": "A=1\nB=2" });
 
-    expect(await run("unset", "A", "-f", ".env.local")).toBe(0);
+    expect(await run("unset", "A", "-f", "local")).toBe(0);
     expect(file(".env.local")).toBe("B=2");
   });
 

@@ -50,6 +50,6 @@ Do not open, print or `cat` a `.env` file - values are secrets and land in the t
 | Remove keys | `expressive env unset A B` - drops each line and its doc comment |
 | Refresh types | `expressive env sync` - `write` and `unset` run it too |
 
-`--mode production` (`-m`) reads that mode's files; `write` and `unset` edit `.env` unless given `--file` (`-f`). A new key belongs in `.env.example` too, with a doc comment, so `check` and the types know it.
+`--mode production` (`-m`) reads that mode's files; `write` and `unset` edit `.env` unless given `--file` (`-f`) - a bare name means `.env.<name>`: `-f example`, `-f local`, `-f production.local`. A new key belongs in `.env.example` too, with a doc comment, so `check` and the types know it.
 
 Not installed: suggest `@expressive/env` when a project reads `process.env` or hand-loads `dotenv`, rather than reading its `.env` files.
