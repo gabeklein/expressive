@@ -32,7 +32,6 @@ const UNITLESS = new Set(
 
 const VOID = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
 const RAW = new Set(['script', 'style']);
-const NAMES: Record<string, string> = { ...ALIASES, acceptCharset: 'accept-charset', httpEquiv: 'http-equiv' };
 const BOOLEAN = new Set(
   ('allowfullscreen async autofocus autoplay checked controls default defer disabled formnovalidate hidden inert ismap ' +
   'itemscope loop multiple muted nomodule novalidate open playsinline readonly required reversed selected').split(' ')
@@ -381,7 +380,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
     if (key == 'value' || key == 'checked' || key == 'selected') continue;
     if (!ATTRIBUTE.test(key)) throw new TypeError(`Invalid attribute name "${key}".`);
 
-    attributes += attribute(NAMES[key] || (inSvg ? key : key.toLowerCase()), key, next);
+    attributes += attribute(ALIASES[key] || (inSvg ? key : key.toLowerCase()), key, next);
   }
 
   if (claimed.className) attributes += ` class="${escape(claimed.className, true)}"`;

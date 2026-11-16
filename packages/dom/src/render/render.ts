@@ -3,6 +3,7 @@ import { Context } from '@expressive/mvc';
 import type { Node as RenderNode } from '../node/vnode';
 import { attach, batched, fragment } from './commits';
 import { range } from './fiber';
+import { hydrating } from './hydrate';
 import type { Container, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
@@ -25,6 +26,23 @@ function render(node: RenderNode, container: Container): () => void {
   roots.get(container)?.();
   container.replaceChildren();
 
+  return mountRoot(node, container);
+}
+
+/**
+ * Mount a node over `renderToString` markup in the container, adopting its nodes.
+ *
+ * Nodes the render does not claim are removed.
+ * Mismatched nodes are replaced where they differ. A subtree that suspends keeps its server markup until it renders.
+ * Returns the unmount, as `render()` does.
+ */
+function hydrate(node: RenderNode, container: Container): () => void {
+  roots.get(container)?.();
+
+  return batched(() => hydrating(container, () => mountRoot(node, container)));
+}
+
+function mountRoot(node: RenderNode, container: Container): () => void {
   const context = new Context(Context.root);
   const fiber = range('fragment', container, null, context);
 
@@ -76,10 +94,14 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   scope.probed = undefined;
   passiveRender ||= passive;
 
-  if (passive && !depth && empty && !fiber.stash)
+  if (passive && !depth && empty && !fiber.stash && !fiber.dehydrated)
     fiber.staging ||= fragment();
 
-  const run = () => pass(() => {
+  const dehydrated = fiber.dehydrated;
+  fiber.dehydrated = undefined;
+
+  const run = () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update());
+  const update = () => {
     const parent = rendering;
     rendering = fiber.type ? fiber : parent;
 
@@ -101,7 +123,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
     } finally {
       rendering = parent;
     }
-  });
+  };
 
   try {
     return passive ? batched(run) : run();
@@ -110,4 +132,4 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   }
 }
 
-export { attempt, depth, focusing, pass, passiveRender, render, rendering };
+export { attempt, depth, focusing, hydrate, pass, passiveRender, render, rendering };

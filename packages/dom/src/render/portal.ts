@@ -6,19 +6,21 @@ import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
+import { adopt, adopted, aside, isComment, reserve } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  const marker = document.createComment('portal');
+  const marker = adopt(parent, before, () => document.createComment('portal'), (node) => isComment(node, 'portal'));
   const container = target(value.props.into, parent);
   const portalStart = document.createComment('portal-root');
   const portalEnd = document.createComment('/portal-root');
 
-  parent.insertBefore(marker, before);
   if (value.props[LEAD]) container.prepend(portalStart, portalEnd);
   else container.append(portalStart, portalEnd);
+
+  reserve(portalStart, portalEnd);
 
   const output: Fiber = {
     kind: 'portal',
@@ -36,9 +38,34 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
     portalEnd
   };
 
-  return complete(output, () => {
-    reconcilePortal(output, value.props.children, context, boundary, appearance);
+  complete(output, () => {
+    aside(() => reconcilePortal(output, value.props.children, context, boundary, appearance));
   });
+
+  if (LEAD in value.props) replace(output, adopted(marker));
+
+  return output;
+}
+
+const hoisted = new WeakSet<globalThis.Node>();
+
+function replace(fiber: Fiber, adopting: boolean) {
+  const element = fiber.children[0].start as Element;
+
+  hoisted.add(element);
+
+  if (adopting)
+    for (const twin of fiber.portalContainer!.children)
+      if (!hoisted.has(twin) && twin.outerHTML == element.outerHTML) return retire(twin, element);
+}
+
+function retire(twin: Element, element: Element) {
+  if (!/\bstylesheet\b/i.test(String(element.getAttribute('rel')))) return twin.remove();
+
+  const remove = () => twin.remove();
+
+  element.addEventListener('load', remove, { once: true });
+  element.addEventListener('error', remove, { once: true });
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
