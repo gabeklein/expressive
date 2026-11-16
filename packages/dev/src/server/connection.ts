@@ -15,6 +15,7 @@ interface Held {
   seen: Map<string, string>;
   watching: Map<string, { instance: Model; stop(): void }>;
   pool?: Pool;
+  sent?: Map<string, Map<string, number>>;
 }
 
 interface Entry {
@@ -54,6 +55,12 @@ const connections = new Map<string, Connection>();
 
 const epochOf = () => randomBytes(6).toString("base64url");
 
+let auditing = false;
+
+export function audit(on: boolean): void {
+  auditing = on;
+}
+
 export function connect(id: unknown): Connection | undefined {
   if (typeof id != "string" || !UUID.test(id)) return;
 
@@ -82,7 +89,10 @@ function expire(connection: Connection): void {
 }
 
 export function listen(connection: Connection, sink: Sink): () => void {
-  const beat = setInterval(() => sink("beat", { sum: checksum(connection) }), BEAT * 1000);
+  const beat = setInterval(() => {
+    sink("beat", { sum: checksum(connection) });
+    if (auditing) drifted(connection);
+  }, BEAT * 1000);
 
   beat.unref();
   connection.sink = sink;
@@ -202,12 +212,14 @@ export function release(connection: Connection, twins: unknown): void {
 
 export function hold(connection: Connection, twin: string, address: string, instance: Model, shape: Shape, seen?: string, pool?: Pool): void {
   const held = connection.twins.get(twin);
-  const kept = seen && held?.instance === instance ? held.seen : new Map<string, string>();
+  const keep = seen && held?.instance === instance;
+  const kept = keep ? held!.seen : new Map<string, string>();
+  const sent = auditing ? (keep && held!.sent) || new Map() : undefined;
 
   if (held) unwatch(held);
   if (seen) kept.set("", seen);
 
-  connection.twins.set(twin, { address, instance, shape, seen: kept, watching: new Map(), pool });
+  connection.twins.set(twin, { address, instance, shape, seen: kept, watching: new Map(), pool, sent });
   follow(connection, twin);
 }
 
@@ -234,8 +246,11 @@ export function catchUp(connection: Connection, twin: string): Frame {
 
     if (version === seen) continue;
 
-    frame[key] = { patch: patchOf(instance, shape, changedSince(instance, seen, shape.fields)), version };
+    const patch = patchOf(instance, shape, changedSince(instance, seen, shape.fields));
+
+    frame[key] = { patch, version };
     held.seen.set(path, version);
+    if (held.sent) record(held.sent, path, patch, shape);
   }
 
   return frame;
@@ -306,4 +321,45 @@ function patchOf(instance: Model, shape: Shape, keys: string[]): Record<string, 
   }
 
   return patch;
+}
+
+function record(sent: Map<string, Map<string, number>>, path: string, patch: Record<string, unknown>, shape: Shape): void {
+  const fields = sent.get(path) ?? new Map<string, number>();
+
+  sent.set(path, fields);
+
+  for (const [field, value] of Object.entries(patch))
+    if (shape.children?.[field] || isPending(value)) fields.delete(field);
+    else fields.set(field, digest(() => value));
+}
+
+function drifted(connection: Connection): void {
+  for (const [twin, held] of connection.twins)
+    for (const { path, instance } of entriesOf(twin, held)) {
+      const fields = held.sent?.get(path);
+      const seen = held.seen.get(path);
+
+      if (!fields || !seen) continue;
+
+      const assigned = changedSince(instance, seen, [...fields.keys()]);
+
+      for (const [field, hash] of fields) {
+        if (assigned.includes(field)) continue;
+
+        const now = digest(() => snapshot(instance, [field])[field]);
+
+        if (now === hash) continue;
+
+        fields.set(field, now);
+        console.warn(`${instance.constructor.name}.${field} changed in place, so twins holding it are stale - assign a new value instead.`);
+      }
+    }
+}
+
+function digest(value: () => unknown): number {
+  try {
+    return fnv(JSON.stringify(value(), (_, item) => (item instanceof Map || item instanceof Set ? [...item] : typeof item == "bigint" ? `${item}` : item)) ?? "");
+  } catch {
+    return -1;
+  }
 }

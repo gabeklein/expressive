@@ -224,7 +224,7 @@ export function expressive(): Plugin<Host> {
 
     configureServer(server) {
       const host = (runner = createServerModuleRunner(server.environments.ssr));
-      install();
+      install(true);
       unload = reloads(host);
       watchRoutes(server, project, routesId);
 
