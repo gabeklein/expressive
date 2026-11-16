@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Context, def, Model } from "@expressive/mvc";
+import { Context, def, has, Model } from "@expressive/mvc";
 
 import { client } from "@expressive/rpc";
 import { runtime } from "./twin";
@@ -73,7 +73,7 @@ beforeEach(() => {
   Registry.made = [];
   vi.stubGlobal("EventSource", Source);
   vi.stubGlobal("FinalizationRegistry", Registry);
-  ({ call, define, twin } = runtime(client, Model, def, Context, Spot));
+  ({ call, define, twin } = runtime(client, Model, def, Context, Spot, has));
   history.replaceState(null, "", "/tally");
 });
 
@@ -832,5 +832,102 @@ describe("child twin", () => {
 
     await vi.waitFor(() => expect(order.line.qty).toBe(4));
     expect(headers(fetch, 1)).toMatchObject({ "x-expressive-get": "default", "x-expressive-twin": idOf(fetch, 0), "if-none-match": "o:1" });
+  });
+});
+
+describe("collection twin", () => {
+  const RENDER = { name: "Render", fields: ["progress", "line"], methods: { step: "default.jobs.step" }, many: true as const, children: { line: { name: "Line", fields: ["qty"], methods: { bump: "default.jobs.line.bump" } } } };
+  const Studio = () => twin(["tally"], { touch: "default.touch" }, ["jobs"], "Studio", undefined, { jobs: RENDER });
+  const entries = (id: string, frame: Record<string, { patch: Record<string, unknown>; version: string }>) =>
+    Object.fromEntries(Object.entries(frame).map(([path, entry]) => [path ? `${id}.${path}` : id, entry]));
+  const reply = (frame: Record<string, { patch: Record<string, unknown>; version: string }>, value?: unknown) =>
+    (sent: Record<string, string>) => ({ value, frame: entries(sent["x-expressive-twin"], frame) });
+
+  it("will hold a member per id, in order, as a pool of the member's class", async () => {
+    serve({
+      body: reply({
+        "": { patch: { jobs: { $items: ["a", "b"] } }, version: "s:1" },
+        "jobs.a": { patch: { progress: 1, line: { $child: "l" } }, version: "a:1" },
+        "jobs.a.line": { patch: { qty: 3 }, version: "l:1" },
+        "jobs.b": { patch: { progress: 2, line: null }, version: "b:1" },
+      }),
+    });
+    const studio = Studio().new() as any;
+
+    await vi.waitFor(() => expect(studio.jobs.size).toBe(2));
+
+    const [a, b] = studio.jobs;
+
+    expect(studio.jobs).toBeInstanceOf(has.Pool);
+    expect(a.constructor.name).toBe("Render");
+    expect([a.progress, b.progress]).toEqual([1, 2]);
+    expect(a.line.qty).toBe(3);
+    expect(studio.jobs.map((job: any) => job.progress)).toEqual([1, 2]);
+  });
+
+  it("will patch a member alone, add new ones and drop departed ones, keeping the rest", async () => {
+    serve(
+      { body: reply({ "": { patch: { jobs: { $items: ["a", "b"] } }, version: "s:1" }, "jobs.a": { patch: { progress: 0, line: null }, version: "a:1" }, "jobs.b": { patch: { progress: 0, line: null }, version: "b:1" } }) },
+      { body: reply({ "jobs.b": { patch: { progress: 5 }, version: "b:2" } }) },
+      { body: reply({ "": { patch: { jobs: { $items: ["b", "c"] } }, version: "s:2" }, "jobs.c": { patch: { progress: 9, line: null }, version: "c:1" } }) },
+    );
+    const studio = Studio().new() as any;
+
+    await vi.waitFor(() => expect(studio.jobs.size).toBe(2));
+    const [a, b] = studio.jobs;
+
+    await studio.touch();
+    expect(b.progress).toBe(5);
+
+    await studio.touch();
+    const [first, second] = studio.jobs;
+
+    expect(first).toBe(b);
+    expect(second.progress).toBe(9);
+    expect(a.get(null)).toBe(true);
+  });
+
+  it("will call a member's method naming the member's id, and a nested child's by its member", async () => {
+    const fetch = serve(
+      { body: reply({ "": { patch: { jobs: { $items: ["a"] } }, version: "s:1" }, "jobs.a": { patch: { progress: 0, line: { $child: "l" } }, version: "a:1" }, "jobs.a.line": { patch: { qty: 1 }, version: "l:1" } }) },
+      { body: reply({ "jobs.a": { patch: { progress: 2 }, version: "a:2" } }, 2) },
+      { body: reply({ "jobs.a.line": { patch: { qty: 4 }, version: "l:2" } }, 4) },
+    );
+    const studio = Studio().new() as any;
+
+    await vi.waitFor(() => expect(studio.jobs.size).toBe(1));
+    const [job] = studio.jobs;
+
+    expect(await job.step(2)).toBe(2);
+    expect(job.progress).toBe(2);
+    expect(headers(fetch, 1)).toMatchObject({ "x-expressive-call": "default.jobs.step", "x-expressive-twin": idOf(fetch, 0), "x-expressive-items": "a" });
+
+    expect(await job.line.bump(3)).toBe(4);
+    expect(job.line.qty).toBe(4);
+    expect(headers(fetch, 2)).toMatchObject({ "x-expressive-call": "default.jobs.line.bump", "x-expressive-items": "a" });
+  });
+
+  it("will sum its members' versions into the heartbeat", async () => {
+    const fetch = serve({ body: reply({ "": { patch: { jobs: { $items: ["a"] } }, version: "s:1" }, "jobs.a": { patch: { progress: 0, line: null }, version: "a:1" } }) });
+    const studio = Studio().new() as any;
+
+    await vi.waitFor(() => expect(studio.jobs.size).toBe(1));
+
+    const id = idOf(fetch, 0);
+
+    Source.opened[0].emit("beat", { sum: (fnv(`${id}@s:1`) ^ fnv(`${id}.jobs.a@a:1`)) >>> 0 });
+    await new Promise(resolve => setTimeout(resolve));
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("will throw if the collection is changed outside a reply", async () => {
+    serve({ body: reply({ "": { patch: { jobs: { $items: [] } }, version: "s:1" } }) });
+    const studio = Studio().new() as any;
+
+    await vi.waitFor(() => expect(studio.get().jobs).toBeDefined());
+
+    expect(() => studio.jobs.add()).toThrow(/\.jobs is read-only - change it through a method\.$/);
+    expect(() => studio.jobs.clear()).toThrow("read-only");
+    expect(() => (studio.jobs = undefined)).toThrow();
   });
 });
