@@ -338,7 +338,6 @@ import { rotate } from "../server/connection";
       }));
 
       expect(await stats()).toMatchObject({ twins: 6, pooled: 6, seats: 0 });
-      await post(tabs[0], "/ping", { "x-expressive-call": "ping" });
 
       const loaded = g.loads.length;
       edit(file, src);
@@ -421,7 +420,7 @@ import { rotate } from "../server/connection";
     await s.pull();
     await s.start("a");
     edit("app/remade/remote.ts", STUDIO("v2", "eta = 0;"));
-    await until(() => g.loads.length === 2);
+    await until(() => g.loads.length >= 2);
     await until(() => stream.hellos.length === 2);
     await scan("app/remade/remote.ts");
 
@@ -471,7 +470,7 @@ import { rotate } from "../server/connection";
     expect((await s.step("Render-A")).value).toBe(3);
 
     edit("app/studio/remote.ts", STUDIO("v2", "eta = 0;"));
-    await until(() => g.loads.length === 3);
+    await until(() => g.loads.length >= 3);
     await until(() => stream.hellos.length === 2);
     expect(await stats()).toMatchObject({ twins: 0, seats: 0, watchers: 0 });
     expect(await s.open("Render-B", "a")).toMatchObject({ status: 404, epoch: stream.hellos[1] });
@@ -481,7 +480,6 @@ import { rotate } from "../server/connection";
     expect(await s.open("Render-C", "c")).toMatchObject({ status: 200, frame: { "Render-C": { patch: { id: "c", progress: 0 } } } });
     expect(await stats()).toMatchObject({ twins: 2, seats: 1, watchers: 3 });
 
-    await post(id, "/ping", { "x-expressive-call": "ping" });
     edit("app/ping/remote.ts", PING(1));
     await until(() => stream.hellos.length === 3);
     expect(await stats()).toMatchObject({ twins: 0, seats: 0, watchers: 0 });

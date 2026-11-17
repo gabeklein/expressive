@@ -8,7 +8,10 @@ export function reloads(runner: ModuleRunner): () => void {
   const hmr = runner.hmrClient;
   let pending: Promise<void> | undefined;
 
-  const restart = () => (pending ??= (async () => {
+  const restart = (reimport: boolean) => (pending ??= (async () => {
+    const modules = runner.evaluatedModules?.idToModuleMap.values() ?? [];
+    const entries = [...modules].filter(node => !node.importers.size).map(node => node.url);
+
     retire();
     forget();
     runner.evaluatedModules?.clear();
@@ -22,15 +25,17 @@ export function reloads(runner: ModuleRunner): () => void {
 
     rotate();
     pending = undefined;
+
+    if (reimport) await Promise.allSettled(entries.map(url => runner.import(url)));
   })());
 
-  const stop = replaced(() => void restart());
+  const stop = replaced(() => void restart(true));
 
   if (!hmr) return stop;
 
   const listeners = hmr.customListenersMap;
 
-  listeners.set("vite:beforeFullReload", [...(listeners.get("vite:beforeFullReload") ?? []), restart]);
+  listeners.set("vite:beforeFullReload", [...(listeners.get("vite:beforeFullReload") ?? []), () => restart(false)]);
 
   return stop;
 }
