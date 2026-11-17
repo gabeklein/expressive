@@ -1017,6 +1017,26 @@ describe("opened twin", () => {
     expect(caught).toHaveBeenCalledWith("setup", "Not found.");
   });
 
+  it("will report a rejoin the server refuses to its catch, keeping its last values", async () => {
+    serve(
+      { body: snap({ progress: 2 }, "r:1") },
+      { body: { message: "Not found." }, status: 404, epoch: "e2" },
+    );
+    const Render = twin(["studio"], {}, ["progress"], "Render", "/studio#Render") as any;
+    const caught = vi.fn();
+
+    Render.on({ catch: (error: unknown, kind: string) => void caught(kind, (error as Error).message) });
+    const job = Context.root.push(Render.open("a")).get(Render) as any;
+    await vi.waitFor(() => expect(job.progress).toBe(2));
+
+    Source.opened[0].emit("hello", { epoch: "e1" });
+    Source.opened[0].emit("hello", { epoch: "e2" });
+
+    await vi.waitFor(() => expect(caught).toHaveBeenCalledWith("effect", "Not found."));
+    expect(job.get(null)).toBe(false);
+    expect(job.progress).toBe(2);
+  });
+
   it("will build under the route of the component that owns it", async () => {
     history.replaceState(null, "", "/studio/r1");
     const fetch = serve({ body: snap({ progress: 0 }, "r:1") });

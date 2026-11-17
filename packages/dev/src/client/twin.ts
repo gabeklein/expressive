@@ -433,7 +433,9 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   }
 
   async function rejoin(): Promise<void> {
-    await Promise.all(held().map(twin => attach(twin).catch(() => {})));
+    await Promise.all(held().map(twin => attach(twin).catch(error => {
+      if (of(twin).key !== undefined) twin.get(() => Promise.reject(error));
+    })));
   }
 
   function leave(twin: Model): void {
