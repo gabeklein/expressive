@@ -112,14 +112,10 @@ export function listen(connection: Connection, sink: Sink): () => void {
   };
 }
 
-/** Release twins whose instance is gone and give their connections - or with `all`, every connection - a new epoch to rejoin under. */
-export function rotate(all = false): void {
+/** Release twins whose instance is gone and give every connection a new epoch to rejoin under. */
+export function rotate(): void {
   for (const connection of connections.values()) {
-    const dead = [...connection.twins].filter(([, held]) => held.instance.get(null)).map(([twin]) => twin);
-
-    if (!all && !dead.length) continue;
-
-    release(connection, dead.join(","));
+    release(connection, [...connection.twins].filter(([, held]) => held.instance.get(null)).map(([twin]) => twin).join(","));
     connection.epoch = epochOf();
     connection.sink?.("hello", { epoch: connection.epoch });
   }

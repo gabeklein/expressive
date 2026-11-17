@@ -47,7 +47,7 @@ describe("server reload", () => {
     while (servers.length) await servers.pop()!.close();
     while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
     retire();
-    rotate(true);
+    rotate();
   });
 
   const shim = (root: string, name: string, from: string) => {
@@ -123,7 +123,9 @@ describe("server reload", () => {
     const release = async (tab: string, twins: string) =>
       (await fetch(url(`/.expressive/stream?connection=${tab}`), { method: "POST", headers: { "x-expressive-release": twins } })).status;
 
-    return { edit, post, listen, stats, release };
+    const scan = (path: string) => server.transformRequest(`/${path}`);
+
+    return { edit, post, listen, stats, release, scan };
   }
 
   const until = async (check: () => boolean) => {
@@ -243,7 +245,7 @@ import { rotate } from "../server/connection";
     expect(await stats()).toEqual(baseline);
   });
 
-  it("will retire only a replaced class's seats, renewing the epoch of connections holding them", async () => {
+  it("will restart from scratch when a class is replaced, renewing every connection's epoch", async () => {
     fresh();
     const OTHER = `import { Model } from "@expressive/mvc"; export default class Note extends Model { static ttl = 60; text = ""; async write(text: string) { return (this.text = text); } }`;
     const { edit, post, listen, stats } = await serve({ "app/tally/remote.ts": SEAT("v1"), "app/tally/lib.ts": LIB("a"), "app/note/remote.ts": OTHER }, true);
@@ -257,10 +259,14 @@ import { rotate } from "../server/connection";
     edit("app/tally/remote.ts", SEAT("v2", "count = 0;"));
     await until(() => stream.hellos.length === 2);
 
-    expect(g.disposed).toEqual(["v1"]);
-    expect(await stats()).toMatchObject({ seats: 1, twins: 1 });
+    expect(g.disposed).toEqual(["v1", "v2"]);
+    expect(await stats()).toMatchObject({ seats: 0, twins: 0 });
     expect(await post(holder, "/tally", { "x-expressive-call": "default.add", "x-expressive-twin": "Tally-A" }, "[1]")).toMatchObject({ value: 1, epoch: stream.hellos[1] });
-    expect(await post(bystander, "/note", { "x-expressive-get": "default", "x-expressive-twin": "Note-A" })).toMatchObject({ epoch: note.epoch });
+    expect(g.loads).toEqual(["v1", "v2", "v2"]);
+
+    const after = await post(bystander, "/note", { "x-expressive-get": "default", "x-expressive-twin": "Note-A" });
+    expect(after.epoch).not.toBe(note.epoch);
+    expect(after.frame).toMatchObject({ "Note-A": { patch: { text: "" } } });
   });
 
   it("will patch through a Model module's boundary when a function module it imports changes", async () => {
@@ -332,6 +338,7 @@ import { rotate } from "../server/connection";
       }));
 
       expect(await stats()).toMatchObject({ twins: 6, pooled: 6, seats: 0 });
+      await post(tabs[0], "/ping", { "x-expressive-call": "ping" });
 
       const loaded = g.loads.length;
       edit(file, src);
@@ -380,7 +387,7 @@ import { rotate } from "../server/connection";
     };
   };
 
-  it.fails("will build a seat restarted under the hot transform from the new copy of its module", async () => {
+  it("will build a seat restarted under the hot transform from the new copy of its module", async () => {
     fresh();
     g.copies = 0;
     const COPY = `(globalThis as any).copies++; export const copy = (globalThis as any).copies;`;
@@ -404,9 +411,9 @@ import { rotate } from "../server/connection";
     expect(await post(id, "/held", { "x-expressive-call": "default.which", "x-expressive-twin": "Held-A" })).toMatchObject({ value: [2, 2] });
   });
 
-  it.fails("will build has() members of a structurally replaced class from the new class", async () => {
+  it("will build has() members of a structurally replaced class from the new class", async () => {
     fresh();
-    const { edit, post, listen } = await serve({ "app/remade/remote.ts": STUDIO("v1") }, true);
+    const { edit, post, listen, scan } = await serve({ "app/remade/remote.ts": STUDIO("v1") }, true);
     const id = tab();
     const stream = await listen(id);
     const s = studio(post, id, "remade");
@@ -416,6 +423,7 @@ import { rotate } from "../server/connection";
     edit("app/remade/remote.ts", STUDIO("v2", "eta = 0;"));
     await until(() => g.loads.length === 2);
     await until(() => stream.hellos.length === 2);
+    await scan("app/remade/remote.ts");
 
     await s.pull();
     await s.start("c");
@@ -473,6 +481,7 @@ import { rotate } from "../server/connection";
     expect(await s.open("Render-C", "c")).toMatchObject({ status: 200, frame: { "Render-C": { patch: { id: "c", progress: 0 } } } });
     expect(await stats()).toMatchObject({ twins: 2, seats: 1, watchers: 3 });
 
+    await post(id, "/ping", { "x-expressive-call": "ping" });
     edit("app/ping/remote.ts", PING(1));
     await until(() => stream.hellos.length === 3);
     expect(await stats()).toMatchObject({ twins: 0, seats: 0, watchers: 0 });

@@ -133,6 +133,5 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 ### Server edits in dev
 
 - A module with a Model class patches in place: seats and pooled instances keep state and run the new methods on their next call; a call in flight finishes on the old code.
-- A class whose fields, constructor, base or `#private` members changed is retired - seats and pooled instances that are or own one (child, `has()` member) end, and tabs holding them rejoin with fresh ones.
-- An edit no module accepts restarts the server code in place: every seat and pooled instance ends - mid-call too - then `import.meta.hot.dispose` callbacks run (awaited), then the modules run again and every tab rejoins. Keep process state on Models, or release it in `dispose` - a module-level connection or `Model.on()` otherwise runs twice.
+- An edit no module accepts, or one changing a class's fields, constructor, base or `#private` members, restarts the server code in place: every seat and pooled instance ends - mid-call too - then `import.meta.hot.dispose` callbacks run (awaited), then the modules run again and every tab rejoins. Keep process state on Models, or release it in `dispose` - a module-level connection or `Model.on()` otherwise runs twice.
 - `GET /.expressive/stats` counts connections, held twins, watchers, layers, seats and pooled instances.
