@@ -433,7 +433,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   }
 
   async function rejoin(): Promise<void> {
-    await Promise.all(held().map(twin => attach(twin)));
+    await Promise.all(held().map(twin => attach(twin).catch(() => {})));
   }
 
   function leave(twin: Model): void {

@@ -423,6 +423,25 @@ describe("twin", () => {
     expect(headers(fetch, 3)).toMatchObject({ "x-expressive-get": "default", "x-expressive-twin": idOf(fetch, 0), "if-none-match": "a:1" });
     expect(headers(fetch, 4)).toMatchObject({ "x-expressive-get": "default", "x-expressive-twin": idOf(fetch, 1), "if-none-match": "b:1" });
   });
+
+  it("will resolve a call whose new epoch one twin fails to rejoin", async () => {
+    history.replaceState(null, "", "/tally/sub");
+    const fetch = serve(
+      { body: snap({ total: 0 }, "a:1") },
+      { body: snap({ count: 0 }, "b:1") },
+      { body: () => ({ value: 1, frame: {} }), epoch: "e2" },
+      { body: snap({ total: 1 }, "a:2"), epoch: "e2" },
+      { body: { message: "Not found." }, status: 404, epoch: "e2" },
+    );
+    const tally = twin(["tally"], { add: "default.add" }, ["total"], "Tally").new() as any;
+    await vi.waitFor(() => expect(tally.total).toBe(0));
+    const visits = twin([], {}, ["count"], "Visits").new() as any;
+    await vi.waitFor(() => expect(visits.count).toBe(0));
+
+    expect(await tally.add()).toBe(1);
+    expect(tally.total).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
 });
 
 describe("stream", () => {
