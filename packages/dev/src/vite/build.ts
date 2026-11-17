@@ -9,8 +9,8 @@ export interface BuildOptions {
   pretty?: boolean;
   /** Default true; false builds in memory. */
   write?: boolean;
-  /** Default true; render each static page to `dist/client/<path>/index.html` after the build, keeping the empty shell as `200.html`. Skipped when `write` is false; a failure warns and leaves every page to the client. */
-  prerender?: boolean;
+  /** Skip prerendering, leaving every page to the browser. Otherwise each static page renders to `dist/client/<path>/index.html` after the build, keeping the empty shell as `200.html`; skipped when `write` is false, and a failure warns and leaves every page to the browser. */
+  clientOnly?: boolean;
 }
 
 export function clientBuild(root: string, { pretty = false, write = true }: BuildOptions = {}): InlineConfig {
@@ -70,7 +70,7 @@ export async function runBuild(root = process.cwd(), options: BuildOptions = {})
   await build(clientBuild(root, options));
   await build(serverBuild(root, options));
 
-  if (options.prerender === false || options.write === false) return;
+  if (options.clientOnly || options.write === false) return;
 
   try {
     await (await import("./prerender")).prerender(root, options);

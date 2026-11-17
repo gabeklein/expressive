@@ -36,7 +36,7 @@ it("will return 1 with the message of a failure", async () => {
 
 it("will build as a subcommand", async () => {
   expect(await dev(["build", "--pretty"], out, "expressive dev")).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, prerender: true });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, clientOnly: false });
   expect(runDev).not.toHaveBeenCalled();
 });
 

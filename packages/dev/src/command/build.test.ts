@@ -14,17 +14,17 @@ beforeEach(() => runBuild.mockClear());
 
 it("will build", async () => {
   expect(await build([], out)).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, prerender: true });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, clientOnly: false });
 });
 
-it("will build without prerendering on --no-prerender", async () => {
-  expect(await build(["--no-prerender"], out)).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, prerender: false });
+it("will build without prerendering on --client-only", async () => {
+  expect(await build(["--client-only"], out)).toBe(0);
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, clientOnly: true });
 });
 
 it("will build with --pretty", async () => {
   expect(await build(["--pretty"], out)).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, prerender: true });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, clientOnly: false });
 });
 
 it("will not build on an unknown option", async () => {
