@@ -291,5 +291,14 @@ function replaced(listener: (event: Replaced) => void): () => void {
   return () => void LISTENERS.delete(listener);
 }
 
-export { accept, replaced };
+/**
+ * Drop every class `accept` has seen, so the next run of any module returns its own classes.
+ *
+ * For a host restarting from scratch: a patched class keeps its first module's scope, so field initializers there resolve imports from the old copy.
+ */
+function forget(): void {
+  MODULES.clear();
+}
+
+export { accept, forget, replaced };
 export type { Replaced };

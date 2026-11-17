@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockError } from '../test.setup';
 import { Component, Model } from '.';
-import { accept, replaced } from './hot';
+import { accept, forget, replaced } from './hot';
 
 const SYMBOL = Symbol('static');
 
@@ -943,5 +943,31 @@ describe('replaced', () => {
 
     release();
     also();
+  });
+});
+
+describe('forget', () => {
+  it('will return a module\'s own classes on its next run', () => {
+    const id = module();
+    const Test = counter(1);
+    const Next = counter(2);
+
+    accept(id, { Test });
+    forget();
+
+    expect(accept(id, { Test: Next }).Test).toBe(Next);
+  });
+
+  it('will not report a forgotten class as replaced', () => {
+    const id = module();
+    const listener = vi.fn();
+    const release = replaced(listener);
+
+    accept(id, { Test: counter(1) });
+    forget();
+    accept(id, { Test: class Test extends Model { other = 0; } });
+
+    expect(listener).not.toHaveBeenCalled();
+    release();
   });
 });
