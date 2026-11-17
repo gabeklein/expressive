@@ -698,6 +698,21 @@ describe("retire", () => {
     expect(await call([], () => Current.get())).toBeInstanceOf(Current);
   });
 
+  it("will throw from a walk retired while a gate it entered runs, building nothing after", async () => {
+    let pass!: () => void;
+    const open = new Promise<void>(resolve => (pass = resolve));
+    class Kept extends Model { static ttl = false as const; }
+
+    const walking = walk(request(), ["gated", "kept"], [undefined, () => open, Kept], () => Kept.get());
+
+    await new Promise(resolve => setTimeout(resolve));
+    retire();
+    pass();
+
+    await expect(walking).rejects.toThrow();
+    expect(stats()).toEqual({ layers: 0, seats: 0, pooled: 0 });
+  });
+
   it("will leave a call in flight to finish on the layer it entered", async () => {
     let finish!: () => void;
     const open = new Promise<void>(resolve => (finish = resolve));
