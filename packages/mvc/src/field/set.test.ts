@@ -1,6 +1,8 @@
 import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { mockPromise, mockWarn, flushMicrotasks } from '../../test.setup';
 import { Model } from '../model';
+import { Context } from '../context';
+import { get } from './get';
 import { set, required } from './set';
 
 const warn = mockWarn();
@@ -940,6 +942,143 @@ describe('required factory', () => {
     await test.set();
 
     expect(() => required(test)).toThrow(error);
+  });
+
+  it.each([
+    ['async', () => Promise.resolve()],
+    ['sync', () => {}]
+  ])('will not throw from required once a %s factory yields undefined', async (_, factory) => {
+    class Test extends Model {
+      value = set(factory, true);
+    }
+
+    const test = Test.new();
+    await test.set();
+
+    expect(() => required(test)).not.toThrow();
+  });
+
+  it('will hold until a required factory it depends on resolves', async () => {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+
+    class Test extends Model {
+      greet = set(() => this.name + '!', true);
+      name = set(() => promise, true);
+    }
+
+    Test.on({ ready });
+
+    const test = Test.new();
+
+    await flushMicrotasks();
+    expect(ready).not.toBeCalled();
+
+    promise.resolve('foo');
+    await test.set();
+
+    expect(ready).toBeCalledTimes(1);
+    expect(test.greet).toBe('foo!');
+    expect(() => required(test)).not.toThrow();
+  });
+
+  it('will gate each instance on its own', async () => {
+    const promises = [mockPromise<string>(), mockPromise<string>()];
+    let index = 0;
+
+    class Test extends Model {
+      value = set(() => promises[index++], true);
+    }
+
+    const a = Test.new();
+    const b = Test.new();
+
+    promises[0].resolve('a');
+    await a.set();
+
+    expect(() => required(a)).not.toThrow();
+    expect(() => required(b)).toThrow(expect.any(Promise));
+    promises[1].resolve('b');
+  });
+
+  it('will not gate get instruction or instance get', () => {
+    const promise = mockPromise<string>();
+
+    class Source extends Model {
+      value = set(() => promise, true);
+    }
+
+    class Test extends Model {
+      source = get(Source);
+    }
+
+    const context = new Context({ Source, Test });
+    const test = context.get(Test)!;
+
+    expect(test.source).toBe(context.get(Source));
+    expect(test.get(Source)).toBe(test.source);
+    promise.resolve('foo');
+  });
+
+  it('will hold a parent until a child resolves', async () => {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+
+    class Child extends Model {
+      value = set(() => promise, true);
+    }
+
+    class Parent extends Model {
+      child = new Child();
+    }
+
+    Parent.on({ ready });
+
+    const parent = Parent.new();
+
+    await flushMicrotasks();
+    expect(ready).not.toBeCalled();
+
+    promise.resolve('foo');
+    await parent.set();
+
+    expect(ready).toBeCalledTimes(1);
+  });
+
+  it('will not hold children of a pending parent', async () => {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+
+    class Child extends Model {}
+
+    class Parent extends Model {
+      value = set(() => promise, true);
+      child = new Child();
+    }
+
+    Child.on({ ready });
+    Parent.new();
+
+    await flushMicrotasks();
+    expect(ready).toBeCalledTimes(1);
+
+    promise.resolve('foo');
+  });
+
+  it('will release required once destroyed and settled', async () => {
+    const promise = mockPromise<string>();
+
+    class Test extends Model {
+      value = set(() => promise, true);
+    }
+
+    const test = Test.new();
+
+    test.set(null);
+    promise.resolve('foo');
+    await flushMicrotasks();
+
+    expect(() => required(test)).not.toThrow();
   });
 
   it('will not throw from required without one', () => {

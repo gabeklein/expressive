@@ -41,6 +41,7 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * it settles - unless it resolves to itself.
  * With `true` it runs after constructor args apply; while async it holds `ready`, effects and
  * `await set()`, and a host render's `Type.get()` suspends until it settles - a rejection throws there.
+ * A synchronous throw from it fails activation - `new()` throws.
  *
  * @example
  * config = set(() => loadConfig());
@@ -168,10 +169,18 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           });
         else assign(output, true);
 
-        if (argument)
-          return output instanceof Promise && argument === true
-            ? output.then(() => {}, () => {})
-            : undefined;
+        if (argument) {
+          if (argument !== true || !(output instanceof Promise)) return;
+
+          const pending = REQUIRED.get(subject) || REQUIRED.set(subject, new Map()).get(subject)!;
+          const hold = output.then(
+            () => void pending.delete(key),
+            () => void pending.set(key, undefined)
+          );
+
+          pending.set(key, hold);
+          return hold;
+        }
 
         if (output instanceof Promise && argument !== false)
           return access(subject, key, true);
@@ -179,12 +188,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
         return subject[key];
       }
 
-      if (argument) {
-        if (argument === true)
-          (REQUIRED.get(subject) || REQUIRED.set(subject, []).get(subject)!).push(key);
-
-        later(subject, init);
-      } else {
+      if (argument) later(subject, init); else {
         config.get = init;
       }
     } else if (value !== undefined) {
@@ -216,11 +220,14 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
   });
 }
 
-const REQUIRED = new WeakMap<Model, string[]>();
+const REQUIRED = new WeakMap<Model, Map<string, Promise<void> | undefined>>();
 
-/** Throw while a required (`true`) factory field of `target` is pending - its suspense, or its rejection. */
+/** Throw while a required factory on `target` is pending, or the rejection it settled with. */
 function required(target: Model) {
-  for (const key of REQUIRED.get(target.is) || []) void (target.is as any)[key];
+  for (const [key, hold] of REQUIRED.get(target.is) || []) {
+    if (hold) throw hold;
+    void (target.is as any)[key];
+  }
 }
 
 function attempt(fn: () => any): any {
