@@ -1396,6 +1396,30 @@ describe('then', () => {
     expect(awaited).toEqual({ n: 1 });
   });
 
+  it('will settle a set factory with the run result', async () => {
+    class Flow extends Steps {
+      async run() {
+        return 'done';
+      }
+    }
+
+    class Owner extends Model {
+      result = set(() => Flow.new());
+    }
+
+    const owner = Owner.new();
+
+    expectTypeOf<Owner['result']>().toEqualTypeOf<string>();
+
+    try {
+      void owner.result;
+    } catch (suspense) {
+      await suspense;
+    }
+
+    expect(owner.result).toBe('done');
+  });
+
   it('will observe then as a callable view', async () => {
     const seen: string[] = [];
     let view: unknown;
