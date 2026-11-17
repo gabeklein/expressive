@@ -34,9 +34,9 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * Value from a factory, run once - lazily on first read, or on activation if `required` is `true`.
  *
  * Read-only and non-enumerable. `this` is the instance. The factory must declare no parameters -
- * one parameter makes it a computed. An async result suspends reads until resolved; a rejection
- * rethrows on later reads. A factory that suspends on another pending field re-runs once it
- * resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
+ * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
+ * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
  *
  * @example
  * config = set(() => loadConfig());
@@ -107,9 +107,9 @@ function set<T>(
 
 function set<T = any>(value?: unknown, argument?: unknown): any {
   return def<T>((key, subject) => {
-    if (thenable(value))
+    if (typeof value != 'function' && thenable(value))
       throw new TypeError(
-        `Direct promises are not supported in set(${subject}.${key}). Use set(() => promise) instead.`
+        `Direct promises and thenables are not supported in set(${subject}.${key}). Use a factory - its result is awaited.`
       );
 
     if (typeof value == 'function' && value.length > 0) {
