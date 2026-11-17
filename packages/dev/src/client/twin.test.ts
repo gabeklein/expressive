@@ -1011,6 +1011,25 @@ describe("opened twin", () => {
     expect(fetch).toHaveBeenCalledWith("/studio/r1", expect.anything());
   });
 
+  it("will send its release on its own once destroyed, with no call to carry it", async () => {
+    const fetch = serve({ body: snap({ progress: 0 }, "r:1") });
+    const Render = twin(["studio"], {}, ["progress"], "Render", "/studio#Render") as any;
+    class Page extends Model { job = Render.open("a"); }
+    const page = Page.new();
+    const job = page.job as any;
+
+    await vi.waitFor(() => expect(job.progress).toBe(0));
+    vi.useFakeTimers();
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    page.set(null);
+    expect(job.get(null)).toBe(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(fetch).toHaveBeenLastCalledWith(expect.stringMatching(/^\/\.expressive\/stream\?connection=/), { method: "POST", headers: { "x-expressive-release": idOf(fetch, 0) }, keepalive: true });
+    vi.useRealTimers();
+  });
+
   it("will not offer open() on a seat twin", () => {
     expect(twin(["tally"], {}, ["total"], "Tally")).not.toHaveProperty("open");
   });
