@@ -226,6 +226,13 @@ describe('proxy', () => {
     expect(refs.foo.key).toBe('foo');
     expect(refs.bar.key).toBe('bar');
   });
+
+  it('will return source from get', () => {
+    const { is: subject, refs } = Subject.new();
+
+    expect(refs.get()).toBe(subject);
+    expect(Object.keys(refs)).toEqual([]);
+  });
 });
 
 describe('set instruction', () => {
@@ -296,6 +303,13 @@ describe('mapped', () => {
 
     expect(fields.bar).toBe('bar');
     expect(generateRef).toBeCalledWith('bar', test);
+  });
+
+  it('will return source from get', () => {
+    const test = Test.new();
+
+    expect(test.fields.get()).toBe(test.is);
+    expect(generateRef).not.toBeCalled();
   });
 
   it('will run function only once per property', () => {

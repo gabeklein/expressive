@@ -148,7 +148,7 @@ function defaultMap(this: Model, key: string) {
 
 function proxy(target: Model, map: ref.Map<any, any> = defaultMap) {
   return def((_key, _subject) => {
-    const value = {} as Record<string, any>;
+    const value = defineProperty({} as Record<string, any>, 'get', { value: () => target });
     const source = target as any as Record<string, any>;
 
     listener(target, () => {
