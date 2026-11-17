@@ -18,7 +18,7 @@ declare namespace set {
   ) => ((next: T) => void) | Promise<any> | void | boolean;
 
   /** Factory initializer - `this` is the instance. A declared parameter makes it a computed instead. */
-  type Factory<T, S = any> = (this: S, property: string) => Promise<T> | T;
+  type Factory<T, S = any> = (this: S, property: string) => PromiseLike<T> | T;
 }
 
 /**
@@ -42,7 +42,7 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * config = set(() => loadConfig());
  * user = set(async () => api.user(), true);
  */
-function set<T>(factory: () => T | Promise<T>, required?: true): T;
+function set<T>(factory: () => T | PromiseLike<NoInfer<T>>, required?: true): Awaited<T>;
 
 /**
  * Lazy factory - with `false`, reads `undefined` while pending instead of suspending.
@@ -51,9 +51,9 @@ function set<T>(factory: () => T | Promise<T>, required?: true): T;
  * Passing `true` behaves as the required overload.
  */
 function set<T>(
-  factory: () => T | Promise<T>,
+  factory: () => T | PromiseLike<NoInfer<T>>,
   required: boolean
-): T | undefined;
+): Awaited<T> | undefined;
 
 /**
  * Writable field seeded by a factory on activation - `onUpdate` runs for the seed and each assignment.
@@ -62,7 +62,10 @@ function set<T>(
  * `onUpdate` with `previous` undefined. An async result suspends reads until resolved, then
  * overwrites any value assigned meanwhile. See {@link set.Callback}.
  */
-function set<T>(factory: () => T | Promise<T>, onUpdate: set.Callback<T>): T;
+function set<T>(
+  factory: () => T | PromiseLike<NoInfer<T>>,
+  onUpdate: set.Callback<Awaited<T>>
+): Awaited<T>;
 
 /**
  * Computed field - re-derives when a managed property it reads updates; the instruction form of a getter.
@@ -89,8 +92,8 @@ function set<T, S = any>(compute: (this: S, self: S) => T): T;
  * Writable default, hidden from enumeration - unlike plain assignment.
  *
  * Non-enumerable - excluded from `Object.keys`, spread and `ref(this)`; still in `get()` snapshots.
- * A Promise throws a TypeError on activation - pass a factory. A function is taken as a factory
- * or computed, never stored. `onUpdate` runs on each assignment - see {@link set.Callback}.
+ * A Promise or other thenable throws a TypeError on activation - pass a factory. A function is taken
+ * as a factory or computed, never stored. `onUpdate` runs on each assignment - see {@link set.Callback}.
  *
  * @example
  * name = set('', (next) => {
@@ -98,13 +101,13 @@ function set<T, S = any>(compute: (this: S, self: S) => T): T;
  * });
  */
 function set<T>(
-  value: T extends Promise<any> ? never : T,
+  value: T extends { then(...args: any[]): any } ? never : T,
   onUpdate?: set.Callback<T>
 ): T;
 
 function set<T = any>(value?: unknown, argument?: unknown): any {
   return def<T>((key, subject) => {
-    if (value instanceof Promise)
+    if (thenable(value))
       throw new TypeError(
         `Direct promises are not supported in set(${subject}.${key}). Use set(() => promise) instead.`
       );
@@ -212,13 +215,17 @@ function attempt(fn: () => any): any {
     try {
       const output = fn();
 
-      return output instanceof Promise ? output.catch(retry) : output;
+      return thenable(output) ? Promise.resolve(output).catch(retry) : output;
     } catch (err) {
       return retry(err);
     }
   }
 
   return compute();
+}
+
+function thenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as any)?.then == 'function';
 }
 
 export { set };

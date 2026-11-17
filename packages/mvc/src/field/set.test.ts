@@ -844,6 +844,105 @@ it('will support Promise objects as factory return', async () => {
   expect(test.value).toBe('foobar');
 });
 
+describe('thenable', () => {
+  class Handle<V> {
+    resolve!: (value: V) => void;
+    reject!: (reason: unknown) => void;
+
+    then(resolve: (value: V) => void, reject?: (reason: unknown) => void) {
+      this.resolve = resolve;
+      this.reject = reject!;
+    }
+  }
+
+  it('will resolve a thenable factory return', async () => {
+    const handle = new Handle<string>();
+
+    class Test extends Model {
+      value = set(() => handle);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+    const read = (): string => test.value;
+
+    expect(suspense).toBeInstanceOf(Promise);
+
+    await flushMicrotasks();
+    handle.resolve('foobar');
+
+    await expect(suspense).resolves.toBe('foobar');
+    expect(read()).toBe('foobar');
+  });
+
+  it('will rethrow a rejected thenable', async () => {
+    const handle = new Handle<string>();
+    const error = new Error('nope');
+
+    class Test extends Model {
+      value = set(() => handle);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    suspense.catch(() => {});
+
+    await flushMicrotasks();
+    handle.reject(error);
+
+    await expect(test).toHaveUpdated();
+    expect(() => test.value).toThrow(error);
+  });
+
+  it('will retry before resolving a thenable', async () => {
+    const handle = new Handle<string>();
+    const factory = vi.fn(function (this: Test) {
+      return this.ready && handle;
+    });
+
+    class Test extends Model {
+      ready = set<boolean>();
+      value = set(factory);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    expect(factory).toBeCalledTimes(1);
+
+    test.ready = true;
+    await flushMicrotasks();
+
+    expect(factory).toBeCalledTimes(2);
+
+    await flushMicrotasks();
+    handle.resolve('foobar');
+
+    await expect(suspense).resolves.toBe('foobar');
+    expect(test.value).toBe('foobar');
+  });
+
+  it('will assign an object without then synchronously', () => {
+    const object = { foo: 'bar' };
+
+    class Test extends Model {
+      value = set(() => object);
+    }
+
+    expect(Test.new().value).toBe(object);
+  });
+
+  it('will throw for a direct thenable', () => {
+    class Test extends Model {
+      // @ts-expect-error
+      value = set(new Handle<string>());
+    }
+
+    expect(() => Test.new()).toThrow(/Direct promises are not supported/);
+  });
+});
+
 it('will call callback with the instance as this', () => {
   let self: unknown;
 
