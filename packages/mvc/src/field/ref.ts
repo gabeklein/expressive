@@ -49,11 +49,13 @@ declare namespace ref {
 
   /** A ref-object per enumerable field of `T`. */
   type Proxy<T extends Model> = { [P in Model.Field<T>]-?: Object<T[P]> } & {
+    /** Instance the proxy reads from. */
     get(): T;
   };
 
   /** A mapped value per enumerable field of `T`. */
   type CustomProxy<T extends Model, R> = { [P in Model.Field<T>]-?: R } & {
+    /** Instance the proxy reads from. */
     get(): T;
   };
 }
