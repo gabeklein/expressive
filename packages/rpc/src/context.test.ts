@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { Context, get, set, Model } from "@expressive/mvc";
+import { Context, get, has, set, Model } from "@expressive/mvc";
 
 import { construct, Current, headersOf, install, onBuild, retire, seated, stats, within, type Gate, type Seat } from "./context";
 
@@ -663,6 +663,25 @@ describe("retire", () => {
 
     expect(await walk(request(), ["blog"], [undefined, Blog], () => Blog.get())).not.toBe(blog);
     retire();
+  });
+
+  it("will evict a seat or pooled instance owning an instance of the class, through children and has() members", async () => {
+    class Render extends Model { id = ""; }
+    class Line extends Model { render = new Render(); }
+    class Studio extends Model { static ttl = 60; jobs = has(Render, "id"); }
+    class Order extends Model { line = new Line(); }
+    class Shop extends Model { static ttl = 60; }
+
+    const studio = await walk(request(), ["studio"], [undefined, Studio], () => Studio.get());
+    const shop = await walk(request(), ["shop"], [undefined, Shop], () => Shop.get());
+    const order = await walk(request(), ["shop"], [undefined, Shop], () => construct(Order));
+    const idle = await walk(request(), ["shop"], [undefined, Shop], () => construct(Cart));
+
+    studio.jobs.add("a");
+    retire(Render);
+
+    expect([studio, order.instance].map(model => model.get(null))).toEqual([true, true]);
+    expect([shop, idle.instance].map(model => model.get(null))).toEqual([false, false]);
   });
 
   it("will evict every layer, seat and pooled instance, the root's too", async () => {

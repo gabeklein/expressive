@@ -289,7 +289,7 @@ export function construct(Type: Model.Type, off = false): { instance: Model; dro
   };
 }
 
-/** Evict every seat and pooled instance `Type` built, or all of them and every layer when omitted. */
+/** Evict every seat and pooled instance that is or owns an instance of `Type`, or all of them and every layer when omitted. */
 export function retire(Type?: Model.Extends): void {
   if (!Type) {
     if (top) evict(top);
@@ -299,12 +299,26 @@ export function retire(Type?: Model.Extends): void {
     return;
   }
 
+  const seats = new Set<Model>();
+  const holds = (instance: Model): boolean => {
+    let found = instance instanceof Type;
+
+    if (!found) instance.get(Model, (child: Model) => void (found ||= !POOLED.has(child) && !seats.has(child) && holds(child)), true)();
+
+    return found;
+  };
+
+  (function each(layer: Layer | undefined) {
+    if (layer?.seat) seats.add(layer.seat.instance);
+    layer?.children.forEach(each);
+  })(top);
+
   (function walk(layer: Layer | undefined) {
-    if (layer?.seat?.instance instanceof Type) return evict(layer);
+    if (layer?.seat && holds(layer.seat.instance)) return evict(layer);
     layer?.children.forEach(walk);
   })(top);
 
-  POOLED.forEach((context, instance) => instance instanceof Type && context.pop());
+  POOLED.forEach((context, instance) => holds(instance) && context.pop());
 }
 
 /** Counts of live layers below the root, seats and pooled instances. */
