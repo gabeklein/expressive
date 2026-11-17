@@ -1033,6 +1033,31 @@ describe('thenable', () => {
       expect(entity.get(null)).toBe(true);
     });
 
+    it('will not claim an active entity resolving to itself', async () => {
+      class Entity extends Model {
+        then? = (resolve: (self: Entity) => void) => {
+          delete this.then;
+          resolve(this);
+        };
+      }
+
+      const entity = Entity.new();
+
+      class Test extends Model {
+        value = set(() => entity);
+      }
+
+      const test = Test.new();
+
+      await attempt(() => test.value);
+
+      expect(test.value).toBe(entity);
+      test.set(null);
+
+      expect(entity.get(null)).toBe(false);
+      entity.set(null);
+    });
+
     it('will not claim a Model already active', async () => {
       const job = Job.new();
 
