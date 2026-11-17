@@ -71,6 +71,8 @@ class AppState extends Model {
 }
 ```
 
+Any thenable result (`typeof then == 'function'`) is awaited like a Promise; the field types as its `Awaited` value.
+
 Zero-argument factory, computed lazily on first access. Read-only.
 
 - Async factories throw suspense on access until resolved.
@@ -120,6 +122,6 @@ class AppState extends Model {
 }
 ```
 
-A raw Promise throws `Direct promises are not supported in set(...)`. Use a factory (`set(() => promise)` or `set(async () => value)`) so async work starts during activation/access - a promise constructed in a field initializer can keep running for instances React abandons, especially under StrictMode.
+A raw Promise or other thenable throws `Direct promises are not supported in set(...)`. Use a factory (`set(() => promise)` or `set(async () => value)`) so async work starts during activation/access - a promise constructed in a field initializer can keep running for instances React abandons, especially under StrictMode.
 
 Per-overload contract: JSDoc on hover, or `node_modules/@expressive/mvc/dist/field/set.d.ts`.
