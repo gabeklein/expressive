@@ -530,6 +530,34 @@ describe('renderToString', () => {
     expect(html).toContain('<p>loaded</p>');
   });
 
+  it('will render a get consumer once a void required factory settles', async () => {
+    const seen: boolean[] = [];
+    let resolved = false;
+
+    class Session extends Model {
+      user = set(async () => {
+        await Promise.resolve();
+        resolved = true;
+      }, true);
+      name = 'Ada';
+    }
+
+    function Name() {
+      const { name } = Session.get();
+      seen.push(resolved);
+      return <span>{name}</span>;
+    }
+
+    const { html } = await serve(
+      <Component for={Session} fallback={<i>loading</i>}>
+        <Name />
+      </Component>
+    );
+
+    expect(html).toContain('<span>Ada</span>');
+    expect(seen).toEqual([true]);
+  });
+
   it('will await a lazy component', async () => {
     function Page() {
       return <h1>page</h1>;

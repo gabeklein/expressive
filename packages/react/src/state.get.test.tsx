@@ -965,6 +965,30 @@ describe('Model.get', () => {
         await waitFor(() => expect(hook.result.current).toBe('oh no'));
       });
 
+      reactOnly.it('will resolve under StrictMode', async () => {
+        const promise = mockPromise<string>();
+
+        class Test extends Model {
+          value = set(() => promise, true);
+          other = 'other';
+        }
+
+        const Child = () => <span>{Test.get().other}</span>;
+        const view = render(
+          <React.StrictMode>
+            <Component for={Test} fallback={<i>loading</i>}>
+              <Child />
+            </Component>
+          </React.StrictMode>
+        );
+
+        expect(view.container.textContent).toBe('loading');
+
+        await act(async () => promise.resolve('hello'));
+
+        expect(view.container.textContent).toBe('other');
+      });
+
       it('will not suspend get for a lazy factory', () => {
         const promise = mockPromise<string>();
 
