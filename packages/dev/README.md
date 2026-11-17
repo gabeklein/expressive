@@ -298,10 +298,11 @@ export class Cart extends Model {
 ```
 
 `Render.open(key)` twins an instance the server already holds instead of building one - a job by id
-out of a seat's `has()`. Use it where `new Cart()` goes: a field of a Component under the route. The class declares `static open(key: string)`, returning that instance or
-`undefined`; it runs after the route walk and every `key()` above, so it finds the instance through
-them (`Studio.get()`), never a module-level map. dev refuses an instance no seat of the request owns,
-on the first pull and every call after. Releasing the twin leaves the instance alive. Reads suspend
+out of a seat's `has()`. Use it where `new Cart()` goes: a field of a Component under the route.
+The class declares `static open(key: string)`, returning that instance or `undefined`; it runs after
+the route walk and every `key()` above, so it finds the instance through them (`Studio.get()`),
+never a module-level map. dev refuses an instance no seat of the request owns, on the first pull and
+every call after. Releasing the twin leaves the instance alive. Reads suspend
 until the first pull; a key `open()` does not find - or a class without `open()` - replies 404, which
 reports to the twin's `catch` as `setup` and destroys it. A pull refused after the instance ends
 replies 409, as for a pooled twin whose context was replaced.
