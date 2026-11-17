@@ -543,6 +543,31 @@ describe("stream", () => {
     expect(headers(fetch, 2)).not.toHaveProperty("if-none-match");
   });
 
+  it("will drop a heartbeat held across an epoch rotation, rejoining without a whole refresh", async () => {
+    const { fetch, tally, source, id } = await attached({ body: snap({ total: 0 }, "h:1"), epoch: "e2" });
+    let replied!: (res: Response) => void;
+
+    fetch.mockReturnValueOnce(new Promise<Response>(resolve => (replied = resolve)));
+
+    const bumped = call(["tally"], "bump", []);
+    source.emit("beat", { sum: fnv(`${id}@g:2`) });
+    source.emit("hello", { epoch: "e1" });
+    source.emit("hello", { epoch: "e2" });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await settle();
+
+    replied(new Response(JSON.stringify({ value: 1, frame: {} }), { headers: { "x-expressive-epoch": "e2" } }));
+    await bumped;
+    await settle();
+
+    expect(tally.total).toBe(0);
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    source.emit("beat", { sum: fnv(`${id}@h:1`) });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("will leave a twin without a version out of the checksum", async () => {
     const { fetch, source, id } = await attached({ body: snap({}, "o:1") });
     twin(["tally"], {}, [], "Other").new();
