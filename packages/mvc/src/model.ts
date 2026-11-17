@@ -56,7 +56,7 @@ const CHILDREN = new WeakMap<Model, Set<(child: Model) => void>>();
 const OWNS = new WeakMap<Model, Set<Model>>();
 
 /** Instances mid-activation. */
-const ACTIVE = new WeakMap<Model, { waits: Promise<unknown>[]; held: boolean; children: (() => void)[] }>();
+const ACTIVE = new WeakMap<Model, { waits: Promise<unknown>[]; held: boolean; children: (() => void)[]; queue: unknown[] }>();
 const OWNED = new WeakMap<Model, Set<(child: Model) => void>>();
 
 type Got<C extends { get(...args: any[]): any }> = ReturnType<C['get']> extends infer R
@@ -801,6 +801,11 @@ function ready(state: Model, wait: Set<() => void>) {
   );
 }
 
+/** Run `fn` while `state` activates, after its arguments - a returned promise holds `ready`. */
+function later(state: Model, fn: () => Promise<unknown> | void) {
+  ACTIVE.get(state)!.queue.push(fn);
+}
+
 /**
  * Bring a Model up within its parent and context - run setup handlers and
  * arguments, then settle it now, after its own async setup, or with a parent
@@ -814,7 +819,8 @@ function activate(
 ) {
   const waits: Promise<unknown>[] = [];
   const children: (() => void)[] = [];
-  const active = { waits, children, held: false };
+  const queue: unknown[] = [...before, observe, ...args];
+  const active = { waits, children, held: false, queue };
 
   function observe() {
     if (waits.length) active.held = true;
@@ -859,8 +865,6 @@ function activate(
   ACTIVE.set(state, active);
 
   capture((release) => {
-    const queue = [...before, observe, ...args];
-
     listener(state, () => release(null), null);
 
     for (let i = 0; i < queue.length; i++) {
@@ -1274,4 +1278,4 @@ function parent(child: object, value?: Model | null) {
 }
 
 export type { Got, Handler, Keyed };
-export { adopt, event, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
+export { adopt, event, later, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };

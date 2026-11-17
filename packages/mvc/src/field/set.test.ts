@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { mockPromise, mockWarn, flushMicrotasks } from '../../test.setup';
 import { Model } from '../model';
-import { set } from './set';
+import { set, required } from './set';
 
 const warn = mockWarn();
 
@@ -828,6 +828,126 @@ describe('factory with callback overload', () => {
     test.value = 'setAfter';
     expect(test.value).toBe('setAfter');
     expect(callback).toBeCalledWith('setAfter', 'setBefore');
+  });
+});
+
+describe('required factory', () => {
+  it('will hold ready until resolved', async () => {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+    const effect = vi.fn();
+
+    class Test extends Model {
+      value = set(() => promise, true);
+    }
+
+    Test.on({ ready });
+
+    const test = Test.new();
+    const settled = test.set();
+
+    test.get(effect);
+    await flushMicrotasks();
+
+    expect(ready).not.toBeCalled();
+    expect(effect).not.toBeCalled();
+
+    promise.resolve('foo');
+    await settled;
+
+    expect(ready).toBeCalledTimes(1);
+    expect(effect).toBeCalledTimes(1);
+    expect(test.value).toBe('foo');
+  });
+
+  it('will release ready if rejected', async () => {
+    const promise = mockPromise<string>();
+    const error = new Error('nope');
+    const ready = vi.fn();
+
+    class Test extends Model {
+      value = set(() => promise, true);
+    }
+
+    Test.on({ ready });
+
+    const test = Test.new();
+    const settled = test.set();
+
+    promise.reject(error);
+    await settled;
+
+    expect(ready).toBeCalledTimes(1);
+    expect(() => test.value).toThrow(error);
+  });
+
+  it('will run after arguments apply', () => {
+    class Test extends Model {
+      id = 0;
+      value = set(() => this.id * 2, true);
+    }
+
+    expect(Test.new({ id: 2 }).value).toBe(4);
+  });
+
+  it('will not hold ready for a seeded factory', async () => {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+
+    class Test extends Model {
+      value = set(() => promise, () => {});
+    }
+
+    Test.on({ ready });
+    Test.new();
+    await flushMicrotasks();
+
+    expect(ready).toBeCalledTimes(1);
+    promise.resolve('foo');
+  });
+
+  it('will throw from required while pending', async () => {
+    const promise = mockPromise<string>();
+
+    class Test extends Model {
+      value = set(() => promise, true);
+      lazy = set(() => mockPromise<string>());
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => required(test));
+
+    expect(suspense).toBeInstanceOf(Promise);
+
+    promise.resolve('foo');
+    await suspense;
+
+    expect(() => required(test)).not.toThrow();
+  });
+
+  it('will throw rejection from required', async () => {
+    const promise = mockPromise<string>();
+    const error = new Error('nope');
+
+    class Test extends Model {
+      value = set(() => promise, true);
+    }
+
+    const test = Test.new();
+
+    attempt(() => required(test)).catch(() => {});
+    promise.reject(error);
+    await test.set();
+
+    expect(() => required(test)).toThrow(error);
+  });
+
+  it('will not throw from required without one', () => {
+    class Test extends Model {
+      value = set(() => 'foo');
+    }
+
+    expect(() => required(Test.new())).not.toThrow();
   });
 });
 
