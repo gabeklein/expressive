@@ -66,7 +66,7 @@ Callback runs on every assignment:
 class AppState extends Model {
   config = set(() => loadConfig()); // lazy, read-only
   api = set(async () => fetchData()); // async, suspends until resolved
-  data = set(() => fetchData(), true); // eager, runs immediately
+  data = set(() => fetchData(), true); // required - runs on activation, holds ready
   maybe = set(() => fetchData(), false); // lazy, no suspense (undefined while pending)
 }
 ```
@@ -76,9 +76,11 @@ Zero-argument factory, computed lazily on first access. Read-only.
 - Async factories (any thenable result) throw suspense on access until resolved; the field types as the `Awaited` value.
 - A thenable Model not yet active (`new Job()`) activates owned by the instance and is destroyed once it settles - kept if it resolves to itself (a loaded entity).
 - `false`: `undefined` while pending instead of suspending.
-- `true`: runs immediately on init; suspends if async.
+- `true`: required - runs on activation, after constructor args.
 - Bound to the instance (`this` works).
 - May suspend on other pending `set()` properties - resolution cascades.
+
+While pending, a required factory holds the instance's `ready`, effects and `await state.set()`, and a render's `Type.get()` suspends until it settles - consumers wait without naming the field. A rejection releases the hold, rethrows on reads, and throws from `Type.get()` in render. Without `true`, only reads of the field suspend.
 
 Suspense via factory fits load-once data a view cannot render without. Keep explicit `loading` / `error` fields when the operation is user-initiated (submit, refresh), stale content stays visible during refetch, or errors render inline rather than thru a boundary.
 
