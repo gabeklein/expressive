@@ -1,5 +1,5 @@
 import { listener, capture, observer } from '../observable';
-import { event, Model } from '../model';
+import { event, Model, parent } from '../model';
 import { access, compute, update } from '../store';
 import { def } from './def';
 
@@ -37,6 +37,8 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
  * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
  * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
+ * it settles - unless it resolves to itself.
  *
  * @example
  * config = set(() => loadConfig());
@@ -126,7 +128,11 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
 
     // One-shot factory
     if (typeof value == 'function') {
-      const factory = value.bind(subject, key)
+      const factory = () => {
+        const output = value.call(subject, key);
+        return output instanceof Model && thenable(output) ? interim(subject, output) : output;
+      };
+
       computed = true;
 
       function init() {
@@ -222,6 +228,23 @@ function attempt(fn: () => any): any {
   }
 
   return compute();
+}
+
+function interim(owner: Model, model: Model) {
+  if (!parent(model, owner)) return model;
+
+  const drop = () => event(model, null);
+  const release = listener(owner, drop, null);
+  const settled = Promise.resolve(model);
+
+  event(model);
+
+  settled.then(
+    (result) => result !== model && (release(), drop()),
+    () => (release(), drop())
+  );
+
+  return settled;
 }
 
 function thenable(value: unknown): value is PromiseLike<unknown> {

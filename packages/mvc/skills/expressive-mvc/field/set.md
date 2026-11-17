@@ -74,6 +74,7 @@ class AppState extends Model {
 Zero-argument factory, computed lazily on first access. Read-only.
 
 - Async factories (any thenable result) throw suspense on access until resolved; the field types as the `Awaited` value.
+- A thenable Model not yet active (`new Job()`) activates owned by the instance and is destroyed once it settles - kept if it resolves to itself (a loaded entity).
 - `false`: `undefined` while pending instead of suspending.
 - `true`: runs immediately on init; suspends if async.
 - Bound to the instance (`this` works).

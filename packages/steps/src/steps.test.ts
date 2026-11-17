@@ -1397,6 +1397,8 @@ describe('then', () => {
   });
 
   it('will settle a set factory with the run result', async () => {
+    let flow!: Flow;
+
     class Flow extends Steps {
       async run() {
         return 'done';
@@ -1404,7 +1406,7 @@ describe('then', () => {
     }
 
     class Owner extends Model {
-      result = set(() => Flow.new());
+      result = set(() => (flow = new Flow()));
     }
 
     const owner = Owner.new();
@@ -1414,10 +1416,12 @@ describe('then', () => {
     try {
       void owner.result;
     } catch (suspense) {
+      expect(flow.get(Model)).toBe(owner);
       await suspense;
     }
 
     expect(owner.result).toBe('done');
+    expect(flow.get(null)).toBe(true);
   });
 
   it('will observe then as a callable view', async () => {

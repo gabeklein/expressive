@@ -945,6 +945,112 @@ describe('thenable', () => {
     expect(entity.then).toBeUndefined();
   });
 
+  describe('Model', () => {
+    class Job extends Model {
+      gate = mockPromise<string>();
+
+      then(resolve: (value: string) => void, reject: (reason: unknown) => void) {
+        this.gate.then(resolve, reject);
+      }
+    }
+
+    it('will activate under the owner and destroy once resolved', async () => {
+      let job!: Job;
+
+      class Test extends Model {
+        value = set(() => (job = new Job()));
+      }
+
+      const test = Test.new();
+      const suspense = attempt(() => test.value);
+
+      expect(job.get(Model)).toBe(test);
+      expect(job.get(null)).toBe(false);
+
+      job.gate.resolve('foo');
+      await suspense;
+
+      expect(test.value).toBe('foo');
+      expect(job.get(null)).toBe(true);
+      expect(warn).not.toBeCalled();
+    });
+
+    it('will destroy once rejected', async () => {
+      let job!: Job;
+
+      class Test extends Model {
+        value = set(() => (job = new Job()));
+      }
+
+      const test = Test.new();
+      const suspense = attempt(() => test.value);
+
+      job.gate.reject(new Error('nope'));
+      await suspense;
+
+      expect(job.get(null)).toBe(true);
+      expect(() => test.value).toThrow('nope');
+    });
+
+    it('will destroy with the owner while pending', () => {
+      let job!: Job;
+
+      class Test extends Model {
+        value = set(() => (job = new Job()));
+      }
+
+      const test = Test.new();
+
+      attempt(() => test.value).catch(() => {});
+      test.set(null);
+
+      expect(job.get(null)).toBe(true);
+    });
+
+    it('will keep a Model resolving to itself until the owner is destroyed', async () => {
+      let entity!: Entity;
+
+      class Entity extends Model {
+        then? = (resolve: (self: Entity) => void) => {
+          delete this.then;
+          resolve(this);
+        };
+      }
+
+      class Test extends Model {
+        value = set(() => (entity = new Entity()));
+      }
+
+      const test = Test.new();
+
+      await attempt(() => test.value);
+
+      expect(test.value).toBe(entity);
+      expect(entity.get(null)).toBe(false);
+
+      test.set(null);
+
+      expect(entity.get(null)).toBe(true);
+    });
+
+    it('will not claim a Model already active', async () => {
+      const job = Job.new();
+
+      class Test extends Model {
+        value = set(() => job);
+      }
+
+      const test = Test.new();
+      const suspense = attempt(() => test.value);
+
+      job.gate.resolve('foo');
+      await suspense;
+
+      expect(job.get(null)).toBe(false);
+      job.set(null);
+    });
+  });
+
   it('will suspend a thenable resolving synchronously', async () => {
     class Test extends Model {
       value = set(() => ({ then: (resolve: (value: string) => void) => resolve('foo') }));
