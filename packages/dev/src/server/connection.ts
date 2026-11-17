@@ -302,6 +302,7 @@ function follow(connection: Connection, twin: string): void {
       stop();
       held.watching.delete(path);
       held.seen.delete(path);
+      held.sent?.delete(path);
     }
 }
 
