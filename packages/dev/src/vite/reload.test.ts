@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -137,9 +137,6 @@ describe("server reload", () => {
 
   const SEAT = (version: string, fields = "") => `
     import { Model } from "@expressive/mvc";
-import { construct, retire } from "@expressive/rpc/protocol";
-
-import { rotate } from "../server/connection";
     import { label } from "./lib";
     (globalThis as any).loads.push(${JSON.stringify(version)});
     import.meta.hot?.dispose(() => void (globalThis as any).disposed.push(${JSON.stringify(version)}));
@@ -261,12 +258,43 @@ import { rotate } from "../server/connection";
 
     expect(g.disposed).toEqual(["v1", "v2"]);
     expect(await stats()).toMatchObject({ seats: 0, twins: 0 });
+    await until(() => g.loads.length === 3);
     expect(await post(holder, "/tally", { "x-expressive-call": "default.add", "x-expressive-twin": "Tally-A" }, "[1]")).toMatchObject({ value: 1, epoch: stream.hellos[1] });
     expect(g.loads).toEqual(["v1", "v2", "v2"]);
 
     const after = await post(bystander, "/note", { "x-expressive-get": "default", "x-expressive-twin": "Note-A" });
     expect(after.epoch).not.toBe(note.epoch);
     expect(after.frame).toMatchObject({ "Note-A": { patch: { text: "" } } });
+  });
+
+  it("will hold a call until a restart has disposed and re-imported its modules", async () => {
+    fresh();
+    let open!: () => void;
+    g.gate = new Promise<void>(resolve => (open = resolve));
+
+    const GATED = (version: string, fields = "") => SEAT(version, fields).replace(
+      "import.meta.hot?.dispose(() => void",
+      `import.meta.hot?.dispose(() => ${JSON.stringify(version)} === "v2" ? (globalThis as any).gate : void`
+    );
+    const { edit, post, listen } = await serve({ "app/gated/remote.ts": GATED("v1"), "app/gated/lib.ts": LIB("a") }, true);
+    const id = tab();
+    const twin = { "x-expressive-twin": "Tally-A" };
+    const stream = await listen(id);
+
+    await post(id, "/gated", { "x-expressive-call": "default.add", ...twin }, "[2]");
+    edit("app/gated/remote.ts", GATED("v2", "count = 0;"));
+    await until(() => g.loads.length === 2);
+
+    let replied = false;
+    const call = post(id, "/gated", { "x-expressive-call": "default.add", ...twin }, "[1]").finally(() => (replied = true));
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(replied).toBe(false);
+    expect(g.loads).toEqual(["v1", "v2"]);
+
+    open();
+    expect(await call).toMatchObject({ value: 1, epoch: stream.hellos[1] });
+    expect(g.loads).toEqual(["v1", "v2", "v2"]);
   });
 
   it("will patch through a Model module's boundary when a function module it imports changes", async () => {
@@ -489,20 +517,167 @@ import { rotate } from "../server/connection";
 });
 
 describe("reloads", () => {
-  it("will retire a replaced class without a hot client, until stopped", () => {
-    class Tally extends Model { total = 0; }
-    const stop = reloads({} as ModuleRunner);
-    const before = construct(Tally, true);
+  let n = 0;
 
-    accept("/reload-test.ts", { Tally });
-    accept("/reload-test.ts", { Tally: class Tally extends Model { total = 0; count = 0; } });
-    expect(before.instance.get(null)).toBe(true);
+  const replace = () => {
+    const id = `/reload-${n++}.ts`;
 
-    stop();
+    accept(id, { Tally: class Tally extends Model { total = 0; } });
+    accept(id, { Tally: class Tally extends Model { total = 0; count = 0; } });
+  };
 
-    const after = construct(Tally, true);
-    accept("/reload-test.ts", { Tally: class Tally extends Model { total = 0; } });
-    expect(after.instance.get(null)).toBe(false);
-    after.drop();
+  const seat = () => construct(class Seat extends Model {}, true).instance;
+
+  const fake = (hot = true) => {
+    const modules = new Map<string, { url: string; importers: Set<string> }>();
+    const listeners = new Map<string, ((data?: unknown) => unknown)[]>();
+    const disposeMap = new Map<string, (data: unknown) => unknown>();
+    const runner = {
+      evaluatedModules: { idToModuleMap: modules, clear: () => modules.clear() },
+      import: vi.fn(async (url: string) => {
+        if (url.includes("broken")) throw new Error(url);
+      }),
+      hmrClient: hot ? { disposeMap, dataMap: new Map(), customListenersMap: listeners } : undefined,
+    };
+
+    return {
+      runner,
+      modules,
+      disposeMap,
+      load: (url: string, ...importers: string[]) => void modules.set(url, { url, importers: new Set(importers) }),
+      reload: () => Promise.all(listeners.get("vite:beforeFullReload")!.map(listener => listener())),
+      reloads: reloads(runner as unknown as ModuleRunner),
+    };
+  };
+
+  it("will restart on every replaced class without a hot client, until stopped", async () => {
+    const { reloads } = fake(false);
+
+    for (let i = 0; i < 2; i++) {
+      const before = seat();
+      replace();
+      expect(before.get(null)).toBe(true);
+      await reloads.settled();
+    }
+
+    reloads.stop();
+
+    const after = seat();
+    replace();
+    expect(after.get(null)).toBe(false);
+    retire();
+  });
+
+  it("will stop a replaced server's restarts when it closes, keeping the server that replaced it", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "reload-")));
+    const plugin = expressive();
+    const config = { root, configFile: false as const, logLevel: "silent" as const, plugins: [plugin], server: { watch: null } };
+
+    mkdirSync(join(root, "app"));
+    writeFileSync(join(root, "app/index.tsx"), "export function Page(){ return null }");
+
+    const first = await createServer(config);
+    const second = await createServer(config);
+
+    await first.close();
+    const kept = seat();
+    replace();
+    expect(kept.get(null)).toBe(true);
+
+    await second.close();
+    const after = seat();
+    replace();
+    expect(after.get(null)).toBe(false);
+
+    retire();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("will dispose before clearing modules, then re-import every former entrypoint", async () => {
+    const { runner, modules, disposeMap, load, reload, reloads } = fake();
+    const left: number[] = [];
+
+    for (const trigger of [replace, reload]) {
+      load("/app/a/remote.ts");
+      load("/app/a/lib.ts", "/app/a/remote.ts");
+      load("/index.ts");
+      disposeMap.set("/app/a/remote.ts", async () => void left.push(modules.size));
+      runner.import.mockClear();
+
+      await trigger();
+      await reloads.settled();
+
+      expect(runner.import.mock.calls).toEqual([["/app/a/remote.ts"], ["/index.ts"]]);
+    }
+
+    expect(left).toEqual([3, 3]);
+    reloads.stop();
+  });
+
+  it("will share one restart between triggers during teardown, logging a failed disposer and entrypoint", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { runner, disposeMap, load, reload, reloads } = fake();
+    const dispose = vi.fn(() => Promise.reject(new Error("dispose")));
+
+    load("/app/broken/remote.ts");
+    disposeMap.set("/app/broken/remote.ts", dispose);
+
+    const restart = reload();
+    replace();
+    await restart;
+    await reloads.settled();
+
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(runner.import).toHaveBeenCalledOnce();
+    expect(error.mock.calls.map(([e]) => (e as Error).message)).toEqual(["dispose", "/app/broken/remote.ts"]);
+
+    const later = seat();
+    replace();
+    expect(later.get(null)).toBe(true);
+    await reloads.settled();
+
+    error.mockRestore();
+    reloads.stop();
+  });
+
+  it("will log a teardown that throws and restart again on the next trigger", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { runner, reloads } = fake(false);
+    const clear = runner.evaluatedModules.clear;
+
+    runner.evaluatedModules.clear = () => {
+      runner.evaluatedModules.clear = clear;
+      throw new Error("clear");
+    };
+
+    replace();
+    await reloads.settled();
+    expect(error).toHaveBeenCalledWith(new Error("clear"));
+
+    const later = seat();
+    replace();
+    expect(later.get(null)).toBe(true);
+    await reloads.settled();
+
+    error.mockRestore();
+    reloads.stop();
+  });
+
+  it("will carry entrypoints a restart has not re-imported yet into the next", async () => {
+    const { runner, load, reloads } = fake();
+    let open!: () => void;
+    const gate = new Promise<void>(resolve => (open = resolve));
+
+    runner.import.mockImplementationOnce(() => gate);
+    load("/app/a/remote.ts");
+    replace();
+    await vi.waitFor(() => expect(runner.import).toHaveBeenCalledOnce());
+
+    replace();
+    open();
+    await reloads.settled();
+
+    expect(runner.import.mock.calls).toEqual([["/app/a/remote.ts"], ["/app/a/remote.ts"]]);
+    reloads.stop();
   });
 });

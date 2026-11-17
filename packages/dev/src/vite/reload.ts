@@ -4,38 +4,63 @@ import type { ModuleRunner } from "vite/module-runner";
 
 import { rotate } from "../server/connection";
 
-export function reloads(runner: ModuleRunner): () => void {
+export interface Reloads {
+  stop(): void;
+  settled(): Promise<void>;
+}
+
+export function reloads(runner: ModuleRunner): Reloads {
   const hmr = runner.hmrClient;
-  let pending: Promise<void> | undefined;
+  const entries = new Set<string>();
+  let teardown: Promise<void> | undefined;
+  let settled = Promise.resolve();
+  let latest = 0;
 
-  const restart = (reimport: boolean) => (pending ??= (async () => {
-    const modules = runner.evaluatedModules?.idToModuleMap.values() ?? [];
-    const entries = [...modules].filter(node => !node.importers.size).map(node => node.url);
+  const report = (results: PromiseSettledResult<unknown>[]) =>
+    results.forEach(result => result.status == "rejected" && console.error(result.reason));
 
-    retire();
-    forget();
-    runner.evaluatedModules?.clear();
+  const restart = (): Promise<void> => {
+    if (teardown) return teardown;
 
-    if (hmr) {
-      const disposers = [...hmr.disposeMap];
+    const run = ++latest;
 
-      hmr.disposeMap.clear();
-      await Promise.all(disposers.map(([path, dispose]) => dispose(hmr.dataMap.get(path))));
-    }
+    for (const node of runner.evaluatedModules.idToModuleMap.values()) if (!node.importers.size) entries.add(node.url);
 
-    rotate();
-    pending = undefined;
+    teardown = (async () => {
+      retire();
+      forget();
 
-    if (reimport) await Promise.allSettled(entries.map(url => runner.import(url)));
-  })());
+      if (hmr) {
+        const disposers = [...hmr.disposeMap];
 
-  const stop = replaced(() => void restart(true));
+        hmr.disposeMap.clear();
+        report(await Promise.allSettled(disposers.map(async ([path, dispose]) => dispose(hmr.dataMap.get(path)))));
+      }
 
-  if (!hmr) return stop;
+      runner.evaluatedModules.clear();
+      rotate();
+    })()
+      .catch(error => console.error(error))
+      .finally(() => (teardown = undefined));
 
-  const listeners = hmr.customListenersMap;
+    settled = teardown
+      .then(() => new Promise(resolve => setTimeout(resolve)))
+      .then(() => Promise.allSettled([...entries].map(url => runner.import(url))))
+      .then(results => {
+        report(results);
+        if (run === latest) entries.clear();
+      });
 
-  listeners.set("vite:beforeFullReload", [...(listeners.get("vite:beforeFullReload") ?? []), () => restart(false)]);
+    return teardown;
+  };
 
-  return stop;
+  const stop = replaced(() => void restart());
+
+  if (hmr) {
+    const listeners = hmr.customListenersMap;
+
+    listeners.set("vite:beforeFullReload", [...(listeners.get("vite:beforeFullReload") ?? []), restart]);
+  }
+
+  return { stop, settled: () => settled };
 }
