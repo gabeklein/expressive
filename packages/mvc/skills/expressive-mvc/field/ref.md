@@ -63,6 +63,7 @@ A ref object for every enumerable property, each with `.current` (get/set), `.ge
 - Computed getters (`get foo() { ... }`) are included, read-only.
 - `set(...)` properties are excluded (non-enumerable).
 - Takes a Model instance (normally `this`); a plain object throws.
+- `refs.get()` returns that instance - here and on a custom proxy.
 
 ### Custom Ref Proxy
 

@@ -380,6 +380,7 @@ describe('mapped', () => {
     await expect(consumer.source).toHaveUpdated();
 
     expect(consumer.refs.value.current).toBe('world');
+    expect(consumer.refs.get()).toBe(consumer.source);
   });
 
   it('will map a different state instance', () => {
@@ -398,6 +399,7 @@ describe('mapped', () => {
 
     expect(consumer.mapped.foo).toBe('mapped-foo');
     expect(spy).toBeCalledWith('foo', consumer.source);
+    expect(consumer.mapped.get()).toBe(consumer.source);
   });
 
   it.skip('will not break on recursive', () => {
