@@ -542,6 +542,25 @@ describe('catch', () => {
     await fails(Test, 'catch() takes a step, a function or nothing.');
   });
 
+  it('will throw for a catch once the calling step settles', async () => {
+    let token!: Promise<void>;
+
+    class Test extends Steps {
+      async run() {
+        this.first();
+      }
+
+      protected async first() {
+        token = this.a();
+      }
+
+      protected async a() {}
+    }
+
+    await Test.new().run();
+    expect(() => token.catch()).toThrow('catch() must be called in the step which called it.');
+  });
+
   it('will throw retry, catch and reset outside a step', () => {
     class Test extends Steps {}
 

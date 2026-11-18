@@ -242,3 +242,4 @@ function gateFor(run: Run, from: Frame, key: unknown) {
 }
 
 export { Wait, accepts, acquire, park, racing, route, wake };
+export type { Answer };

@@ -47,6 +47,15 @@ interface Waiter {
 
 const ISSUED = new WeakMap<object, Frame>();
 
+function unissue(items: Steps.Node[]) {
+  for (const item of items) {
+    ISSUED.delete(item);
+
+    if (item.group) unissue(item.group);
+    if (item.race) unissue([item.race]);
+  }
+}
+
 const RULES = new WeakSet<Error>();
 
 function chain(error: unknown, cause: unknown) {
@@ -115,5 +124,5 @@ function adopt(parents: Map<string, string>, items: Steps.Node[], parent: string
   }
 }
 
-export { ISSUED, RULES, adopt, chain, grouped, handle, plain, rule, signal, valueless };
+export { ISSUED, RULES, adopt, chain, grouped, handle, plain, rule, signal, unissue, valueless };
 export type { Gate, Handler, Hold, Kind, Log, Mode, Restore, Slot, Ticket, Waiter };
