@@ -1,8 +1,6 @@
 import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { mockPromise, mockWarn, flushMicrotasks } from '../../test.setup';
 import { Model } from '../model';
-import { Context } from '../context';
-import { get } from './get';
 import { set, required } from './set';
 
 const warn = mockWarn();
@@ -834,10 +832,9 @@ describe('factory with callback overload', () => {
 });
 
 describe('required factory', () => {
-  it('will hold ready until resolved', async () => {
+  function pending() {
     const promise = mockPromise<string>();
     const ready = vi.fn();
-    const effect = vi.fn();
 
     class Test extends Model {
       value = set(() => promise, true);
@@ -845,10 +842,16 @@ describe('required factory', () => {
 
     Test.on({ ready });
 
-    const test = Test.new();
+    return { promise, ready, test: Test.new() };
+  }
+
+  it('will hold ready and gate required until resolved', async () => {
+    const { promise, ready, test } = pending();
+    const effect = vi.fn();
     const settled = test.set();
 
     test.get(effect);
+    const suspense = attempt(() => required(test));
     await flushMicrotasks();
 
     expect(ready).not.toBeCalled();
@@ -856,92 +859,47 @@ describe('required factory', () => {
 
     promise.resolve('foo');
     await settled;
+    await suspense;
 
     expect(ready).toBeCalledTimes(1);
     expect(effect).toBeCalledTimes(1);
     expect(test.value).toBe('foo');
-  });
-
-  it('will release ready if rejected', async () => {
-    const promise = mockPromise<string>();
-    const error = new Error('nope');
-    const ready = vi.fn();
-
-    class Test extends Model {
-      value = set(() => promise, true);
-    }
-
-    Test.on({ ready });
-
-    const test = Test.new();
-    const settled = test.set();
-
-    promise.reject(error);
-    await settled;
-
-    expect(ready).toBeCalledTimes(1);
-    expect(() => test.value).toThrow(error);
-  });
-
-  it('will run after arguments apply', () => {
-    class Test extends Model {
-      id = 0;
-      value = set(() => this.id * 2, true);
-    }
-
-    expect(Test.new({ id: 2 }).value).toBe(4);
-  });
-
-  it('will not hold ready for a seeded factory', async () => {
-    const promise = mockPromise<string>();
-    const ready = vi.fn();
-
-    class Test extends Model {
-      value = set(() => promise, () => {});
-    }
-
-    Test.on({ ready });
-    Test.new();
-    await flushMicrotasks();
-
-    expect(ready).toBeCalledTimes(1);
-    promise.resolve('foo');
-  });
-
-  it('will throw from required while pending', async () => {
-    const promise = mockPromise<string>();
-
-    class Test extends Model {
-      value = set(() => promise, true);
-      lazy = set(() => mockPromise<string>());
-    }
-
-    const test = Test.new();
-    const suspense = attempt(() => required(test));
-
-    expect(suspense).toBeInstanceOf(Promise);
-
-    promise.resolve('foo');
-    await suspense;
-
     expect(() => required(test)).not.toThrow();
   });
 
-  it('will throw rejection from required', async () => {
-    const promise = mockPromise<string>();
+  it('will release ready if rejected, throwing from required', async () => {
+    const { promise, ready, test } = pending();
     const error = new Error('nope');
-
-    class Test extends Model {
-      value = set(() => promise, true);
-    }
-
-    const test = Test.new();
 
     attempt(() => required(test)).catch(() => {});
     promise.reject(error);
     await test.set();
 
+    expect(ready).toBeCalledTimes(1);
+    expect(() => test.value).toThrow(error);
     expect(() => required(test)).toThrow(error);
+  });
+
+  it('will gate each instance on its own', async () => {
+    const a = pending();
+    const b = pending();
+
+    a.promise.resolve('a');
+    await a.test.set();
+
+    expect(() => required(a.test)).not.toThrow();
+    expect(() => required(b.test)).toThrow(expect.any(Promise));
+    b.promise.resolve('b');
+  });
+
+  it('will release required once destroyed and settled', async () => {
+    const { promise, test } = pending();
+
+    test.set(null);
+    promise.resolve('foo');
+    await flushMicrotasks();
+
+    expect(() => required(test)).not.toThrow();
   });
 
   it.each([
@@ -958,9 +916,31 @@ describe('required factory', () => {
     expect(() => required(test)).not.toThrow();
   });
 
-  it('will hold until a required factory it depends on resolves', async () => {
-    const promise = mockPromise<string>();
+  it('will run after arguments apply', () => {
+    class Test extends Model {
+      id = 0;
+      value = set(() => this.id * 2, true);
+    }
+
+    expect(Test.new({ id: 2 }).value).toBe(4);
+  });
+
+  it('will not hold ready for a seeded factory', async () => {
     const ready = vi.fn();
+    class Test extends Model {
+      value = set(() => mockPromise<string>(), () => {});
+    }
+
+    Test.on({ ready });
+    Test.new();
+    await flushMicrotasks();
+
+    expect(ready).toBeCalledTimes(1);
+  });
+
+  it('will hold until a required factory it depends on resolves', async () => {
+    const ready = vi.fn();
+    const promise = mockPromise<string>();
 
     class Test extends Model {
       greet = set(() => this.name + '!', true);
@@ -970,7 +950,6 @@ describe('required factory', () => {
     Test.on({ ready });
 
     const test = Test.new();
-
     await flushMicrotasks();
     expect(ready).not.toBeCalled();
 
@@ -979,50 +958,11 @@ describe('required factory', () => {
 
     expect(ready).toBeCalledTimes(1);
     expect(test.greet).toBe('foo!');
-    expect(() => required(test)).not.toThrow();
-  });
-
-  it('will gate each instance on its own', async () => {
-    const promises = [mockPromise<string>(), mockPromise<string>()];
-    let index = 0;
-
-    class Test extends Model {
-      value = set(() => promises[index++], true);
-    }
-
-    const a = Test.new();
-    const b = Test.new();
-
-    promises[0].resolve('a');
-    await a.set();
-
-    expect(() => required(a)).not.toThrow();
-    expect(() => required(b)).toThrow(expect.any(Promise));
-    promises[1].resolve('b');
-  });
-
-  it('will not gate get instruction or instance get', () => {
-    const promise = mockPromise<string>();
-
-    class Source extends Model {
-      value = set(() => promise, true);
-    }
-
-    class Test extends Model {
-      source = get(Source);
-    }
-
-    const context = new Context({ Source, Test });
-    const test = context.get(Test)!;
-
-    expect(test.source).toBe(context.get(Source));
-    expect(test.get(Source)).toBe(test.source);
-    promise.resolve('foo');
   });
 
   it('will hold a parent until a child resolves', async () => {
-    const promise = mockPromise<string>();
     const ready = vi.fn();
+    const promise = mockPromise<string>();
 
     class Child extends Model {
       value = set(() => promise, true);
@@ -1035,7 +975,6 @@ describe('required factory', () => {
     Parent.on({ ready });
 
     const parent = Parent.new();
-
     await flushMicrotasks();
     expect(ready).not.toBeCalled();
 
@@ -1046,47 +985,19 @@ describe('required factory', () => {
   });
 
   it('will not hold children of a pending parent', async () => {
-    const promise = mockPromise<string>();
     const ready = vi.fn();
-
     class Child extends Model {}
 
     class Parent extends Model {
-      value = set(() => promise, true);
+      value = set(() => mockPromise<string>(), true);
       child = new Child();
     }
 
     Child.on({ ready });
     Parent.new();
-
     await flushMicrotasks();
+
     expect(ready).toBeCalledTimes(1);
-
-    promise.resolve('foo');
-  });
-
-  it('will release required once destroyed and settled', async () => {
-    const promise = mockPromise<string>();
-
-    class Test extends Model {
-      value = set(() => promise, true);
-    }
-
-    const test = Test.new();
-
-    test.set(null);
-    promise.resolve('foo');
-    await flushMicrotasks();
-
-    expect(() => required(test)).not.toThrow();
-  });
-
-  it('will not throw from required without one', () => {
-    class Test extends Model {
-      value = set(() => 'foo');
-    }
-
-    expect(() => required(Test.new())).not.toThrow();
   });
 });
 

@@ -188,9 +188,8 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
         return subject[key];
       }
 
-      if (argument) later(subject, init); else {
-        config.get = init;
-      }
+      if (argument) later(subject, init);
+      else config.get = init;
     } else if (value !== undefined) {
       config.value = value;
     }

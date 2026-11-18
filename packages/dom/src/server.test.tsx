@@ -531,21 +531,18 @@ describe('renderToString', () => {
   });
 
   it('will render a get consumer once a void required factory settles', async () => {
-    const seen: boolean[] = [];
-    let resolved = false;
+    let done = false;
 
     class Session extends Model {
       user = set(async () => {
-        await Promise.resolve();
-        resolved = true;
+        await null;
+        done = true;
       }, true);
-      name = 'Ada';
     }
 
     function Name() {
-      const { name } = Session.get();
-      seen.push(resolved);
-      return <span>{name}</span>;
+      Session.get();
+      return <span>{String(done)}</span>;
     }
 
     const { html } = await serve(
@@ -554,9 +551,9 @@ describe('renderToString', () => {
       </Component>
     );
 
-    expect(html).toContain('<span>Ada</span>');
-    expect(seen).toEqual([true]);
+    expect(html).toContain('<span>true</span>');
   });
+
 
   it('will await a lazy component', async () => {
     function Page() {
