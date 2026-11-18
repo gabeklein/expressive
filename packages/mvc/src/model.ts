@@ -802,7 +802,7 @@ function ready(state: Model, wait: Set<() => void>) {
 }
 
 /** Run `fn` while `state` activates, after its arguments - a returned promise holds `ready`. */
-function later(state: Model, fn: () => Promise<unknown> | void) {
+function defer(state: Model, fn: () => Promise<unknown> | void) {
   ACTIVE.get(state)!.queue.push(fn);
 }
 
@@ -1278,4 +1278,4 @@ function parent(child: object, value?: Model | null) {
 }
 
 export type { Got, Handler, Keyed };
-export { adopt, event, later, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
+export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };

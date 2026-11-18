@@ -1,5 +1,5 @@
 import { listener } from '../observable';
-import { later, PENDING, Model, uid } from '../model';
+import { defer, PENDING, Model, uid } from '../model';
 import { apply, store } from '../store';
 
 declare namespace def {
@@ -95,7 +95,7 @@ Model.on({
       const desc = typeof output == 'function' ? { destroy: output } : output;
 
       if (desc.destroy) listener(self, desc.destroy, null);
-      if (desc.init) later(self, desc.init);
+      if (desc.init) defer(self, desc.init);
 
       apply(self, key, desc, true);
     }
