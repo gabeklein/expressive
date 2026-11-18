@@ -1,5 +1,6 @@
 import { listener, capture, observer } from '../observable';
 import { event, later, Model, parent } from '../model';
+import { REPORT } from '../dispatch';
 import { access, compute, update } from '../store';
 import { def } from './def';
 
@@ -40,7 +41,7 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
  * it settles - unless it resolves to itself.
  * With `true` it runs after constructor args apply; while async it holds `ready`, effects and
- * `await set()`, and a host render's `Type.get()` suspends until it settles - a rejection throws there.
+ * `await set()`, and a rejection reports to `catch` as `setup`.
  * A synchronous throw from it fails activation - `new()` throws.
  *
  * @example
@@ -170,16 +171,12 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
         else assign(output, true);
 
         if (argument) {
-          if (argument !== true || !(output instanceof Promise)) return;
+          if (argument === true && output instanceof Promise)
+            return output.then(undefined, (err) => {
+              if (observer(subject) !== null) REPORT.as('setup', subject, err, key);
+            });
 
-          const pending = REQUIRED.get(subject) || REQUIRED.set(subject, new Map()).get(subject)!;
-          const hold = output.then(
-            () => void pending.delete(key),
-            () => void pending.set(key, undefined)
-          );
-
-          pending.set(key, hold);
-          return hold;
+          return;
         }
 
         if (output instanceof Promise && argument !== false)
@@ -217,16 +214,6 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
 
     return config;
   });
-}
-
-const REQUIRED = new WeakMap<Model, Map<string, Promise<void> | undefined>>();
-
-/** Throw while a required factory on `target` is pending, or the rejection it settled with. */
-function required(target: Model) {
-  for (const [key, hold] of REQUIRED.get(target.is) || []) {
-    if (hold) throw hold;
-    void (target.is as any)[key];
-  }
 }
 
 function attempt(fn: () => any): any {
@@ -269,4 +256,4 @@ function thenable(value: unknown): value is PromiseLike<unknown> {
   return typeof (value as any)?.then == 'function';
 }
 
-export { set, required };
+export { set };

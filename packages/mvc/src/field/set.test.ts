@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { mockPromise, mockWarn, flushMicrotasks } from '../../test.setup';
 import { Model } from '../model';
-import { set, required } from './set';
+import { set } from './set';
 
 const warn = mockWarn();
 
@@ -835,23 +835,23 @@ describe('required factory', () => {
   function pending() {
     const promise = mockPromise<string>();
     const ready = vi.fn();
+    const caught = vi.fn();
 
     class Test extends Model {
       value = set(() => promise, true);
     }
 
-    Test.on({ ready });
+    Test.on({ ready, catch: caught });
 
-    return { promise, ready, test: Test.new() };
+    return { promise, ready, caught, test: Test.new() };
   }
 
-  it('will hold ready and gate required until resolved', async () => {
+  it('will hold ready until resolved', async () => {
     const { promise, ready, test } = pending();
     const effect = vi.fn();
     const settled = test.set();
 
     test.get(effect);
-    const suspense = attempt(() => required(test));
     await flushMicrotasks();
 
     expect(ready).not.toBeCalled();
@@ -859,61 +859,32 @@ describe('required factory', () => {
 
     promise.resolve('foo');
     await settled;
-    await suspense;
 
     expect(ready).toBeCalledTimes(1);
     expect(effect).toBeCalledTimes(1);
     expect(test.value).toBe('foo');
-    expect(() => required(test)).not.toThrow();
   });
 
-  it('will release ready if rejected, throwing from required', async () => {
-    const { promise, ready, test } = pending();
+  it('will release ready and report as setup if rejected', async () => {
+    const { promise, ready, caught, test } = pending();
     const error = new Error('nope');
 
-    attempt(() => required(test)).catch(() => {});
     promise.reject(error);
     await test.set();
 
     expect(ready).toBeCalledTimes(1);
+    expect(caught).toBeCalledWith(error, 'setup', 'value');
     expect(() => test.value).toThrow(error);
-    expect(() => required(test)).toThrow(error);
   });
 
-  it('will gate each instance on its own', async () => {
-    const a = pending();
-    const b = pending();
-
-    a.promise.resolve('a');
-    await a.test.set();
-
-    expect(() => required(a.test)).not.toThrow();
-    expect(() => required(b.test)).toThrow(expect.any(Promise));
-    b.promise.resolve('b');
-  });
-
-  it('will release required once destroyed and settled', async () => {
-    const { promise, test } = pending();
+  it('will not report a rejection once destroyed', async () => {
+    const { promise, caught, test } = pending();
 
     test.set(null);
-    promise.resolve('foo');
+    promise.reject(new Error('nope'));
     await flushMicrotasks();
 
-    expect(() => required(test)).not.toThrow();
-  });
-
-  it.each([
-    ['async', () => Promise.resolve()],
-    ['sync', () => {}]
-  ])('will not throw from required once a %s factory yields undefined', async (_, factory) => {
-    class Test extends Model {
-      value = set(factory, true);
-    }
-
-    const test = Test.new();
-    await test.set();
-
-    expect(() => required(test)).not.toThrow();
+    expect(caught).not.toBeCalled();
   });
 
   it('will run after arguments apply', () => {

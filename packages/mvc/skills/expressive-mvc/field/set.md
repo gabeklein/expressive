@@ -80,7 +80,7 @@ Zero-argument factory, computed lazily on first access. Read-only.
 - Bound to the instance (`this` works).
 - May suspend on other pending `set()` properties - resolution cascades.
 
-While pending, a required factory holds the instance's `ready`, effects and `await state.set()`, and a render's `Type.get()` suspends until it settles. It holds like `async new()` ([lifecycle.md](../state/lifecycle.md)) - so it cannot await `this.set()` or an effect. A rejection releases the hold, rethrows on reads, and throws from `Type.get()` in render; it does not report to `catch` otherwise.
+While pending, a required factory holds the instance's `ready`, effects and `await state.set()` - and its parent's, like `async new()` ([lifecycle.md](../state/lifecycle.md)), so it cannot await `this.set()` or an effect. Render is not held: consumers that read the field suspend, others render. A rejection reports to `catch` as `setup` with the field's key, releases the hold, and rethrows on reads - the instance is not destroyed.
 
 Suspense via factory fits load-once data a view cannot render without. Keep explicit `loading` / `error` fields when the operation is user-initiated (submit, refresh), stale content stays visible during refetch, or errors render inline rather than thru a boundary.
 

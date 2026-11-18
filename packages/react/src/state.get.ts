@@ -1,6 +1,6 @@
 import { Model, Context } from '@expressive/mvc';
 import { observer, watch } from '@expressive/mvc/observable';
-import { required, resolver } from '@expressive/mvc/jsx-runtime';
+import { resolver } from '@expressive/mvc/jsx-runtime';
 import { useAmbient } from './context';
 import { Runtime, useFactory, useSettle, useSetup, useWeak } from './runtime';
 
@@ -120,8 +120,6 @@ function use(local: Context, compute: (context: Context) => unknown) {
       if (!fresh) follow((latest = next)(local));
 
       fresh = false;
-
-      if (target instanceof Model) required(target);
 
       return value;
     };

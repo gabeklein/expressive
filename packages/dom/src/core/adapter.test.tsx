@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 
-import { Model, Component, Context, set } from '@expressive/mvc';
+import { Model, Component, Context } from '@expressive/mvc';
 import { render } from '../index';
 import * as hot from '@expressive/mvc/hot';
 import { observer } from '@expressive/mvc/observable';
@@ -658,90 +658,6 @@ describe('Component for', () => {
 
     release();
     expect(session.get(null)).toBe(true);
-  });
-
-  it('will suspend get until a required factory resolves', async () => {
-    const promise = mockPromise<string>();
-
-    class Session extends Model {
-      user = set(() => promise, true);
-      name = 'Ada';
-    }
-
-    function Name() {
-      const { name } = Session.get();
-      return <span>{name}</span>;
-    }
-
-    const root = document.createElement('main');
-    const release = render(
-      <Component for={Session} fallback={<i>loading</i>}>
-        <Name />
-      </Component>,
-      root
-    );
-
-    expect(root.textContent).toBe('loading');
-
-    promise.resolve('ada');
-    await flushMicrotasks();
-
-    expect(root.textContent).toBe('Ada');
-    release();
-  });
-
-  it('will throw a rejected required factory from get', async () => {
-    const promise = mockPromise<string>();
-    const caught: unknown[] = [];
-
-    class Session extends Model {
-      user = set(() => promise, true);
-    }
-
-    class Page extends Component {
-      fallback = <i>loading</i>;
-
-      catch(error: unknown) {
-        caught.push(error);
-      }
-    }
-
-    function Name() {
-      Session.get();
-      return <span>ok</span>;
-    }
-
-    const root = document.createElement('main');
-    const release = render(
-      <Page>
-        <Component for={Session}>
-          <Name />
-        </Component>
-      </Page>,
-      root
-    );
-
-    expect(root.textContent).toBe('loading');
-
-    promise.reject('oh no');
-    await flushMicrotasks();
-    await flushMicrotasks();
-
-    expect(caught[0]).toMatchObject({ message: 'oh no' });
-    release();
-  });
-
-  it('will not gate get outside render', () => {
-    const promise = mockPromise<string>();
-
-    class Session extends Model {
-      user = set(() => promise, true);
-    }
-
-    const session = Session.new(Context.root);
-
-    expect(Session.get()).toBe(session);
-    session.set(null);
   });
 
   it('will not add a suspense boundary', () => {
