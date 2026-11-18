@@ -1,5 +1,17 @@
 # @expressive/mvc
 
+## 0.95.0
+
+### Minor Changes
+
+- [#749](https://github.com/gabeklein/expressive/pull/749) [`b968a6d`](https://github.com/gabeklein/expressive/commit/b968a6d4eac9a3f2b4de09f77ca13941b9ac8294) A required factory, `set(factory, true)`, now runs during activation after constructor args apply, and while its result is pending it holds the instance's `ready` handlers, effects and `await state.set()` - and its parent's, like `async new()`. A rejection reports to `catch` as `setup` with the field's key and releases the hold without destroying the instance; reads still rethrow it.
+
+  Behavior changes: `ready` sees the field's value, and a server render waiting on `ready` waits for it. A synchronous throw from a required or seeded factory (`set(factory, onUpdate)`) fails activation - `new()` throws. Seeded factories also run before `ready` now, but do not hold it.
+
+  Custom instructions get the same step: `def` config takes an `init` hook, run on activation after constructor args - a returned promise holds `ready`, a throw fails activation.
+
+- [#748](https://github.com/gabeklein/expressive/pull/748) [`829ff1c`](https://github.com/gabeklein/expressive/commit/829ff1ca06cab12636cd64c25f11805e67f09b4e) `set(factory)` now awaits any thenable its factory returns, not only a `Promise` - reads suspend until it resolves and a rejection rethrows, and the field types as the `Awaited` value. Behavior change: a factory returning an object with a `then` method used to store that object; it now stores what `then` resolves to - for a `@expressive/steps` instance, the result of a run. A thenable Model the factory constructs activates owned by the instance and is destroyed once it settles, unless it resolves to itself. A thenable passed directly as `set(value)` throws the direct-promise TypeError. Types now need TypeScript ≥ 5.4 (`NoInfer`).
+
 ## 0.94.5
 
 ### Patch Changes

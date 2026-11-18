@@ -1,5 +1,12 @@
 # @expressive/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`b968a6d`](https://github.com/gabeklein/expressive/commit/b968a6d4eac9a3f2b4de09f77ca13941b9ac8294), [`829ff1c`](https://github.com/gabeklein/expressive/commit/829ff1ca06cab12636cd64c25f11805e67f09b4e)]:
+  - @expressive/mvc@0.95.0
+
 ## 0.2.0
 
 ### Minor Changes
