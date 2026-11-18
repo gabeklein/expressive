@@ -105,6 +105,8 @@ async function unwind(run: Run, cause: unknown, mode: Mode, ids?: Set<string>): 
     if (ids && run._halted) break;
     if (entry.unwound == 'failed') break;
 
+    if (!halted && run._sealed.has(entry.id)) halted = true;
+
     if (!halted && (entry.irreversible || entry.committed)) {
       entry.halted = halted = true;
 

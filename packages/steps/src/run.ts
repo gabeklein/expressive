@@ -80,6 +80,8 @@ class Run extends Model {
   _flight = new Set<Frame>();
   _stack: Frame[] = [];
   _spent = new Set<string>();
+  _sealed = new Set<string>();
+  _slack = 0;
   _unwinding?: Promise<unknown> = undefined;
   _drained: (() => void)[] = [];
   _quiet = new Set<() => void>();
@@ -126,6 +128,19 @@ class Run extends Model {
 
   flight() {
     return [...this._flight];
+  }
+
+  seal(id: string) {
+    for (let at = this._parent.get(id); at && !this._sealed.has(at); at = this._parent.get(at)) {
+      this._sealed.add(at);
+      this._held.delete(at);
+      this._slack++;
+    }
+
+    if (this._slack * 2 > this._entries.length) {
+      this._entries = this._entries.filter((entry) => !this._sealed.has(entry.id) || this._on.has(entry.id));
+      this._slack = 0;
+    }
   }
 
   stale() {
@@ -663,6 +678,7 @@ class Run extends Model {
     control.runs++;
     this._entries = [];
     this._held.clear();
+    this._sealed.clear();
     this._on.clear();
     this._parent.clear();
     this._below.clear();

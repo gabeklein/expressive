@@ -3191,6 +3191,55 @@ describe('recover', () => {
     ]);
   });
 
+  it('will keep steps before a commit once a catch has passed it', async () => {
+    const undo = vi.fn();
+
+    class Test extends Journal {
+      value = 0;
+
+      async run() {
+        this.setup();
+      }
+
+      protected async setup() {
+        this.then.on({ reset: undo });
+        this.value = 1;
+        this.attempt().catch();
+        this.fail();
+      }
+
+      protected async attempt() {
+        this.pay();
+      }
+
+      protected async pay() {
+        this.then.commit();
+        this.ship();
+      }
+
+      protected async ship() {
+        throw new Error('boom');
+      }
+
+      protected async fail() {
+        throw new Error('later');
+      }
+    }
+
+    const [test] = await fails(Test, 'later');
+
+    expect(undo).not.toHaveBeenCalled();
+    expect(test.value).toBe(1);
+    expect(record(test).map((entry) => [entry.id, entry.halted, entry.unwound])).toEqual([
+      ['run#1', undefined, undefined],
+      ['setup#1', undefined, undefined],
+      ['attempt#1', undefined, undefined],
+      ['pay#1', true, undefined],
+      ['ship#1', undefined, undefined],
+      ['fail#1', undefined, undefined]
+    ]);
+  });
+
   it('will halt at an irreversible step and continue the run', async () => {
     const warn = mockWarn();
 
