@@ -1,5 +1,5 @@
 import { listener, capture, observer } from '../observable';
-import { event, later, Model, parent } from '../model';
+import { event, Model, parent } from '../model';
 import { REPORT } from '../dispatch';
 import { access, compute, update } from '../store';
 import { def } from './def';
@@ -123,7 +123,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
       return;
     }
 
-    const config: Model.Apply = {
+    const config: def.Config = {
       enumerable: false,
       set: false
     };
@@ -185,7 +185,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
         return subject[key];
       }
 
-      if (argument) later(subject, init);
+      if (argument) config.init = init;
       else config.get = init;
     } else if (value !== undefined) {
       config.value = value;

@@ -41,6 +41,7 @@ custom = def<string>((key, subject) => ({
   enumerable: true, // appear in Object.keys()
   get: (subscriber) => v, // custom getter (receives subscriber if in tracked context)
   set: (next, prev) => {}, // custom setter
+  init: async () => {}, // after constructor args - a promise holds ready
   destroy: () => {} // cleanup on destruction
 }));
 ```
