@@ -20,7 +20,7 @@ export function withWorkspaceLinks() {
   for (const name of PACKAGES) {
     const link = join(scope, name);
 
-    if (!existsSync(link)) {
+    if (!existsSync(link) && existsSync(resolve('packages', name))) {
       symlinkSync(resolve('packages', name), link, 'junction');
       created.push(link);
     }

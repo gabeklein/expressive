@@ -51,13 +51,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup
+
+      - name: Build base
+        run: |
+          git worktree add "$RUNNER_TEMP/base" HEAD^1
+          cd "$RUNNER_TEMP/base"
+          bun install --frozen-lockfile
+          bun run build
+          bun "$GITHUB_WORKSPACE/.github/scripts/bundle-size.ts" --partial --out "$RUNNER_TEMP/base.json"
 
       - run: bun run build
 
       - name: Bundle size
-        run: bun .github/scripts/size-limit.ts --gate
+        run: bun .github/scripts/bundle-size.ts --base "$RUNNER_TEMP/base.json" --gate
 
   dist-smoke:
     if: >-
