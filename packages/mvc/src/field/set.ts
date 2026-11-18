@@ -1,5 +1,5 @@
 import { listener, capture, observer } from '../observable';
-import { event, Model } from '../model';
+import { event, Model, parent } from '../model';
 import { access, compute, update } from '../store';
 import { def } from './def';
 
@@ -18,7 +18,7 @@ declare namespace set {
   ) => ((next: T) => void) | Promise<any> | void | boolean;
 
   /** Factory initializer - `this` is the instance. A declared parameter makes it a computed instead. */
-  type Factory<T, S = any> = (this: S, property: string) => Promise<T> | T;
+  type Factory<T, S = any> = (this: S, property: string) => PromiseLike<T> | T;
 }
 
 /**
@@ -34,15 +34,17 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * Value from a factory, run once - lazily on first read, or on activation if `required` is `true`.
  *
  * Read-only and non-enumerable. `this` is the instance. The factory must declare no parameters -
- * one parameter makes it a computed. An async result suspends reads until resolved; a rejection
- * rethrows on later reads. A factory that suspends on another pending field re-runs once it
- * resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
+ * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
+ * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
+ * it settles - unless it resolves to itself.
  *
  * @example
  * config = set(() => loadConfig());
  * user = set(async () => api.user(), true);
  */
-function set<T>(factory: () => T | Promise<T>, required?: true): T;
+function set<T>(factory: () => T | PromiseLike<NoInfer<T>>, required?: true): Awaited<T>;
 
 /**
  * Lazy factory - with `false`, reads `undefined` while pending instead of suspending.
@@ -51,9 +53,9 @@ function set<T>(factory: () => T | Promise<T>, required?: true): T;
  * Passing `true` behaves as the required overload.
  */
 function set<T>(
-  factory: () => T | Promise<T>,
+  factory: () => T | PromiseLike<NoInfer<T>>,
   required: boolean
-): T | undefined;
+): Awaited<T> | undefined;
 
 /**
  * Writable field seeded by a factory on activation - `onUpdate` runs for the seed and each assignment.
@@ -62,7 +64,10 @@ function set<T>(
  * `onUpdate` with `previous` undefined. An async result suspends reads until resolved, then
  * overwrites any value assigned meanwhile. See {@link set.Callback}.
  */
-function set<T>(factory: () => T | Promise<T>, onUpdate: set.Callback<T>): T;
+function set<T>(
+  factory: () => T | PromiseLike<NoInfer<T>>,
+  onUpdate: set.Callback<Awaited<T>>
+): Awaited<T>;
 
 /**
  * Computed field - re-derives when a managed property it reads updates; the instruction form of a getter.
@@ -89,8 +94,8 @@ function set<T, S = any>(compute: (this: S, self: S) => T): T;
  * Writable default, hidden from enumeration - unlike plain assignment.
  *
  * Non-enumerable - excluded from `Object.keys`, spread and `ref(this)`; still in `get()` snapshots.
- * A Promise throws a TypeError on activation - pass a factory. A function is taken as a factory
- * or computed, never stored. `onUpdate` runs on each assignment - see {@link set.Callback}.
+ * A Promise or other thenable throws a TypeError on activation - pass a factory. A function is taken
+ * as a factory or computed, never stored. `onUpdate` runs on each assignment - see {@link set.Callback}.
  *
  * @example
  * name = set('', (next) => {
@@ -98,15 +103,15 @@ function set<T, S = any>(compute: (this: S, self: S) => T): T;
  * });
  */
 function set<T>(
-  value: T extends Promise<any> ? never : T,
+  value: T extends { then(...args: any[]): any } ? never : T,
   onUpdate?: set.Callback<T>
 ): T;
 
 function set<T = any>(value?: unknown, argument?: unknown): any {
   return def<T>((key, subject) => {
-    if (value instanceof Promise)
+    if (typeof value != 'function' && thenable(value))
       throw new TypeError(
-        `Direct promises are not supported in set(${subject}.${key}). Use set(() => promise) instead.`
+        `Direct promises and thenables are not supported in set(${subject}.${key}). Use a factory - its result is awaited.`
       );
 
     if (typeof value == 'function' && value.length > 0) {
@@ -123,7 +128,11 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
 
     // One-shot factory
     if (typeof value == 'function') {
-      const factory = value.bind(subject, key)
+      const factory = () => {
+        const output = value.call(subject, key);
+        return output instanceof Model && thenable(output) ? interim(subject, output) : output;
+      };
+
       computed = true;
 
       function init() {
@@ -212,13 +221,34 @@ function attempt(fn: () => any): any {
     try {
       const output = fn();
 
-      return output instanceof Promise ? output.catch(retry) : output;
+      return thenable(output) ? Promise.resolve(output).catch(retry) : output;
     } catch (err) {
       return retry(err);
     }
   }
 
   return compute();
+}
+
+function interim(owner: Model, model: Model) {
+  if (!parent(model, owner)) return model;
+
+  const drop = () => event(model, null);
+  const release = listener(owner, drop, null);
+  const settled = Promise.resolve(model);
+
+  event(model);
+
+  settled.then(
+    (result) => result !== model && (release(), drop()),
+    () => (release(), drop())
+  );
+
+  return settled;
+}
+
+function thenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as any)?.then == 'function';
 }
 
 export { set };

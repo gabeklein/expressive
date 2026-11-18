@@ -1,4 +1,4 @@
-import { vi, describe, it, expect } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { mockPromise, mockWarn, flushMicrotasks } from '../../test.setup';
 import { Model } from '../model';
 import { set } from './set';
@@ -294,7 +294,7 @@ describe('factory', () => {
     }
 
     expect(() => Test.new()).toThrow(
-      /Direct promises are not supported in set\([\w-]+\.value\)\. Use set\(\(\) => promise\) instead\./
+      /Direct promises and thenables are not supported in set\([\w-]+\.value\)\. Use a factory - its result is awaited\./
     );
   });
 
@@ -842,6 +842,342 @@ it('will support Promise objects as factory return', async () => {
 
   await expect(attempt(() => test.value)).resolves.toBe('foobar');
   expect(test.value).toBe('foobar');
+});
+
+describe('thenable', () => {
+  class Handle<V> {
+    resolve!: (value: V) => void;
+    reject!: (reason: unknown) => void;
+
+    then(resolve: (value: V) => void, reject?: (reason: unknown) => void) {
+      this.resolve = resolve;
+      this.reject = reject!;
+    }
+  }
+
+  it('will resolve a thenable factory return', async () => {
+    const handle = new Handle<string>();
+
+    class Test extends Model {
+      value = set(() => handle);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+    const read = (): string => test.value;
+
+    expect(suspense).toBeInstanceOf(Promise);
+
+    await flushMicrotasks();
+    handle.resolve('foobar');
+
+    await expect(suspense).resolves.toBe('foobar');
+    expect(read()).toBe('foobar');
+  });
+
+  it('will rethrow a rejected thenable', async () => {
+    const handle = new Handle<string>();
+    const error = new Error('nope');
+
+    class Test extends Model {
+      value = set(() => handle);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    suspense.catch(() => {});
+
+    await flushMicrotasks();
+    handle.reject(error);
+
+    await expect(test).toHaveUpdated();
+    expect(() => test.value).toThrow(error);
+  });
+
+  it('will retry before resolving a thenable', async () => {
+    const handle = new Handle<string>();
+    const factory = vi.fn(function (this: Test) {
+      return this.ready && handle;
+    });
+
+    class Test extends Model {
+      ready = set<boolean>();
+      value = set(factory);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    expect(factory).toBeCalledTimes(1);
+
+    test.ready = true;
+    await flushMicrotasks();
+
+    expect(factory).toBeCalledTimes(2);
+
+    await flushMicrotasks();
+    handle.resolve('foobar');
+
+    await expect(suspense).resolves.toBe('foobar');
+    expect(test.value).toBe('foobar');
+  });
+
+  it('will await a Model which defines then', async () => {
+    class Entity extends Model {
+      name = 'foo';
+      then? = (resolve: (self: Entity) => void) => {
+        delete this.then;
+        resolve(this);
+      };
+    }
+
+    const entity = Entity.new();
+
+    class Test extends Model {
+      value = set(() => entity);
+    }
+
+    const test = Test.new();
+
+    await attempt(() => test.value);
+    expect(test.value).toBe(entity);
+    expect(entity.then).toBeUndefined();
+  });
+
+  describe('Model', () => {
+    class Job extends Model {
+      gate = mockPromise<string>();
+
+      then(resolve: (value: string) => void, reject: (reason: unknown) => void) {
+        this.gate.then(resolve, reject);
+      }
+    }
+
+    it('will activate under the owner and destroy once resolved', async () => {
+      let job!: Job;
+
+      class Test extends Model {
+        value = set(() => (job = new Job()));
+      }
+
+      const test = Test.new();
+      const suspense = attempt(() => test.value);
+
+      expect(job.get(Model)).toBe(test);
+      expect(job.get(null)).toBe(false);
+
+      job.gate.resolve('foo');
+      await suspense;
+
+      expect(test.value).toBe('foo');
+      expect(job.get(null)).toBe(true);
+      expect(warn).not.toBeCalled();
+    });
+
+    it('will destroy once rejected', async () => {
+      let job!: Job;
+
+      class Test extends Model {
+        value = set(() => (job = new Job()));
+      }
+
+      const test = Test.new();
+      const suspense = attempt(() => test.value);
+
+      job.gate.reject(new Error('nope'));
+      await suspense;
+
+      expect(job.get(null)).toBe(true);
+      expect(() => test.value).toThrow('nope');
+    });
+
+    it('will destroy with the owner while pending', () => {
+      let job!: Job;
+
+      class Test extends Model {
+        value = set(() => (job = new Job()));
+      }
+
+      const test = Test.new();
+
+      attempt(() => test.value).catch(() => {});
+      test.set(null);
+
+      expect(job.get(null)).toBe(true);
+    });
+
+    it('will keep a Model resolving to itself until the owner is destroyed', async () => {
+      let entity!: Entity;
+
+      class Entity extends Model {
+        then? = (resolve: (self: Entity) => void) => {
+          delete this.then;
+          resolve(this);
+        };
+      }
+
+      class Test extends Model {
+        value = set(() => (entity = new Entity()));
+      }
+
+      const test = Test.new();
+
+      await attempt(() => test.value);
+
+      expect(test.value).toBe(entity);
+      expect(entity.get(null)).toBe(false);
+
+      test.set(null);
+
+      expect(entity.get(null)).toBe(true);
+    });
+
+    it('will not claim an active entity resolving to itself', async () => {
+      class Entity extends Model {
+        then? = (resolve: (self: Entity) => void) => {
+          delete this.then;
+          resolve(this);
+        };
+      }
+
+      const entity = Entity.new();
+
+      class Test extends Model {
+        value = set(() => entity);
+      }
+
+      const test = Test.new();
+
+      await attempt(() => test.value);
+
+      expect(test.value).toBe(entity);
+      test.set(null);
+
+      expect(entity.get(null)).toBe(false);
+      entity.set(null);
+    });
+
+    it('will not claim a Model already active', async () => {
+      const job = Job.new();
+
+      class Test extends Model {
+        value = set(() => job);
+      }
+
+      const test = Test.new();
+      const suspense = attempt(() => test.value);
+
+      job.gate.resolve('foo');
+      await suspense;
+
+      expect(job.get(null)).toBe(false);
+      job.set(null);
+    });
+  });
+
+  it('will suspend a thenable resolving synchronously', async () => {
+    class Test extends Model {
+      value = set(() => ({ then: (resolve: (value: string) => void) => resolve('foo') }));
+    }
+
+    const test = Test.new();
+
+    await expect(attempt(() => test.value)).resolves.toBe('foo');
+    expect(test.value).toBe('foo');
+  });
+
+  it('will rethrow from a then which throws', async () => {
+    const error = new Error('nope');
+
+    class Test extends Model {
+      value = set(() => ({ then(): void { throw error } }));
+    }
+
+    const test = Test.new();
+
+    await attempt(() => test.value);
+    expect(() => test.value).toThrow(error);
+  });
+
+  it('will flatten a thenable resolving to a thenable', async () => {
+    const inner = { then: (resolve: (value: string) => void) => resolve('foo') };
+
+    class Test extends Model {
+      value = set(() => ({ then: (resolve: (value: typeof inner) => void) => resolve(inner) }));
+    }
+
+    const test = Test.new();
+
+    await attempt(() => test.value);
+    expect(test.value).toBe('foo');
+  });
+
+  it('will read undefined while a lazy thenable is pending', async () => {
+    const handle = new Handle<string>();
+
+    class Test extends Model {
+      value = set(() => handle, false);
+    }
+
+    const test = Test.new();
+
+    expect(test.value).toBeUndefined();
+
+    await flushMicrotasks();
+    handle.resolve('foo');
+    await expect(test).toHaveUpdated();
+
+    expect(test.value).toBe('foo');
+  });
+
+  it('will seed a callback with the resolved thenable', async () => {
+    const handle = new Handle<string>();
+    const callback = vi.fn((next: string) => {
+      expectTypeOf(next).toEqualTypeOf<string>();
+    });
+
+    class Test extends Model {
+      value = set(() => handle, callback);
+    }
+
+    Test.new();
+
+    await flushMicrotasks();
+    handle.resolve('foo');
+    await flushMicrotasks();
+
+    expect(callback).toBeCalledWith('foo', undefined);
+  });
+
+  it('will type explicit async factories', () => {
+    class Test extends Model {
+      value = set<string>(async () => 'foo');
+      // @ts-expect-error
+      wrong = set<number>(async () => 'foo');
+    }
+
+    expectTypeOf<Test['value']>().toEqualTypeOf<string>();
+  });
+
+  it('will assign an object without then synchronously', () => {
+    const object = { foo: 'bar' };
+
+    class Test extends Model {
+      value = set(() => object);
+    }
+
+    expect(Test.new().value).toBe(object);
+  });
+
+  it('will throw for a direct thenable', () => {
+    class Test extends Model {
+      // @ts-expect-error
+      value = set(new Handle<string>());
+    }
+
+    expect(() => Test.new()).toThrow(/Direct promises and thenables are not supported/);
+  });
 });
 
 it('will call callback with the instance as this', () => {
