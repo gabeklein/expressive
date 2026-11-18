@@ -1,5 +1,6 @@
 import { listener, capture, observer } from '../observable';
 import { event, Model, parent } from '../model';
+import { REPORT } from '../dispatch';
 import { access, compute, update } from '../store';
 import { def } from './def';
 
@@ -39,6 +40,9 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
  * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
  * it settles - unless it resolves to itself.
+ * With `true` it runs after constructor args apply; while async it holds `ready`, effects and
+ * `await set()`, and a rejection reports to `catch` as `setup`.
+ * A synchronous throw from it fails activation - `new()` throws.
  *
  * @example
  * config = set(() => loadConfig());
@@ -119,7 +123,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
       return;
     }
 
-    const config: Model.Apply = {
+    const config: def.Config = {
       enumerable: false,
       set: false
     };
@@ -154,7 +158,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           else update(subject, key, next, silent, true);
         }
 
-        if (output instanceof Promise)
+        if (output instanceof Promise) {
           output.then((next) => {
             if (observer(subject) !== null) assign(next);
           }, (error) => {
@@ -164,24 +168,24 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
               throw error;
             };
           });
-        else assign(output, true);
 
-        if (argument) return null;
+          if (argument === true)
+            return output.catch((err) => {
+              if (observer(subject) !== null)
+                REPORT.as('setup', subject, err, key);
+            });
 
-        if (output instanceof Promise && argument !== false)
-          return access(subject, key, true);
+          if (argument === undefined)
+            return access(subject, key, true);
+        } else {
+          assign(output, true);
+        }
 
-        return subject[key];
+        if (!argument) return subject[key];
       }
 
-      if (argument) {
-        listener(subject, () => {
-          init();
-          return null;
-        });
-      } else {
-        config.get = init;
-      }
+      if (argument) config.init = init;
+      else config.get = init;
     } else if (value !== undefined) {
       config.value = value;
     }

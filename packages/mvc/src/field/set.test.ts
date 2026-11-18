@@ -831,6 +831,147 @@ describe('factory with callback overload', () => {
   });
 });
 
+describe('required factory', () => {
+  function pending() {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+    const caught = vi.fn();
+
+    class Test extends Model {
+      value = set(() => promise, true);
+    }
+
+    Test.on({ ready, catch: caught });
+
+    return { promise, ready, caught, test: Test.new() };
+  }
+
+  it('will hold ready until resolved', async () => {
+    const { promise, ready, test } = pending();
+    const effect = vi.fn();
+    const settled = test.set();
+
+    test.get(effect);
+    await flushMicrotasks();
+
+    expect(ready).not.toBeCalled();
+    expect(effect).not.toBeCalled();
+
+    promise.resolve('foo');
+    await settled;
+
+    expect(ready).toBeCalledTimes(1);
+    expect(effect).toBeCalledTimes(1);
+    expect(test.value).toBe('foo');
+  });
+
+  it('will release ready and report as setup if rejected', async () => {
+    const { promise, ready, caught, test } = pending();
+    const error = new Error('nope');
+
+    promise.reject(error);
+    await test.set();
+
+    expect(ready).toBeCalledTimes(1);
+    expect(caught).toBeCalledWith(error, 'setup', 'value');
+    expect(() => test.value).toThrow(error);
+  });
+
+  it('will not report a rejection once destroyed', async () => {
+    const { promise, caught, test } = pending();
+
+    test.set(null);
+    promise.reject(new Error('nope'));
+    await flushMicrotasks();
+
+    expect(caught).not.toBeCalled();
+  });
+
+  it('will run after arguments apply', () => {
+    class Test extends Model {
+      id = 0;
+      value = set(() => this.id * 2, true);
+    }
+
+    expect(Test.new({ id: 2 }).value).toBe(4);
+  });
+
+  it('will not hold ready for a seeded factory', async () => {
+    const ready = vi.fn();
+    class Test extends Model {
+      value = set(() => mockPromise<string>(), () => {});
+    }
+
+    Test.on({ ready });
+    Test.new();
+    await flushMicrotasks();
+
+    expect(ready).toBeCalledTimes(1);
+  });
+
+  it('will hold until a required factory it depends on resolves', async () => {
+    const ready = vi.fn();
+    const promise = mockPromise<string>();
+
+    class Test extends Model {
+      greet = set(() => this.name + '!', true);
+      name = set(() => promise, true);
+    }
+
+    Test.on({ ready });
+
+    const test = Test.new();
+    await flushMicrotasks();
+    expect(ready).not.toBeCalled();
+
+    promise.resolve('foo');
+    await test.set();
+
+    expect(ready).toBeCalledTimes(1);
+    expect(test.greet).toBe('foo!');
+  });
+
+  it('will hold a parent until a child resolves', async () => {
+    const ready = vi.fn();
+    const promise = mockPromise<string>();
+
+    class Child extends Model {
+      value = set(() => promise, true);
+    }
+
+    class Parent extends Model {
+      child = new Child();
+    }
+
+    Parent.on({ ready });
+
+    const parent = Parent.new();
+    await flushMicrotasks();
+    expect(ready).not.toBeCalled();
+
+    promise.resolve('foo');
+    await parent.set();
+
+    expect(ready).toBeCalledTimes(1);
+  });
+
+  it('will not hold children of a pending parent', async () => {
+    const ready = vi.fn();
+    class Child extends Model {}
+
+    class Parent extends Model {
+      value = set(() => mockPromise<string>(), true);
+      child = new Child();
+    }
+
+    Child.on({ ready });
+    Parent.new();
+    await flushMicrotasks();
+
+    expect(ready).toBeCalledTimes(1);
+  });
+});
+
 it('will support Promise objects as factory return', async () => {
   const resolve = new Promise<string>((resolve) => setTimeout(() => resolve('foobar')));
 
