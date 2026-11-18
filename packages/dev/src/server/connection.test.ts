@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { set, Model } from "@expressive/mvc";
 
-import { begin, catchUp, checksum, connect, end, frameOf, hold, listen, release, renew, twinOf } from "./connection";
+import { audit, begin, catchUp, checksum, connect, end, frameOf, hold, listen, release, renew, twinOf } from "./connection";
 import { track } from "./version";
 
 class Tally extends Model {
@@ -426,6 +426,118 @@ describe("connection", () => {
       close();
       vi.advanceTimersByTime(300_000);
       expect(connect(id)).not.toBe(connection);
+    });
+
+    describe("drift", () => {
+      class List extends Model {
+        items: string[] = [];
+        tags = new Set<string>();
+        scores = new Map<string, bigint>();
+        count = 0;
+        loop: Record<string, unknown> = {};
+
+        constructor() {
+          super();
+          this.loop.self = this.loop;
+        }
+      }
+
+      const SHAPE = { fields: ["items", "tags", "scores", "count", "loop"] };
+      let warn: MockInstance<typeof console.warn>;
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        audit(false);
+        warn.mockRestore();
+      });
+
+      function listed() {
+        const { connection, events } = streamed();
+        const list = List.new();
+
+        track(list);
+        hold(connection, "L", "/list", list, SHAPE);
+        catchUp(connection, "L");
+
+        return { connection, events, list };
+      }
+
+      it("will keep a twin stale through an in-place change, its beat still matching", () => {
+        const { connection, events, list } = listed();
+        const sum = checksum(connection);
+
+        list.items.push("a");
+        vi.advanceTimersByTime(15_000);
+
+        expect(catchUp(connection, "L")).toEqual({});
+        expect(events.at(-1)).toEqual(["beat", { sum }]);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("will warn on the beat after a field sent changes in place, naming its class and field, once per change", () => {
+        audit(true);
+        const { list } = listed();
+
+        list.items.push("a");
+        list.tags.add("x");
+        list.scores.set("a", 1n);
+        vi.advanceTimersByTime(15_000);
+
+        expect(warn.mock.calls.map(([message]) => message.split(" ")[0])).toEqual(["List.items", "List.tags", "List.scores"]);
+        expect(warn.mock.calls[0][0]).toMatch(/^List\.items changed in place/);
+
+        vi.advanceTimersByTime(15_000);
+        expect(warn).toHaveBeenCalledTimes(3);
+      });
+
+      it("will not warn for a field assigned since it was sent, nor one it could not encode", async () => {
+        audit(true);
+        const { connection, list } = listed();
+
+        list.items = ["a"];
+        list.count = 1;
+        await list.set();
+        vi.advanceTimersByTime(15_000);
+        expect(warn).not.toHaveBeenCalled();
+
+        frameOf(connection);
+        list.items.push("b");
+        list.count = 2;
+        list.loop.more = true;
+        vi.advanceTimersByTime(15_000);
+        expect(warn).toHaveBeenCalledOnce();
+        expect(warn.mock.calls[0][0]).toMatch(/^List\.items/);
+      });
+
+      it("will check only what it sent while auditing", () => {
+        const { connection, list } = listed();
+        const other = List.new();
+
+        audit(true);
+        track(other);
+        hold(connection, "M", "/m", other, SHAPE);
+        list.items.push("a");
+        other.items.push("a");
+        vi.advanceTimersByTime(15_000);
+
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("will keep what a seat twin was sent across calls that hold it again", () => {
+        audit(true);
+        const { connection, list } = listed();
+        const version = connection.twins.get("L")!.seen.get("");
+
+        hold(connection, "L", "/list", list, SHAPE, version);
+        list.items.push("a");
+        vi.advanceTimersByTime(15_000);
+
+        expect(warn).toHaveBeenCalledOnce();
+      });
     });
 
     it("will let a newer stream take over without the older one's close undoing it", () => {
