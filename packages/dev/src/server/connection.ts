@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { Model } from "@expressive/mvc";
 
-import { changedSince, snapshot, track, versionOf, watch } from "./version";
+import { changedSince, collect, idOf, snapshot, track, versionOf, watch } from "./version";
 
 export interface Shape {
   fields: string[];
   children?: Record<string, Shape>;
+  many?: true;
 }
 
 interface Held {
@@ -27,6 +28,7 @@ interface Entry {
 
 export interface Pool {
   id: string;
+  open?: true;
   drop(): void;
   current(): boolean;
 }
@@ -272,7 +274,10 @@ function entriesOf(twin: string, held: Held): Entry[] {
 
     for (const [field, child] of Object.entries(shape.children ?? {})) {
       const value = snapshot(instance, [field])[field];
-      if (value instanceof Model) walk(path ? `${path}.${field}` : field, value, child);
+      const at = path ? `${path}.${field}` : field;
+
+      if (child.many) for (const [id, item] of membersOf(instance, field, value)) walk(`${at}.${id}`, item, child);
+      else if (value instanceof Model) walk(at, value, child);
     }
   })("", held.instance, held.shape);
 
@@ -300,6 +305,13 @@ function follow(connection: Connection, twin: string): void {
     }
 }
 
+export function membersOf(owner: Model, field: string, pool: unknown): [string, Model][] {
+  track(owner);
+  collect(owner, field, pool as object);
+
+  return [...(pool as Iterable<Model>)].map(item => [idOf(item), item]);
+}
+
 function unwatch(held: Held): void {
   held.watching.forEach(({ stop }) => stop());
   held.watching.clear();
@@ -313,10 +325,11 @@ function patchOf(instance: Model, shape: Shape, keys: string[]): Record<string, 
   const patch = snapshot(instance, keys);
 
   for (const field of keys) {
-    if (!shape.children?.[field]) continue;
-
     const child = patch[field];
-    if (child instanceof Model) patch[field] = { $child: versionOf(child).split(":")[0] };
+
+    if (!shape.children?.[field]) continue;
+    if (shape.children[field].many) patch[field] = { $items: membersOf(instance, field, child).map(([id]) => id) };
+    else if (child instanceof Model) patch[field] = { $child: idOf(child) };
     else if (!isPending(child)) patch[field] = null;
   }
 

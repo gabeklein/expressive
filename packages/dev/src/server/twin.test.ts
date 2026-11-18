@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { get, Model } from "@expressive/mvc";
+import { get, has, Model } from "@expressive/mvc";
 
 import { Current } from "@expressive/rpc";
 import { dispatch, type Seats } from "@expressive/rpc/protocol";
@@ -425,5 +425,220 @@ describe("child dispatch", () => {
     await as("default.drop", twin);
 
     expect(await as("default.line.bump", twin, "[1]")).toEqual({ status: 500, body: { message: expect.stringMatching(/^line is not set on Order-/), stack: expect.any(String) } });
+  });
+});
+
+describe("collection dispatch", () => {
+  class Render extends Model {
+    id = "";
+    progress = 0;
+    protected studio = get(Studio);
+    async step(by: number) { return (this.progress += by); }
+  }
+
+  class Studio extends Model {
+    static ttl = 60;
+    jobs = has(Render, "id");
+
+    static key() {
+      return Current.get().request.headers.get("x-user") ?? undefined;
+    }
+
+    async start(...ids: string[]) { ids.forEach(id => this.jobs.add(id)); }
+    async stop(id: string) { this.jobs.get(job => job.id === id)!.set(null); }
+  }
+
+  const SHAPE = { fields: ["jobs"], children: { jobs: { fields: ["id", "progress"], many: true as const } } };
+  const seats: Seats = async pattern => (pattern.join("/") === "studio" ? (Studio as any) : undefined);
+  const endpoints: Endpoint[] = [
+    {
+      pattern: ["studio"],
+      exports: async () => ({
+        calls: {},
+        classes: {},
+        seat: { ...SHAPE, methods: { "default.start": "start", "default.stop": "stop", "default.jobs.step": "jobs.step" } },
+      }),
+    },
+  ];
+
+  function tab(user = crypto.randomUUID(), id = crypto.randomUUID()) {
+    let version: string | undefined;
+
+    const as = async (name: string | undefined, extra: Record<string, string> = {}, args = "[]") => {
+      const headers = { "x-expressive-connection": id, "x-user": user, "x-expressive-twin": "Studio-A", ...(version ? { "if-none-match": version } : {}), ...extra };
+      const reply = await send(endpoints, request("/studio", name, args, "application/json", headers), true, seats);
+
+      version = reply.body?.frame?.["Studio-A"]?.version ?? version;
+      return reply;
+    };
+
+    return { user, id, as, pull: () => as(undefined, { "x-expressive-get": "default" }) };
+  }
+
+  install();
+
+  it("will frame each member under its own id, and membership as the owner's id list", async () => {
+    const { as, pull } = tab();
+
+    await as("default.start", {}, '["a"]');
+    const { body: started } = await as("default.start", {}, '["b"]');
+    const { body: pulled } = await tab().pull();
+    const [a, b] = started.frame["Studio-A"].patch.jobs.$items;
+
+    expect(started.frame).toEqual({
+      "Studio-A": { patch: { jobs: { $items: [a, b] } }, version: expect.any(String) },
+      [`Studio-A.jobs.${b}`]: { patch: { id: "b", progress: 0 }, version: expect.stringMatching(new RegExp(`^${b}:`)) },
+    });
+    expect(pulled.frame).toEqual({ "Studio-A": { patch: { jobs: { $items: [] } }, version: expect.any(String) } });
+    expect((await pull()).status).toBe(304);
+  });
+
+  it("will patch one member alone, keeping its id", async () => {
+    const { as } = tab();
+    const { body } = await as("default.start", {}, '["a", "b"]');
+    const [a] = body.frame["Studio-A"].patch.jobs.$items;
+
+    expect(await as("default.jobs.step", { "x-expressive-items": a }, "[5]")).toEqual({
+      status: 200,
+      body: { value: 5, frame: { [`Studio-A.jobs.${a}`]: { patch: { progress: 5 }, version: `${a}:1` } } },
+    });
+  });
+
+  it("will send only the id list when a member leaves", async () => {
+    const { as } = tab();
+    const { body } = await as("default.start", {}, '["a", "b"]');
+    const [, b] = body.frame["Studio-A"].patch.jobs.$items;
+
+    expect((await as("default.stop", {}, '["a"]')).body.frame).toEqual({ "Studio-A": { patch: { jobs: { $items: [b] } }, version: expect.any(String) } });
+  });
+
+  it("will announce a member's change on the stream under its own key", async () => {
+    const mine = tab();
+    const other = tab(mine.user);
+    const events: [string, any][] = [];
+    const { body } = await mine.as("default.start", {}, '["a"]');
+    const [a] = body.frame["Studio-A"].patch.jobs.$items;
+
+    listen(connect(mine.id)!, (event, data) => events.push([event, data]));
+    await other.pull();
+    await other.as("default.jobs.step", { "x-expressive-items": a }, "[1]");
+    await new Promise(resolve => setTimeout(resolve));
+    await other.as("default.start", {}, '["c"]');
+    await new Promise(resolve => setTimeout(resolve));
+
+    expect(events.slice(1)).toEqual([
+      ["stale", { [`Studio-A.jobs.${a}`]: ["progress"] }],
+      ["stale", { "Studio-A": ["jobs"], [`Studio-A.jobs.${a}`]: ["progress"] }],
+    ]);
+  });
+
+  it("will fail a member method whose member is gone", async () => {
+    expect(await tab().as("default.jobs.step", { "x-expressive-items": "nope" }, "[1]")).toEqual({
+      status: 500,
+      body: { message: expect.stringMatching(/^jobs is not set on Studio-/), stack: expect.any(String) },
+    });
+  });
+});
+
+describe("open dispatch", () => {
+  const ALL = new Map<string, Model>();
+
+  class Render extends Model {
+    id = "";
+    progress = 0;
+    async step() { return ++this.progress; }
+
+    static open(id: string) {
+      return Studio.get().jobs.get(job => job.id === id);
+    }
+  }
+
+  class Leak extends Model {
+    static open(id: string) {
+      return ALL.get(id);
+    }
+  }
+
+  class Studio extends Model {
+    static ttl = 60;
+    jobs = has(Render, "id");
+
+    static key() {
+      return Current.get().request.headers.get("x-user") ?? undefined;
+    }
+
+    async start(id: string) { ALL.set(id, this.jobs.add(id)); }
+    async finish(id: string) { ALL.get(id)!.set(null); }
+  }
+
+  const POOL = {
+    "/studio#Render": { Type: Render, fields: ["id", "progress"], methods: { "/studio#Render.step": "step" } },
+    "/studio#Leak": { Type: Leak, fields: [], methods: {} },
+    "/studio#Cart": { Type: class Cart extends Model {}, fields: [], methods: {} },
+  };
+  const seats: Seats = async pattern => (pattern.join("/") === "studio" ? (Studio as any) : undefined);
+  const endpoints: Endpoint[] = [
+    { pattern: ["studio"], exports: async () => ({ calls: {}, classes: {}, seat: { fields: [], methods: { "default.start": "start", "default.finish": "finish" } }, pool: POOL }) },
+  ];
+
+  function tab(user: string) {
+    const id = crypto.randomUUID();
+    const as = (extra: Record<string, string>, name?: string) =>
+      send(endpoints, request("/studio", name, name ? `["${extra.arg ?? ""}"]` : "[]", "application/json", { "x-expressive-connection": id, "x-user": user, ...extra }), false, seats);
+
+    return {
+      id,
+      start: (job: string) => as({ "x-expressive-twin": "Studio-A", arg: job }, "default.start"),
+      finish: (job: string) => as({ "x-expressive-twin": "Studio-A", arg: job }, "default.finish"),
+      open: (twin: string, key: string, Type = "Render", extra: Record<string, string> = {}) =>
+        as({ "x-expressive-get": `/studio#${Type}`, "x-expressive-twin": twin, "x-expressive-key": encodeURIComponent(key), ...extra }),
+      step: (twin: string, extra: Record<string, string> = {}) => as({ "x-expressive-twin": twin, ...extra }, "/studio#Render.step"),
+    };
+  }
+
+  install();
+
+  it("will hold the instance open() returns, call it in place, and not destroy it on release", async () => {
+    const mine = tab("u1");
+    await mine.start("r/1");
+
+    expect(await mine.open("Render-A", "r/1")).toEqual({ status: 200, body: { frame: { "Render-A": { patch: { id: "r/1", progress: 0 }, version: expect.any(String) } } } });
+    expect((await mine.step("Render-A")).body.value).toBe(1);
+    expect(connect(mine.id)!.twins.get("Render-A")!.instance).toBe(ALL.get("r/1"));
+
+    await mine.open("Render-B", "r/1", "Render", { "x-expressive-release": "Render-A" });
+    expect(ALL.get("r/1")!.get(null)).toBe(false);
+    expect((await mine.step("Render-B")).body.value).toBe(2);
+  });
+
+  it("will reply 404 when open() finds nothing, or the class has no open()", async () => {
+    const mine = tab("u2");
+
+    expect(await mine.open("Render-A", "none")).toEqual({ status: 404, body: { message: "Not found." } });
+    expect((await mine.open("Cart-A", "x", "Cart")).status).toBe(404);
+    expect(connect(mine.id)!.twins.has("Render-A")).toBe(false);
+  });
+
+  it("will refuse an instance no seat of the request owns", async () => {
+    await tab("u3").start("r3");
+
+    expect((await tab("u4").open("Leak-A", "r3", "Leak")).status).toBe(404);
+    expect((await tab("u3").open("Leak-A", "r3", "Leak")).status).toBe(200);
+  });
+
+  it("will refuse a held twin once its request reaches another seat, or its instance ends", async () => {
+    const mine = tab("u5");
+    await mine.start("r5");
+    await mine.open("Leak-A", "r5", "Leak");
+    await mine.open("Render-A", "r5");
+
+    expect((await mine.step("Render-A", { "x-user": "u6" })).status).toBe(409);
+
+    await mine.finish("r5");
+    expect((await mine.open("Leak-A", "r5", "Leak")).status).toBe(409);
+  });
+
+  it("will reply 400 to a key that is not URI-encoded", async () => {
+    expect((await tab("u7").open("Render-A", "x", "Render", { "x-expressive-key": "%" })).status).toBe(400);
   });
 });

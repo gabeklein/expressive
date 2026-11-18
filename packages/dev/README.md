@@ -242,6 +242,36 @@ call through the owner (`order.line.bump()`). Assigning a new instance on the se
 child twin; clearing the field leaves it `undefined`. A public `get()` field fails the build - make
 it `protected` or `private`.
 
+A `has()` pool of a Model class - `jobs = has(Render)` or `has(Render, "id")` - is a collection of
+children: the twin's field is a read-only pool of member twins, in the server's order, each patched
+on its own. Adding or removing a member sends only the list of member ids; a member keeps its twin
+while it stays in the pool. Member methods call through the owner (`job.cancel()`). A public `has()`
+of plain values, a factory, or a class that is not a Model fails the build.
+
+```ts
+// app/studio/remote.ts
+export default class Studio extends Model {
+  jobs = has(Render, "id");
+
+  async start(prompt: string) {
+    this.jobs.add(crypto.randomUUID()).run(prompt);
+  }
+}
+```
+
+```tsx
+// app/studio/index.tsx
+import type Studio from "./remote";
+
+export class Page extends Route {
+  declare remote: Studio;
+
+  render() {
+    return <ul>{this.remote.jobs.map(job => <li key={job.id}>{job.progress}%</li>)}</ul>;
+  }
+}
+```
+
 A value still pending on the server - a `set()` field not yet assigned, or a getter waiting on one -
 is pending on the twin too: reading it suspends until the server assigns it. A value the twin already
 holds stays, unless the server rebuilt the instance.
@@ -264,6 +294,33 @@ export class Cart extends Model {
   protected shop = get(Shop);
   items = 0;
   async add() { return ++this.items; }
+}
+```
+
+`Render.open(key)` twins an instance the server already holds instead of building one - a job by id
+out of a seat's `has()`. Use it where `new Cart()` goes: a field of a Component under the route. The class declares `static open(key: string)`, returning that instance or
+`undefined`; it runs after the route walk and every `key()` above, so it finds the instance through
+them (`Studio.get()`), never a module-level map. dev refuses an instance no seat of the request owns,
+on the first pull and every call after. Releasing the twin leaves the instance alive. Reads suspend
+until the first pull; a key `open()` does not find - or a class without `open()` - replies 404, which
+reports to the twin's `catch` as `setup` and destroys it. A pull refused after the instance ends
+replies 409, as for a pooled twin whose context was replaced.
+
+```ts
+// app/studio/remote.ts
+export class Render extends Model {
+  id = "";
+  progress = 0;
+
+  static open(id: string) {
+    return Studio.get().jobs.get(job => job.id === id);
+  }
+}
+
+// a component under /studio - <JobRow id="r1" />
+class JobRow extends Component {
+  id = "";
+  job = set(() => Render.open(this.id));
 }
 ```
 

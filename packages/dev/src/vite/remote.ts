@@ -9,6 +9,7 @@ export interface Definition {
   fields: string[];
   methods: Record<string, string>;
   children?: Record<string, Definition>;
+  many?: true;
 }
 
 export function pathsOf(twin: Twin, prefix = ""): string[] {
@@ -18,8 +19,12 @@ export function pathsOf(twin: Twin, prefix = ""): string[] {
   ];
 }
 
-export function shapeOf({ fields, children }: Twin): Shape {
-  return children ? { fields, children: Object.fromEntries(Object.entries(children).map(([field, child]) => [field, shapeOf(child)])) } : { fields };
+export function shapeOf({ fields, children, many }: Twin): Shape {
+  return {
+    fields,
+    ...(children ? { children: Object.fromEntries(Object.entries(children).map(([field, child]) => [field, shapeOf(child)])) } : {}),
+    ...(many ? { many } : {}),
+  };
 }
 
 export interface Exposed extends Remote, Plain {
@@ -38,6 +43,8 @@ export class Exposure extends Manifest<Exposed> {
       fields: twin.fields,
       methods: Object.fromEntries(twin.methods.map(name => [name, this.methodId(remote, root, pooled, prefix + name)])),
     };
+
+    if (twin.many) definition.many = twin.many;
 
     if (twin.children)
       definition.children = Object.fromEntries(

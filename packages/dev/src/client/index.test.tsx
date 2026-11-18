@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // @vitest-environment-options { "url": "http://localhost/" }
 
-import { Context, def, Model, set } from "@expressive/mvc";
+import { Context, def, has, Model, set } from "@expressive/mvc";
 import { Link, Redirect } from "@expressive/router";
 import { client, Redirect as Moved } from "@expressive/rpc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -546,7 +546,7 @@ describe("seat", () => {
       twin: (init.headers as Record<string, string>)["x-expressive-twin"],
       reply: (body, status = 200) => resolve(new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": "e1" } })),
     }))));
-    ({ twin, define } = runtime(client, Model, def, Context, Route));
+    ({ twin, define } = runtime(client, Model, def, Context, Route, has));
   });
 
   afterEach(() => vi.unstubAllGlobals());

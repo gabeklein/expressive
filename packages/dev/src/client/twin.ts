@@ -1,4 +1,4 @@
-import type { Context as Contexts, Model, def as instruction } from "@expressive/mvc";
+import type { Context as Contexts, Model, def as instruction, has as collection } from "@expressive/mvc";
 
 import type { client as Client } from "@expressive/rpc";
 
@@ -13,6 +13,7 @@ interface Definition {
   fields: string[];
   methods: Record<string, string>;
   children?: Record<string, Definition>;
+  many?: true;
 }
 
 interface Shape {
@@ -27,6 +28,7 @@ interface Entry {
   shape: Shape;
   pending: Set<string>;
   kids: Map<string, { generation: string; child: Model }>;
+  items: string[];
   version?: string;
 }
 
@@ -35,6 +37,7 @@ interface Root extends Entry {
   name: string;
   pattern: string[];
   pool?: string;
+  key?: string;
   path?: string;
   attaching?: Promise<void>;
   early?: Map<string, Patch>;
@@ -42,7 +45,7 @@ interface Root extends Entry {
   again?: boolean;
 }
 
-export function runtime(client: typeof Client, Base: typeof Model, def: typeof instruction, Context: typeof Contexts, Route: Model.Type<Routed>) {
+export function runtime(client: typeof Client, Base: typeof Model, def: typeof instruction, Context: typeof Contexts, Route: Model.Type<Routed>, has: typeof collection) {
   const entries = new WeakMap<Model, Entry>();
   const made = new WeakMap<Definition, Model.Type>();
   const twins = new Map<string, WeakRef<Model>>();
@@ -59,6 +62,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   let beat: number | undefined;
   let sums = new Set<number>();
   let flush: ReturnType<typeof setTimeout> | undefined;
+  let opening: string | undefined;
 
   const { send: post, define, pathOf } = client({
     headers() {
@@ -208,11 +212,22 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
         continue;
       }
 
-      const held = path.reduce<{ child: Model; generation?: string } | undefined>((at, field) => at && of(at.child).kids.get(field), { child: twin });
+      const held = find(twin, path);
       const generation = version.split(":")[0];
 
       if (held && (held.generation ?? generation) === generation) sync(held.child, patch, version);
     }
+  }
+
+  function find(twin: Model, path: string[]): { child: Model; generation?: string } | undefined {
+    let at: { child: Model; generation?: string } | undefined = { child: twin };
+
+    for (let i = 0; at && i < path.length; i++) {
+      const { kids, shape } = of(at.child);
+      at = shape.children?.[path[i]]?.many ? kids.get(`${path[i]}.${path[++i]}`) : kids.get(path[i]);
+    }
+
+    return at;
   }
 
   async function call(pattern: string[], name: string, args: unknown[]): Promise<unknown> {
@@ -260,12 +275,11 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
       }
       else delete values[field];
 
-    if (children) values = nest(twin, values, children);
-
     entry.version = version;
     syncing = true;
 
     try {
+      if (children) values = nest(twin, values, children);
       twin.set(values);
     } finally {
       syncing = false;
@@ -283,8 +297,9 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
   async function attach(twin: Model, whole?: boolean): Promise<void> {
     const entry = of(twin);
-    const { id, pool } = entry;
-    const reply = await send(where(twin), { "x-expressive-get": pool ?? "default", "x-expressive-twin": id, ...(whole ? {} : since(twin)) }, []);
+    const { id, pool, key } = entry;
+    const opened: Record<string, string> = key === undefined ? {} : { "x-expressive-key": encodeURIComponent(key) };
+    const reply = await send(where(twin), { "x-expressive-get": pool ?? "default", "x-expressive-twin": id, ...opened, ...(whole ? {} : since(twin)) }, []);
 
     if (twin.get(null)) return void drop(id);
     if (reply) apply(reply.frame, twin);
@@ -298,11 +313,17 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   }
 
   function nest(owner: Model, values: Record<string, unknown>, children: Record<string, Definition>): Record<string, unknown> {
-    const { kids: held, root } = of(owner);
+    const { kids: held, root, items } = of(owner);
     const out = { ...values };
 
     for (const field of Object.keys(children)) {
       if (!(field in values)) continue;
+
+      if (children[field].many) {
+        delete out[field];
+        gather(owner, field, children[field], (values[field] as { $items: string[] }).$items);
+        continue;
+      }
 
       const marker = values[field] as { $child: string } | null;
 
@@ -315,12 +336,60 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
       const current = held.get(field);
 
       if (current?.generation !== marker.$child)
-        held.set(field, { generation: marker.$child, child: new (classOf(children[field]) as any)(root) });
+        held.set(field, { generation: marker.$child, child: new (classOf(children[field]) as any)(root, items) });
 
       out[field] = held.get(field)!.child;
     }
 
     return out;
+  }
+
+  function gather(owner: Model, field: string, definition: Definition, ids: string[]): void {
+    const { kids, root, items } = of(owner);
+    const pool = (owner as any)[field] as InstanceType<typeof has.Pool>;
+    const live = new Set(ids.map(id => `${field}.${id}`));
+    const prefix = `${field}.`;
+
+    for (const [key, { child }] of kids)
+      if (key.startsWith(prefix) && !live.has(key)) {
+        kids.delete(key);
+        pool.delete(child);
+      }
+
+    for (const id of ids) {
+      const key = prefix + id;
+
+      if (kids.has(key)) continue;
+
+      const child = new (classOf(definition) as any)(root, [...items, id]);
+
+      kids.set(key, { generation: id, child });
+      pool.add(child);
+    }
+  }
+
+  function field(definition: Definition | undefined): unknown {
+    if (!definition?.many) return served();
+
+    return def((key, owner) => {
+      const pool = new has.Pool((item: Model) => item);
+      const write = (name: "add" | "delete" | "clear") => {
+        const method = pool[name] as (...args: unknown[]) => unknown;
+
+        Object.defineProperty(pool, name, {
+          value(...args: unknown[]) {
+            if (!syncing) throw new Error(`${owner}.${key} is read-only - change it through a method.`);
+            return method.apply(pool, args);
+          },
+        });
+      };
+
+      write("add");
+      write("delete");
+      write("clear");
+
+      return { set: false, value: pool };
+    });
   }
 
   function classOf(definition: Definition): Model.Type {
@@ -330,12 +399,12 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
     const named = {
       [definition.name]: class extends Base {
-        constructor(root: Model) {
+        constructor(root: Model, items: string[]) {
           super();
 
-          entries.set(this, { root, shape: definition, pending: new Set(), kids: new Map() });
+          entries.set(this, { root, shape: definition, pending: new Set(), kids: new Map(), items });
 
-          for (const field of definition.fields) (this as any)[field] = served();
+          for (const name of definition.fields) (this as any)[name] = field(definition.children?.[name]);
         }
       },
     };
@@ -353,7 +422,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
         configurable: true,
         writable: true,
         value(this: Model, ...args: unknown[]) {
-          return invoke(of(this).root, id, args);
+          return invoke(of(this).root, id, args, of(this).items);
         },
       });
   }
@@ -370,12 +439,13 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
     drop(id);
   }
 
-  async function invoke(twin: Model, name: string, args: unknown[]): Promise<unknown> {
+  async function invoke(twin: Model, name: string, args: unknown[], items: string[]): Promise<unknown> {
     const { id, attaching } = of(twin);
+    const path: Record<string, string> = items.length ? { "x-expressive-items": items.join(",") } : {};
 
     await attaching;
 
-    const reply = await send(where(twin, name), { "x-expressive-call": name, "x-expressive-twin": id, ...since(twin) }, args);
+    const reply = await send(where(twin, name), { "x-expressive-call": name, "x-expressive-twin": id, ...path, ...since(twin) }, args);
 
     apply(reply.frame);
 
@@ -406,21 +476,34 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
     return path.split("/").filter(Boolean);
   }
 
+  function open(this: new () => Model, key: string): Model {
+    opening = key;
+
+    try {
+      return new this();
+    } finally {
+      opening = undefined;
+    }
+  }
+
   function twin(pattern: string[], ids: Record<string, string>, fields: string[], name: string, pool?: string, children?: Record<string, Definition>): Model.Type {
     const named = {
       [name]: class extends Base {
         constructor(...args: any[]) {
-          super(...args, ...(pool ? [] : [(self: Model) => of(self).attaching]));
+          const key = opening;
+
+          opening = undefined;
+          super(...args, ...(pool && key === undefined ? [] : [(self: Model) => of(self).attaching]));
 
           const id = `${name}-${uid()}`;
-          const entry: Root = { root: this, id, name, pattern, pool, shape: { fields, children }, pending: new Set(), kids: new Map() };
+          const entry: Root = { root: this, id, name, pattern, pool, key, shape: { fields, children }, pending: new Set(), kids: new Map(), items: [] };
 
           entries.set(this, entry);
           twins.set(id, new WeakRef(this));
           lost.register(this, id, this);
           listen();
 
-          for (const field of fields) (this as any)[field] = served();
+          for (const name of fields) (this as any)[name] = field(children?.[name]);
 
           this.set(null, () => leave(this));
           entry.attaching = Promise.resolve().then(() => (pool && place(this), attach(this)));
@@ -431,6 +514,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
     methods(Twin, ids);
 
+    if (pool) Object.defineProperty(Twin, "open", { configurable: true, writable: true, value: open });
     if (!pool) Twin.on({ catch: (error, kind) => (kind == "setup" ? undefined : error) });
 
     return Twin;

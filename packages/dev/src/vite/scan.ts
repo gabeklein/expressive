@@ -27,6 +27,7 @@ export interface Twin {
   methods: string[];
   fields: string[];
   children?: Record<string, Twin>;
+  many?: true;
 }
 
 interface Pending {
@@ -34,6 +35,7 @@ interface Pending {
   type: string;
   module: Module;
   owner: string;
+  many?: true;
 }
 
 export interface RemoteScan {
@@ -147,19 +149,20 @@ async function twinOf(found: Found, name: string, sources: Sources, problems: st
   return { twin, end: at };
 }
 
-async function childOf({ field, type, module, owner }: Pending, twin: Twin, sources: Sources, problems: string[], stack: string[]): Promise<void> {
+async function childOf({ field, type, module, owner, many }: Pending, twin: Twin, sources: Sources, problems: string[], stack: string[]): Promise<void> {
   const found = await classNamed(type, module, sources);
+  const unlike = () => void (many && problems.push(`${owner}.${field} holds ${type}, which is not a Model - only has() of a Model class crosses.`));
 
-  if (!found) return;
+  if (!found) return unlike();
   if (stack.includes(identity(found))) return void problems.push(`${owner}.${field} holds a ${type}, which holds itself - a twin's children cannot recurse.`);
 
   const own: string[] = [];
   const child = await twinOf(found, type, sources, own, stack);
 
-  if (!child.end?.library) return;
+  if (!child.end?.library) return unlike();
 
   problems.push(...own);
-  (twin.children ??= {})[field] = child.twin;
+  (twin.children ??= {})[field] = many ? { ...child.twin, many } : child.twin;
 }
 
 function identity({ cls, module }: Found): string {
@@ -209,8 +212,15 @@ function collect(cls: ESTree.Class, module: Module, twin: Twin, seen: Set<string
         continue;
       }
 
-      const type = childType(member);
-      if (type) pending.push({ field: name, type, module, owner });
+      const many = collectionOf(member.value, module);
+
+      if (many === null) {
+        problems.push(`${owner}.${name} is a public has() of values or a factory - only has(ModelClass) crosses; declare it protected or private.`);
+        continue;
+      }
+
+      const type = many ?? childType(member);
+      if (type) pending.push({ field: name, type, module, owner, ...(many ? { many: true as const } : {}) });
     }
 
     if (member.type !== "MethodDefinition" || member.kind === "get") twin.fields.push(name);
@@ -221,11 +231,23 @@ function collect(cls: ESTree.Class, module: Module, twin: Twin, seen: Set<string
 }
 
 function isReference(value: Value, module: Module): boolean {
+  return calls(value, module, "get");
+}
+
+function calls(value: Value, module: Module, name: string): value is ESTree.CallExpression {
   if (value?.type !== "CallExpression" || value.callee.type !== "Identifier") return false;
 
   const imported = module.imports.get(value.callee.name);
 
-  return !!imported && imported.name === "get" && LIBRARY.test(imported.from);
+  return !!imported && imported.name === name && LIBRARY.test(imported.from);
+}
+
+function collectionOf(value: Value, module: Module): string | null | undefined {
+  if (!calls(value, module, "has")) return;
+
+  const [type] = value.arguments;
+
+  return type?.type === "Identifier" && /^[A-Z]/.test(type.name) ? type.name : null;
 }
 
 function childType(member: ESTree.PropertyDefinition): string | undefined {

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Model } from "@expressive/mvc";
+import { listener } from "@expressive/mvc/observable";
 
 interface Tracker {
   generation: string;
@@ -7,6 +8,8 @@ interface Tracker {
   dirty: boolean;
   keys: Map<string, number>;
   watchers: Set<() => void>;
+  mark(key: string): () => void;
+  collections: Set<string>;
 }
 
 const trackers = new WeakMap<Model, Tracker>();
@@ -14,24 +17,44 @@ const trackers = new WeakMap<Model, Tracker>();
 export function track(instance: Model): void {
   if (trackers.has(instance)) return;
 
-  const tracker: Tracker = { generation: randomBytes(6).toString("base64url"), counter: 0, dirty: false, keys: new Map(), watchers: new Set() };
   const settle = () => {
     tracker.dirty = false;
     tracker.watchers.forEach(watcher => watcher());
   };
+  const tracker: Tracker = {
+    generation: randomBytes(6).toString("base64url"),
+    counter: 0,
+    dirty: false,
+    keys: new Map(),
+    watchers: new Set(),
+    collections: new Set(),
+    mark(key) {
+      if (!tracker.dirty) {
+        tracker.counter++;
+        tracker.dirty = true;
+      }
+
+      tracker.keys.set(key, tracker.counter);
+      return settle;
+    },
+  };
 
   trackers.set(instance, tracker);
-  instance.set(key => {
-    if (typeof key != "string") return;
+  instance.set(key => (typeof key == "string" ? tracker.mark(key) : undefined));
+}
 
-    if (!tracker.dirty) {
-      tracker.counter++;
-      tracker.dirty = true;
-    }
+export function idOf(instance: Model): string {
+  track(instance);
+  return trackers.get(instance)!.generation;
+}
 
-    tracker.keys.set(key, tracker.counter);
-    return settle;
-  });
+export function collect(instance: Model, field: string, collection: object): void {
+  const tracker = trackers.get(instance)!;
+
+  if (tracker.collections.has(field)) return;
+
+  tracker.collections.add(field);
+  listener(collection, key => (typeof key == "boolean" || key === null ? undefined : tracker.mark(field)));
 }
 
 export function watch(instance: Model, watcher: () => void): () => void {
