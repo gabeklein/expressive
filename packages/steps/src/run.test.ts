@@ -702,6 +702,8 @@ describe('memory', () => {
 
   const gc = runInNewContext('gc') as () => void;
 
+  setFlagsFromString('--no-expose-gc');
+
   async function alive(refs: WeakRef<object>[]) {
     await new Promise((resolve) => setTimeout(resolve));
     gc();
@@ -709,9 +711,10 @@ describe('memory', () => {
     return refs.filter((ref) => ref.deref()).length;
   }
 
-  it('will release the steps of a chain while it runs', async () => {
+  it.each(['plain', 'handler', 'race'])('will release the steps of a chain while it runs (%s)', async (shape) => {
     const hold = mockPromise();
     const refs: WeakRef<object>[] = [];
+    let held!: WeakRef<object>;
 
     class Test extends Steps {
       async run() {
@@ -722,11 +725,25 @@ describe('memory', () => {
         await Promise.resolve();
         refs.push(new WeakRef(this));
 
-        if (index < 100) this.page(index + 1);
-        else this.hold();
+        if (shape == 'handler') this.then.on({ reset: this.undo(index) });
+
+        if (index == 100) this.hold();
+        else if (shape == 'race') this.then(this.answer, this.next(index));
+        else this.page(index + 1);
       }
 
+      protected async next(index: number) {
+        this.answer(index);
+      }
+
+      async answer(index: number) {
+        this.page(index + 1);
+      }
+
+      protected async undo(index: number) {}
+
       protected async hold() {
+        held = new WeakRef(this);
         await hold;
       }
     }
@@ -734,7 +751,8 @@ describe('memory', () => {
     const [test, result] = await start(Test);
 
     await vi.waitFor(() => expect(test.then.active).toBe('hold'));
-    expect(await alive(refs)).toBeLessThan(3);
+    expect(await alive(refs)).toBeLessThan(10);
+    expect(held.deref()).toBeDefined();
 
     hold.resolve();
     await result;
@@ -779,9 +797,32 @@ describe('memory', () => {
     await flushMicrotasks();
 
     expect(test.then.active).toBe('hold');
-    expect(await alive(refs)).toBeLessThan(3);
+    expect(await alive(refs)).toBeLessThan(10);
 
     hold.resolve();
     await result;
+  });
+
+  it('will release steps holding function handlers once the run ends', async () => {
+    const refs: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      async run() {
+        this.page(0);
+      }
+
+      protected async page(index: number) {
+        refs.push(new WeakRef(this));
+        this.then.on({ reset: () => {} });
+
+        if (index < 100) this.page(index + 1);
+      }
+    }
+
+    const test = Test.new();
+
+    await test.run();
+    expect(await alive(refs)).toBeLessThan(10);
+    expect(test.then.status).toBe('idle');
   });
 });

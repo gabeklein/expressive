@@ -2,10 +2,10 @@ import { get, has, Model } from '@expressive/mvc';
 import { event, listener } from '@expressive/mvc/observable';
 
 import { Frame } from './frame';
-import { adopt, chain, type Gate, grouped, type Handler, ISSUED, type Log, type Mode, type Restore, rule, RULES, signal, type Slot, type Ticket } from './shared';
+import { adopt, chain, type Gate, grouped, type Handler, ISSUED, type Log, type Mode, type Restore, rule, RULES, signal, type Slot, type Ticket, unissue } from './shared';
 import { Control, Steps } from './steps';
 import { blame, fire, recover, refill, reset, restore, rewind, unwind } from './unwind';
-import { acquire, park, racing, Wait, wake } from './wait';
+import { acquire, type Answer, park, racing, Wait, wake } from './wait';
 
 const MODES = { failed: 'error', aborted: 'abort', stopped: 'stop' } as const;
 
@@ -13,19 +13,11 @@ const TOKEN = {
   catch(this: Steps.Node, handler?: unknown) {
     const frame = ISSUED.get(this);
 
-    if (!frame) throw rule(`catch() must be called in the step which called ${this.key}().`);
+    if (!frame) throw rule('catch() must be called in the step which called it.');
 
     return frame.rescue(this, handler);
   }
 };
-
-function unissue(items: Steps.Node[]) {
-  for (const item of items) {
-    ISSUED.delete(item);
-
-    if (item.group) unissue(item.group);
-  }
-}
 
 function serial(error: unknown) {
   if (!(error instanceof Error)) return error;
@@ -201,10 +193,9 @@ class Run extends Model {
 
       if (answer) {
         const frame = await answer.frame;
+        const handler = frame && this.catcher(frame);
 
-        await this.cover(frame);
-        await this.complete(frame);
-        answer.done();
+        return this.answered(answer, frame?.id, handler ? this.cover(frame!, handler) : this.descend(frame));
       }
     }
     else if (item.key == 'end') await this.terminate(item);
@@ -217,17 +208,32 @@ class Run extends Model {
 
       if (!frame || !this._on.has(frame.id)) return this.descend(frame);
 
-      await this.cover(frame, item);
-      await this.complete(frame);
+      const handler = this.catcher(frame);
+
+      if (!handler) return this.closing(frame.id, this.descend(frame));
+
+      await this.cover(frame, handler, item);
+      await this.complete(frame.id);
     }
   }
 
-  async cover(frame?: Frame, item?: Steps.Node) {
-    const handler = frame && this._on.get(frame.id)?.find(({ kind }) => kind == 'catch');
+  async answered(answer: Answer, id: string | undefined, descent: Promise<void>) {
+    await descent;
+    await this.complete(id);
+    answer.done();
+  }
 
-    if (!handler) return this.descend(frame);
+    async closing(id: string, descent: Promise<void>) {
+    await descent;
+    await this.complete(id);
+  }
 
-    const { id, key, args, _failed: failed } = frame!;
+  catcher(frame: Frame) {
+    return this._on.get(frame.id)?.find(({ kind }) => kind == 'catch');
+  }
+
+  async cover(frame: Frame, handler: Handler, item?: Steps.Node) {
+    const { id, key, args, _failed: failed } = frame;
     const shield = id + '^';
     const branch: Branch = { failed };
 
@@ -259,12 +265,11 @@ class Run extends Model {
     restore();
   }
 
-  async complete(frame?: Frame) {
-    const on = frame && this._on.get(frame.id);
+  async complete(id?: string) {
+    const on = id && this._on.get(id);
 
     if (!on) return;
 
-    const { id } = frame!;
     const losing = [...this._losing].filter(([racer]) => this.line(racer).includes(id));
 
     await Promise.all(losing.map(([, unwind]) => unwind));
@@ -562,6 +567,7 @@ class Run extends Model {
       frame._abort.abort();
       flight.delete(frame);
       unissue(frame._items);
+      unissue(frame._on.map(({ node }) => node));
 
       while (stack.length && !flight.has(stack.at(-1)!)) stack.pop();
 
@@ -662,6 +668,16 @@ class Run extends Model {
     this._below.clear();
     this._catches.clear();
     this._groups.clear();
+    this._owner.clear();
+    this._inline.clear();
+    this._lineage.clear();
+    this._errors.clear();
+    this._losing.clear();
+    this._slots.clear();
+    this._retried.clear();
+
+    for (const frame of this.frames) frame._abort.abort();
+
     this.frames.clear();
     this._flight.clear();
     this._stack = [];

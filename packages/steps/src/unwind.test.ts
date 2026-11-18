@@ -558,7 +558,7 @@ describe('catch', () => {
     }
 
     await Test.new().run();
-    expect(() => token.catch()).toThrow('catch() must be called in the step which called a().');
+    expect(() => token.catch()).toThrow('catch() must be called in the step which called it.');
   });
 
   it('will throw retry, catch and reset outside a step', () => {

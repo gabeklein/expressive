@@ -1,6 +1,6 @@
 import { Frame } from './frame';
 import { Run } from './run';
-import { chain, type Handler, type Kind, type Log, type Mode, type Restore } from './shared';
+import { chain, type Handler, type Kind, type Log, type Mode, type Restore, unissue } from './shared';
 import { Steps } from './steps';
 
 interface Unwound {
@@ -151,6 +151,7 @@ async function compensate(run: Run, item: Steps.Node, cause: unknown, kept: Set<
   } finally {
     run.frames.delete(frame);
     frame._abort.abort();
+    unissue(frame._items);
     for (const key of frame._wrote) kept.add(key);
   }
 
