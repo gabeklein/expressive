@@ -803,6 +803,46 @@ describe('memory', () => {
     await result;
   });
 
+  it('will release values replaced before a commit while the run continues', async () => {
+    const hold = mockPromise();
+    const refs: WeakRef<object>[] = [];
+    const args: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      rows = {};
+
+      async run() {
+        this.page(0, {});
+      }
+
+      protected async page(index: number, arg: object) {
+        this.rows = {};
+        refs.push(new WeakRef(this.rows));
+        args.push(new WeakRef(arg));
+
+        if (index < 100) this.page(index + 1, {});
+        else {
+          this.then.commit();
+          this.hold();
+        }
+      }
+
+      protected async hold() {
+        await hold;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(test.then.active).toBe('hold'));
+    expect(await alive(refs)).toBeLessThan(10);
+    expect(await alive(args)).toBeLessThan(10);
+    expect(refs.at(-1)!.deref()).toBe(test.rows);
+
+    hold.resolve();
+    await result;
+  });
+
   it('will release steps holding function handlers once the run ends', async () => {
     const refs: WeakRef<object>[] = [];
 

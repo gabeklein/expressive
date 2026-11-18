@@ -143,7 +143,7 @@ this.then.on({
 - Unwind order: failure → handlers newest first back to the nearest catch holding it → that catch's handler → no catch, the run fails. Then the fields of every step taken back are restored; `run`'s never are.
 - Registered before its step fails, handlers run for that failure too and see the step's partial writes. They run before fields are restored; keys they write are kept. An unknown key throws. `run` registers none - clean up in its tail.
 - Durable runs (future): a handler whose external effect must survive a restart is a step: a method uncalled - `{ catch: this.fallback, abort: this.settle }`, run with the error as its only argument (recorded as `{ name, message, cause }`; a cancellation, `reset` and `close` get none) - or one called for it, `{ reset: this.release(hold) }`, an array a group, with args recorded. Claimed, not scheduled; reaching `before`/`after`. `end`, gates and waits throw in handlers.
-- `this.then.commit()` - the step's failure is not caught and the unwind stops at it (`halted`): what came before stands - e.g. a transcript the run is building.
+- `this.then.commit()` - the step's failure is not caught and the unwind stops at it (`halted`): what came before stands - e.g. a transcript the run is building. A run holds each step's prior values until a step it leads to commits - commit periodically in a long run.
 - Removing a pool member or destroying a map value the step did not add is irreversible: the unwind stops there and warns.
 - Whole-run undo is `abort()`; partial is a [catch](#catch-and-retry).
 - Plain arrays/objects mutated in place are invisible - assign, or use `has`/`map`.

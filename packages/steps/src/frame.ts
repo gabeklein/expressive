@@ -442,6 +442,8 @@ class Frame {
     run._entries.push(entry);
     this._entry = entry;
 
+    if (this._committed) run.seal(id);
+
     return entry;
   }
 
