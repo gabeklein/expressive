@@ -172,7 +172,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
 
         if (argument) {
           if (argument === true && output instanceof Promise)
-            return output.then(undefined, (err) => {
+            return output.catch((err) => {
               if (observer(subject) !== null) REPORT.as('setup', subject, err, key);
             });
 
