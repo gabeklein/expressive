@@ -158,7 +158,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           else update(subject, key, next, silent, true);
         }
 
-        if (output instanceof Promise)
+        if (output instanceof Promise) {
           output.then((next) => {
             if (observer(subject) !== null) assign(next);
           }, (error) => {
@@ -168,21 +168,20 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
               throw error;
             };
           });
-        else assign(output, true);
 
-        if (argument) {
-          if (argument === true && output instanceof Promise)
+          if (argument === true)
             return output.catch((err) => {
-              if (observer(subject) !== null) REPORT.as('setup', subject, err, key);
+              if (observer(subject) !== null)
+                REPORT.as('setup', subject, err, key);
             });
 
-          return;
+          if (argument === undefined)
+            return access(subject, key, true);
+        } else {
+          assign(output, true);
         }
 
-        if (output instanceof Promise && argument !== false)
-          return access(subject, key, true);
-
-        return subject[key];
+        if (!argument) return subject[key];
       }
 
       if (argument) config.init = init;
