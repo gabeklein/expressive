@@ -51,6 +51,19 @@ describe('factory', () => {
     expect(managed<string, number>(false).size).toBe(0);
     expect(Test.new().items.size).toBe(0);
   });
+
+  it('will unwrap a tracked map through is', () => {
+    class Test extends Model {
+      items = map<string, number>();
+    }
+
+    const test = Test.new();
+
+    test.get(($) => {
+      expect($.items).not.toBe(test.items);
+      expect($.items.is).toBe(test.items);
+    });
+  });
 });
 
 describe('map', () => {

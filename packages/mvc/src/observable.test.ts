@@ -1373,6 +1373,35 @@ describe('observable', () => {
       });
     });
 
+    it('will track an is getter through the proxy', async () => {
+      class Control extends Model {
+        ready = false;
+      }
+
+      const control = Control.new();
+      const input = {};
+
+      observer(input, true);
+      Object.defineProperty(input, 'is', {
+        get() {
+          return touch(this, 'is', control);
+        }
+      });
+
+      class Host extends Model {
+        input = input as { is: Control };
+      }
+
+      const host = Host.new();
+      const effect = vi.fn(($: Host) => void $.input.is.ready);
+
+      host.get(effect);
+      control.ready = true;
+
+      await expect(control).toHaveUpdated();
+      expect(effect).toBeCalledTimes(2);
+    });
+
     it('will diff against its own subject', () => {
       const test = Test.new();
       const other = Test.new();

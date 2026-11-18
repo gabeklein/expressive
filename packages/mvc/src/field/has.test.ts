@@ -77,6 +77,19 @@ describe('factory', () => {
 
     expect(list.size).toBe(0);
   });
+
+  it('will unwrap a tracked list through is', () => {
+    class Host extends Model {
+      value = has([1, 2, 3]);
+    }
+
+    const host = Host.new();
+
+    host.get(($) => {
+      expect($.value).not.toBe(host.value);
+      expect($.value.is).toBe(host.value);
+    });
+  });
 });
 
 describe('get', () => {
