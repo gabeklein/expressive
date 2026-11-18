@@ -543,6 +543,31 @@ describe("stream", () => {
     expect(headers(fetch, 2)).not.toHaveProperty("if-none-match");
   });
 
+  it("will drop a heartbeat held across an epoch rotation, rejoining without a whole refresh", async () => {
+    const { fetch, tally, source, id } = await attached({ body: snap({ total: 0 }, "h:1"), epoch: "e2" });
+    let replied!: (res: Response) => void;
+
+    fetch.mockReturnValueOnce(new Promise<Response>(resolve => (replied = resolve)));
+
+    const bumped = call(["tally"], "bump", []);
+    source.emit("beat", { sum: fnv(`${id}@g:2`) });
+    source.emit("hello", { epoch: "e1" });
+    source.emit("hello", { epoch: "e2" });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await settle();
+
+    replied(new Response(JSON.stringify({ value: 1, frame: {} }), { headers: { "x-expressive-epoch": "e2" } }));
+    await bumped;
+    await settle();
+
+    expect(tally.total).toBe(0);
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    source.emit("beat", { sum: fnv(`${id}@h:1`) });
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("will leave a twin without a version out of the checksum", async () => {
     const { fetch, source, id } = await attached({ body: snap({}, "o:1") });
     twin(["tally"], {}, [], "Other").new();
@@ -984,6 +1009,25 @@ describe("opened twin", () => {
 
     await vi.waitFor(() => expect(job.progress).toBe(0));
     expect(fetch).toHaveBeenCalledWith("/studio/r1", expect.anything());
+  });
+
+  it("will send its release on its own once destroyed, with no call to carry it", async () => {
+    const fetch = serve({ body: snap({ progress: 0 }, "r:1") });
+    const Render = twin(["studio"], {}, ["progress"], "Render", "/studio#Render") as any;
+    class Page extends Model { job = Render.open("a"); }
+    const page = Page.new();
+    const job = page.job as any;
+
+    await vi.waitFor(() => expect(job.progress).toBe(0));
+    vi.useFakeTimers();
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    page.set(null);
+    expect(job.get(null)).toBe(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(fetch).toHaveBeenLastCalledWith(expect.stringMatching(/^\/\.expressive\/stream\?connection=/), { method: "POST", headers: { "x-expressive-release": idOf(fetch, 0) }, keepalive: true });
+    vi.useRealTimers();
   });
 
   it("will not offer open() on a seat twin", () => {

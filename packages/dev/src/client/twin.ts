@@ -130,6 +130,11 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
 
     epoch = next;
 
+    if (reset) {
+      beat = undefined;
+      sums = new Set();
+    }
+
     return reset;
   }
 

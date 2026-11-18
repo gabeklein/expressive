@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
-import { set, Model } from "@expressive/mvc";
+import { has, set, Model } from "@expressive/mvc";
 
 import { audit, begin, catchUp, checksum, connect, end, frameOf, hold, listen, release, renew, twinOf } from "./connection";
 import { track } from "./version";
@@ -525,6 +525,56 @@ describe("connection", () => {
         vi.advanceTimersByTime(15_000);
 
         expect(warn).not.toHaveBeenCalled();
+      });
+
+      describe("has() members", () => {
+        class Job extends Model {
+          id = "";
+          log: string[] = [];
+        }
+
+        class Board extends Model {
+          jobs = has(Job, "id");
+        }
+
+        const BOARD = { fields: ["jobs"], children: { jobs: { fields: ["id", "log"], many: true as const } } };
+
+        function boarded(...ids: string[]) {
+          audit(true);
+          const { connection } = streamed();
+          const board = Board.new();
+
+          ids.forEach(id => board.jobs.add(id));
+          track(board);
+          hold(connection, "B", "/board", board, BOARD);
+          catchUp(connection, "B");
+
+          return { connection, board, job: (id: string) => board.jobs.get(job => job.id === id)! };
+        }
+
+        it("will warn when a member's field changes in place", () => {
+          const { job } = boarded("a");
+
+          job("a").log.push("x");
+          vi.advanceTimersByTime(15_000);
+
+          expect(warn).toHaveBeenCalledOnce();
+          expect(warn.mock.calls[0][0]).toMatch(/^Job\.log changed in place/);
+        });
+
+        it("will not warn as members join and leave, and forget what a departed member was sent", async () => {
+          const { connection, board, job } = boarded("a", "b");
+
+          job("a").set(null);
+          board.jobs.add("c");
+          vi.advanceTimersByTime(15_000);
+          frameOf(connection);
+          board.jobs.add("d");
+          vi.advanceTimersByTime(15_000);
+
+          expect(warn).not.toHaveBeenCalled();
+          expect([...connection.twins.get("B")!.sent!.keys()]).toHaveLength(3);
+        });
       });
 
       it("will keep what a seat twin was sent across calls that hold it again", () => {

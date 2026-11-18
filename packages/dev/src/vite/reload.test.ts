@@ -120,7 +120,10 @@ describe("server reload", () => {
 
     const stats = async (): Promise<Stats> => (await fetch(url("/.expressive/stats"))).json();
 
-    return { edit, post, listen, stats };
+    const release = async (tab: string, twins: string) =>
+      (await fetch(url(`/.expressive/stream?connection=${tab}`), { method: "POST", headers: { "x-expressive-release": twins } })).status;
+
+    return { edit, post, listen, stats, release };
   }
 
   const until = async (check: () => boolean) => {
@@ -341,6 +344,140 @@ import { rotate } from "../server/connection";
     await Promise.all(tabs.map((id, i) => post(id, "/ping", { "x-expressive-call": "ping", "x-expressive-release": `Cart-${i}` })));
 
     expect(await stats()).toEqual({ ...baseline, connections: baseline.connections + tabs.length - 1 });
+  });
+
+  const STUDIO = (version: string, fields = "") => `
+    import { has, Model } from "@expressive/mvc";
+    (globalThis as any).loads.push(${JSON.stringify(version)});
+    export class Render extends Model {
+      id = "";
+      progress = 0;
+      ${fields}
+      async step() { return ++this.progress; }
+      static open(id: string) { return Studio.get(false)?.jobs.get(job => job.id === id); }
+    }
+    export default class Studio extends Model {
+      static ttl = 60;
+      jobs = has(Render, "id");
+      async start(id: string) { this.jobs.add(id); }
+    }
+  `;
+
+  const studio = (post: (tab: string, at: string, headers: Record<string, string>, body?: string) => Promise<any>, id: string, at = "studio") => {
+    const seat = { "x-expressive-twin": "Studio-A" };
+    let items: string[] = [];
+
+    return {
+      pull: () => post(id, `/${at}`, { "x-expressive-get": "default", ...seat }),
+      start: async (job: string) => {
+        const reply = await post(id, `/${at}`, { "x-expressive-call": "default.start", ...seat }, JSON.stringify([job]));
+        items = reply.frame?.["Studio-A"]?.patch?.jobs?.$items ?? items;
+        return reply;
+      },
+      member: (index = 0) => post(id, `/${at}`, { "x-expressive-call": "default.jobs.step", "x-expressive-items": items[index], ...seat }),
+      open: (twin: string, key: string) => post(id, `/${at}`, { "x-expressive-get": `/${at}#Render`, "x-expressive-twin": twin, "x-expressive-key": key }),
+      step: (twin: string) => post(id, `/${at}`, { "x-expressive-call": `/${at}#Render.step`, "x-expressive-twin": twin }),
+    };
+  };
+
+  it.fails("will build a seat restarted under the hot transform from the new copy of its module", async () => {
+    fresh();
+    g.copies = 0;
+    const COPY = `(globalThis as any).copies++; export const copy = (globalThis as any).copies;`;
+    const HELD = `
+      import { Model } from "@expressive/mvc";
+      import { copy } from "./copy";
+      (globalThis as any).loads.push("held");
+      export default class Held extends Model { static ttl = 60; copy = copy; async which() { return [this.copy, copy]; } }
+    `;
+    const PING = (n: number) => `export async function ping() { return ${n}; }`;
+    const { edit, post, listen } = await serve({ "app/held/remote.ts": HELD, "app/held/copy.ts": COPY, "app/ping/remote.ts": PING(0) }, true);
+    const id = tab();
+    const stream = await listen(id);
+
+    await post(id, "/ping", { "x-expressive-call": "ping" });
+    expect(await post(id, "/held", { "x-expressive-call": "default.which", "x-expressive-twin": "Held-A" })).toMatchObject({ value: [1, 1] });
+
+    edit("app/ping/remote.ts", PING(1));
+    await until(() => stream.hellos.length === 2);
+
+    expect(await post(id, "/held", { "x-expressive-call": "default.which", "x-expressive-twin": "Held-A" })).toMatchObject({ value: [2, 2] });
+  });
+
+  it.fails("will build has() members of a structurally replaced class from the new class", async () => {
+    fresh();
+    const { edit, post, listen } = await serve({ "app/remade/remote.ts": STUDIO("v1") }, true);
+    const id = tab();
+    const stream = await listen(id);
+    const s = studio(post, id, "remade");
+
+    await s.pull();
+    await s.start("a");
+    edit("app/remade/remote.ts", STUDIO("v2", "eta = 0;"));
+    await until(() => g.loads.length === 2);
+    await until(() => stream.hellos.length === 2);
+
+    await s.pull();
+    await s.start("c");
+    expect(await s.open("Render-C", "c")).toMatchObject({ frame: { "Render-C": { patch: { eta: 0 } } } });
+  });
+
+  it("will release an opened twin and a seat twin's members on a POST to the stream, the opened instance living on", async () => {
+    fresh();
+    const { post, stats, release } = await serve({ "app/freed/remote.ts": STUDIO("v1") }, true);
+    const id = tab();
+    const s = studio(post, id, "freed");
+
+    await s.pull();
+    await s.start("a");
+    await s.open("Render-A", "a");
+    expect(await stats()).toMatchObject({ twins: 2, watchers: 3 });
+
+    expect(await release(id, "Render-A,Studio-A")).toBe(204);
+    expect(await stats()).toMatchObject({ twins: 0, watchers: 0, seats: 1 });
+    expect(await s.open("Render-B", "a")).toMatchObject({ status: 200, frame: { "Render-B": { patch: { id: "a" } } } });
+  });
+
+  it("will release opened twins and has() members on restart, returning counts to baseline", async () => {
+    fresh();
+    const PING = (n: number) => `export async function ping() { return ${n}; }`;
+    const { edit, post, listen, stats } = await serve({ "app/studio/remote.ts": STUDIO("v1"), "app/ping/remote.ts": PING(0) }, true);
+    const id = tab();
+
+    await post(id, "/ping", { "x-expressive-call": "ping" });
+    const baseline = await stats();
+    const stream = await listen(id);
+    const s = studio(post, id);
+
+    await s.pull();
+    await s.start("a");
+    await s.start("b");
+    expect((await s.member(0)).value).toBe(1);
+    expect(await s.open("Render-A", "a")).toMatchObject({ status: 200 });
+    expect((await s.step("Render-A")).value).toBe(2);
+    expect(await stats()).toMatchObject({ twins: 2, seats: 1, watchers: 4 });
+
+    edit("app/studio/remote.ts", STUDIO("v1") + "\n// patched");
+    await until(() => g.loads.length === 2);
+    expect(await stats()).toMatchObject({ twins: 2, seats: 1, watchers: 4 });
+    expect((await s.step("Render-A")).value).toBe(3);
+
+    edit("app/studio/remote.ts", STUDIO("v2", "eta = 0;"));
+    await until(() => g.loads.length === 3);
+    await until(() => stream.hellos.length === 2);
+    expect(await stats()).toMatchObject({ twins: 0, seats: 0, watchers: 0 });
+    expect(await s.open("Render-B", "a")).toMatchObject({ status: 404, epoch: stream.hellos[1] });
+
+    await s.pull();
+    await s.start("c");
+    expect(await s.open("Render-C", "c")).toMatchObject({ status: 200, frame: { "Render-C": { patch: { id: "c", progress: 0 } } } });
+    expect(await stats()).toMatchObject({ twins: 2, seats: 1, watchers: 3 });
+
+    edit("app/ping/remote.ts", PING(1));
+    await until(() => stream.hellos.length === 3);
+    expect(await stats()).toMatchObject({ twins: 0, seats: 0, watchers: 0 });
+    stream.close();
+    expect(await stats()).toEqual(baseline);
   });
 });
 
