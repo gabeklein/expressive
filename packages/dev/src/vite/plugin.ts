@@ -70,7 +70,7 @@ export function expressive(): Plugin<Host> {
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
-  let unload: (() => void) | undefined;
+  const unloads = new WeakMap<object, () => void>();
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -218,14 +218,15 @@ export function expressive(): Plugin<Host> {
     },
 
     closeBundle() {
-      unload?.();
-      unload = undefined;
+      unloads.get(this.environment)?.();
     },
 
     configureServer(server) {
       const host = (runner = createServerModuleRunner(server.environments.ssr));
+      const reload = reloads(host);
+
       install(true);
-      unload = reloads(host);
+      unloads.set(server.environments.ssr, reload.stop);
       watchRoutes(server, project, routesId);
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
@@ -233,7 +234,10 @@ export function expressive(): Plugin<Host> {
       server.middlewares.use(toNode(async request => {
         if (request.method === "GET" && new URL(request.url).pathname === STATS) return Response.json({ ...counts(), ...stats() });
         if (isStream(request)) return stream(request);
-        if (isCall(request)) return dispatch(request, endpoints, true, seatsOf(host, project), twins);
+        if (isCall(request)) {
+          await reload.settled();
+          return dispatch(request, endpoints, true, seatsOf(host, project), twins);
+        }
       }));
 
       return () => {

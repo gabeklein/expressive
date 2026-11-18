@@ -198,7 +198,11 @@ function ungate({ layer, built }: Frame["gated"][number]) {
 }
 
 export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = []): Promise<Awaited<T>> {
-  const frame: Frame = { request, layer: root(), held: new Set(), gated: [] };
+  const start = root();
+  const frame: Frame = { request, layer: start, held: new Set(), gated: [] };
+  const current = () => {
+    if (top !== start) throw new Error("The server restarted during this call.");
+  };
 
   return await store.run(frame, async (): Promise<Awaited<T>> => {
     try {
@@ -208,11 +212,13 @@ export async function within<T>(request: Request, segments: string[], run: () =>
         if (guard && !isSeat(guard)) {
           frame.layer = enter(frame.layer, segment);
           await gate(frame, guard);
+          current();
           continue;
         }
 
         frame.layer = enter(frame.layer, segment, guard);
         await frame.layer.seat?.ready;
+        current();
       }
 
       frame.layer.calls++;
@@ -371,7 +377,8 @@ function watch() {
 
 /**
  * Route server `get()` through the call's layer. `ttl` is how long a seat outlives its last call by
- * default: rpc's gates derive from each request, so 0 - dev's seats hold state, so it passes 300.
+ * default, in seconds: rpc's gates derive from each request, so 0 - dev's seats hold state, so it passes 300.
+ * `false` keeps a seat until evicted.
  */
 export function install({ ttl = 0 }: { ttl?: number | false } = {}) {
   TTL = ttl;

@@ -111,7 +111,7 @@ export class Page extends Component {
 - A field holding a Model the seat owns (`line = new Line()`, or `line?: Line`) is a child twin.
 - A `has(Render)` / `has(Render, 'id')` field is a read-only pool of member twins, each patched on its own; member methods call through the owner. A public `has()` of values or a factory fails the build.
 - Other exported Model classes are pooled: each `new Cart()` a Component owns, or `Cart.new()`, gets its own server instance.
-- `Render.open(key)` (a field, like `new Cart()`) twins an instance the server holds: the class declares `static open(key)`, run after the route's `key()` gates, finding it through a seat (`Studio.get().jobs.get(...)`). An instance no seat of the request owns, or none, is a 404 - reported to the twin's `catch` as `setup`. Releasing never destroys it.
+- `Render.open(key)` (a field, like `new Cart()`) twins an instance the server holds: the class declares `static open(key)`, run after the route's `key()` gates, finding it through a seat (`Studio.get().jobs.get(...)`). An instance no seat of the request owns, or none, is a 404 - reported to the twin's `catch` as `setup`. One gone after a server restart is reported as `effect`; the twin keeps its last values. Releasing never destroys it.
 - A public `get()` field fails the build - declare it `protected`.
 - Reload the page when a call changes what a `key()` returns (login, logout): twins keep the context they were built in.
 
@@ -133,6 +133,5 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 ### Server edits in dev
 
 - A module with a Model class patches in place: seats and pooled instances keep state and run the new methods on their next call; a call in flight finishes on the old code.
-- A class whose fields, constructor, base or `#private` members changed is retired - seats and pooled instances that are or own one (child, `has()` member) end, and tabs holding them rejoin with fresh ones.
-- An edit no module accepts restarts the server code in place: every seat and pooled instance ends - mid-call too - then `import.meta.hot.dispose` callbacks run (awaited), then the modules run again and every tab rejoins. Keep process state on Models, or release it in `dispose` - a module-level connection or `Model.on()` otherwise runs twice.
+- An edit no module accepts, one changing a class's fields, constructor or base, or any edit to a module declaring a class with `#private` members restarts the server code in place: every seat and pooled instance ends - mid-call too - then `import.meta.hot.dispose` callbacks run (awaited), every tab rejoins, and the modules run again. Calls arriving meanwhile wait for the restart. Keep process state on Models, or release it in `dispose` - a module-level connection or `Model.on()` otherwise runs twice.
 - `GET /.expressive/stats` counts connections, held twins, watchers, layers, seats and pooled instances.
