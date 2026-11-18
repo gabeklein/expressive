@@ -1,4 +1,6 @@
 import { map, set } from '@expressive/mvc';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { fails, flushMicrotasks, Journal, mockPromise, ran, record, start } from '../test.setup';
@@ -692,5 +694,94 @@ describe('scale', { timeout: 30_000 }, () => {
     const growth = await work((size) => Test.new({ size }));
 
     expect(growth).toBeLessThan(5);
+  });
+});
+
+describe('memory', () => {
+  setFlagsFromString('--expose-gc');
+
+  const gc = runInNewContext('gc') as () => void;
+
+  async function alive(refs: WeakRef<object>[]) {
+    await new Promise((resolve) => setTimeout(resolve));
+    gc();
+
+    return refs.filter((ref) => ref.deref()).length;
+  }
+
+  it('will release the steps of a chain while it runs', async () => {
+    const hold = mockPromise();
+    const refs: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      async run() {
+        this.page(0);
+      }
+
+      protected async page(index: number) {
+        await Promise.resolve();
+        refs.push(new WeakRef(this));
+
+        if (index < 100) this.page(index + 1);
+        else this.hold();
+      }
+
+      protected async hold() {
+        await hold;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(test.then.active).toBe('hold'));
+    expect(await alive(refs)).toBeLessThan(3);
+
+    hold.resolve();
+    await result;
+  });
+
+  it('will release steps settled below one still running', async () => {
+    const ready = mockPromise();
+    const go = mockPromise();
+    const hold = mockPromise();
+    const refs: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      async run() {
+        this.then(this.wide(), this.later());
+      }
+
+      protected async wide() {
+        this.then(Array.from({ length: 100 }, (_, index) => index), this.visit);
+      }
+
+      protected async visit() {
+        refs.push(new WeakRef(this));
+        await go;
+      }
+
+      protected async later() {
+        await ready;
+        this.hold();
+      }
+
+      protected async hold() {
+        await hold;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(refs).toHaveLength(100));
+    ready.resolve();
+    await vi.waitFor(() => expect(test.then.active).toBe('hold'));
+    go.resolve();
+    await flushMicrotasks();
+
+    expect(test.then.active).toBe('hold');
+    expect(await alive(refs)).toBeLessThan(3);
+
+    hold.resolve();
+    await result;
   });
 });

@@ -142,11 +142,15 @@ async function compensate(run: Run, item: Steps.Node, cause: unknown, kept: Set<
 
   if (!fn) return undo(run, [item], kept);
 
-  const frame = run.frames.add({ id: item.id, key: item.key, args: item.args, _undo: true, _owner: run._owner.get(item.id) });
+  const frame = new Frame(run, { id: item.id, key: item.key, args: item.args, _undo: true, _owner: run._owner.get(item.id) });
+
+  run.frames.add(frame);
+
   try {
     await (bare ? fn() : fn(cause));
   } finally {
     run.frames.delete(frame);
+    frame._abort.abort();
     for (const key of frame._wrote) kept.add(key);
   }
 

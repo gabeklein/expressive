@@ -11,9 +11,21 @@ const MODES = { failed: 'error', aborted: 'abort', stopped: 'stop' } as const;
 
 const TOKEN = {
   catch(this: Steps.Node, handler?: unknown) {
-    return ISSUED.get(this)!.rescue(this, handler);
+    const frame = ISSUED.get(this);
+
+    if (!frame) throw rule(`catch() must be called in the step which called ${this.key}().`);
+
+    return frame.rescue(this, handler);
   }
 };
+
+function unissue(items: Steps.Node[]) {
+  for (const item of items) {
+    ISSUED.delete(item);
+
+    if (item.group) unissue(item.group);
+  }
+}
 
 function serial(error: unknown) {
   if (!(error instanceof Error)) return error;
@@ -44,7 +56,7 @@ interface Lineage {
 
 class Run extends Model {
   control = get(Control);
-  frames = has(Frame);
+  frames = new Set<Frame>();
   waits = has(Wait);
 
   _ticket!: Ticket;
@@ -202,6 +214,8 @@ class Run extends Model {
       if (wait) return void wake(this, wait, item.key, item.args, item);
 
       const frame = await this.invoke(item);
+
+      if (!frame || !this._on.has(frame.id)) return this.descend(frame);
 
       await this.cover(frame, item);
       await this.complete(frame);
@@ -394,12 +408,14 @@ class Run extends Model {
   }
 
   async descend(frame?: Frame) {
-    if (frame) await this.sequence(frame._items, frame);
+    if (frame) return this.sequence(frame._items, frame);
   }
 
   async sequence(items: Steps.Node[], from: Frame): Promise<void> {
     for (const [index, item] of items.entries()) {
       if (item.key != 'gate') {
+        if (index == items.length - 1) return this.exec(item, from);
+
         await this.exec(item, from);
         continue;
       }
@@ -431,7 +447,9 @@ class Run extends Model {
     const inline = this._inline.get(id);
     const lineage = this._lineage.get(id);
     const fn = inline || control._steps.get(key)!;
-    const frame = this.frames.add({ id, key, args, _wake: wake, _undo: undo, _owner: this._owner.get(id), _retried: this.retried(node), ...lineage && { _restore: lineage.restore, _caught: lineage.caught } });
+    const frame = new Frame(this, { id, key, args, _wake: wake, _undo: undo, _owner: this._owner.get(id), _retried: this.retried(node), ...lineage && { _restore: lineage.restore, _caught: lineage.caught } });
+
+    this.frames.add(frame);
 
     if (!undo) this._stack.push(frame), this._flight.add(frame);
 
@@ -541,9 +559,13 @@ class Run extends Model {
       const { _stack: stack, _flight: flight } = this;
 
       this.frames.delete(frame);
+      frame._abort.abort();
       flight.delete(frame);
+      unissue(frame._items);
 
       while (stack.length && !flight.has(stack.at(-1)!)) stack.pop();
+
+      if (stack.length > flight.size * 2) this._stack = stack.filter((each) => flight.has(each));
 
       control.active = stack.at(-1)?.key;
 
@@ -636,6 +658,10 @@ class Run extends Model {
     this._entries = [];
     this._held.clear();
     this._on.clear();
+    this._parent.clear();
+    this._below.clear();
+    this._catches.clear();
+    this._groups.clear();
     this.frames.clear();
     this._flight.clear();
     this._stack = [];

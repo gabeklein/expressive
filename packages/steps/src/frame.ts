@@ -1,4 +1,4 @@
-import { get, has, map, Model } from '@expressive/mvc';
+import { has, map, Model } from '@expressive/mvc';
 
 import { Run } from './run';
 import { adopt, grouped, type Handler, ISSUED, type Kind, type Log, plain, type Restore, rule, type Slot, valueless } from './shared';
@@ -31,8 +31,8 @@ type Change = [out: unknown, changed: boolean, undo?: () => void, lost?: boolean
 
 type Mutator = (...args: any[]) => Change;
 
-class Frame extends Model {
-  run = get(Run);
+class Frame {
+  run: Run;
   id = '';
   key = '';
   args: unknown[] = [];
@@ -65,8 +65,11 @@ class Frame extends Model {
   _settled?: boolean = undefined;
   _point?: (done: (value?: unknown) => void, fail: (error: unknown) => void) => void = undefined;
 
-  protected new() {
-    const { _self: self, _steps, _runner } = this.run.control;
+  constructor(run: Run, init: Partial<Frame>) {
+    this.run = run;
+    Object.assign(this, init);
+
+    const { _self: self, _steps, _runner } = run.control;
 
     this._proxy = new Proxy(self, {
       get: (target, prop) => {
@@ -104,8 +107,6 @@ class Frame extends Model {
         return Reflect.set(target, prop, value, target);
       }
     });
-
-    return () => this._abort.abort();
   }
 
   live() {
@@ -435,7 +436,7 @@ class Frame extends Model {
 
     if (_lost.size && !_on.some((handler) => handler.kind == 'reset')) entry.irreversible = [..._lost];
 
-    if (!root) run._held.set(id, { prior: this._prior, log: this._log });
+    if (!root && entry.wrote.length) run._held.set(id, { prior: this._prior, log: this._log });
     if (this._undo) run._spent.add(id);
 
     run._entries.push(entry);
