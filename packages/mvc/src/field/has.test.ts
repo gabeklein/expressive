@@ -90,6 +90,23 @@ describe('factory', () => {
       expect($.value.is).toBe(host.value);
     });
   });
+
+  it('will unwrap a tracked view through is', () => {
+    class Source extends Model {
+      value = has([1, 2, 3]);
+    }
+
+    const { value } = Source.new();
+
+    class Host extends Model {
+      view = Object.create(value) as typeof value;
+    }
+
+    Host.new().get(($) => {
+      expect($.view.is).toBe(value);
+      expect([...$.view]).toEqual([1, 2, 3]);
+    });
+  });
 });
 
 describe('get', () => {

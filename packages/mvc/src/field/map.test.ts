@@ -64,6 +64,23 @@ describe('factory', () => {
       expect($.items.is).toBe(test.items);
     });
   });
+
+  it('will unwrap a tracked view through is', () => {
+    class Source extends Model {
+      items = map<string, number>([['a', 1]]);
+    }
+
+    const { items } = Source.new();
+
+    class Host extends Model {
+      view = Object.create(items) as typeof items;
+    }
+
+    Host.new().get(($) => {
+      expect($.view.is).toBe(items);
+      expect($.view.get('a')).toBe(1);
+    });
+  });
 });
 
 describe('map', () => {

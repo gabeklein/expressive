@@ -496,7 +496,9 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
 }
 
 function source<T extends object>(from: T): T {
-  return OWNED.has(from) ? from : Object.getPrototypeOf(from);
+  while (!OWNED.has(from)) from = Object.getPrototypeOf(from);
+
+  return from;
 }
 
 function adopt(

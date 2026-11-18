@@ -350,7 +350,9 @@ function release(target: object, key: unknown) {
 }
 
 function source<T extends object>(from: T): T {
-  return OWNED.has(from) ? from : Object.getPrototypeOf(from);
+  while (!OWNED.has(from)) from = Object.getPrototypeOf(from);
+
+  return from;
 }
 
 element(Managed);
