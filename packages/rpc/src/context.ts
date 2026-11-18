@@ -32,13 +32,13 @@ interface Frame {
   capture?: Model[];
 }
 
-type Owned = Model.Type & { ttl?: number };
+type Owned = Model.Type & { ttl?: number | false };
 
 export type Seat = Owned & { key?(): string | number | undefined };
 
 export type Gate = () => unknown;
 
-let TTL = 0;
+let TTL: number | false = 0;
 let installed = false;
 
 const store = new AsyncLocalStorage<Frame>();
@@ -46,6 +46,7 @@ const SEATED = new WeakSet<Owned>();
 const GATED = new WeakSet<Model>();
 const FAILED = new WeakMap<Model, unknown>();
 let top: Layer | undefined;
+const POOLED = new Map<Model, Context>();
 let built: ((instance: Model) => void) | undefined;
 
 function frame(): Frame {
@@ -147,6 +148,7 @@ function release(entry: Entry) {
 
   const ttl = entry.Type.ttl ?? TTL;
 
+  if (ttl === false || ttl === Infinity) return;
   if (ttl <= 0) return drop(entry);
 
   entry.timer = setTimeout(() => drop(entry), ttl * 1000);
@@ -269,6 +271,8 @@ export function construct(Type: Model.Type, off = false): { instance: Model; dro
   const instance = context.get(Type)!;
 
   built?.(instance);
+  POOLED.set(instance, context);
+  instance.set(null, () => void POOLED.delete(instance));
 
   if (layer) {
     layer.pooled++;
@@ -283,6 +287,40 @@ export function construct(Type: Model.Type, off = false): { instance: Model; dro
     drop: () => void (instance.get(null) || context.pop()),
     current: () => !instance.get(null) && (!layer || frame().layer === layer),
   };
+}
+
+/** Evict every seat and pooled instance `Type` built, or all of them and every layer when omitted. */
+export function retire(Type?: Model.Extends): void {
+  if (!Type) {
+    if (top) evict(top);
+    top?.context.pop();
+    detached?.pop();
+    top = detached = undefined;
+    return;
+  }
+
+  (function walk(layer: Layer | undefined) {
+    if (layer?.seat?.instance instanceof Type) return evict(layer);
+    layer?.children.forEach(walk);
+  })(top);
+
+  POOLED.forEach((context, instance) => instance instanceof Type && context.pop());
+}
+
+/** Counts of live layers below the root, seats and pooled instances. */
+export function stats(): { layers: number; seats: number; pooled: number } {
+  let layers = 0;
+  let seats = 0;
+
+  (function walk(layer: Layer) {
+    if (layer.seat) seats++;
+    layer.children.forEach(child => {
+      layers++;
+      walk(child);
+    });
+  })(root());
+
+  return { layers, seats, pooled: POOLED.size };
 }
 
 export function seated(): Model | undefined {
@@ -321,7 +359,7 @@ function watch() {
  * Route server `get()` through the call's layer. `ttl` is how long a seat outlives its last call by
  * default: rpc's gates derive from each request, so 0 - dev's seats hold state, so it passes 300.
  */
-export function install({ ttl = 0 }: { ttl?: number } = {}) {
+export function install({ ttl = 0 }: { ttl?: number | false } = {}) {
   TTL = ttl;
   installed = true;
   watch();

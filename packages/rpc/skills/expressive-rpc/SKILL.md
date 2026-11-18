@@ -131,7 +131,7 @@ export default class Session extends Model {
 }
 ```
 
-Inside a call, `Session.get()` finds that instance; `Current.get()` is the request - `.request` (a Web `Request`), `.url`, `.cookies` - read-only, server-only. A gate runs per request: its instance ends with the last call holding it. `static ttl = 60` keeps it per key that many seconds after - an optimization, so derive its state from the request, never from an earlier call - and `Session.get().set(null)` ends a cached one at once (say, in `logout()`).
+Inside a call, `Session.get()` finds that instance; `Current.get()` is the request - `.request` (a Web `Request`), `.url`, `.cookies` - read-only, server-only. A gate runs per request: its instance ends with the last call holding it. `static ttl = 60` keeps it per key that many seconds after (`false`: until evicted) - an optimization, so derive its state from the request, never from an earlier call - and `Session.get().set(null)` ends a cached one at once (say, in `logout()`).
 
 ### Function gates
 

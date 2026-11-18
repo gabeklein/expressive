@@ -1,7 +1,7 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Context, get, set, Model } from "@expressive/mvc";
 
-import { construct, Current, headersOf, install, onBuild, seated, within, type Gate, type Seat } from "./context";
+import { construct, Current, headersOf, install, onBuild, retire, seated, stats, within, type Gate, type Seat } from "./context";
 
 const request = (url = "/", cookie = "") => new Request(`http://localhost${url}`, { headers: { cookie } });
 const call = <T>(segments: string[], run: () => T) => within(request("/" + segments.join("/")), segments, run);
@@ -84,6 +84,34 @@ describe("seats", () => {
     vi.advanceTimersByTime(60_000);
     expect(first.get(null)).toBe(true);
     expect(await walk(request(), ["tally"], [undefined, Tally], () => Tally.get())).not.toBe(first);
+  });
+
+  it.each([false, Infinity] as const)("will never expire a seat with a ttl of %s", async ttl => {
+    vi.useFakeTimers();
+    class Tally extends Model { static ttl = ttl; }
+
+    const first = await walk(request(), ["tally"], [undefined, Tally], () => Tally.get());
+
+    vi.advanceTimersByTime(2 ** 32);
+    expect(first.get(null)).toBe(false);
+    expect(await walk(request(), ["tally"], [undefined, Tally], () => Tally.get())).toBe(first);
+    retire(Tally);
+  });
+
+  it("will never expire a seat when install() names a ttl of false", async () => {
+    vi.useFakeTimers();
+    install({ ttl: false });
+    class Tally extends Model {}
+
+    try {
+      const first = await walk(request(), ["tally"], [undefined, Tally], () => Tally.get());
+
+      vi.advanceTimersByTime(2 ** 32);
+      expect(first.get(null)).toBe(false);
+      retire(Tally);
+    } finally {
+      install();
+    }
   });
 
   it("will drop a seat after its call with a ttl of zero", async () => {
@@ -604,5 +632,68 @@ describe("hooks", () => {
 
     expect(built.mock.calls).toEqual([[seat], [cart.instance]]);
     cart.drop();
+  });
+});
+
+describe("retire", () => {
+  class Blog extends Model { static ttl = 60; }
+  class Cart extends Model {}
+
+  beforeEach(() => retire());
+
+  it("will evict the seats and pooled instances of one class, leaving others", async () => {
+    class Shop extends Model { static ttl = 60; }
+
+    const blog = await walk(request(), ["blog"], [undefined, Blog], () => Blog.get());
+    const shop = await walk(request(), ["shop"], [undefined, Shop], () => Shop.get());
+    const cart = await walk(request(), ["shop"], [undefined, Shop], () => construct(Cart));
+    const away = construct(Cart, true);
+    const before = stats();
+
+    retire(Blog);
+    expect(blog.get(null)).toBe(true);
+    expect(shop.get(null)).toBe(false);
+    expect(stats()).toEqual({ ...before, layers: before.layers - 1, seats: before.seats - 1 });
+
+    retire(Cart);
+    expect(cart.instance.get(null)).toBe(true);
+    expect(away.instance.get(null)).toBe(true);
+    expect(shop.get(null)).toBe(false);
+    expect(stats().pooled).toBe(before.pooled - 2);
+
+    expect(await walk(request(), ["blog"], [undefined, Blog], () => Blog.get())).not.toBe(blog);
+    retire();
+  });
+
+  it("will evict every layer, seat and pooled instance, the root's too", async () => {
+    const blog = await walk(request(), ["blog", "a"], [undefined, Blog], () => Blog.get());
+    const root = await call([], () => construct(Cart));
+    const away = construct(Cart, true);
+
+    expect(stats()).toEqual({ layers: 1, seats: 1, pooled: 2 });
+
+    retire();
+
+    expect([blog, root.instance, away.instance].map(model => model.get(null))).toEqual([true, true, true]);
+    expect(stats()).toEqual({ layers: 0, seats: 0, pooled: 0 });
+    expect(await call([], () => Current.get())).toBeInstanceOf(Current);
+  });
+
+  it("will leave a call in flight to finish on the layer it entered", async () => {
+    let finish!: () => void;
+    const open = new Promise<void>(resolve => (finish = resolve));
+
+    const held = walk(request(), ["blog"], [undefined, Blog], async () => {
+      const blog = Blog.get();
+      await open;
+      return blog;
+    });
+
+    await new Promise(resolve => setTimeout(resolve));
+    retire();
+    finish();
+
+    expect((await held).get(null)).toBe(true);
+    expect(stats()).toEqual({ layers: 0, seats: 0, pooled: 0 });
   });
 });
