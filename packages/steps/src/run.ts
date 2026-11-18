@@ -133,7 +133,8 @@ class Run extends Model {
   seal(id: string) {
     for (let at = this._parent.get(id); at && !this._sealed.has(at); at = this._parent.get(at)) {
       this._sealed.add(at);
-      this._held.delete(at);
+
+      if (!this._spent.has(at)) this._held.delete(at);
       this._slack++;
     }
 
@@ -679,6 +680,7 @@ class Run extends Model {
     this._entries = [];
     this._held.clear();
     this._sealed.clear();
+    this._slack = 0;
     this._on.clear();
     this._parent.clear();
     this._below.clear();

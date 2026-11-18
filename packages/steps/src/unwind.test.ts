@@ -3191,7 +3191,7 @@ describe('recover', () => {
     ]);
   });
 
-  it('will keep steps before a commit once a catch has passed it', async () => {
+  it('will keep the steps a commit descends from once a catch has passed it', async () => {
     const undo = vi.fn();
 
     class Test extends Journal {
@@ -3238,6 +3238,123 @@ describe('recover', () => {
       ['ship#1', undefined, undefined],
       ['fail#1', undefined, undefined]
     ]);
+  });
+
+  it.each([0, 1])('will reset steps beside a commit once a catch has passed it (%i between)', async (between) => {
+    const undo = vi.fn();
+
+    class Test extends Journal {
+      value = 0;
+
+      async run() {
+        this.early();
+        for (let i = 0; i < between; i++) this.noop();
+        this.setup();
+      }
+
+      protected async early() {
+        this.then.on({ reset: undo });
+        this.value = 1;
+      }
+
+      protected async noop() {}
+
+      protected async setup() {
+        this.pay().catch();
+        this.fail();
+      }
+
+      protected async pay() {
+        this.then.commit();
+        this.ship();
+      }
+
+      protected async ship() {
+        throw new Error('boom');
+      }
+
+      protected async fail() {
+        throw new Error('later');
+      }
+    }
+
+    const [test] = await fails(Test, 'later');
+
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(test.value).toBe(0);
+  });
+
+  it('will restore a step unwound before a racer under it commits', async () => {
+    const slow = mockPromise();
+    const handling = mockPromise();
+
+    class Test extends Journal {
+      value = 0;
+
+      async run() {
+        this.outer().catch(this.handle);
+      }
+
+      protected async outer() {
+        this.value = 1;
+        this.then(this.answer, this.slow(), this.bad());
+      }
+
+      protected async slow() {
+        await slow;
+        this.then.commit();
+      }
+
+      protected async bad() {
+        throw new Error('boom');
+      }
+
+      protected async answer() {}
+
+      protected async handle() {
+        await handling;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(test.then.active).toBe('handle'));
+    slow.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    handling.resolve();
+    await result;
+
+    expect(test.value).toBe(0);
+  });
+
+  it('will abort and close a step once a step under it commits', async () => {
+    const abort = vi.fn();
+    const close = vi.fn();
+
+    class Test extends Journal {
+      async run() {
+        this.setup();
+      }
+
+      protected async setup() {
+        this.then.on({ abort, close });
+        this.pay();
+      }
+
+      protected async pay() {
+        this.then.commit();
+        this.ship();
+      }
+
+      protected async ship() {
+        throw new Error('boom');
+      }
+    }
+
+    await fails(Test, 'boom');
+
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('will halt at an irreversible step and continue the run', async () => {

@@ -436,13 +436,13 @@ class Frame {
 
     if (_lost.size && !_on.some((handler) => handler.kind == 'reset')) entry.irreversible = [..._lost];
 
-    if (!root && entry.wrote.length && !this._committed) run._held.set(id, { prior: this._prior, log: this._log });
+    if (!root && entry.wrote.length) run._held.set(id, { prior: this._prior, log: this._log });
     if (this._undo) run._spent.add(id);
 
     run._entries.push(entry);
     this._entry = entry;
 
-    if (this._committed && !this._undo) run.seal(id);
+    if (this._committed) run.seal(id);
 
     return entry;
   }
