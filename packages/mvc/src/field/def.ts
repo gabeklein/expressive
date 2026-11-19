@@ -1,5 +1,5 @@
 import { listener } from '../observable';
-import { PENDING, Model, uid } from '../model';
+import { defer, PENDING, Model, uid } from '../model';
 import { apply, store } from '../store';
 
 declare namespace def {
@@ -16,8 +16,11 @@ declare namespace def {
     state: Model.Values<M>
   ) => def.Config<T> | (() => void) | void;
 
-  /** Property definition - `value`, `get`, `set` and `enumerable`, plus a `destroy` hook. */
+  /** Property definition - `value`, `get`, `set` and `enumerable`, plus `init` and `destroy` hooks. */
   interface Config<T = any> extends Model.Apply<T> {
+    /** Runs on activation after constructor args - a returned promise holds `ready`, a throw fails activation. */
+    init?: () => Promise<unknown> | void;
+
     /** Runs when the instance is destroyed. */
     destroy?: () => void;
   }
@@ -38,6 +41,7 @@ const RESET = () => APPLY.clear();
  * - `set` - `false` makes it read-only. A function gets `(next, previous)` - throw `false` to
  *   reject, `true` to skip the event; a returned value replaces `next`.
  * - `enumerable` - default `true`.
+ * - `init` - runs after constructor args; a returned promise holds `ready` and effects, like `async new()`.
  *
  * @example
  * ticks = def<number>((key, self) => {
@@ -91,6 +95,7 @@ Model.on({
       const desc = typeof output == 'function' ? { destroy: output } : output;
 
       if (desc.destroy) listener(self, desc.destroy, null);
+      if (desc.init) defer(self, desc.init);
 
       apply(self, key, desc, true);
     }

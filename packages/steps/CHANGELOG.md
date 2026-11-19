@@ -1,5 +1,15 @@
 # @expressive/steps
 
+## 0.1.4
+
+### Patch Changes
+
+- [#753](https://github.com/gabeklein/expressive/pull/753) [`41f396c`](https://github.com/gabeklein/expressive/commit/41f396cc58ff6dc0ea3f444d3a2455c8c588cbc5) `then.commit()` releases the undo state of the steps it descends from, so a long run that commits periodically no longer holds every replaced field value until it ends. Those steps now stay applied even once a caught failure has unwound past the commit.
+
+- [#752](https://github.com/gabeklein/expressive/pull/752) [`5ee327e`](https://github.com/gabeklein/expressive/commit/5ee327ed1d1e3839f9f62c3bc20060025b70a47b) A long run holds a fraction of the memory it did and runs faster: a settled step is released while the run continues, keeping only what an unwind needs - a step registering a function handler is kept until the run ends, for the handler. A handler still running when the run ends has its signal aborted. Calling `.catch()` on a step's token after the step which called it settled now throws.
+- Updated dependencies [[`b968a6d`](https://github.com/gabeklein/expressive/commit/b968a6d4eac9a3f2b4de09f77ca13941b9ac8294), [`829ff1c`](https://github.com/gabeklein/expressive/commit/829ff1ca06cab12636cd64c25f11805e67f09b4e)]:
+  - @expressive/mvc@0.95.0
+
 ## 0.1.3
 
 ### Patch Changes

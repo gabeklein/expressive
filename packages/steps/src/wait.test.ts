@@ -108,7 +108,7 @@ describe('wait', () => {
       ['wait#1', ['1']],
       ['wait#2', ['2']]
     ]);
-    expect(seen).toEqual([[], ['a', 'b'], ['b'], []]);
+    expect(seen).toEqual([[], ['a'], ['a', 'b'], ['b'], []]);
   });
 
   it('will expose a step only while a wait accepts it', async () => {

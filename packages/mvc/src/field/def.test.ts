@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, expectTypeOf } from 'vitest';
+import { mockPromise } from '../../test.setup';
 import { Model } from '../model';
 import { def } from './def';
 
@@ -219,6 +220,50 @@ describe('instruction', () => {
         expect(test.property).toBe('test!');
         expect(didUpdate).toBeCalledTimes(1);
       });
+    });
+  });
+
+  describe('init', () => {
+    it('will run after arguments and hold ready', async () => {
+      const promise = mockPromise<void>();
+      const ready = vi.fn();
+      let seen: number | undefined;
+
+      class Test extends Model {
+        id = 0;
+        property = def((_, self) => ({
+          value: 0,
+          init: () => {
+            seen = self.id;
+            return promise;
+          }
+        }));
+      }
+
+      Test.on({ ready });
+
+      const test = Test.new({ id: 2 });
+      await Promise.resolve();
+
+      expect(seen).toBe(2);
+      expect(ready).not.toBeCalled();
+
+      promise.resolve();
+      await test.set();
+
+      expect(ready).toBeCalledTimes(1);
+    });
+
+    it('will fail activation if it throws', () => {
+      class Test extends Model {
+        property = def(() => ({
+          init() {
+            throw new Error('nope');
+          }
+        }));
+      }
+
+      expect(() => Test.new()).toThrow('nope');
     });
   });
 

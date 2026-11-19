@@ -1,4 +1,6 @@
 import { map, set } from '@expressive/mvc';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { fails, flushMicrotasks, Journal, mockPromise, ran, record, start } from '../test.setup';
@@ -692,5 +694,175 @@ describe('scale', { timeout: 30_000 }, () => {
     const growth = await work((size) => Test.new({ size }));
 
     expect(growth).toBeLessThan(5);
+  });
+});
+
+describe('memory', () => {
+  setFlagsFromString('--expose-gc');
+
+  const gc = runInNewContext('gc') as () => void;
+
+  setFlagsFromString('--no-expose-gc');
+
+  async function alive(refs: WeakRef<object>[]) {
+    await new Promise((resolve) => setTimeout(resolve));
+    gc();
+
+    return refs.filter((ref) => ref.deref()).length;
+  }
+
+  it.each(['plain', 'handler', 'race'])('will release the steps of a chain while it runs (%s)', async (shape) => {
+    const hold = mockPromise();
+    const refs: WeakRef<object>[] = [];
+    let held!: WeakRef<object>;
+
+    class Test extends Steps {
+      async run() {
+        this.page(0);
+      }
+
+      protected async page(index: number) {
+        await Promise.resolve();
+        refs.push(new WeakRef(this));
+
+        if (shape == 'handler') this.then.on({ reset: this.undo(index) });
+
+        if (index == 100) this.hold();
+        else if (shape == 'race') this.then(this.answer, this.next(index));
+        else this.page(index + 1);
+      }
+
+      protected async next(index: number) {
+        this.answer(index);
+      }
+
+      async answer(index: number) {
+        this.page(index + 1);
+      }
+
+      protected async undo(index: number) {}
+
+      protected async hold() {
+        held = new WeakRef(this);
+        await hold;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(test.then.active).toBe('hold'));
+    expect(await alive(refs)).toBeLessThan(10);
+    expect(held.deref()).toBeDefined();
+
+    hold.resolve();
+    await result;
+  });
+
+  it('will release steps settled below one still running', async () => {
+    const ready = mockPromise();
+    const go = mockPromise();
+    const hold = mockPromise();
+    const refs: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      async run() {
+        this.then(this.wide(), this.later());
+      }
+
+      protected async wide() {
+        this.then(Array.from({ length: 100 }, (_, index) => index), this.visit);
+      }
+
+      protected async visit() {
+        refs.push(new WeakRef(this));
+        await go;
+      }
+
+      protected async later() {
+        await ready;
+        this.hold();
+      }
+
+      protected async hold() {
+        await hold;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(refs).toHaveLength(100));
+    ready.resolve();
+    await vi.waitFor(() => expect(test.then.active).toBe('hold'));
+    go.resolve();
+    await flushMicrotasks();
+
+    expect(test.then.active).toBe('hold');
+    expect(await alive(refs)).toBeLessThan(10);
+
+    hold.resolve();
+    await result;
+  });
+
+  it('will release values replaced before a commit while the run continues', async () => {
+    const hold = mockPromise();
+    const refs: WeakRef<object>[] = [];
+    const args: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      rows = {};
+
+      async run() {
+        this.page(0, {});
+      }
+
+      protected async page(index: number, arg: object) {
+        this.rows = {};
+        refs.push(new WeakRef(this.rows));
+        args.push(new WeakRef(arg));
+
+        if (index < 100) this.page(index + 1, {});
+        else {
+          this.then.commit();
+          this.hold();
+        }
+      }
+
+      protected async hold() {
+        await hold;
+      }
+    }
+
+    const [test, result] = await start(Test);
+
+    await vi.waitFor(() => expect(test.then.active).toBe('hold'));
+    expect(await alive(refs)).toBeLessThan(10);
+    expect(await alive(args)).toBeLessThan(10);
+    expect(refs.at(-1)!.deref()).toBe(test.rows);
+
+    hold.resolve();
+    await result;
+  });
+
+  it('will release steps holding function handlers once the run ends', async () => {
+    const refs: WeakRef<object>[] = [];
+
+    class Test extends Steps {
+      async run() {
+        this.page(0);
+      }
+
+      protected async page(index: number) {
+        refs.push(new WeakRef(this));
+        this.then.on({ reset: () => {} });
+
+        if (index < 100) this.page(index + 1);
+      }
+    }
+
+    const test = Test.new();
+
+    await test.run();
+    expect(await alive(refs)).toBeLessThan(10);
+    expect(test.then.status).toBe('idle');
   });
 });

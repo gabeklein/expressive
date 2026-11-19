@@ -1,5 +1,17 @@
 # @expressive/dev
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`e9dd129`](https://github.com/gabeklein/expressive/commit/e9dd12988a6d49cb72310905453519a21e05fb6b), [`977ffe0`](https://github.com/gabeklein/expressive/commit/977ffe03bbeabe44aeb744c1f2c8b4a4d7b2447d), [`14bab99`](https://github.com/gabeklein/expressive/commit/14bab993d532b7b4aea28565311d13b1d14f1575), [`b968a6d`](https://github.com/gabeklein/expressive/commit/b968a6d4eac9a3f2b4de09f77ca13941b9ac8294), [`829ff1c`](https://github.com/gabeklein/expressive/commit/829ff1ca06cab12636cd64c25f11805e67f09b4e)]:
+  - @expressive/dom@0.13.0
+  - @expressive/mvc@0.95.0
+  - @expressive/cli@0.2.1
+  - @expressive/inspect@0.6.5
+  - @expressive/router@0.10.5
+  - @expressive/rpc@0.4.2
+
 ## 0.2.0
 
 ### Minor Changes
