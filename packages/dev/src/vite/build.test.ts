@@ -20,7 +20,7 @@ it("will build the client, the server, then prerender", async () => {
 it("will not prerender when opted out or building in memory", async () => {
   prerender.mockClear();
 
-  await runBuild("/app", { clientOnly: true });
+  await runBuild("/app", { html: false });
   await runBuild("/app", { write: false });
 
   expect(prerender).not.toHaveBeenCalled();

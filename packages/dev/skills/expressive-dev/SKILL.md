@@ -119,20 +119,20 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ## Commands
 
 ```
-expressive dev                      Vite dev server with HMR and inspect's /__inspect relay
-expressive dev --no-inspect         without the relay
-expressive dev build                dist/client and dist/server/index.js
-expressive dev build --pretty       unminified client, stable filenames
-expressive dev build --client-only  without prerendered pages
-expressive help [command]           commands, or one command's inputs
-node dist/server/index.js           run the built service (port from index.ts, default 3000)
+expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
+expressive dev --no-inspect     without the relay
+expressive dev build            dist/client and dist/server/index.js
+expressive dev build --pretty   unminified client, stable filenames
+expressive dev build --no-html  without prerendered pages
+expressive help [command]       commands, or one command's inputs
+node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
 
 Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
 
 ## Prerendering
 
-`expressive dev build` (and `runBuild` from `@expressive/dev/vite`) builds, then renders each page with `renderToString` (`expressive-dom/SKILL.md#server-rendering`) to `dist/client/<path>/index.html` - markup in `#root`, its `head` ahead of the shell's `<title>`, its `css` as a `<style>`. The client hydrates a page prerendered for its path and renders anything else fresh. `--client-only` / `{ clientOnly: true }` opts out; a failure of the whole step - no empty `<div id="root">` in the shell, a bundle that will not load, a throwing `paths()` - warns and keeps the client-only build.
+`expressive dev build` (and `runBuild` from `@expressive/dev/vite`) builds, then renders each page with `renderToString` (`expressive-dom/SKILL.md#server-rendering`) to `dist/client/<path>/index.html` - markup in `#root`, its `head` ahead of the shell's `<title>`, its `css` as a `<style>`. The client hydrates a page prerendered for its path and renders anything else fresh. `--no-html` / `{ html: false }` opts out; a failure of the whole step - no empty `<div id="root">` in the shell, a bundle that will not load, a throwing `paths()` - warns and keeps the client-only build.
 
 - Rendered: every page with no `[param]` or `[...]` above it, plus what `paths()` lists below one - unchecked against the routes, so an unmatched path writes the 404 page.
 - Skipped: every folder with a `remote.ts` or `remote/`, and everything below it - the build never runs server code. Keep remotes in the deepest folder that uses them; one at the `app/` root disables prerendering. A page that redirects, renders nothing, throws or takes over 30s is skipped with a warning.

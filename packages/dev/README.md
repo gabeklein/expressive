@@ -275,13 +275,13 @@ calls can still carry the previous identity's data until the page reloads.
 ## Commands
 
 ```
-expressive dev                      Vite dev server with HMR and inspect's /__inspect relay
-expressive dev --no-inspect         without the relay
-expressive dev build                dist/client (static app) and dist/server/index.js (node service)
-expressive dev build --pretty       unminified client, stable filenames
-expressive dev build --client-only  without prerendered pages
-expressive help [command]           commands, or one command's inputs
-node dist/server/index.js           run the built service (port from index.ts, default 3000)
+expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
+expressive dev --no-inspect     without the relay
+expressive dev build            dist/client (static app) and dist/server/index.js (node service)
+expressive dev build --pretty   unminified client, stable filenames
+expressive dev build --no-html  without prerendered pages
+expressive help [command]       commands, or one command's inputs
+node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
 
 Nothing is written into the project. The shell, the client entry and the generated router module
@@ -301,7 +301,7 @@ markup goes in `#root`, its hoisted `<title>`, `<meta>` and `<link>` go ahead of
 `<title>`, and the style rules it used go in a `<style>`. The client hydrates a page prerendered
 for its own path, adopting the markup in place, and renders anything else fresh.
 
-`--client-only` (or `runBuild(root, { clientOnly: true })`) leaves every page to the browser. If
+`--no-html` (or `runBuild(root, { html: false })`) leaves every page to the browser. If
 prerendering fails as a whole - a shell without an empty `<div id="root">`, a bundle that will not
 load, a `paths()` that throws - the build warns and keeps the client-only output.
 
