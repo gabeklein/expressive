@@ -662,6 +662,64 @@ describe('get method', () => {
       });
     });
 
+    it('will export map, has and ref fields through get', () => {
+      class Test extends Model {
+        items = map([['a', 1]]);
+        list = has([1, 2]);
+        pool = has(Item);
+        node = ref<number>();
+      }
+
+      class Item extends Model {
+        name = 'foo';
+      }
+
+      const test = Test.new();
+
+      test.pool.add(Item.new());
+
+      const exported = test.get();
+
+      expect(exported.node).toBeNull();
+      expect(exported).toEqual({
+        items: new Map([['a', 1]]),
+        list: [1, 2],
+        pool: [{ name: 'foo' }],
+        node: null
+      });
+    });
+
+    it('will export as is a value whose get takes a key', () => {
+      class Test extends Model {
+        lookup = new Map([['a', 1]]);
+      }
+
+      const test = Test.new();
+      const exported: { lookup: Map<string, number> } = test.get();
+
+      expect(exported.lookup).toBe(test.lookup);
+    });
+
+    it('will export a held ref through its get', () => {
+      class Child extends Model {
+        node = ref<number>();
+      }
+
+      class Test extends Model {
+        child = new Child();
+        held?: ref.Object<number> = undefined;
+      }
+
+      const test = Test.new();
+
+      test.held = test.child.node;
+      test.child.node(1);
+
+      const exported: { held?: number | null } = test.get();
+
+      expect(exported.held).toBe(1);
+    });
+
     it('will export infinite loop', () => {
       class Parent extends Model {
         child = new Child();

@@ -124,6 +124,20 @@ describe('map', () => {
     expect(items.get().get('a')).toBe('unwrapped');
   });
 
+  it('will unwrap a nested function through its get', () => {
+    const inner = Object.assign(() => {}, { get: () => 'unwrapped' });
+    const items = managed([['a', inner]]);
+
+    expect(items.get().get('a')).toBe('unwrapped');
+  });
+
+  it('will not unwrap a nested value whose get takes a key', () => {
+    const inner = new Map([['b', 2]]);
+    const items = managed([['a', inner]]);
+
+    expect(items.get().get('a')).toBe(inner);
+  });
+
   it.each([
     ['insert', () => managed<string, number>()],
     ['create', () => managed((key: string) => ({ key }))]

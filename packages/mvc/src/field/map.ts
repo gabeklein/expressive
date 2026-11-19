@@ -130,21 +130,24 @@ class Managed<K, V> extends Map<K, V> {
   /**
    * Shallow snapshot of the entries - untracked.
    *
-   * A value with a `get()` method exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
    */
   get(): ReadonlyMap<K, Model.Export<V>>;
 
   /** Value at `key` - tracks that key only. */
   get(key: K): V | undefined;
-  get(key?: K): unknown {
+  get(...args: [key?: K]): unknown {
     const target = source(this);
 
-    return arguments.length
-      ? touch(this, key, super.get.call(target, key as K)) 
+    return args.length
+      ? touch(this, args[0], super.get.call(target, args[0] as K))
       : new Map(
         Array.from(MAP.entries.call(target), ([key, value]) => [
           key,
-          value && typeof value === 'object' && typeof value.get === 'function'
+          value &&
+          (typeof value == 'object' || typeof value == 'function') &&
+          typeof value.get == 'function' &&
+          !value.get.length
             ? value.get()
             : value
         ])

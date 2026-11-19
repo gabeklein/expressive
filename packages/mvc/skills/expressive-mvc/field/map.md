@@ -145,7 +145,7 @@ const rows = cart.items.values((line, id) => `${id}: ${line.qty}`);
 
 ## Snapshots
 
-`get()` with no key returns a shallow `ReadonlyMap` snapshot; nested values with a `.get()` method export through it, as in Model snapshots; a `get: null` value is kept.
+`get()` with no key returns a shallow `ReadonlyMap` snapshot; nested values whose `get` declares no parameters export through it, as in Model snapshots; a `get: null` value is kept.
 
 ```ts
 class Store extends Model {

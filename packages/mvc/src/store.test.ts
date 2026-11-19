@@ -97,6 +97,27 @@ describe('values', () => {
     expect(store.values(data)).toEqual({ foo: 1 });
   });
 
+  it('will export as is a value whose get takes a parameter', () => {
+    const bar = new Map([['a', 1]]);
+    const { data } = managed({ bar });
+
+    expect(store.values(data).bar).toBe(bar);
+  });
+
+  it('will export a function through its get', () => {
+    const bar = Object.assign(() => {}, { get: () => 'baz' });
+    const { data } = managed({ bar });
+
+    expect(store.values(data)).toEqual({ bar: 'baz' });
+  });
+
+  it('will omit a function whose get is null', () => {
+    const bar = Object.assign(() => {}, { get: null });
+    const { data } = managed({ foo: 1, bar });
+
+    expect(store.values(data)).toEqual({ foo: 1 });
+  });
+
   it('will export as is a value whose get is not a function', () => {
     const bar = { get: 'baz' };
     const { data } = managed({ bar });

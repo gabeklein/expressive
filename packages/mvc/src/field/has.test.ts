@@ -128,6 +128,21 @@ describe('get', () => {
     expect(list.get()).toEqual(['unwrapped']);
   });
 
+  it('will unwrap a nested function through its get', () => {
+    const inner = Object.assign(() => {}, { get: () => 'unwrapped' });
+    const list = reactive([inner]);
+
+    expect(list.get()).toEqual(['unwrapped']);
+  });
+
+  it('will not unwrap a nested value whose get takes a key', () => {
+    const inner = new Map([['b', 2]]);
+    const list = reactive([inner]);
+
+    expect(list.get()).toEqual([inner]);
+    expect(list.get()[0]).toBe(inner);
+  });
+
   it.each<[string, (list: has.List<number>) => unknown, unknown]>([
     ['will read by positive index', (list) => list.get(1), 20],
     ['will normalize negative index', (list) => list.get(-1), 40],
