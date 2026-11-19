@@ -22,7 +22,7 @@ export function register() {
     }
 
   for (const [key, value] of Object.entries(values))
-    if (owned.has(key) || process.env[key] === undefined) {
+    if (key !== "NODE_ENV" && (owned.has(key) || process.env[key] === undefined)) {
       process.env[key] = value;
       owned.add(key);
     }

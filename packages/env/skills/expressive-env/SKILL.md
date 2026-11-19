@@ -27,7 +27,7 @@ Dependencies that read `process.env` - database clients, SDKs, tool configs - ne
 node --import @expressive/env/register server.js
 ```
 
-It copies the same files into `process.env`, skipping keys already set, so the shell and platform still win. The Vite plugin's reload refreshes the keys it copied.
+It copies the same files into `process.env`, skipping keys already set and `NODE_ENV` - the mode is chosen before they load - so the shell and platform still win. The Vite plugin's reload refreshes the keys it copied.
 
 ## Types
 
