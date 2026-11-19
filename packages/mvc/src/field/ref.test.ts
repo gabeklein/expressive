@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, afterEach } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf, afterEach } from 'vitest';
 import { Model } from '../model';
 import { ref } from './ref';
 import { set } from './set';
@@ -227,11 +227,18 @@ describe('proxy', () => {
     expect(refs.bar.key).toBe('bar');
   });
 
-  it('will return source from get', () => {
-    const { is: subject, refs } = Subject.new();
+  it('will be omitted from exports', () => {
+    class Host extends Model {
+      subject = Subject.new();
+      refs = this.subject.refs;
+    }
 
-    expect(refs.get()).toBe(subject);
-    expect(Object.keys(refs)).toEqual([]);
+    const host = Host.new();
+
+    expect(Object.keys(host.get())).toEqual(['subject']);
+    expect(Object.keys(host.refs)).toEqual([]);
+    expectTypeOf<keyof Model.Values<Host>>().toEqualTypeOf<'subject'>();
+    expectTypeOf<keyof Model.Values<Subject>>().toEqualTypeOf<'foo' | 'bar'>();
   });
 });
 
@@ -305,11 +312,17 @@ describe('mapped', () => {
     expect(generateRef).toBeCalledWith('bar', test);
   });
 
-  it('will return source from get', () => {
-    const test = Test.new();
+  it('will be omitted from exports', () => {
+    class Host extends Model {
+      test = Test.new();
+      fields = this.test.fields;
+    }
 
-    expect(test.fields.get()).toBe(test.is);
+    const host = Host.new();
+
+    expect(Object.keys(host.get())).toEqual(['test']);
     expect(generateRef).not.toBeCalled();
+    expectTypeOf<keyof Model.Values<Host>>().toEqualTypeOf<'test'>();
   });
 
   it('will run function only once per property', () => {
@@ -380,7 +393,6 @@ describe('mapped', () => {
     await expect(consumer.source).toHaveUpdated();
 
     expect(consumer.refs.value.current).toBe('world');
-    expect(consumer.refs.get()).toBe(consumer.source);
   });
 
   it('will map a different state instance', () => {
@@ -399,7 +411,6 @@ describe('mapped', () => {
 
     expect(consumer.mapped.foo).toBe('mapped-foo');
     expect(spy).toBeCalledWith('foo', consumer.source);
-    expect(consumer.mapped.get()).toBe(consumer.source);
   });
 
   it.skip('will not break on recursive', () => {
