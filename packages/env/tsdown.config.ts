@@ -10,6 +10,7 @@ export default defineConfig({
     index: 'src/index.ts',
     browser: 'src/browser.ts',
     cli: 'src/cli.ts',
+    register: 'src/register.ts',
     'vite/index': 'src/vite.ts'
   },
   platform: 'node',
