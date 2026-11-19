@@ -90,4 +90,17 @@ describe('values', () => {
 
     expect(store.values(data)).toEqual({ foo: 1, bar: 'baz' });
   });
+
+  it('will omit values whose get is null', () => {
+    const { data } = managed({ foo: 1, bar: { get: null } });
+
+    expect(store.values(data)).toEqual({ foo: 1 });
+  });
+
+  it('will export as is a value whose get is not a function', () => {
+    const bar = { get: 'baz' };
+    const { data } = managed({ bar });
+
+    expect(store.values(data)).toEqual({ bar });
+  });
 });

@@ -169,11 +169,15 @@ declare namespace Model {
     ? T
     : R;
 
-  /** Plain snapshot of managed fields, child Models and `ref`-like values unwrapped - from `get()`. */
-  type Values<T> = { [P in Field<T>]: Export<T[P]> };
+  /**
+   * Plain snapshot of managed fields, child Models and `ref`-like values unwrapped - from `get()`.
+   *
+   * A value with `get: null` is omitted.
+   */
+  type Values<T> = { [P in Field<T> as T[P] extends { get: null } ? never : P]: Export<T[P]> };
 
   /** Some fields of `T`, in exported form. */
-  type Partial<T> = { [P in Field<T>]?: Export<T[P]> };
+  type Partial<T> = { [P in Field<T> as T[P] extends { get: null } ? never : P]?: Export<T[P]> };
 
   /** Exported value of one field, `unknown` for a custom event. */
   type Value<T extends Model, K extends Model.Event<T>> = K extends keyof T
