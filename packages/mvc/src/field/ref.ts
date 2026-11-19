@@ -135,7 +135,7 @@ function ref<T extends Model>(
 function defaultMap(this: Model, key: string) {
   const source = this as any as Record<string, any>;
   const set = (x: any) => (source[key] = x);
-  const get = (cb?: (value: any) => void) =>
+  const get = (...[cb]: [cb?: (value: any) => void]) =>
     cb ? listener(this, () => cb(source[key]), key) : source[key];
 
   defineProperties(set, {
@@ -178,7 +178,7 @@ function property<T>(callback?: ref.Callback<T>, ignoreNull?: boolean) {
   return def((key, subject, state) => {
     let unset: ((next: T) => void) | undefined;
 
-    function get(cb?: (value: T) => void) {
+    function get(...[cb]: [cb?: (value: T) => void]) {
       return cb ? listener(subject, () => cb(state[key]), key) : state[key];
     }
 

@@ -422,9 +422,11 @@ abstract class Model {
   get<C extends Model.Extends>(Type: C, ...args: Keyed<C>): Got<C>;
 
   get(
-    arg1?: Model.Effect<this> | Model.Type | typeof Model | string | null,
-    arg2?: boolean | Context.Expect | (() => void),
-    ...args: any[]
+    ...[arg1, arg2, ...args]: [
+      arg1?: Model.Effect<this> | Model.Type | typeof Model | string | null,
+      arg2?: boolean | Context.Expect | (() => void),
+      ...args: any[]
+    ]
   ) {
     const self = this.is;
 
