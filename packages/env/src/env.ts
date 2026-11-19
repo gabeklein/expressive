@@ -11,7 +11,14 @@ export function reset() {
   if (filled) register();
 }
 
-export function register() {
+/**
+ * Copies the mode's `.env` files into `process.env`, for dependencies that read it.
+ *
+ * Keys already set win, and `NODE_ENV` is never copied - the mode is chosen before files load.
+ * Once registered, the Vite plugin's reload refreshes only the keys copied here.
+ * `node --import @expressive/env/register` does the same before an app loads.
+ */
+export function register(): void {
   const values = load(process.cwd(), mode());
   const owned = (filled ??= new Set());
 

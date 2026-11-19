@@ -21,7 +21,7 @@ Files load from the working directory on the first read, later winning:
 
 Mode is `NODE_ENV`, default `development` - the same files and order as Vite. Commit `.env.example` with every key and no secrets; keep the rest out of git.
 
-Dependencies that read `process.env` - database clients, SDKs, tool configs - need the keys there. Import `@expressive/env/register` first, or preload it:
+Dependencies that read `process.env` - database clients, SDKs, tool configs - need the keys there. Call `register()` from `@expressive/env` before they load, or preload it:
 
 ```sh
 node --import @expressive/env/register server.js
