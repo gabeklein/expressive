@@ -24,6 +24,9 @@
   ],
   "type": "module",
   "sideEffects": false,
+  "bin": {
+    "expressive": "dist/cli.js"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -44,6 +47,12 @@
     "typecheck": "tsc --noEmit --incremental",
     "coverage": "vitest run --coverage",
     "test": "bun run typecheck && bun run coverage"
+  },
+  "dependencies": {
+    "@expressive/cli": "^0.2.0"
+  },
+  "peerDependencies": {
+    "@expressive/mvc": "^0.94.5"
   },
   "devDependencies": {
     "@expressive/mvc": "workspace:*",

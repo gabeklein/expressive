@@ -8,7 +8,8 @@ export default defineConfig({
   outExtensions: () => ({ js: '.js' }),
   entry: {
     index: 'src/index.ts',
-    browser: 'src/browser.ts'
+    browser: 'src/browser.ts',
+    cli: 'src/cli.ts'
   },
   platform: 'node',
   format: ['esm'],

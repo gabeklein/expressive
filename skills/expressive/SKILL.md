@@ -1,6 +1,6 @@
 ---
 name: expressive
-description: Locates the docs for Expressive (@expressive/* packages - mvc, react, dom, router, steps, orm and others). Use before writing, refactoring or reviewing code that imports any @expressive package.
+description: Locates the docs for Expressive (@expressive/* packages - mvc, react, dom, router, steps, orm and others). Use before writing, refactoring or reviewing code that imports any @expressive package, and before reading or editing a project's .env files.
 ---
 
 # Expressive
