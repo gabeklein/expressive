@@ -1,5 +1,22 @@
 # @expressive/dev
 
+## 0.3.0
+
+### Minor Changes
+
+- [#740](https://github.com/gabeklein/expressive/pull/740) [`238c830`](https://github.com/gabeklein/expressive/commit/238c830d33317aff19b0ea1a4a9d5af7b5632c66) `expressive dev build` now prerenders: each static page is rendered with `renderToString` into `dist/client/<path>/index.html`, and the client hydrates it. `--no-html` (or `runBuild(root, { html: false })`) opts out, and a failed prerender step warns and keeps the client-only build. Folders with a remote are left to the client. A `[param]` or `[...]` route module lists its pages with a `paths()` export. The empty shell is kept as `200.html`, which the built service falls back to. `hydrate` is exported beside `render`.
+
+### Patch Changes
+
+- [#740](https://github.com/gabeklein/expressive/pull/740) [`238c830`](https://github.com/gabeklein/expressive/commit/238c830d33317aff19b0ea1a4a9d5af7b5632c66) `expressive dev build` builds from the project's own `index.html` instead of the default shell.
+- Updated dependencies [[`bd0183f`](https://github.com/gabeklein/expressive/commit/bd0183fe98b5b0085bbdacb74976bc745d218096), [`cf2e10b`](https://github.com/gabeklein/expressive/commit/cf2e10bb021364721007bf1102c76a53e8c67f25), [`0360067`](https://github.com/gabeklein/expressive/commit/0360067d50ff09d1cd72efdd5b3ee456151bfdd3), [`6711fd8`](https://github.com/gabeklein/expressive/commit/6711fd88de99b43fbb273fa0c78ebf6c6da7b414)]:
+  - @expressive/dom@0.13.1
+  - @expressive/mvc@0.96.0
+  - @expressive/cli@0.2.2
+  - @expressive/inspect@0.6.6
+  - @expressive/router@0.10.6
+  - @expressive/rpc@0.4.3
+
 ## 0.2.1
 
 ### Patch Changes

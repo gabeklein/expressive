@@ -1,5 +1,17 @@
 # @expressive/mvc
 
+## 0.96.0
+
+### Minor Changes
+
+- [#750](https://github.com/gabeklein/expressive/pull/750) [`0360067`](https://github.com/gabeklein/expressive/commit/0360067d50ff09d1cd72efdd5b3ee456151bfdd3) A value whose `get` is `null` is omitted from `get()` snapshots, and `Model.Values` and `Model.Partial` type its field `never`. `ref(this)` and `ref(this, map)` proxies carry it, replacing a declared `get()` that threw at runtime.
+
+- [#756](https://github.com/gabeklein/expressive/pull/756) [`6711fd8`](https://github.com/gabeklein/expressive/commit/6711fd88de99b43fbb273fa0c78ebf6c6da7b414) `get()` snapshots call a value's `get` only when it declares no parameters, matching `Model.Values`: a native `Map` field exports as the `Map` instead of `undefined`, and `map()` / `has()` snapshots keep such nested values as is. Functions now export through their `get` too, in Model, `map()` and `has()` snapshots alike, so a `ref` handle held by another field exports its value instead of the handle, and a function with `get: null` is omitted from a Model snapshot. A custom `get` with an optional parameter must declare it as rest (`get(...[key]: [K?])`) to keep exporting through it.
+
+### Patch Changes
+
+- [#751](https://github.com/gabeklein/expressive/pull/751) [`cf2e10b`](https://github.com/gabeklein/expressive/commit/cf2e10bb021364721007bf1102c76a53e8c67f25) A tracked read of an observable object whose `is` is a getter now runs that getter against the tracking proxy, so a value it returns through `touch` subscribes and is a fresh tracking proxy on each read. Before, the proxy pinned `is` to the untracked value. A Model's `is` still unwraps to the raw instance, and a `has` list or `map` unwraps through any number of proxy or view layers.
+
 ## 0.95.0
 
 ### Minor Changes
