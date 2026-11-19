@@ -141,6 +141,16 @@ describe("register", () => {
     expect(process.env.KEPT).toBe("shell");
   });
 
+  it("will not set NODE_ENV - mode is chosen before files load", () => {
+    write({ ".env": "NODE_ENV=production\nFILLED=file" });
+    vi.stubEnv("NODE_ENV", undefined);
+
+    register();
+
+    expect(process.env.NODE_ENV).toBeUndefined();
+    expect(process.env.FILLED).toBe("file");
+  });
+
   it("will refresh only the keys it filled on reset", () => {
     write({ ".env": "FILLED=one\nGONE=x\nKEPT=file" });
     vi.stubEnv("KEPT", "shell");
