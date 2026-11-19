@@ -13,5 +13,5 @@ it("will export Env as a member of the expressive command", async () => {
   expect(main).toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringMatching(/cli\.ts$/) }), Env, { as: "expressive" });
 
   expect(await command(Env)(["--help"], out, "expressive env")).toBe(0);
-  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive env \[options\] <command>\n\nType, check, list and edit/);
+  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive env \[options\] \[command\]\n\nSet up env.d.ts, then check/);
 });

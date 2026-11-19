@@ -1,6 +1,6 @@
 import { load, mode } from "./files";
 
-/** Keys of the project's `.env` files - `expressive env sync` declares them in `env.d.ts`. */
+/** Keys of the project's `.env` files - `expressive env` declares them in `env.d.ts`. */
 export interface Env {}
 
 let cache: Record<string, string> | undefined;

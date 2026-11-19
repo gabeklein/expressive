@@ -39,6 +39,30 @@ const file = (name: string) => readFileSync(join(root, name), "utf8");
 const logged = () => log.mock.calls.map(call => call[0]);
 const errors = () => error.mock.calls.map(call => call[0]);
 
+describe("bare", () => {
+  it("will write env.d.ts and warn without failing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    files({ ".env.example": "A=\nB=", ".env": "A=1" });
+
+    expect(await run()).toBe(0);
+    expect(file("env.d.ts")).toContain("readonly A: string;");
+    expect(await run()).toBe(0);
+    expect(logged()).toEqual(["Wrote env.d.ts.", "env.d.ts is current."]);
+    expect(warn.mock.calls.map(call => call[0])).toEqual(["B is unset - .env.example lists it.", "B is unset - .env.example lists it."]);
+  });
+
+  it("will pass without .env files", async () => {
+    expect(await run()).toBe(0);
+    expect(logged()).toEqual([`No .env files in ${root} - nothing to prepare.`]);
+    expect(existsSync(join(root, "env.d.ts"))).toBe(false);
+  });
+
+  it("will still print help", async () => {
+    expect(await run("--help")).toBe(0);
+    expect(out.log).toHaveBeenCalled();
+  });
+});
+
 describe("sync", () => {
   it("will write env.d.ts", async () => {
     files({ ".env": "A=1" });
@@ -72,7 +96,7 @@ describe("check", () => {
     expect(errors()).toEqual([
       "A is empty - .env.example lists it.",
       "B is unset - .env.example lists it.",
-      "env.d.ts does not declare A, B, C - run `expressive env sync`.",
+      "env.d.ts does not declare A, B, C - run `expressive env`.",
     ]);
   });
 
