@@ -12,7 +12,7 @@ class Expressive extends Model {
 
   env = cmd({
     lazy: () => import("./command"),
-    help: "Type, check, list and edit the project's .env files without printing secrets.",
+    help: "Set up env.d.ts, then check, list and edit .env files without printing secrets.",
   });
 
   sql = cmd({
