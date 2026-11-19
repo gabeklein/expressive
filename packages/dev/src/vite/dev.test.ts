@@ -34,6 +34,22 @@ it("will add env and the inspect relay unless turned off", async () => {
   expect(names()).toEqual(["expressive", false, false]);
 });
 
+it("will register .env into process.env unless turned off", async () => {
+  const registered = vi.fn();
+
+  vi.resetModules();
+  vi.doMock("@expressive/env/register", () => (registered(), {}));
+  const { runDev } = await import("./dev");
+
+  await runDev("/app", { env: false });
+  expect(registered).not.toHaveBeenCalled();
+
+  await runDev("/app");
+  expect(registered).toHaveBeenCalledTimes(1);
+
+  vi.doUnmock("@expressive/env/register");
+});
+
 it("will take its mode from NODE_ENV", async () => {
   vi.stubEnv("NODE_ENV", "staging");
   await runDev("/app");

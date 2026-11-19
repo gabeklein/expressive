@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServerModuleRunner, runnerImport, type Plugin, type ViteDevServer } from "vite";
+import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
 import type { AppConfig } from "../server/config";
@@ -49,6 +49,13 @@ const HOSTED = ["@expressive/inspect/vite/client", "@expressive/inspect/install"
 
 const builds = new Map<string, Exposure>();
 
+const BOOT = "index.js";
+
+const boot = (app: string, dotenv: boolean) =>
+  [`process.env.NODE_ENV ||= "production";`, dotenv && `await import("@expressive/env/register");`, `await import(${JSON.stringify(`./${app}`)});`]
+    .filter(Boolean)
+    .join("\n") + "\n";
+
 const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/env", "@expressive/dev"];
 
 /**
@@ -70,6 +77,7 @@ export function expressive(): Plugin<Host> {
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
+  let dotenv = false;
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -117,6 +125,7 @@ export function expressive(): Plugin<Host> {
 
     configResolved(config) {
       root = config.root;
+      dotenv = config.plugins.some(plugin => plugin.name === "expressive:env");
       generatedDir = join(root, GENERATED);
       mainId = join(generatedDir, MAIN);
       routesId = join(generatedDir, ROUTES);
@@ -218,6 +227,14 @@ export function expressive(): Plugin<Host> {
       const problem = !options?.ssr && (await guardScript(code, path));
 
       if (problem) this.error(`${relative(root, path)} ${problem}`);
+    },
+
+    generateBundle(_options, bundle) {
+      const entry = build === "server" && Object.values(bundle).find(chunk => (chunk as Rollup.OutputChunk).isEntry);
+
+      if (!entry || entry.fileName === BOOT) return;
+
+      this.emitFile({ type: "prebuilt-chunk", fileName: BOOT, code: boot(entry.fileName, dotenv) });
     },
 
     transformIndexHtml: {

@@ -1,7 +1,7 @@
 import { env } from "@expressive/env/vite";
 import { build, type InlineConfig } from "vite";
 
-import { viteConfigFile } from "./config";
+import { nodeMode, viteConfigFile } from "./config";
 import { expressive } from "./plugin";
 import { PRERENDER_ENTRY } from "./project";
 
@@ -23,7 +23,7 @@ export function clientBuild(root: string, options: BuildOptions = {}): InlineCon
 
   return {
     root,
-    mode: process.env.NODE_ENV || undefined,
+    mode: nodeMode(),
     configFile: viteConfigFile(root),
     plugins: host(options),
     build: {
@@ -43,14 +43,14 @@ export function serverBuild(root: string, options: BuildOptions = {}): InlineCon
 
   return {
     root,
-    mode: process.env.NODE_ENV || undefined,
+    mode: nodeMode(),
     configFile: viteConfigFile(root),
     plugins: host(options),
     build: {
       write,
       ssr: "/.expressive/server.ts",
       outDir: "dist/server",
-      rollupOptions: { output: { entryFileNames: "index.js" } },
+      rollupOptions: { output: { entryFileNames: "app.js" } },
     },
   };
 }
@@ -60,7 +60,7 @@ export function prerenderBuild(root: string, outDir: string, options: BuildOptio
 
   return {
     root,
-    mode: process.env.NODE_ENV || undefined,
+    mode: nodeMode(),
     configFile: viteConfigFile(root),
     plugins: host(options),
     logLevel: "warn",

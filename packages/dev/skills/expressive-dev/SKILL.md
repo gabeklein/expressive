@@ -30,6 +30,7 @@ app.tsx | src/app.tsx single root component instead of app/ (default export)
 index.ts              optional server entry: export default config({ port })
 index.html            optional shell (#root and the entry script injected if missing)
 vite.config.ts        optional, merged under the host's
+.env, .env.*          optional - see Environment
 ```
 
 Bare-named files under `app/` are support modules. Siblings match static before `:param` before `*`.
@@ -121,14 +122,32 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
+expressive dev --no-env         without .env files
 expressive dev build            dist/client and dist/server/index.js
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
+expressive dev build --no-env   client without env, server boots without .env files
+expressive env                  write env.d.ts, warn of unset keys - expressive-env
 expressive help [command]       commands, or one command's inputs
 node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
 
 Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+
+## Environment
+
+`.env` files are built in - `expressive-env/SKILL.md` covers files, modes, types and editing.
+
+```ts
+import { env } from "@expressive/dev";
+
+const db = connect(env.DATABASE_URL);
+```
+
+- `env` reads keys on the server; in the browser only `PUBLIC_` keys, read at build - any other throws. A custom prefix: `env({ prefix: "CLIENT" })` from `@expressive/env/vite` in `vite.config.ts`, which replaces the host's.
+- The same files fill `process.env` in dev and at the built server's boot, for dependencies that read it - keys already set win.
+- Mode is `NODE_ENV`, for client and server alike - `development` in dev, `production` for a build and a built server it is unset for. Files load from the working directory; a `vite.config.ts` `root` elsewhere splits the two sides.
+- Types: run `expressive env` (a `prepare` script fits) - dev does not create `env.d.ts`, only refreshes it on `.env` changes.
 
 ## Prerendering
 

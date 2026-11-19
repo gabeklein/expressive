@@ -2,7 +2,7 @@ import { env } from "@expressive/env/vite";
 import inspect from "@expressive/inspect/vite";
 import { createServer } from "vite";
 
-import { viteConfigFile } from "./config";
+import { nodeMode, viteConfigFile } from "./config";
 import { expressive } from "./plugin";
 
 export interface DevOptions {
@@ -16,9 +16,11 @@ export interface DevOptions {
 export async function runDev(root = process.cwd(), { inspect: relay = true, env: dotenv = true }: DevOptions = {}): Promise<void> {
   const host = expressive();
 
+  if (dotenv) await import("@expressive/env/register");
+
   const server = await createServer({
     root,
-    mode: process.env.NODE_ENV || undefined,
+    mode: nodeMode(),
     configFile: viteConfigFile(root),
     plugins: [host, dotenv && env(), relay && inspect()],
   });
