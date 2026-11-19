@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "expressive",
@@ -100,6 +101,15 @@
       "optionalPeers": [
         "vite",
       ],
+    },
+    "packages/env": {
+      "name": "@expressive/env",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@expressive/mvc": "workspace:*",
+        "@types/node": "^25.2.0",
+        "tsdown": "^0.20.1",
+      },
     },
     "packages/inspect": {
       "name": "@expressive/inspect",
@@ -477,6 +487,8 @@
     "@expressive/dev": ["@expressive/dev@workspace:packages/dev"],
 
     "@expressive/dom": ["@expressive/dom@workspace:packages/dom"],
+
+    "@expressive/env": ["@expressive/env@workspace:packages/env"],
 
     "@expressive/examples": ["@expressive/examples@workspace:examples"],
 
