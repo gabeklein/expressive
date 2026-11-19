@@ -1,5 +1,13 @@
 # @expressive/dom
 
+## 0.13.1
+
+### Patch Changes
+
+- [#741](https://github.com/gabeklein/expressive/pull/741) [`bd0183f`](https://github.com/gabeklein/expressive/commit/bd0183fe98b5b0085bbdacb74976bc745d218096) `hydrate()` adopts a suspended subtree's server markup when it holds a hoisted `<title>`, `<meta>` or `<link>`, instead of rebuilding it and leaving a duplicate in the head.
+- Updated dependencies [[`cf2e10b`](https://github.com/gabeklein/expressive/commit/cf2e10bb021364721007bf1102c76a53e8c67f25), [`0360067`](https://github.com/gabeklein/expressive/commit/0360067d50ff09d1cd72efdd5b3ee456151bfdd3), [`6711fd8`](https://github.com/gabeklein/expressive/commit/6711fd88de99b43fbb273fa0c78ebf6c6da7b414)]:
+  - @expressive/mvc@0.96.0
+
 ## 0.13.0
 
 ### Minor Changes
