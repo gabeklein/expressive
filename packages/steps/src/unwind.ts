@@ -1,6 +1,6 @@
 import { Frame } from './frame';
 import { Run } from './run';
-import { chain, type Handler, type Kind, type Log, type Mode, type Restore } from './shared';
+import { chain, type Handler, type Kind, type Log, type Mode, type Restore, unissue } from './shared';
 import { Steps } from './steps';
 
 interface Unwound {
@@ -101,6 +101,7 @@ async function unwind(run: Run, cause: unknown, mode: Mode, ids?: Set<string>): 
   for (const entry of pending.reverse()) {
     const on = run._on.get(entry.id);
     const open = !run._finished.has(entry.id);
+    const sealed = run._sealed.has(entry.id);
 
     if (ids && run._halted) break;
     if (entry.unwound == 'failed') break;
@@ -116,7 +117,7 @@ async function unwind(run: Run, cause: unknown, mode: Mode, ids?: Set<string>): 
 
     try {
       if (open) await fire(run, on, 'abort', mode == 'error' ? cause : undefined, kept);
-      if (!halted && !run._reset.has(entry.id)) await fire(run, on, 'reset', undefined, kept);
+      if (!halted && !sealed && !run._reset.has(entry.id)) await fire(run, on, 'reset', undefined, kept);
 
       run._finished.add(entry.id);
 
@@ -128,7 +129,7 @@ async function unwind(run: Run, cause: unknown, mode: Mode, ids?: Set<string>): 
 
     run._spent.add(entry.id);
 
-    if (halted) continue;
+    if (halted || sealed) continue;
     if (on?.some((handler) => handler.kind == 'reset') || (run._held.has(entry.id) && entry.wrote.length)) entry.unwound = true;
 
     undone.push(entry);
@@ -142,11 +143,16 @@ async function compensate(run: Run, item: Steps.Node, cause: unknown, kept: Set<
 
   if (!fn) return undo(run, [item], kept);
 
-  const frame = run.frames.add({ id: item.id, key: item.key, args: item.args, _undo: true, _owner: run._owner.get(item.id) });
+  const frame = new Frame(run, { id: item.id, key: item.key, args: item.args, _undo: true, _owner: run._owner.get(item.id) });
+
+  run.frames.add(frame);
+
   try {
     await (bare ? fn() : fn(cause));
   } finally {
     run.frames.delete(frame);
+    frame._abort.abort();
+    unissue(frame._items);
     for (const key of frame._wrote) kept.add(key);
   }
 

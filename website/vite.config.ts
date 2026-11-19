@@ -15,7 +15,7 @@ export default defineConfig({
       JSON.parse(readFileSync(resolve(__dirname, '../packages/react/package.json'), 'utf8')).version
     ),
     __LIB_TESTS__: countTests(resolve(__dirname, '../packages')),
-    __LIB_SIZE__: readSize(resolve(__dirname, '../size-report.json')),
+    __LIB_SIZES__: readSizes(resolve(__dirname, '../size-report.json')),
     __SANDBOX_DEPS__: JSON.stringify(sandboxDeps()),
   },
   optimizeDeps: {
@@ -111,10 +111,9 @@ function warnPending(deps: Record<string, string>) {
     );
 }
 
-function readSize(report: string): string {
+function readSizes(report: string): string {
   try {
-    const bytes = JSON.parse(readFileSync(report, 'utf8'))['react: typical app'];
-    return JSON.stringify(typeof bytes === 'number' ? bytes : null);
+    return JSON.stringify(JSON.parse(readFileSync(report, 'utf8')));
   } catch {
     return 'null';
   }

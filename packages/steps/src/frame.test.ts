@@ -834,6 +834,38 @@ describe('signal', () => {
     expect(seen).toEqual([false, true, false]);
   });
 
+  it('will abort the signal of a handler still running when the run ends', async () => {
+    const started = mockPromise();
+    const slow = mockPromise();
+    let signal!: AbortSignal;
+
+    class Test extends Steps {
+      async run() {
+        this.then(this.a(), this.b());
+      }
+
+      protected async a() {
+        this.then.on({ close: this.slow() });
+      }
+
+      protected async slow() {
+        signal = this.then.signal;
+        started.resolve();
+        await slow;
+      }
+
+      protected async b() {
+        await started;
+        this.then.end();
+      }
+    }
+
+    await Test.new().run();
+
+    expect(signal.aborted).toBe(true);
+    slow.resolve();
+  });
+
   it('will throw if signal is read outside a step', () => {
     class Test extends Steps {
     }

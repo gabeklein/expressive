@@ -1,5 +1,22 @@
 # @expressive/dom
 
+## 0.13.0
+
+### Minor Changes
+
+- [#701](https://github.com/gabeklein/expressive/pull/701) [`e9dd129`](https://github.com/gabeklein/expressive/commit/e9dd12988a6d49cb72310905453519a21e05fb6b) `<title>`, `<meta>` and `<link>` render into `document.head` from anywhere, outside SVG, shadow roots, microdata and any rendered `<head>` - the latest title wins and unmounting restores the one before. `renderToString` returns them as `head`.
+
+  JSX types now include microdata props (`itemProp`, `itemScope`, `itemType`, `itemID`, `itemRef`) and `charSet` and `property` on `<meta>`.
+
+- [#702](https://github.com/gabeklein/expressive/pull/702) [`977ffe0`](https://github.com/gabeklein/expressive/commit/977ffe03bbeabe44aeb744c1f2c8b4a4d7b2447d) `hydrate(node, container)` mounts over `renderToString` markup, adopting its nodes instead of replacing them. Mismatches are mended in place, and a subtree that suspends keeps its server markup until it renders.
+
+- [#695](https://github.com/gabeklein/expressive/pull/695) [`14bab99`](https://github.com/gabeklein/expressive/commit/14bab993d532b7b4aea28565311d13b1d14f1575) `renderToString` from `@expressive/dom/server` renders a node to markup and the style rules it emits, without a DOM. Suspense is awaited in place, effects never run, and owned instances are destroyed afterwards. Options: `signal` stops a render, `markers: false` drops the range comments hydration needs, and `inline: true` writes class rules into `style` attributes for email.
+
+### Patch Changes
+
+- Updated dependencies [[`b968a6d`](https://github.com/gabeklein/expressive/commit/b968a6d4eac9a3f2b4de09f77ca13941b9ac8294), [`829ff1c`](https://github.com/gabeklein/expressive/commit/829ff1ca06cab12636cd64c25f11805e67f09b4e)]:
+  - @expressive/mvc@0.95.0
+
 ## 0.12.2
 
 ### Patch Changes
