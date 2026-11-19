@@ -1,3 +1,4 @@
+import { register } from "@expressive/env";
 import { env } from "@expressive/env/vite";
 import inspect from "@expressive/inspect/vite";
 import { createServer } from "vite";
@@ -16,7 +17,7 @@ export interface DevOptions {
 export async function runDev(root = process.cwd(), { inspect: relay = true, env: dotenv = true }: DevOptions = {}): Promise<void> {
   const host = expressive();
 
-  if (dotenv) await import("@expressive/env/register");
+  if (dotenv) register();
 
   const server = await createServer({
     root,

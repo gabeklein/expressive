@@ -9,7 +9,7 @@ vi.mock("@expressive/env/vite", () => ({ env: () => ({ name: "env" }) }));
 
 const registered = vi.hoisted(() => vi.fn());
 
-vi.mock("@expressive/env/register", () => (registered(), {}));
+vi.mock("@expressive/env", () => ({ register: registered }));
 vi.mock("./plugin", () => ({ expressive: () => ({ name: "expressive", api: { config: async () => ({ port: 4000 }) } }) }));
 
 import { runDev } from "./dev";
@@ -43,15 +43,10 @@ it("will register .env before the server starts", () => {
 });
 
 it("will not register .env for --no-env", async () => {
-  vi.resetModules();
-  const loaded = vi.fn();
-  vi.doMock("@expressive/env/register", () => (loaded(), {}));
-  const { runDev } = await import("./dev");
+  registered.mockClear();
 
   await runDev("/app", { env: false });
-  expect(loaded).not.toHaveBeenCalled();
-
-  vi.doUnmock("@expressive/env/register");
+  expect(registered).not.toHaveBeenCalled();
 });
 
 it("will take its mode from NODE_ENV", async () => {

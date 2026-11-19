@@ -9,7 +9,7 @@ vi.mock("./prerender", () => ({ prerender }));
 
 const registered = vi.hoisted(() => vi.fn());
 
-vi.mock("@expressive/env/register", () => (registered(), {}));
+vi.mock("@expressive/env", () => ({ register: registered }));
 
 import { clientBuild, prerenderBuild, runBuild, serverBuild } from "./build";
 
@@ -26,15 +26,10 @@ it("will register .env before building", async () => {
 });
 
 it("will not register .env for --no-env", async () => {
-  vi.resetModules();
-  const loaded = vi.fn();
-  vi.doMock("@expressive/env/register", () => (loaded(), {}));
-  const { runBuild } = await import("./build");
+  registered.mockClear();
 
   await runBuild("/app", { env: false, write: false });
-  expect(loaded).not.toHaveBeenCalled();
-
-  vi.doUnmock("@expressive/env/register");
+  expect(registered).not.toHaveBeenCalled();
 });
 
 it("will not prerender when opted out or building in memory", async () => {
