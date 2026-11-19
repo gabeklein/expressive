@@ -66,19 +66,25 @@ class Sync extends Model {
   }
 }
 
+function problemsIn(root: string, mode: string): string[] {
+  const value = resolved(root, mode);
+  const found = Object.keys(parse(join(root, EXAMPLE)))
+    .filter(key => !value(key))
+    .map(key => `${key} is ${value(key) === undefined ? "unset" : "empty"} - ${EXAMPLE} lists it.`);
+
+  const missing = undeclared(root);
+
+  if (missing.length) found.push(`${DECLARATION} does not declare ${missing.join(", ")} - run \`expressive env\`.`);
+
+  return found;
+}
+
 class Check extends Model {
   mode = inMode();
 
   run() {
     const root = process.cwd();
-    const value = resolved(root, this.mode);
-    const problems = Object.keys(parse(join(root, EXAMPLE)))
-      .filter(key => !value(key))
-      .map(key => `${key} is ${value(key) === undefined ? "unset" : "empty"} - ${EXAMPLE} lists it.`);
-
-    const missing = undeclared(root);
-
-    if (missing.length) problems.push(`${DECLARATION} does not declare ${missing.join(", ")} - run \`expressive env sync\`.`);
+    const problems = problemsIn(root, this.mode);
 
     for (const problem of problems) console.error(problem);
     if (!problems.length) console.log(`${DECLARATION} declares every key; ${read(join(root, EXAMPLE)) === undefined ? `no ${EXAMPLE} to check values against` : `every key in ${EXAMPLE} is set`}.`);
@@ -198,6 +204,22 @@ class Unset extends Model {
 }
 
 export default class Env extends Model {
+  mode = inMode();
+
+  run() {
+    const root = process.cwd();
+    const result = write(root);
+
+    if (!result) {
+      console.log(`No .env files in ${root} - nothing to prepare.`);
+      return;
+    }
+
+    console.log(result === "current" ? `${DECLARATION} is current.` : `Wrote ${DECLARATION}.`);
+
+    for (const problem of problemsIn(root, this.mode)) console.warn(problem);
+  }
+
   sync = cmd({ from: Sync, help: `write ${DECLARATION} - key names and comments from the .env files` });
   check = cmd({ from: Check, help: `fail if a key in ${EXAMPLE} is unset or ${DECLARATION} is stale` });
   list = cmd({ from: List, help: "list keys with length or <empty>/<unset> and the file:line each comes from - never values" });

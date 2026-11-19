@@ -65,6 +65,13 @@ describe("client", () => {
     expect(() => { env.PUBLIC_URL = "y"; }).toThrow(TypeError);
   });
 
+  it("will throw on register in either form", async () => {
+    for (const source of [client({}, "PUBLIC_"), client({}, false)]) {
+      const { register } = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source)}`);
+      expect(() => register()).toThrow("register() fills process.env - call it on the server.");
+    }
+  });
+
   it("will serve a frozen object without a prefix", async () => {
     const env = await evaluate(client({ SECRET: "s" }, false));
 

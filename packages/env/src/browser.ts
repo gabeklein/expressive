@@ -2,6 +2,10 @@ import type { Env } from "./env";
 
 export type { Env };
 
+export function register(): void {
+  throw new Error("register() fills process.env - call it on the server.");
+}
+
 export const env: Readonly<Env> = new Proxy({} as Env, {
   get(_, key) {
     if (typeof key === "string" && /^[A-Z]/.test(key))
