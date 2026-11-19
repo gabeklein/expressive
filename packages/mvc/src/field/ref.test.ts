@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, afterEach } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf, afterEach } from 'vitest';
 import { Model } from '../model';
 import { ref } from './ref';
 import { set } from './set';
@@ -226,6 +226,25 @@ describe('proxy', () => {
     expect(refs.foo.key).toBe('foo');
     expect(refs.bar.key).toBe('bar');
   });
+
+  it('will be omitted from exports', () => {
+    class Host extends Model {
+      subject = Subject.new();
+      refs = this.subject.refs;
+    }
+
+    const host = Host.new();
+
+    expect(Object.keys(host.get())).toEqual(['subject']);
+    expect(Object.getOwnPropertyDescriptor(host.refs, 'get')).toEqual({
+      value: null,
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+    expectTypeOf<Model.Values<Host>['refs']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Subject>['refs']>().toEqualTypeOf<never>();
+  });
 });
 
 describe('set instruction', () => {
@@ -296,6 +315,19 @@ describe('mapped', () => {
 
     expect(fields.bar).toBe('bar');
     expect(generateRef).toBeCalledWith('bar', test);
+  });
+
+  it('will be omitted from exports', () => {
+    class Host extends Model {
+      test = Test.new();
+      fields = this.test.fields;
+    }
+
+    const host = Host.new();
+
+    expect(Object.keys(host.get())).toEqual(['test']);
+    expect(generateRef).not.toBeCalled();
+    expectTypeOf<Model.Values<Host>['fields']>().toEqualTypeOf<never>();
   });
 
   it('will run function only once per property', () => {

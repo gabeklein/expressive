@@ -265,7 +265,7 @@ function update<T>(
   return true;
 }
 
-/** Export current values, drilling into any which implement `get()`. Recursive references reuse one export. */
+/** Export current values, drilling into any which implement `get()` and omitting any whose `get` is `null`. Recursive references reuse one export. */
 function values(target: object) {
   const values = {} as any;
   let notRecursive;
@@ -279,13 +279,10 @@ function values(target: object) {
 
   for (let [key, value] of entries(target)) {
     if (EXPORT.has(value)) value = EXPORT.get(value);
-    else if (
-      value &&
-      typeof value == 'object' &&
-      'get' in value &&
-      typeof value.get === 'function'
-    )
-      value = value.get();
+    else if (value && typeof value == 'object' && 'get' in value) {
+      if (value.get === null) continue;
+      if (typeof value.get === 'function') value = value.get();
+    }
 
     values[key] = value;
   }
