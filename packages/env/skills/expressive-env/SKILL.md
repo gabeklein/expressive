@@ -21,6 +21,14 @@ Files load from the working directory on the first read, later winning:
 
 Mode is `NODE_ENV`, default `development` - the same files and order as Vite. Commit `.env.example` with every key and no secrets; keep the rest out of git.
 
+Dependencies that read `process.env` - database clients, SDKs, tool configs - need the keys there. Import `@expressive/env/register` first, or preload it:
+
+```sh
+node --import @expressive/env/register server.js
+```
+
+It copies the same files into `process.env`, skipping keys already set, so the shell and platform still win. The Vite plugin's reload refreshes the keys it copied.
+
 ## Types
 
 `expressive env` writes `env.d.ts` at the project root - every key in every `.env*` file, as a member of `Env` - then warns of keys `.env.example` lists but nothing sets. It exits 0, so it fits a `prepare` script; `check` is the failing gate, `sync` writes types alone. Commit `env.d.ts` - names and comments, no values - and include it in `tsconfig.json`. A key in `.env.example` - or `.env` when there is no example - is `string`; any other is optional.

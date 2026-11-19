@@ -4,9 +4,28 @@ import { load, mode } from "./files";
 export interface Env {}
 
 let cache: Record<string, string> | undefined;
+let filled: Set<string> | undefined;
 
 export function reset() {
   cache = undefined;
+  if (filled) register();
+}
+
+export function register() {
+  const values = load(process.cwd(), mode());
+  const owned = (filled ??= new Set());
+
+  for (const key of owned)
+    if (!(key in values)) {
+      delete process.env[key];
+      owned.delete(key);
+    }
+
+  for (const [key, value] of Object.entries(values))
+    if (owned.has(key) || process.env[key] === undefined) {
+      process.env[key] = value;
+      owned.add(key);
+    }
 }
 
 function values() {
@@ -18,7 +37,7 @@ function values() {
  *
  * Files load on first read from the working directory: `.env`, `.env.local`, `.env.[mode]`, `.env.[mode].local`, later winning.
  * Mode is `NODE_ENV`, default `development`.
- * `process.env` is never written.
+ * `process.env` is never written - import `@expressive/env/register` for that.
  * Keys do not enumerate - spread, `Object.keys` and `JSON.stringify` see nothing.
  * In a client bundle the `env()` Vite plugin serves only keys with its prefix.
  */

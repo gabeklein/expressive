@@ -24,3 +24,10 @@ expressive('env', 'sync');
 assert.match(readFileSync(join(root, 'env.d.ts'), 'utf8'), /A probe key\.[\s\S]*@category Probe section[\s\S]*readonly PROBE_KEY: string;/);
 
 console.log('env: expressive env list and sync ok');
+
+const register = import.meta.resolve('@expressive/env/register');
+const printed = execFileSync('node', ['--import', register, '-e', 'console.log(process.env.PROBE_KEY)'], { cwd: root, encoding: 'utf8' });
+
+assert.equal(printed.trim(), 'from-file');
+
+console.log('env: --import @expressive/env/register fills process.env ok');
