@@ -11,8 +11,9 @@ const VIRTUAL = "\0@expressive/env";
 
 export interface EnvOptions {
   /**
-   * Keys the client may read start with this - default `"PUBLIC_"`.
+   * Keys the client may read start with this word and an underscore - default `"PUBLIC"`.
    *
+   * A trailing `_` is optional - `"CLIENT"` and `"CLIENT_"` both match `CLIENT_URL`.
    * `false` sends every key in the `.env` files to the client.
    * `process.env` adds only prefixed keys, never with `false`.
    */
@@ -26,7 +27,9 @@ export interface EnvOptions {
  * The client reads from Vite's `root` with Vite's `mode` - align them, or `--mode staging` gives each side different files.
  * In dev, writes `env.d.ts` and reloads when a root `.env*` file changes.
  */
-export function env({ prefix = "PUBLIC_" }: EnvOptions = {}): Plugin {
+export function env(options: EnvOptions = {}): Plugin {
+  const { prefix: word = "PUBLIC" } = options;
+  const prefix = word && word.replace(/_*$/, "_");
   let root: string;
   let mode: string;
   let building = false;

@@ -56,11 +56,12 @@ describe("build", () => {
     expect(info.mock.calls.map(call => call[0]).join("\n")).toContain("every .env key reaches the client - 2 sent, prefix is off.");
   });
 
-  it("will honor a custom prefix", async () => {
-    writeFileSync(join(root, ".env"), "CLIENT_URL=https://client.test\nPUBLIC_URL=https://public.test\n");
-    const code = await bundle(env({ prefix: "CLIENT_" }));
+  it.each(["CLIENT", "CLIENT_"])("will honor a custom prefix %s", async prefix => {
+    writeFileSync(join(root, ".env"), "CLIENT_URL=https://client.test\nCLIENTELE=https://clientele.test\nPUBLIC_URL=https://public.test\n");
+    const code = await bundle(env({ prefix }));
 
     expect(code).toContain("https://client.test");
+    expect(code).not.toContain("https://clientele.test");
     expect(code).not.toContain("https://public.test");
   });
 });

@@ -44,7 +44,7 @@ import { env } from "@expressive/env/vite";
 export default { plugins: [env()] };
 ```
 
-Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; so does a prefixed key absent at build. `env({ prefix: "CLIENT_" })` changes the prefix; `env({ prefix: false })` sends every key in the `.env` files, secrets included, and the build logs the count. `process.env` adds prefixed keys only.
+Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; so does a prefixed key absent at build. `env({ prefix: "CLIENT" })` changes the prefix to `CLIENT_`; `env({ prefix: false })` sends every key in the `.env` files, secrets included, and the build logs the count. `process.env` adds prefixed keys only.
 
 The client reads Vite's `root` and `mode`; the server reads the working directory and `NODE_ENV`. Keep them aligned - `vite build --mode staging` otherwise gives each side different files. Neither side expands `$VAR`.
 
