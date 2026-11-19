@@ -7,6 +7,10 @@ const prerender = vi.hoisted(() => vi.fn(async () => []));
 vi.mock("vite", async importOriginal => ({ ...(await importOriginal<object>()), build }));
 vi.mock("./prerender", () => ({ prerender }));
 
+const registered = vi.hoisted(() => vi.fn());
+
+vi.mock("@expressive/env/register", () => (registered(), {}));
+
 import { clientBuild, prerenderBuild, runBuild, serverBuild } from "./build";
 
 it("will build the client, the server, then prerender", async () => {
@@ -15,6 +19,22 @@ it("will build the client, the server, then prerender", async () => {
   expect(build.mock.calls.map(([config]: any) => config.build.outDir)).toEqual(["dist/client", "dist/server"]);
   expect(build.mock.calls[0]).toMatchObject([{ root: "/app", build: { minify: false } }]);
   expect(prerender).toHaveBeenCalledWith("/app", { pretty: true });
+});
+
+it("will register .env before building", async () => {
+  expect(registered).toHaveBeenCalledBefore(build);
+});
+
+it("will not register .env for --no-env", async () => {
+  vi.resetModules();
+  const loaded = vi.fn();
+  vi.doMock("@expressive/env/register", () => (loaded(), {}));
+  const { runBuild } = await import("./build");
+
+  await runBuild("/app", { env: false, write: false });
+  expect(loaded).not.toHaveBeenCalled();
+
+  vi.doUnmock("@expressive/env/register");
 });
 
 it("will not prerender when opted out or building in memory", async () => {

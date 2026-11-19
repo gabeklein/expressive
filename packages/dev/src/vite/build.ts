@@ -81,6 +81,8 @@ export function prerenderBuild(root: string, outDir: string, options: BuildOptio
 
 /** `expressive dev build` - the client into `dist/client`, then the server into `dist/server/index.js`, then any prerendered pages. */
 export async function runBuild(root = process.cwd(), options: BuildOptions = {}): Promise<void> {
+  if (options.env !== false) await import("@expressive/env/register");
+
   await build(clientBuild(root, options));
   await build(serverBuild(root, options));
 

@@ -6,6 +6,10 @@ const createServer = vi.hoisted(() => vi.fn(async (_config: { mode?: string; plu
 vi.mock("vite", async importOriginal => ({ ...(await importOriginal<object>()), createServer }));
 vi.mock("@expressive/inspect/vite", () => ({ default: () => ({ name: "inspect" }) }));
 vi.mock("@expressive/env/vite", () => ({ env: () => ({ name: "env" }) }));
+
+const registered = vi.hoisted(() => vi.fn());
+
+vi.mock("@expressive/env/register", () => (registered(), {}));
 vi.mock("./plugin", () => ({ expressive: () => ({ name: "expressive", api: { config: async () => ({ port: 4000 }) } }) }));
 
 import { runDev } from "./dev";
@@ -34,18 +38,18 @@ it("will add env and the inspect relay unless turned off", async () => {
   expect(names()).toEqual(["expressive", false, false]);
 });
 
-it("will register .env into process.env unless turned off", async () => {
-  const registered = vi.fn();
+it("will register .env before the server starts", () => {
+  expect(registered).toHaveBeenCalledBefore(createServer);
+});
 
+it("will not register .env for --no-env", async () => {
   vi.resetModules();
-  vi.doMock("@expressive/env/register", () => (registered(), {}));
+  const loaded = vi.fn();
+  vi.doMock("@expressive/env/register", () => (loaded(), {}));
   const { runDev } = await import("./dev");
 
   await runDev("/app", { env: false });
-  expect(registered).not.toHaveBeenCalled();
-
-  await runDev("/app");
-  expect(registered).toHaveBeenCalledTimes(1);
+  expect(loaded).not.toHaveBeenCalled();
 
   vi.doUnmock("@expressive/env/register");
 });
