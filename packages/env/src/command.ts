@@ -204,6 +204,8 @@ class Unset extends Model {
 }
 
 export default class Env extends Model {
+  mode = inMode();
+
   run() {
     const root = process.cwd();
     const result = write(root);
@@ -215,7 +217,7 @@ export default class Env extends Model {
 
     console.log(result === "current" ? `${DECLARATION} is current.` : `Wrote ${DECLARATION}.`);
 
-    for (const problem of problemsIn(root, mode())) console.warn(problem);
+    for (const problem of problemsIn(root, this.mode)) console.warn(problem);
   }
 
   sync = cmd({ from: Sync, help: `write ${DECLARATION} - key names and comments from the .env files` });
