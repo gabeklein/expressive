@@ -56,15 +56,59 @@ function appEntry(root: string): Pick<Project, "appDir" | "appPath"> {
   return { appPath: files[0] };
 }
 
+export const PRERENDERED = "data-prerender";
+
+export const PRERENDER_ENTRY = `/${GENERATED}/prerender.tsx`;
+
+const SETTLE = 30_000;
+
 export function bootstrap(appImport: string): string {
   return `\
-import { render } from "@expressive/dev";
+import { hydrate, render } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import App from ${JSON.stringify(appImport)};
 
 const el = document.getElementById("root");
 if (!el) throw new Error("Missing #root element");
-render(jsx(App, {}), el);
+
+const adopt = el.getAttribute("${PRERENDERED}") === location.pathname.replace(/(.)\\/$/, "$1");
+
+for (const node of document.querySelectorAll("[${PRERENDERED}]"))
+  if (adopt || node === el) node.removeAttribute("${PRERENDERED}");
+  else node.remove();
+
+(adopt ? hydrate : render)(jsx(App, {}), el);
+`;
+}
+
+export function prerenderEntry(appImport: string, sources: string[]): string {
+  const imports = sources.map((source, index) => `import { paths as p${index} } from ${JSON.stringify(source)};\n`).join("");
+  const lists = sources.map((_, index) => `p${index}()`).join(", ");
+
+  return `\
+import { renderToString } from "@expressive/dom/server";
+import { Router } from "@expressive/dev";
+import { jsx } from "@expressive/dev/jsx-runtime";
+import App from ${JSON.stringify(appImport)};
+${imports}
+export async function paths() {
+  return (await Promise.all([${lists}])).flat();
+}
+
+export default async function page(path) {
+  let router;
+  const stop = Router.on({ setup(self) { router = self; } });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
+
+  try {
+    const output = await renderToString(jsx(App, { path }), { signal: abort.signal });
+    return { ...output, path: router ? router.path : path };
+  } finally {
+    clearTimeout(timer);
+    stop();
+  }
+}
 `;
 }
 

@@ -53,7 +53,7 @@ export interface ServeOptions {
 /**
  * Production server for a built app - the generated `dist/server/index.js` calls it.
  *
- * Answers calls and twin streams, serves `client` with an `index.html` fallback, and caches `/assets/` immutably.
+ * Answers calls and twin streams, serves `client` - a page's `<path>/index.html`, else the `200.html` or `index.html` shell, and caches `/assets/` immutably.
  * Listens only after every sidecar's error classes verify.
  */
 export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
@@ -75,7 +75,8 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
 
     const { pathname } = new URL(request.url);
 
-    if (sendFile(res, client, pathname) || sendFile(res, client, "/index.html")) return;
+    if (sendFile(res, client, pathname) || sendFile(res, client, join(pathname, "index.html"))) return;
+    if (sendFile(res, client, "/200.html") || sendFile(res, client, "/index.html")) return;
 
     res.statusCode = 404;
     res.end("Not found");

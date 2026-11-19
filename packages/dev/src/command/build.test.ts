@@ -14,12 +14,17 @@ beforeEach(() => runBuild.mockClear());
 
 it("will build", async () => {
   expect(await build([], out)).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, html: true });
+});
+
+it("will build without prerendering on --no-html", async () => {
+  expect(await build(["--no-html"], out)).toBe(0);
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, html: false });
 });
 
 it("will build with --pretty", async () => {
   expect(await build(["--pretty"], out)).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, html: true });
 });
 
 it("will not build on an unknown option", async () => {

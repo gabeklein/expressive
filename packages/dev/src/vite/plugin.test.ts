@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -641,6 +641,67 @@ describe("vite host", () => {
     expect(html).toContain('<div id="root"></div>');
     expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/index-[^"]+\.js"><\/script>/);
     expect(html).not.toContain(".expressive/main.tsx");
+  });
+
+  it("builds from a project's own index.html", async () => {
+    const root = project({ "app.tsx": "export default () => <h1>hi</h1>", "index.html": "<html><head><title>Mine</title></head><body></body></html>" });
+    const out = await build({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [expressive()],
+      resolve: SOURCES,
+      build: { write: false, outDir: "dist/client" },
+    });
+    const { output } = Array.isArray(out) ? out[0] : (out as { output: any[] });
+    const html = output.find((o: any) => o.fileName === "index.html")?.source as string;
+
+    expect(html).toContain("<title>Mine</title>");
+    expect(html).toContain('<div id="root"></div>');
+    expect(html).toMatch(/<script type="module" crossorigin src="\/assets\/index-[^"]+\.js"><\/script>/);
+  });
+
+  it("will serve the prerender entry, listing paths only from modules below a dynamic segment", async () => {
+    const server = await serve(project({
+      "app/index.tsx": PAGE + "; export const paths = () => [];",
+      "app/blog/[slug].tsx": PAGE + "; export const paths = () => [];",
+    }));
+
+    const entry = await server.pluginContainer.load(join(server.config.root, ".expressive/prerender.tsx"));
+    const code = typeof entry == "string" ? entry : entry!.code;
+
+    expect(code).toContain(`import App from "./routes.tsx";`);
+    expect(code).toContain(`import { paths as p0 } from "../app/blog/[slug].tsx";`);
+    expect(code).not.toContain("app/index.tsx");
+    expect(await server.transformRequest("/.expressive/prerender.tsx")).toBeTruthy();
+  });
+
+  it("will serve a single-file prerender entry", async () => {
+    const server = await serve(project({ "app.tsx": "export default () => <h1>hi</h1>" }));
+    const entry = await server.pluginContainer.load(join(server.config.root, ".expressive/prerender.tsx"));
+    const code = typeof entry == "string" ? entry : entry!.code;
+
+    expect(code).toContain(`import App from "../app.tsx";`);
+    expect(code).toContain("await Promise.all([])");
+  });
+
+  it("will resolve the prerender entry's renderer from this package", async () => {
+    const root = project({ "app.tsx": "export default () => null" });
+    const host = expressive();
+    await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [host] }, "build");
+    const resolve = vi.fn(async () => ({ id: "renderer" }));
+    const hook = host.resolveId as (this: unknown, id: string, importer: string, options: object) => Promise<unknown>;
+
+    expect(await hook.call({ resolve }, "@expressive/dom/server", join(realpathSync(root), ".expressive/prerender.tsx"), {})).toEqual({ id: "renderer" });
+    expect(resolve).toHaveBeenCalledWith("@expressive/dom/server", expect.stringMatching(/plugin\.ts$/), { skipSelf: true });
+  });
+
+  it("will keep the prerender entry as a build's input, and the shell otherwise", async () => {
+    const root = project({ "app.tsx": "export default () => <h1>hi</h1>" });
+    const input = async (input: string) => (await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [expressive()], build: { rollupOptions: { input } } }, "build")).build.rollupOptions.input;
+
+    expect(await input("/.expressive/prerender.tsx")).toBe("/.expressive/prerender.tsx");
+    expect(await input("/x.ts")).toBe(join(realpathSync(root), "index.html"));
   });
 
   it("will throw if config is read before the dev server runs", async () => {

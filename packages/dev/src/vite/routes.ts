@@ -38,6 +38,7 @@ interface RouteNode {
   alias: Partial<Record<Role, string>>;
   remote?: string;
   twin?: string;
+  server?: boolean;
 }
 
 export async function generateRoutes(appDir: string, outDir: string, scan: ExportScanner): Promise<string> {
@@ -59,9 +60,29 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
     "",
-    "const App = () => (\n  <Router>", tree, "  </Router>\n);\n",
+    "const App = (props) => (\n  <Router {...props}>", tree, "  </Router>\n);\n",
     "export default App;\n",
   ].join("\n");
+}
+
+/**
+ * Pages a build can render ahead - none a remote module reaches. Fixed paths are listed;
+ * below a `:param` or `*`, modules exporting `paths()` are returned to list their own.
+ */
+export async function staticPaths(appDir: string, scan: ExportScanner): Promise<{ paths: string[]; sources: string[] }> {
+  const paths: string[] = [];
+  const sources: string[] = [];
+
+  (function walk(node: RouteNode, path: string, dynamic: boolean) {
+    if (node.server) return;
+    if (dynamic && node.exports.has("paths")) sources.push(node.file!);
+    if (!dynamic && node.exports.has("Page")) paths.push(path || "/");
+
+    for (const child of node.children)
+      walk(child, `${path}/${child.segment}`, dynamic || !!precedence(child.segment));
+  })(await scanDir(appDir, "", "", scan), "", false);
+
+  return { paths, sources };
 }
 
 function newNode(fields: Partial<RouteNode>): RouteNode {
@@ -76,6 +97,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
     throw new Error(`${dir} has both a remote module and a remote/ folder - pick one.`);
 
   node.remote = await twinIn(dir, entries, scan);
+  node.server = entries.includes(REMOTE) || entries.some(entry => REMOTE_FILE.test(entry));
 
   for (const entry of entries) {
     const full = join(dir, entry);

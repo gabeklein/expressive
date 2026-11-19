@@ -275,12 +275,13 @@ calls can still carry the previous identity's data until the page reloads.
 ## Commands
 
 ```
-expressive dev                 Vite dev server with HMR and inspect's /__inspect relay
-expressive dev --no-inspect    without the relay
-expressive dev build           dist/client (static app) and dist/server/index.js (node service)
-expressive dev build --pretty  unminified client, stable filenames
-expressive help [command]      commands, or one command's inputs
-node dist/server/index.js      run the built service (port from index.ts, default 3000)
+expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
+expressive dev --no-inspect     without the relay
+expressive dev build            dist/client (static app) and dist/server/index.js (node service)
+expressive dev build --pretty   unminified client, stable filenames
+expressive dev build --no-html  without prerendered pages
+expressive help [command]       commands, or one command's inputs
+node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
 
 Nothing is written into the project. The shell, the client entry and the generated router module
@@ -288,8 +289,51 @@ are virtual, addressed under `/.expressive/`. The router module regenerates when
 vanish under `app/`.
 
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
-adds it and `@expressive/inspect/vite`. Server-only API - `config`, `serve`, `Current` - is
-`@expressive/dev/server`; the generated server entry imports `serve` from there.
+adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
+Server-only API - `config`, `serve`, `Current` - is `@expressive/dev/server`; the generated server
+entry imports `serve` from there.
+
+### Prerendering
+
+`expressive dev build` renders each page in Node with `renderToString` from
+`@expressive/dom/server` after the build, and writes it to `dist/client/<path>/index.html`: the
+markup goes in `#root`, its hoisted `<title>`, `<meta>` and `<link>` go ahead of the shell's own
+`<title>`, and the style rules it used go in a `<style>`. The client hydrates a page prerendered
+for its own path, adopting the markup in place, and renders anything else fresh.
+
+`--no-html` (or `runBuild(root, { html: false })`) leaves every page to the browser. If
+prerendering fails as a whole - a shell without an empty `<div id="root">`, a bundle that will not
+load, a `paths()` that throws - the build warns and keeps the client-only output.
+
+Only pages that need nothing at request time are rendered. A `[param]` or `[...]` route is skipped
+unless its module exports `paths()`, returning the absolute paths to render:
+
+```tsx
+// app/blog/[slug].tsx
+const posts = import.meta.glob("../../posts/*.md");
+
+export const paths = () => Object.keys(posts).map(file => `/blog/${file.split("/").pop()!.slice(0, -3)}`);
+```
+
+`paths()` is bundled with the client code, so it has no Node APIs - list from static imports,
+`import.meta.glob` or an absolute-URL `fetch`. Its paths are not checked against the routes: one
+under a skipped folder is still rendered, and one no route matches writes the 404 page.
+
+Every folder with a `remote.ts` or `remote/` folder is skipped, along with everything below it:
+those pages stay client-rendered, and the build never runs server code. A page that redirects,
+renders nothing, throws or takes over 30 seconds is skipped with a warning. Keep each `remote.ts`
+in the deepest folder that uses it: one at the root of `app/` leaves the whole app unrendered.
+
+`new()` runs during the render and effects never do, so DOM listeners and browser-only reads
+belong in effects; `typeof window` tells the build apart, since `import.meta.env.SSR` is false
+there. A module that reads `window` or `document` at load fails the step, leaving every page to
+the browser.
+
+The empty shell is kept as `dist/client/200.html`. The built service serves `<path>/index.html`,
+then falls back to the shell, and a static host should fall back to `200.html` too. A host that
+falls back to the root `index.html` (Cloudflare Pages without a `404.html`) serves the prerendered
+home page there. The client notices the page was rendered for another path and renders the right
+one, but the home page shows until scripts load.
 
 ## Example
 
