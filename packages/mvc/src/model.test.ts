@@ -666,14 +666,27 @@ describe('get method', () => {
       class Test extends Model {
         items = map([['a', 1]]);
         list = has([1, 2]);
+        pool = has(Item);
         node = ref<number>();
       }
 
+      class Item extends Model {
+        name = 'foo';
+      }
+
       const test = Test.new();
+
+      test.pool.add(Item.new());
+
       const exported = test.get();
 
       expect(exported.node).toBeNull();
-      expect(exported).toEqual({ items: new Map([['a', 1]]), list: [1, 2], node: null });
+      expect(exported).toEqual({
+        items: new Map([['a', 1]]),
+        list: [1, 2],
+        pool: [{ name: 'foo' }],
+        node: null
+      });
     });
 
     it('will export as is a value whose get takes a key', () => {

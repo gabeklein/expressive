@@ -144,7 +144,10 @@ class Managed<K, V> extends Map<K, V> {
       : new Map(
         Array.from(MAP.entries.call(target), ([key, value]) => [
           key,
-          value && typeof value === 'object' && typeof value.get === 'function' && !value.get.length
+          value &&
+          (typeof value == 'object' || typeof value == 'function') &&
+          typeof value.get == 'function' &&
+          !value.get.length
             ? value.get()
             : value
         ])

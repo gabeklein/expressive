@@ -413,7 +413,7 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
 
   /** First member matching `predicate` - tracks membership and members up to the match. */
   get(predicate: Predicate<T>): T | undefined;
-  get(predicate?: Predicate<T>): any {
+  get(...[predicate]: [predicate?: Predicate<T>]): any {
     return predicate
       ? findOf(this, predicate)
       : Array.from(members<T>(this), exportValue);
@@ -537,7 +537,12 @@ function release(target: object, key: unknown) {
 }
 
 function exportValue(value: any) {
-  return value && typeof value === 'object' && typeof value.get === 'function' && !value.get.length
+  const type = typeof value;
+
+  return value &&
+    (type == 'object' || type == 'function') &&
+    typeof value.get == 'function' &&
+    !value.get.length
     ? value.get()
     : value;
 }
