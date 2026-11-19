@@ -77,13 +77,24 @@ it("will cache files until reset", () => {
   expect(read.A).toBe("two");
 });
 
-it("will list, spread and test keys", () => {
+it("will test keys", () => {
   write({ ".env": "FROM_FILE=1" });
+  process.env.FROM_PROCESS = "1";
 
   expect("FROM_FILE" in env).toBe(true);
+  expect("FROM_PROCESS" in env).toBe(true);
   expect("MISSING_KEY" in env).toBe(false);
-  expect(Object.keys(env)).toContain("FROM_FILE");
-  expect({ ...env }).toMatchObject({ FROM_FILE: "1" });
+
+  delete process.env.FROM_PROCESS;
+});
+
+it("will not enumerate values", () => {
+  write({ ".env": "SECRET=hunter2" });
+
+  expect(read.SECRET).toBe("hunter2");
+  expect(Object.keys(env)).toEqual([]);
+  expect({ ...env }).toEqual({});
+  expect(JSON.stringify(env)).toBe("{}");
 });
 
 it("will return undefined for symbols", () => {

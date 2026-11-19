@@ -11,7 +11,7 @@ import { env } from "@expressive/env";
 const db = connect(env.DATABASE_URL);
 ```
 
-`env` is read-only: `process.env` over the mode's `.env` files. Read it instead of `process.env` - it needs no `dotenv`, `--env-file` or loader, and never writes `process.env`.
+`env` is read-only: `process.env` over the mode's `.env` files. Read it instead of `process.env` - it needs no `dotenv`, `--env-file` or loader, and never writes `process.env`. Keys do not enumerate - spread and `JSON.stringify(env)` give `{}`, so logging it leaks nothing; read keys by name.
 
 Files load from the working directory on the first read, later winning:
 

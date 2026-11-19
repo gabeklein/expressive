@@ -13,20 +13,17 @@ function values() {
   return (cache ??= load(process.cwd(), mode()));
 }
 
-const merged = () => ({ ...values(), ...process.env });
-
 /**
  * The project's environment - `process.env` over the mode's `.env` files, read-only.
  *
  * Files load on first read from the working directory: `.env`, `.env.local`, `.env.[mode]`, `.env.[mode].local`, later winning.
  * Mode is `NODE_ENV`, default `development`.
  * `process.env` is never written.
+ * Keys do not enumerate - spread, `Object.keys` and `JSON.stringify` see nothing.
  * In a client bundle the `env()` Vite plugin serves only keys with its prefix.
  */
 export const env: Readonly<Env> = new Proxy({} as Env, {
   get: (_, key) => (typeof key === "string" ? (process.env[key] ?? values()[key]) : undefined),
-  has: (_, key) => key in merged(),
-  ownKeys: () => Reflect.ownKeys(merged()),
-  getOwnPropertyDescriptor: (_, key) => Reflect.getOwnPropertyDescriptor(merged(), key),
+  has: (_, key) => key in process.env || key in values(),
   set: () => false,
 });
