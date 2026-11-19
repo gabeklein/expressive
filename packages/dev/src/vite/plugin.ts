@@ -49,7 +49,7 @@ const HOSTED = ["@expressive/inspect/vite/client", "@expressive/inspect/install"
 
 const builds = new Map<string, Exposure>();
 
-const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/dev"];
+const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/env", "@expressive/dev"];
 
 /**
  * The app host as a Vite plugin, for a hand-written Vite config.

@@ -10,6 +10,11 @@ class Expressive extends Model {
     help: "Run the app - Vite with HMR. Use `dev build` for production.",
   });
 
+  env = cmd({
+    peer: "@expressive/env",
+    help: "Set up env.d.ts, then check, list and edit .env files without printing secrets.",
+  });
+
   sql = cmd({
     peer: "@expressive/sql",
     help: "Check or sync a database schema against your entities.",

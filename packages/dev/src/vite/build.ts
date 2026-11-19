@@ -1,3 +1,4 @@
+import { env } from "@expressive/env/vite";
 import { build, type InlineConfig } from "vite";
 
 import { viteConfigFile } from "./config";
@@ -11,13 +12,20 @@ export interface BuildOptions {
   write?: boolean;
   /** Default true; false skips prerendering, leaving every page to the browser. Otherwise each static page renders to `dist/client/<path>/index.html` after the build, keeping the empty shell as `200.html`; skipped when `write` is false, and a failure warns and leaves every page to the browser. */
   html?: boolean;
+  /** Default true; false leaves `.env` files out - the client gets no `env`, the server loads none at boot. */
+  env?: boolean;
 }
 
-export function clientBuild(root: string, { pretty = false, write = true }: BuildOptions = {}): InlineConfig {
+const host = ({ env: dotenv = true }: BuildOptions) => [expressive(), dotenv && env()];
+
+export function clientBuild(root: string, options: BuildOptions = {}): InlineConfig {
+  const { pretty = false, write = true } = options;
+
   return {
     root,
+    mode: process.env.NODE_ENV || undefined,
     configFile: viteConfigFile(root),
-    plugins: [expressive()],
+    plugins: host(options),
     build: {
       write,
       outDir: "dist/client",
@@ -30,11 +38,14 @@ export function clientBuild(root: string, { pretty = false, write = true }: Buil
   };
 }
 
-export function serverBuild(root: string, { write = true }: BuildOptions = {}): InlineConfig {
+export function serverBuild(root: string, options: BuildOptions = {}): InlineConfig {
+  const { write = true } = options;
+
   return {
     root,
+    mode: process.env.NODE_ENV || undefined,
     configFile: viteConfigFile(root),
-    plugins: [expressive()],
+    plugins: host(options),
     build: {
       write,
       ssr: "/.expressive/server.ts",
@@ -44,11 +55,14 @@ export function serverBuild(root: string, { write = true }: BuildOptions = {}): 
   };
 }
 
-export function prerenderBuild(root: string, outDir: string, { pretty = false }: BuildOptions = {}): InlineConfig {
+export function prerenderBuild(root: string, outDir: string, options: BuildOptions = {}): InlineConfig {
+  const { pretty = false } = options;
+
   return {
     root,
+    mode: process.env.NODE_ENV || undefined,
     configFile: viteConfigFile(root),
-    plugins: [expressive()],
+    plugins: host(options),
     logLevel: "warn",
     build: {
       outDir,

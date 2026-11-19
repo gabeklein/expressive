@@ -67,6 +67,7 @@
   "dependencies": {
     "@expressive/cli": "^0.2.2",
     "@expressive/dom": "^0.13.1",
+    "@expressive/env": "^0.0.0",
     "@expressive/inspect": "^0.6.6",
     "@expressive/router": "^0.10.6",
     "@expressive/rpc": "^0.4.3",

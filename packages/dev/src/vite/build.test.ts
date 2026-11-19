@@ -54,6 +54,21 @@ it("will build the working directory by default", async () => {
   expect(build).toHaveBeenCalledWith(expect.objectContaining({ root: process.cwd() }));
 });
 
+it("will add env unless turned off, and take mode from NODE_ENV", () => {
+  const names = (config: { plugins?: unknown[] }) => config.plugins!.map((plugin: any) => plugin && plugin.name);
+
+  for (const config of [clientBuild("/app"), serverBuild("/app"), prerenderBuild("/app", "/out")])
+    expect(names(config)).toEqual(["expressive", "expressive:env"]);
+
+  expect(names(serverBuild("/app", { env: false }))).toEqual(["expressive", false]);
+
+  vi.stubEnv("NODE_ENV", "staging");
+  expect(clientBuild("/app").mode).toBe("staging");
+  vi.stubEnv("NODE_ENV", "");
+  expect(clientBuild("/app").mode).toBeUndefined();
+  vi.unstubAllEnvs();
+});
+
 it("will minify and write by default", () => {
   expect(clientBuild("/app").build).toMatchObject({ minify: true, write: true });
   expect(serverBuild("/app").build).toMatchObject({ write: true });
