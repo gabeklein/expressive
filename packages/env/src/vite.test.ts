@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { build, createLogger, createServer, type Rollup, type ViteDevServer } from "vite";
+import { build, createLogger, createServer, type Plugin, type Rollup, type ViteDevServer } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { env } from "./vite";
@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("build", () => {
-  const bundle = async (plugin = env(), customLogger = createLogger("silent")) => {
+  const bundle = async (plugin: Plugin | Plugin[] = env(), customLogger = createLogger("silent")) => {
     const [result] = (await build({
       root,
       configFile: false,
@@ -66,11 +66,40 @@ describe("build", () => {
   });
 });
 
+describe("build, shared", () => {
+  const bundle = async (plugins: Plugin[]) => {
+    const [result] = (await build({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins,
+      build: { write: false, lib: { entry: "main.js", formats: ["es"] } },
+    })) as Rollup.RollupOutput[];
+
+    return result.output[0].code;
+  };
+
+  it("will drop env when nothing reads it", async () => {
+    writeFileSync(join(root, "main.js"), `import { env } from "@expressive/env";\nexport const x = 1;\n`);
+
+    expect(await bundle([env()])).not.toContain("https://public.test");
+  });
+
+  it("will defer to an earlier env()", async () => {
+    writeFileSync(join(root, ".env"), "CLIENT_URL=https://client.test\nPUBLIC_URL=https://public.test\n");
+    const code = await bundle([env({ prefix: "CLIENT" }), env()]);
+
+    expect(code).toContain("https://client.test");
+    expect(code).not.toContain("https://public.test");
+  });
+});
+
 describe("plugin", () => {
   it("will leave server imports alone", () => {
     const plugin = env() as { resolveId(id: string, importer?: string, options?: { ssr?: boolean }): unknown; load(id: string): unknown };
 
     expect(plugin.resolveId("@expressive/env", undefined, { ssr: true })).toBeUndefined();
+    expect(plugin.resolveId("@expressive/env", undefined, {})).toEqual({ id: "\0@expressive/env", moduleSideEffects: false });
     expect(plugin.resolveId("other", undefined, {})).toBeUndefined();
     expect(plugin.load("other")).toBeUndefined();
   });
@@ -84,6 +113,7 @@ describe("dev server", () => {
   let server: ViteDevServer;
 
   beforeEach(async () => {
+    reset.mockClear();
     server = await createServer({
       root,
       configFile: false,
@@ -99,12 +129,15 @@ describe("dev server", () => {
 
   const virtual = () => server.environments.client.moduleGraph.getModuleById("\0@expressive/env");
 
-  it("will write env.d.ts on start", () => {
-    expect(readFileSync(join(root, "env.d.ts"), "utf8")).toContain("readonly PUBLIC_URL: string;");
+  it("will not create env.d.ts", () => {
+    server.watcher.emit("all", "change", join(root, ".env"));
+
+    expect(existsSync(join(root, "env.d.ts"))).toBe(false);
   });
 
   it("will refresh types, server values and the client when a .env file changes", async () => {
     const send = vi.spyOn(server.ws, "send");
+    writeFileSync(join(root, "env.d.ts"), "");
 
     await server.environments.client.transformRequest("/main.js");
     await server.environments.client.transformRequest("\0@expressive/env");
@@ -126,6 +159,16 @@ describe("dev server", () => {
     server.watcher.emit("all", "change", join(root, ".env.swp"));
 
     expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("will watch once with two env()", async () => {
+    const twice = await createServer({ root, configFile: false, logLevel: "silent", plugins: [env(), env()], optimizeDeps: { noDiscovery: true, include: [] } });
+
+    reset.mockClear();
+    twice.watcher.emit("all", "change", join(root, ".env"));
+    await twice.close();
+
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 
   it("will reload before the client has loaded env", () => {
