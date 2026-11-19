@@ -118,6 +118,7 @@ function closer(start: globalThis.Node, kind: string) {
 
     const { data } = node as Comment;
 
+    if (data == 'portal') continue;
     if (data[0] != '/') depth++;
     else if (depth) depth--;
     else return data == `/${kind}` ? node : undefined;
