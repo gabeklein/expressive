@@ -51,6 +51,14 @@ describe("bare", () => {
     expect(warn.mock.calls.map(call => call[0])).toEqual(["B is unset - .env.example lists it.", "B is unset - .env.example lists it."]);
   });
 
+  it("will warn for the given mode", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    files({ ".env.example": "B=", ".env.production": "B=1" });
+
+    expect(await run("--mode", "production")).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("will pass without .env files", async () => {
     expect(await run()).toBe(0);
     expect(logged()).toEqual([`No .env files in ${root} - nothing to prepare.`]);

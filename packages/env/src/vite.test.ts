@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("build", () => {
-  const bundle = async (plugin: Plugin | Plugin[] = env(), customLogger = createLogger("silent")) => {
+  const bundle = async (plugin = env(), customLogger = createLogger("silent")) => {
     const [result] = (await build({
       root,
       configFile: false,
