@@ -3234,6 +3234,48 @@ describe('unmanaged keys', () => {
 
     expect([values, assign, property, field]).toBeDefined();
   });
+
+  it('will type a get: null field as never in exports', () => {
+    class Test extends Model {
+      value = 1;
+      handle = { get: null, open: () => {} };
+    }
+
+    const partial: Model.Partial<Test> = { value: 2 };
+
+    // @ts-expect-error - opted out of exports
+    const bad: Model.Partial<Test> = { handle: { get: null, open: () => {} } };
+
+    expectTypeOf<Model.Values<Test>['handle']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Test>['value']>().toEqualTypeOf<number>();
+    expect(Object.keys(Test.new().get())).toEqual(['value']);
+    expect([partial, bad]).toBeDefined();
+  });
+
+  it('will resolve exported fields through this', () => {
+    function take(values: { value: number }) {
+      return values.value;
+    }
+
+    class Test extends Model {
+      value = 1;
+      refs = ref(this);
+
+      read() {
+        const { value } = this.get();
+        return value + take(this.get());
+      }
+    }
+
+    function read<T extends Test>(test: T) {
+      return test.get().value;
+    }
+
+    const test = Test.new();
+
+    expect(test.read()).toBe(2);
+    expect(read(test)).toBe(1);
+  });
 });
 
 describe('new method', () => {

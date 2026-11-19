@@ -236,9 +236,14 @@ describe('proxy', () => {
     const host = Host.new();
 
     expect(Object.keys(host.get())).toEqual(['subject']);
-    expect(Object.keys(host.refs)).toEqual([]);
-    expectTypeOf<keyof Model.Values<Host>>().toEqualTypeOf<'subject'>();
-    expectTypeOf<keyof Model.Values<Subject>>().toEqualTypeOf<'foo' | 'bar'>();
+    expect(Object.getOwnPropertyDescriptor(host.refs, 'get')).toEqual({
+      value: null,
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+    expectTypeOf<Model.Values<Host>['refs']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Subject>['refs']>().toEqualTypeOf<never>();
   });
 });
 
@@ -322,7 +327,7 @@ describe('mapped', () => {
 
     expect(Object.keys(host.get())).toEqual(['test']);
     expect(generateRef).not.toBeCalled();
-    expectTypeOf<keyof Model.Values<Host>>().toEqualTypeOf<'test'>();
+    expectTypeOf<Model.Values<Host>['fields']>().toEqualTypeOf<never>();
   });
 
   it('will run function only once per property', () => {

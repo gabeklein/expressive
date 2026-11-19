@@ -92,7 +92,7 @@ describe('values', () => {
   });
 
   it('will omit values whose get is null', () => {
-    const { data } = managed({ foo: 1, bar: { get: null } });
+    const { data } = managed({ foo: 1, bar: { get: null }, baz: Object.create({ get: null }) });
 
     expect(store.values(data)).toEqual({ foo: 1 });
   });
