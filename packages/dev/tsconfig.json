@@ -21,6 +21,7 @@
       "@expressive/router/*": ["../router/src/*"],
       "@expressive/inspect/*": ["../inspect/src/*"],
       "@expressive/rpc/*": ["../rpc/src/*"],
+      "@expressive/env/*": ["../env/src/*"],
       "@expressive/*": ["../*/src"]
     }
   },
