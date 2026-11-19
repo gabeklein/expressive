@@ -614,7 +614,7 @@ describe("vite host", () => {
   it("will boot the node service in production mode with .env registered", async () => {
     const { boot } = await buildBoth({ "app/index.tsx": PAGE });
 
-    expect(boot).toBe(`process.env.NODE_ENV ||= "production";\n(await import("@expressive/dev/server")).register();\nawait import("./app.js");\n`);
+    expect(boot).toBe(`process.env.NODE_ENV ||= "production";\n(await import("@expressive/dev/server")).registerEnv();\nawait import("./app.js");\n`);
   });
 
   it("will boot without .env files for --no-env", async () => {

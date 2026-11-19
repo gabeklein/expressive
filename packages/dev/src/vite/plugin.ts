@@ -52,7 +52,7 @@ const builds = new Map<string, Exposure>();
 const BOOT = "index.js";
 
 const boot = (app: string, dotenv: boolean) =>
-  [`process.env.NODE_ENV ||= "production";`, dotenv && `(await import("@expressive/dev/server")).register();`, `await import(${JSON.stringify(`./${app}`)});`]
+  [`process.env.NODE_ENV ||= "production";`, dotenv && `(await import("@expressive/dev/server")).registerEnv();`, `await import(${JSON.stringify(`./${app}`)});`]
     .filter(Boolean)
     .join("\n") + "\n";
 
