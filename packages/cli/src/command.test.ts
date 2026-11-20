@@ -750,13 +750,22 @@ describe('peer', () => {
   const runner = (tag: string, statics = '') =>
     `const C = class { ${statics} }; C[Symbol.for('@expressive/cli')] = { run: async (argv, out, name) => { out.log(${JSON.stringify(tag)} + ' ' + name + ' ' + argv.join(' ')); return 3; } }; export default C;`;
 
-  it('will hand the rest of argv to a runner on the default export', async () => {
-    install('@kit/sql', { kit: 'bin.mjs' }, runner('sql'));
+  it('will route a named peer in this process even with a runner', async () => {
+    class Owned extends Sql {}
 
-    expect(await call(Kit, 'sql', 'db.ts', '--force')).toBe(3);
-    expect(await call(Kit, 'help', 'sql')).toBe(3);
-    expect(await call(Kit, 'sql', '-h')).toBe(3);
-    expect(lines).toEqual(['sql kit sql db.ts --force', 'sql kit sql --help', 'sql kit sql -h']);
+    Object.defineProperty(Owned, RUNNER, { value: { run: async () => 3 } });
+    (globalThis as any).kitSql = Owned;
+    install('@kit/sql', { kit: 'bin.mjs' }, 'export default globalThis.kitSql;');
+
+    const Parent = class Kit extends Model {
+      verbose = flag();
+      sql = cmd({ peer: '@kit/sql' });
+
+      run() {}
+    };
+
+    expect(await call(Parent, 'sql', '--verbose', 'db.ts')).toBe(0);
+    expect(lines).toEqual(['sql db.ts']);
   });
 
   describe('static help', () => {
@@ -798,6 +807,21 @@ describe('peer', () => {
           '  gone    (not installed)'
         ].join('\n')
       );
+    });
+
+    it('will ignore a static help that is not a string', async () => {
+      class Odd extends Model {
+        static help() {}
+
+        run() {}
+      }
+
+      class Tool extends Model {
+        odd = cmd({ from: Odd });
+      }
+
+      expect(await call(Tool)).toBe(0);
+      expect(lines[0]).toContain('Commands:\n  odd\n');
     });
 
     it('will show a command its static help', async () => {
@@ -914,7 +938,8 @@ describe('peer', () => {
 
         expect(await run(own(), { as: 'kit' }, 'env', 'PORT')).toBe(0);
         expect(await run(own(), { as: 'kit' }, 'dev', 'build', '--out', 'dist')).toBe(3);
-        expect(lines).toEqual(['env PORT', 'dev kit dev build --out dist']);
+        expect(await run(own(), { as: 'kit' }, 'help', 'dev')).toBe(3);
+        expect(lines).toEqual(['env PORT', 'dev kit dev build --out dist', 'dev kit dev --help']);
       });
 
       it('will route to a package without a runner in this process', async () => {
@@ -928,6 +953,47 @@ describe('peer', () => {
         expect(await run('file:///nowhere/bin.mjs', family, 'none')).toBe(1);
         expect(await run('file:///nowhere/bin.mjs', family, 'env', 'KEY')).toBe(0);
         expect(lines).toEqual(['sql db.ts', '! Command "none" did not load a Model class.', 'env KEY']);
+      });
+
+      it('will hand argv only to a runner of its own', async () => {
+        class Base extends Model {
+          run() {
+            lines.push('base');
+          }
+        }
+
+        main({ url: 'file:///nowhere.mjs', main: false }, Base, { as: 'kit', priority: 5 });
+        (globalThis as any).kitSub = class Sub extends Base {};
+        install('@kit/sub', { kit: 'bin.mjs' }, 'export default globalThis.kitSub;');
+
+        expect(await run(own(), { as: 'kit' })).toBe(0);
+        expect(await run(own(), { as: 'kit' }, 'sub')).toBe(0);
+        expect(lines[0]).toContain('Commands:\n  env  env files\n  sub\n');
+        expect(lines[1]).toBe('base');
+      });
+
+      it('will skip packages named help or after a Model member', async () => {
+        for (const name of ['set', 'help', 'constructor', 'dev'])
+          install(`@kit/${name}`, { kit: 'bin.mjs' }, 'export default class {}', { description: name });
+
+        expect(await run(own(), { as: 'kit' })).toBe(0);
+        expect(lines[0]).toContain('Commands:\n  dev  dev\n  env  env files\n\n');
+      });
+
+      it('will resolve members under an exact as', async () => {
+        install('@kit/dev', { myTool: 'bin.mjs' }, runner('dev', "static help = 'dev server'"));
+
+        expect(await run(own(), { as: 'myTool' })).toBe(0);
+        expect(await run(own(), { as: 'myTool' }, 'dev', 'x')).toBe(3);
+        expect(lines).toEqual([expect.stringContaining('  dev  dev server\n'), 'dev myTool dev x']);
+      });
+
+      it('will escape every dot of its scope', async () => {
+        install('@my.org.x/dev', { kit: 'bin.mjs' }, 'export default class {}', { description: 'dev' });
+        install('@my.orgZx/sql', { kit: 'bin.mjs' }, 'export default class {}', { description: 'sql' });
+
+        expect(await run(own('@my.org.x/env'), { as: 'kit' })).toBe(0);
+        expect(lines[0]).toContain('Commands:\n  dev  dev\n  env  env files\n\n');
       });
 
       it('will discover nothing without a scope or filter', async () => {

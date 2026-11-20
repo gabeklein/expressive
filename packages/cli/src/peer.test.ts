@@ -99,6 +99,7 @@ describe('discover', () => {
     expect(Object.keys(list(/^@kit\//))).toEqual(['dev', 'env', 'sql']);
     expect(Object.keys(list(/^kit-|^@other\//)).sort()).toEqual(['cli', 'kit-lint']);
     expect(list(/^@none\//)).toEqual({});
+    expect(Object.keys(list(/^@kit\//g))).toEqual(['dev', 'env', 'sql']);
   });
 
   it('will prefer the nearest copy and the first of a name', () => {
@@ -150,6 +151,9 @@ it('will find the package holding a file', () => {
 
   expect(owner(join(dir, 'dist', 'bin.js'))).toBe('@kit/sql');
   expect(owner('/nowhere/bin.js')).toBeUndefined();
+
+  writeFileSync(join(dir, 'dist', 'package.json'), JSON.stringify({ type: 'module' }));
+  expect(owner(join(dir, 'dist', 'bin.js'))).toBe('@kit/sql');
 });
 
 it('will read an installed package description', () => {

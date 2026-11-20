@@ -23,8 +23,14 @@ const RUNNER = Symbol.for('@expressive/cli');
 
 const FAMILY = new WeakSet<Function>();
 
-const own = (Type: unknown): string | undefined =>
-  typeof Type == 'function' && Object.hasOwn(Type, 'help') ? (Type as any).help : undefined;
+const own = (Type: unknown, key: PropertyKey): any =>
+  typeof Type == 'function' && Object.hasOwn(Type, key) ? (Type as any)[key] : undefined;
+
+const helpOf = (Type: unknown): string | undefined => {
+  const help = own(Type, 'help');
+
+  return typeof help == 'string' ? help : undefined;
+};
 
 class Help extends Error {}
 
@@ -48,7 +54,8 @@ class Miss extends Error {
   constructor(
     readonly loader: () => Promise<unknown>,
     readonly cache: Map<string, Model.Type | Hand>,
-    readonly key: string
+    readonly key: string,
+    readonly owner: Function
   ) {
     super();
   }
@@ -71,8 +78,10 @@ class Miss extends Error {
  * export default command(Lint);
  */
 function command(Root: Model.Type): Run {
-  const name = kebab(Root.name).replace(/^-/, '');
+  return build(Root, kebab(Root.name).replace(/^-/, ''));
+}
 
+function build(Root: Model.Type, name: string): Run {
   const load = (target: Target, path: string) => {
     if (target.lazy) return target.lazy;
 
@@ -106,9 +115,9 @@ function command(Root: Model.Type): Run {
       help = `(failed to load: ${error instanceof Error ? error.message : error})`;
     }
 
-    help ??= own(Type) ?? (target.peer && described(target.peer));
+    help ??= helpOf(Type) ?? (target.peer && described(target.peer));
 
-    return [{ ...spec, config: { ...spec.config, help } }, Type?.[RUNNER]?.priority ?? 0];
+    return [{ ...spec, config: { ...spec.config, help } }, own(Type, RUNNER)?.priority ?? 0];
   };
 
   return async (argv: string[], out: Output, invoked = name) => {
@@ -117,7 +126,7 @@ function command(Root: Model.Type): Run {
       const path: Model[] = [];
       let run!: () => unknown;
       let root: Model | undefined;
-      let about = own(Root);
+      let about = helpOf(Root);
 
       const enter = (named: string) =>
         function (this: Model): any {
@@ -157,9 +166,9 @@ function command(Root: Model.Type): Run {
             const Type = target.from || cache.get(step.key);
             const named = `${reader.levels.map((level) => level.name).join(' ')} ${child}`;
 
-            if (!Type) throw new Miss(load(target, named), cache, step.key);
+            if (!Type) throw new Miss(load(target, named), cache, step.key, owner);
 
-            about ??= own(Type);
+            about ??= helpOf(Type);
 
             if (Type instanceof Hand) throw new Delegate(Type.run, [...reader.rest(), ...(reader.help ? ['--help'] : [])], named);
 
@@ -227,9 +236,9 @@ function command(Root: Model.Type): Run {
         if (error instanceof Miss) {
           try {
             const Type = ((await error.loader()) as { default?: Model.Type } | undefined)?.default;
-            const runner = (Type as any)?.[RUNNER]?.run;
+            const runner = own(Type, RUNNER)?.run;
 
-            if (typeof runner == 'function') {
+            if (typeof runner == 'function' && FAMILY.has(error.owner)) {
               error.cache.set(error.key, new Hand(runner));
               continue;
             }
@@ -277,7 +286,7 @@ function command(Root: Model.Type): Run {
 interface Family {
   /** Root command name - the `bin` entry every member ships. */
   as: string;
-  /** Package names to look for - each passing one with an `as` bin becomes a command. Default: own scope. */
+  /** Package names to look for - matches with an `as` bin become commands. Default: own scope. */
   filter?: RegExp;
   /** Order in the root's listing - higher first, default 0, ties alphabetical. */
   priority?: number;
@@ -286,19 +295,19 @@ interface Family {
 function family(meta: { url: string }, Type: Model.Type, { as, filter }: Family) {
   const self = owner(fileURLToPath(meta.url));
   const scope = self?.match(/^@[^/]+\//)?.[0];
-  const targets: Record<string, Target> = {
-    [self ? unscoped(self) : kebab(Type.name).replace(/^-/, '')]: { from: Type }
-  };
+  const targets = new Map<string, Target>([[self ? unscoped(self) : kebab(Type.name).replace(/^-/, ''), { from: Type }]]);
 
-  filter ??= scope ? new RegExp('^' + scope.replace('.', '\\.')) : undefined;
+  filter ??= scope ? new RegExp('^' + scope.replace(/\./g, '\\.')) : undefined;
 
-  if (filter) for (const [key, pkg] of discover(filter, as)) if (!(key in targets)) targets[key] = { peer: pkg };
+  if (filter)
+    for (const [key, pkg] of discover(filter, as))
+      if (!targets.has(key) && key != 'help' && !(key in Model.prototype)) targets.set(key, { peer: pkg });
 
   const Root = class extends Model {
     constructor(...args: any[]) {
       super(...args);
 
-      for (const key in targets) (this as any)[key] = cmd(targets[key] as any);
+      for (const [key, target] of targets) (this as any)[key] = cmd(target as any);
     }
   };
 
@@ -310,15 +319,16 @@ function family(meta: { url: string }, Type: Model.Type, { as, filter }: Family)
 /**
  * Make `Type` a bin's command - run it when the calling module is the entry, and return it to export.
  *
- * The returned class carries its runner, so a root of any copy of this package that imports the bin
- * hands it argv instead of parsing with its own inputs. Imported, nothing runs. Run as the entry,
+ * The returned class carries its runner, so a family root of any copy of this package that imports the
+ * bin hands it argv instead of parsing with its own inputs. Imported, nothing runs. Run as the entry,
  * argv sets `process.exitCode`. Entry means `import.meta.main` where the runtime has it, else the
  * module's real path equals the script's.
  *
  * With `as`, the entry is a root named `as` instead: `Type` as a command named after its package
  * (scope dropped), plus every installed package passing `filter` - default its own scope - whose `bin`
  * has an `as` entry. Running one imports only its bin. The root's help imports every bin, lists each
- * by its class's static `help` (else its package's `description`), and orders them by `priority`.
+ * by its class's static `help` (else its package's `description`), and orders them by `priority`. A
+ * package named `help` or after a Model member is skipped.
  *
  * @example
  * export default main(import.meta, Env, { as: 'expressive' });
@@ -332,7 +342,7 @@ function main<T extends Model.Type>(meta: { url: string; main?: boolean }, Type:
   Object.defineProperty(Type, RUNNER, { value: { run, priority: shared?.priority }, configurable: true });
 
   if (entry)
-    (shared ? command(family(meta, Type, shared)) : run)(process.argv.slice(2), console).then((code) => {
+    (shared ? build(family(meta, Type, shared), shared.as) : run)(process.argv.slice(2), console).then((code) => {
       process.exitCode = code;
     });
 
