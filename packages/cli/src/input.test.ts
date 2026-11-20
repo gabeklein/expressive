@@ -169,13 +169,11 @@ describe('types', () => {
     }).toThrow('got none.');
   });
 
-  it('will require help for lazy and peer', () => {
+  it('will take lazy and peer without help', () => {
     class Child extends Model {}
 
     class Test extends Model {
-      // @ts-expect-error
       lazy = cmd({ lazy: async () => ({ default: Child }) });
-      // @ts-expect-error
       peer = cmd({ peer: '@kit/sql' });
       sql = cmd({ peer: '@kit/sql', help: 'sync' });
     }
