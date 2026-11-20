@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   canonicalize,
@@ -80,5 +80,30 @@ describe('URL normalization', () => {
     ['will normalize path, search, and fragment', normalize, '/guides/../docs?q=a%20b#hello world', '/docs?q=a+b#hello%20world']
   ])('%s', (_, fn, url, out) => {
     expect(fn(url)).toBe(out);
+  });
+
+  describe('where a one-letter scheme reads as a drive letter', () => {
+    class DriveURL extends URL {
+      constructor(url: string | URL, base?: string | URL) {
+        super(url, base);
+
+        const drive = /^([a-z]):/i.exec(String(base));
+
+        if (drive) this.pathname = `/${drive[1].toUpperCase()}:${this.pathname}`;
+      }
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it.each([
+      ['will collapse dot segments', '/a/./b/../c', '/a/c'],
+      ['will drop a leading host', '//host/a', '/a'],
+      ['will canonicalize the query', '/docs?b=2&a=1&a=3#top', '/docs?b=2&a=3#top']
+    ])('%s', (_, url, out) => {
+      vi.stubGlobal('URL', DriveURL);
+      expect(normalize(url)).toBe(out);
+    });
   });
 });

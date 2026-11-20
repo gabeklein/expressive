@@ -10,7 +10,8 @@ import {
   matchPattern,
   normalize,
   patternSegment,
-  searchOf
+  searchOf,
+  toUrl
 } from './url';
 
 interface Navigation {
@@ -167,7 +168,7 @@ export class Router extends Component {
     LOCATING.add(this);
 
     try {
-      const { pathname, searchParams, hash } = new URL(url, 'x://_');
+      const { pathname, searchParams, hash } = toUrl(url);
       this.path = pathname;
       this.hash = hash;
 
@@ -205,7 +206,7 @@ export class Router extends Component {
       const path = anchor.length > 1 ? anchor.slice(0, -1) : anchor;
       return normalize(withQuery(path, this.query, url));
     }
-    const resolved = new URL(url, 'x://_' + this.anchor(route));
+    const resolved = toUrl(url, this.anchor(route));
     return resolved.pathname + resolved.search + resolved.hash;
   }
 }
