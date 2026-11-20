@@ -7,7 +7,7 @@ import { get, Model } from '@expressive/mvc';
 import { Steps } from '@expressive/steps';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { command, main } from './command';
+import { command, main, type Family } from './command';
 import { arg, args, flag, list, opt, cmd } from './input';
 
 let lines: string[];
@@ -696,11 +696,11 @@ describe('peer', () => {
     rmSync(root, { recursive: true });
   });
 
-  function install(name: string, bin: unknown, source: string) {
+  function install(name: string, bin: unknown, source: string, extra?: object) {
     const dir = join(root, 'node_modules', name);
 
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, bin }));
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, bin, ...extra }));
     writeFileSync(join(dir, 'bin.mjs'), source);
   }
 
@@ -745,36 +745,202 @@ describe('peer', () => {
     expect(lines).toEqual(['! @kit/sql has no "kit" bin.']);
   });
 
+  const RUNNER = Symbol.for('@expressive/cli');
+
+  const runner = (tag: string, statics = '') =>
+    `const C = class { ${statics} }; C[Symbol.for('@expressive/cli')] = { run: async (argv, out, name) => { out.log(${JSON.stringify(tag)} + ' ' + name + ' ' + argv.join(' ')); return 3; } }; export default C;`;
+
+  it('will hand the rest of argv to a runner on the default export', async () => {
+    install('@kit/sql', { kit: 'bin.mjs' }, runner('sql'));
+
+    expect(await call(Kit, 'sql', 'db.ts', '--force')).toBe(3);
+    expect(await call(Kit, 'help', 'sql')).toBe(3);
+    expect(await call(Kit, 'sql', '-h')).toBe(3);
+    expect(lines).toEqual(['sql kit sql db.ts --force', 'sql kit sql --help', 'sql kit sql -h']);
+  });
+
+  describe('static help', () => {
+    class Build extends Model {
+      static help = 'build for production';
+
+      run() {}
+    }
+
+    class Watch extends Build {}
+
+    it('will list commands by their static help', async () => {
+      (globalThis as any).kitBuild = Build;
+      install('@kit/sql', { kit: 'bin.mjs' }, runner('sql', "static help = 'sync your schema'"));
+      install('@kit/dev', { kit: 'bin.mjs' }, 'export default class {}', { description: 'dev server' });
+
+      const Tool = class Kit extends Model {
+        build = cmd({ from: Build });
+        watch = cmd({ from: Watch });
+        lazy = cmd({ lazy: async () => ({ default: Build }) });
+        broken = cmd({ lazy: () => Promise.reject(new Error('missing module')) });
+        thrown = cmd({ lazy: () => Promise.reject('nope') });
+        sql = cmd({ peer: '@kit/sql' });
+        dev = cmd({ peer: '@kit/dev' });
+        gone = cmd({ peer: '@kit/gone' });
+      };
+
+      expect(await call(Tool)).toBe(0);
+      expect(lines[0]).toContain(
+        [
+          'Commands:',
+          '  build   build for production',
+          '  watch',
+          '  lazy    build for production',
+          '  broken  (failed to load: missing module)',
+          '  thrown  (failed to load: nope)',
+          '  sql     sync your schema',
+          '  dev     dev server',
+          '  gone    (not installed)'
+        ].join('\n')
+      );
+    });
+
+    it('will show a command its static help', async () => {
+      class Tool extends Model {
+        build = cmd({ from: Build });
+        other = cmd({ from: Build, help: 'given' });
+      }
+
+      expect(await call(Tool, 'build', '--help')).toBe(0);
+      expect(await call(Tool, 'other', '--help')).toBe(0);
+      expect(await call(Build, '--help')).toBe(0);
+      expect(lines.map((line) => line.split('\n\n')[1])).toEqual(['build for production', 'given', 'build for production']);
+    });
+  });
+
   describe('main', () => {
+    let exitCode: typeof process.exitCode;
+
+    beforeEach(() => {
+      exitCode = process.exitCode;
+      vi.spyOn(console, 'log').mockImplementation(out.log);
+      vi.spyOn(console, 'error').mockImplementation(out.error);
+    });
+
+    afterEach(() => {
+      process.exitCode = exitCode;
+    });
+
+    const settled = () => vi.waitFor(() => expect(process.exitCode).toBeDefined());
+
     it('will run only as the entry', async () => {
       const script = join(root, 'bin.mjs');
       const url = pathToFileURL(script).href;
-      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-      const { exitCode } = process;
 
       writeFileSync(script, '');
       writeFileSync(join(root, 'other.mjs'), '');
       process.argv = [argv[0], script, 'db.ts'];
+      process.exitCode = undefined;
 
-      try {
-        await main({ url, main: false }, Sql);
-        expect(lines).toEqual([]);
+      expect(main({ url, main: false }, Sql)).toBe(Sql);
+      main({ url: pathToFileURL(join(root, 'other.mjs')).href }, Sql);
+      await Promise.resolve();
+      expect(lines).toEqual([]);
 
-        await main({ url: pathToFileURL(join(root, 'other.mjs')).href }, Sql);
-        expect(lines).toEqual([]);
+      main({ url }, Sql);
+      await settled();
+      expect(lines).toEqual(['sql db.ts']);
+      expect(process.exitCode).toBe(0);
 
-        await main({ url }, Sql);
-        await main({ url: 'file:///nowhere.mjs', main: true }, Sql);
-        expect(lines).toEqual(['sql db.ts', 'sql db.ts']);
-        expect(process.exitCode).toBe(0);
+      process.argv = [argv[0]];
+      process.exitCode = undefined;
+      main({ url: 'file:///nowhere.mjs', main: false }, Sql);
+      main({ url }, Sql);
+      await Promise.resolve();
+      expect(lines).toHaveLength(1);
+    });
 
-        process.argv = [argv[0]];
-        await main({ url }, Sql);
-        expect(lines).toHaveLength(2);
-        expect(log).not.toHaveBeenCalled();
-      } finally {
-        process.exitCode = exitCode;
+    it('will attach a runner a root of another copy can call', async () => {
+      main({ url: 'file:///nowhere.mjs', main: false }, Sql, { as: 'kit', priority: 2 });
+
+      expect((Sql as any)[RUNNER].priority).toBe(2);
+      expect(await (Sql as any)[RUNNER].run(['db.ts'], out, 'kit sql')).toBe(0);
+      expect(lines).toEqual(['sql db.ts']);
+    });
+
+    describe('family', () => {
+      class Env extends Model {
+        static help = 'env files';
+
+        key = arg();
+
+        run() {
+          lines.push(`env ${this.key}`);
+        }
       }
+
+      function own(name = '@kit/env') {
+        const dir = join(root, 'packages', 'env');
+
+        mkdirSync(join(dir, 'dist'), { recursive: true });
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name }));
+
+        return pathToFileURL(join(dir, 'dist', 'bin.mjs')).href;
+      }
+
+      async function run(url: string, family: Family, ...args: string[]) {
+        process.argv = [argv[0], '', ...args];
+        process.exitCode = undefined;
+        main({ url, main: true }, Env, family);
+        await settled();
+
+        return process.exitCode;
+      }
+
+      it('will list itself and its scope by static help and priority', async () => {
+        install('@kit/dev', { kit: 'bin.mjs' }, runner('dev', "static help = 'dev server'").replace('{ run:', '{ priority: 1, run:'));
+        install('@kit/env', { kit: 'bin.mjs' }, 'throw new Error("imported");');
+        install('@kit/sql', { kit: 'bin.mjs' }, 'export default class {}', { description: 'schema' });
+        install('@kit/bad', { kit: 'bin.mjs' }, 'throw new Error("broken");');
+        install('@kit/mvc', undefined, '');
+        install('@other/cli', { kit: 'bin.mjs' }, '');
+
+        expect(await run(own(), { as: 'kit' })).toBe(0);
+        expect(await run(own(), { as: 'kit', priority: 2 })).toBe(0);
+        expect(lines.map((line) => line.split('\n\n')[1])).toEqual([
+          'Commands:\n  dev  dev server\n  bad  (failed to load: broken)\n  env  env files\n  sql  schema',
+          'Commands:\n  env  env files\n  dev  dev server\n  bad  (failed to load: broken)\n  sql  schema'
+        ]);
+      });
+
+      it('will import only the bin it runs', async () => {
+        install('@kit/dev', { kit: 'bin.mjs' }, runner('dev'));
+        install('@kit/sql', { kit: 'bin.mjs' }, 'throw new Error("imported");');
+
+        expect(await run(own(), { as: 'kit' }, 'env', 'PORT')).toBe(0);
+        expect(await run(own(), { as: 'kit' }, 'dev', 'build', '--out', 'dist')).toBe(3);
+        expect(lines).toEqual(['env PORT', 'dev kit dev build --out dist']);
+      });
+
+      it('will route to a package without a runner in this process', async () => {
+        const family = { as: 'kit', filter: /^@kit\// };
+
+        (globalThis as any).kitSql = Sql;
+        install('@kit/sql', { kit: 'bin.mjs' }, 'export default globalThis.kitSql;');
+        install('@kit/none', { kit: 'bin.mjs' }, 'export const other = 1;');
+
+        expect(await run('file:///nowhere/bin.mjs', family, 'sql', 'db.ts')).toBe(0);
+        expect(await run('file:///nowhere/bin.mjs', family, 'none')).toBe(1);
+        expect(await run('file:///nowhere/bin.mjs', family, 'env', 'KEY')).toBe(0);
+        expect(lines).toEqual(['sql db.ts', '! Command "none" did not load a Model class.', 'env KEY']);
+      });
+
+      it('will discover nothing without a scope or filter', async () => {
+        install('@kit/dev', { kit: 'bin.mjs' }, '');
+        install('kit-dev', { kit: 'bin.mjs' }, '');
+
+        expect(await run('file:///nowhere/bin.mjs', { as: 'kit' }, '--help')).toBe(0);
+        expect(await run(own('kit-env'), { as: 'kit' }, '--help')).toBe(0);
+        expect(lines.map((line) => line.split('\n\n')[1])).toEqual([
+          'Commands:\n  env  env files',
+          'Commands:\n  kit-env  env files'
+        ]);
+      });
     });
   });
 });
