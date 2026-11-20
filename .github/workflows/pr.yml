@@ -11,7 +11,31 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.affected.outputs.packages }}
+      any: ${{ steps.affected.outputs.any }}
+      e2e: ${{ steps.affected.outputs.e2e }}
+      hot: ${{ steps.affected.outputs.hot }}
+      dev: ${{ steps.affected.outputs.dev }}
+      rpc: ${{ steps.affected.outputs.rpc }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Affected packages
+        id: affected
+        env:
+          BASE: ${{ github.base_ref }}
+        run: bun .github/scripts/affected.ts "origin/$BASE"
+
   verify:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -23,11 +47,16 @@ jobs:
 
       - name: Typecheck
         id: typecheck
-        run: bun run typecheck
+        if: needs.changes.outputs.any == 'true'
+        env:
+          PACKAGES: ${{ needs.changes.outputs.packages }}
+        run: bun run $PACKAGES typecheck
 
       - name: Tests
-        if: success() || steps.typecheck.outcome == 'failure'
-        run: bun run coverage
+        if: needs.changes.outputs.any == 'true' && (success() || steps.typecheck.outcome == 'failure')
+        env:
+          PACKAGES: ${{ needs.changes.outputs.packages }}
+        run: bun run $PACKAGES coverage
 
       - run: bun run build
 
@@ -48,7 +77,10 @@ jobs:
         run: bunx changeset status --since "origin/$BASE"
 
   size:
-    if: github.base_ref == 'main' || github.event.pull_request.stack != null
+    needs: changes
+    if: >-
+      needs.changes.outputs.any == 'true' &&
+      (github.base_ref == 'main' || github.event.pull_request.stack != null)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -72,10 +104,13 @@ jobs:
         run: bun .github/scripts/bundle-size.ts --base "$RUNNER_TEMP/base.json" --gate
 
   dist-smoke:
+    needs: changes
     if: >-
-      github.event.pull_request.stack == null && github.base_ref == 'main' ||
-      github.event.pull_request.stack != null &&
-      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      needs.changes.outputs.any == 'true' && (
+        github.event.pull_request.stack == null && github.base_ref == 'main' ||
+        github.event.pull_request.stack != null &&
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -100,10 +135,13 @@ jobs:
         run: bun .github/scripts/dist-smoke.ts
 
   e2e:
+    needs: changes
     if: >-
-      github.event.pull_request.stack == null && github.base_ref == 'main' ||
-      github.event.pull_request.stack != null &&
-      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      needs.changes.outputs.e2e == 'true' && (
+        github.event.pull_request.stack == null && github.base_ref == 'main' ||
+        github.event.pull_request.stack != null &&
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -125,6 +163,8 @@ jobs:
           retention-days: 7
 
   dev:
+    needs: changes
+    if: needs.changes.outputs.dev == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -153,6 +193,8 @@ jobs:
           retention-days: 7
 
   rpc:
+    needs: changes
+    if: needs.changes.outputs.rpc == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -181,10 +223,13 @@ jobs:
           retention-days: 7
 
   hot:
+    needs: changes
     if: >-
-      github.event.pull_request.stack == null && github.base_ref == 'main' ||
-      github.event.pull_request.stack != null &&
-      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      needs.changes.outputs.hot == 'true' && (
+        github.event.pull_request.stack == null && github.base_ref == 'main' ||
+        github.event.pull_request.stack != null &&
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
