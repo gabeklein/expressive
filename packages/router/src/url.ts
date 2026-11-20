@@ -116,8 +116,6 @@ export function isExternal(to: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(to) || to.startsWith('//');
 }
 
-// Throwaway base for path math. The scheme must be more than one letter:
-// Chromium on Windows reads `x:` as a drive letter and leaks `X:/` into pathnames.
 export const BASE = 'router://_';
 
 /**
