@@ -31,6 +31,8 @@ interface Listing {
   inner: Listing[];
 }
 
+const DECLARES = ['to', 'as', 'label', 'none', 'redirect'];
+
 type Declared = { label?: string; meta?: Record<string, any>; as?: unknown; redirect?: unknown; none?: boolean };
 
 class NavLinks extends Component {
@@ -106,7 +108,7 @@ function listings(route: Route | undefined, children: Component.Node, base: stri
       listing(child.base, child.to, child, effective(child), child, rendersOwn(child.constructor as typeof Route)));
 
   return lexicalRoutes(children)
-    .filter(({ props, type }) => type === Route || 'to' in props)
+    .filter(({ props, type }) => type === Route || DECLARES.some((key) => key in props))
     .map(({ props, to, type }) => listing(base, to, undefined, props.children, props, rendersOwn(type)));
 }
 

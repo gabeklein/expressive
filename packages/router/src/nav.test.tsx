@@ -360,3 +360,22 @@ it('will follow routes added and removed after mount', async () => {
   await act(async () => view.rerender(tree(true)));
   expect(links(view)).toEqual(['/a', '/b']);
 });
+
+it('will list a Route subclass declared with props in a single pass', () => {
+  class Host extends Route {}
+
+  const html = renderToString(
+    <Host as={Page}>
+      <Host as={() => <p>home</p>} label="Home" />
+      <Host to="guide" label="Guide">
+        <Host as={() => <p>guide</p>} label="Guide" />
+        <Host to="install" as={() => <p>install</p>} />
+      </Host>
+    </Host>
+  );
+  const server = document.createElement('div');
+
+  server.innerHTML = html;
+
+  expect(links({ container: server })).toEqual(['/', '/guide', '/guide/install']);
+});
