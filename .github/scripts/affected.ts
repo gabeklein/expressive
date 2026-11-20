@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 
-const [base = process.env.BASE, head = 'HEAD'] = process.argv.slice(2);
+const [base, head = 'HEAD'] = process.argv.slice(2);
 
 if (!base)
   throw new Error('Usage: bun .github/scripts/affected.ts <base-ref> [head-ref]');
@@ -27,7 +27,7 @@ for (const dir of dirs) {
   uses.set(dir, mentions(names.join(' ')));
 }
 
-const changed = execFileSync('git', ['diff', '--name-only', `${base}...${head}`], { encoding: 'utf8' })
+const changed = execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...${head}`], { encoding: 'utf8' })
   .split('\n')
   .filter(Boolean);
 
@@ -36,13 +36,16 @@ let everything = false;
 
 for (const file of changed) {
   const inPackage = file.match(/^packages\/([^/]+)\//);
-  const isRootDoc = !file.includes('/') && file.endsWith('.md');
+  const isDoc = file.endsWith('.md') && (!file.includes('/') || !!inPackage && !file.includes('/src/'));
   const isQuiet = QUIET.some(prefix => file.startsWith(prefix));
   const isConsumer = Object.values(CONSUMERS).some(({ dir }) => dir && file.startsWith(dir));
 
+  if (isDoc || isQuiet || isConsumer)
+    continue;
+
   if (inPackage && dirs.includes(inPackage[1]))
     direct.add(inPackage[1]);
-  else if (!isRootDoc && !isQuiet && !isConsumer)
+  else
     everything = true;
 }
 

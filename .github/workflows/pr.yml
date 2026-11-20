@@ -36,6 +36,7 @@ jobs:
 
   verify:
     needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -47,16 +48,16 @@ jobs:
 
       - name: Typecheck
         id: typecheck
-        if: needs.changes.outputs.any == 'true'
+        if: needs.changes.outputs.any != 'false'
         env:
           PACKAGES: ${{ needs.changes.outputs.packages }}
-        run: bun run $PACKAGES typecheck
+        run: bun run ${PACKAGES:---filter=./packages/*} typecheck
 
       - name: Tests
-        if: needs.changes.outputs.any == 'true' && (success() || steps.typecheck.outcome == 'failure')
+        if: needs.changes.outputs.any != 'false' && (success() || steps.typecheck.outcome == 'failure')
         env:
           PACKAGES: ${{ needs.changes.outputs.packages }}
-        run: bun run $PACKAGES coverage
+        run: bun run ${PACKAGES:---filter=./packages/*} coverage
 
       - run: bun run build
 
@@ -79,7 +80,7 @@ jobs:
   size:
     needs: changes
     if: >-
-      needs.changes.outputs.any == 'true' &&
+      !cancelled() && needs.changes.outputs.any != 'false' &&
       (github.base_ref == 'main' || github.event.pull_request.stack != null)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -106,7 +107,7 @@ jobs:
   dist-smoke:
     needs: changes
     if: >-
-      needs.changes.outputs.any == 'true' && (
+      !cancelled() && needs.changes.outputs.any != 'false' && (
         github.event.pull_request.stack == null && github.base_ref == 'main' ||
         github.event.pull_request.stack != null &&
         github.event.pull_request.stack.position == github.event.pull_request.stack.size
@@ -137,7 +138,7 @@ jobs:
   e2e:
     needs: changes
     if: >-
-      needs.changes.outputs.e2e == 'true' && (
+      !cancelled() && needs.changes.outputs.e2e != 'false' && (
         github.event.pull_request.stack == null && github.base_ref == 'main' ||
         github.event.pull_request.stack != null &&
         github.event.pull_request.stack.position == github.event.pull_request.stack.size
@@ -164,7 +165,7 @@ jobs:
 
   dev:
     needs: changes
-    if: needs.changes.outputs.dev == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.dev != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -194,7 +195,7 @@ jobs:
 
   rpc:
     needs: changes
-    if: needs.changes.outputs.rpc == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.rpc != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -225,7 +226,7 @@ jobs:
   hot:
     needs: changes
     if: >-
-      needs.changes.outputs.hot == 'true' && (
+      !cancelled() && needs.changes.outputs.hot != 'false' && (
         github.event.pull_request.stack == null && github.base_ref == 'main' ||
         github.event.pull_request.stack != null &&
         github.event.pull_request.stack.position == github.event.pull_request.stack.size
