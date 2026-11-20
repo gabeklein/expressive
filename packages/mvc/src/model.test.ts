@@ -3293,20 +3293,36 @@ describe('unmanaged keys', () => {
     expect([values, assign, property, field]).toBeDefined();
   });
 
-  it('will type a get: null field as never in exports', () => {
+  it('will type a field whose get never returns as never in exports', () => {
     class Test extends Model {
       value = 1;
-      handle = { get: null, open: () => {} };
+      method = { get(): never { throw false; }, open: () => {} };
+      getter = { get get(): never { throw false; } };
+      data = { get: null as string | null };
+      text = { get: 'foo' };
+      call = { get: () => 'foo' };
+      loose = {} as any;
     }
 
     const partial: Model.Partial<Test> = { value: 2 };
 
     // @ts-expect-error - opted out of exports
-    const bad: Model.Partial<Test> = { handle: { get: null, open: () => {} } };
+    const bad: Model.Partial<Test> = { method: new Test().method };
 
-    expectTypeOf<Model.Values<Test>['handle']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Test>['method']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Test>['getter']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Test>['value']>().toEqualTypeOf<number>();
-    expect(Object.keys(Test.new().get())).toEqual(['value']);
+    expectTypeOf<Model.Values<Test>['data']>().toEqualTypeOf<{ get: string | null }>();
+    expectTypeOf<Model.Values<Test>['text']>().toEqualTypeOf<{ get: string }>();
+    expectTypeOf<Model.Values<Test>['call']>().toEqualTypeOf<string>();
+    expectTypeOf<Model.Values<Test>['loose']>().toBeAny();
+    expect(Test.new().get()).toEqual({
+      value: 1,
+      data: { get: null },
+      text: { get: 'foo' },
+      call: 'foo',
+      loose: {}
+    });
     expect([partial, bad]).toBeDefined();
   });
 
