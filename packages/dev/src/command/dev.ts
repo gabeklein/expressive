@@ -4,7 +4,7 @@ import { Model } from "@expressive/mvc";
 export default class Dev extends Model {
   inspect = flag({ default: true, help: "skip the /__inspect relay agents use to read and drive the page" });
 
-  env = flag({ default: true, help: "skip .env files - no env for the app, nothing added to process.env" });
+  env = flag({ default: true, help: "skip copying .env files into process.env - env still reads them" });
 
   build = cmd({
     lazy: () => import("./build"),

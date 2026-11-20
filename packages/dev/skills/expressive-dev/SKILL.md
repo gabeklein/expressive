@@ -122,11 +122,11 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
-expressive dev --no-env         without .env files
+expressive dev --no-env         without copying .env into process.env
 expressive dev build            dist/client and dist/server/index.js
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
-expressive dev build --no-env   client without env, server boots without .env files
+expressive dev build --no-env   same, for the build and the built server
 expressive env                  write env.d.ts, warn of unset keys - expressive-env
 expressive help [command]       commands, or one command's inputs
 node dist/server/index.js       run the built service (port from index.ts, default 3000)
@@ -145,7 +145,7 @@ const db = connect(env.DATABASE_URL);
 ```
 
 - `env` reads keys on the server; in the browser only `PUBLIC_` keys, read at build - any other throws. A custom prefix: `env({ prefix: "CLIENT" })` from `@expressive/env/vite` in `vite.config.ts`, which replaces the host's.
-- The same files fill `process.env` in dev, during `dev build` and at the built server's boot, for dependencies that read it - keys already set and `NODE_ENV` are left alone. Elsewhere - a script, a tool - call `registerEnv()` from `@expressive/dev/server` first.
+- The same files fill `process.env` in dev, during `dev build` and at the built server's boot, for dependencies that read it - keys already set and `NODE_ENV` are left alone. `--no-env` skips this; `env` reads the files either way. Elsewhere - a script, a tool, a `--no-env` app opting back in - call `registerEnv()` from `@expressive/dev/server` first.
 - Mode is `NODE_ENV`, for client and server alike - `development` in dev, `production` for a build and a built server it is unset for. Files load from the working directory; a `vite.config.ts` `root` elsewhere splits the two sides.
 - Types: run `expressive env` (a `prepare` script fits) - dev does not create `env.d.ts`, only refreshes it on `.env` changes.
 

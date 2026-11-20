@@ -4,18 +4,18 @@ import inspect from "@expressive/inspect/vite";
 import { createServer } from "vite";
 
 import { nodeMode, viteConfigFile } from "./config";
-import { expressive } from "./plugin";
+import { host as app } from "./plugin";
 
 export interface DevOptions {
   /** Serve inspect's `/__inspect` relay - default `true`. */
   inspect?: boolean;
-  /** Load `.env` files - `env` for the app, keys not already set into `process.env`. Default `true`. */
+  /** Copy `.env` files into `process.env`, keys not already set - default `true`. `env` reads them either way. */
   env?: boolean;
 }
 
 /** `expressive dev` - a Vite dev server with the host plugin and, unless turned off, inspect's relay. */
 export async function runDev(root = process.cwd(), { inspect: relay = true, env: dotenv = true }: DevOptions = {}): Promise<void> {
-  const host = expressive();
+  const host = app(dotenv);
 
   if (dotenv) register();
 
@@ -23,7 +23,7 @@ export async function runDev(root = process.cwd(), { inspect: relay = true, env:
     root,
     mode: nodeMode(),
     configFile: viteConfigFile(root),
-    plugins: [host, dotenv && env(), relay && inspect()],
+    plugins: [host, env(), relay && inspect()],
   });
 
   const { port } = await host.api!.config();

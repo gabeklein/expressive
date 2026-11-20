@@ -3,7 +3,7 @@ import { env } from "@expressive/env/vite";
 import { build, type InlineConfig } from "vite";
 
 import { nodeMode, viteConfigFile } from "./config";
-import { expressive } from "./plugin";
+import { host as app } from "./plugin";
 import { PRERENDER_ENTRY } from "./project";
 
 export interface BuildOptions {
@@ -13,11 +13,11 @@ export interface BuildOptions {
   write?: boolean;
   /** Default true; false skips prerendering, leaving every page to the browser. Otherwise each static page renders to `dist/client/<path>/index.html` after the build, keeping the empty shell as `200.html`; skipped when `write` is false, and a failure warns and leaves every page to the browser. */
   html?: boolean;
-  /** Default true; false leaves `.env` files out - the client gets no `env`, the server loads none at boot. */
+  /** Default true; false skips copying `.env` files into `process.env` - during the build and at the built server's boot. `env` reads them either way. */
   env?: boolean;
 }
 
-const host = ({ env: dotenv = true }: BuildOptions) => [expressive(), dotenv && env()];
+const host = ({ env: dotenv = true }: BuildOptions) => [app(dotenv), env()];
 
 export function clientBuild(root: string, options: BuildOptions = {}): InlineConfig {
   const { pretty = false, write = true } = options;

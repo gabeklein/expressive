@@ -63,8 +63,13 @@ const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@ex
  *
  * Serves the virtual shell, entry and route tree under `/.expressive/`, and builds sidecars and twins.
  * Add `inspect()` from `@expressive/inspect/vite` beside it for the dev relay.
+ * The built server's `index.js` copies `.env` files into `process.env` before the app loads.
  */
 export function expressive(): Plugin<Host> {
+  return host(true);
+}
+
+export function host(dotenv: boolean): Plugin<Host> {
   let root = process.cwd();
   let project: Project;
   let generatedDir: string;
@@ -77,7 +82,6 @@ export function expressive(): Plugin<Host> {
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
-  let dotenv = false;
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -125,7 +129,6 @@ export function expressive(): Plugin<Host> {
 
     configResolved(config) {
       root = config.root;
-      dotenv = config.plugins.some(plugin => plugin.name === "expressive:env");
       generatedDir = join(root, GENERATED);
       mainId = join(generatedDir, MAIN);
       routesId = join(generatedDir, ROUTES);
