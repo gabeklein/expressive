@@ -297,6 +297,8 @@ class NavLink extends Link {
 
 Renders a navigation tree from the route hierarchy. Subclass and override `Item`, `List`, and `Group` to control rendering - `Group` is transparent by default (flattens), override it to turn tree structure into nav sections with headings.
 
+Their `route` prop is a `NavLinks.Entry` (`path`, `to`, `label`, `meta`), not a live `Route`. Routes are read from the declared JSX until they mount, so a NavLinks placed before its routes lists them on the first render, server render included. Routes a nested `get children()` override contributes appear once that scope mounts.
+
 ```tsx
 class SideNav extends NavLinks {
   List = (p) => <ul className="side">{p.children}</ul>;

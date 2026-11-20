@@ -64,7 +64,7 @@ class Navigation extends NavLinks {
     return <div className={styles.links}>{props.children}</div>;
   }
 
-  Item(props: { route: Route; active: boolean; label?: string }) {
+  Item(props: { route: NavLinks.Entry; active: boolean; label?: string }) {
     const { route, active, label } = props;
 
     return (
@@ -74,7 +74,7 @@ class Navigation extends NavLinks {
     );
   }
 
-  Group(props: { route: Route; children?: React.ReactNode }) {
+  Group(props: { route: NavLinks.Entry; children?: React.ReactNode }) {
     return (
       <div className={styles.group}>
         <h4 className={styles.groupLabel}>{props.route.label}</h4>

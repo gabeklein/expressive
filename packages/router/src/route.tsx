@@ -351,7 +351,7 @@ function guard(route: Route, redirect: () => Async<string | void | null>): strin
  * static-string redirect, or a `none` fallback. A *function* guard is a real
  * contender - it participates in matching until it actually redirects.
  */
-function exempt(node: { redirect?: unknown; none?: boolean }): boolean {
+export function exempt(node: { redirect?: unknown; none?: boolean }): boolean {
   return node.none || typeof node.redirect === 'string';
 }
 
@@ -360,7 +360,7 @@ function exempt(node: { redirect?: unknown; none?: boolean }): boolean {
  * base) and non-Route nodes skipped, each paired with its `to` segment. The
  * shared lexical-walk primitive behind the see-through gate and `as`-arbitration.
  */
-function lexicalRoutes(children: Component.Node) {
+export function lexicalRoutes(children: Component.Node) {
   const out: { props: RouteProps; to: string }[] = [];
 
   for (const node of childrenOf(children)) {
@@ -411,6 +411,8 @@ function scopeBase(route: Route): string {
 
 type RouteProps = {
   to?: string;
+  label?: string;
+  meta?: Record<string, any>;
   as?: unknown;
   redirect?: string | (() => Async<string | null | void>);
   none?: boolean;
@@ -480,7 +482,7 @@ function possible(children: Component.Node, base: string): Contender[] {
     }));
 }
 
-function allRoutes(children: Component.Node): boolean {
+export function allRoutes(children: Component.Node): boolean {
   const nodes = childrenOf(children);
 
   return nodes.length > 0 && nodes.every((node) => {

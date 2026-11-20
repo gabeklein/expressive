@@ -202,6 +202,8 @@ class SideNav extends NavLinks {
 }
 ```
 
+Each member's `route` prop is a `NavLinks.Entry` - `path`, `to`, `label` and `meta`. Routes are read from the declared JSX until they mount, so a `NavLinks` placed before its routes (a sidebar ahead of the page) lists them on its first render, server rendering included. Routes contributed by a nested `get children()` override appear once that scope mounts.
+
 These members are overridable reactive subcomponents bound to the live instance - the same mechanism `Component` provides, via [subcomponents](https://github.com/gabeklein/expressive/blob/main/packages/react/README.md#subcomponents).
 
 ## Runtime boundaries

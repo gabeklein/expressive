@@ -1,4 +1,5 @@
 import { act } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { expect, it } from 'vitest';
 
 import { browserRouter, mockPromise, renderAct } from '../test.setup';
@@ -73,7 +74,7 @@ it('will mark the active link and update on navigation', async () => {
 
 it('will pass route and meta to an overridden Item', async () => {
   class MyNav extends NavLinks {
-    Item({ route, meta }: { route: Route; meta: Route['meta'] }) {
+    Item({ route, meta }: { route: NavLinks.Entry; meta: NavLinks.Entry['meta'] }) {
       return <a href={route.path} data-custom>{meta?.label ?? route.path}</a>;
     }
   }
@@ -103,7 +104,7 @@ it('will render an anonymous group transparently', async () => {
 
 it('will wrap a group via an overridden Group slot', async () => {
   class Sectioned extends NavLinks {
-    Group({ route, children }: { route: Route; children?: React.ReactNode }) {
+    Group({ route, children }: { route: NavLinks.Entry; children?: React.ReactNode }) {
       return <section data-group>{route.label}{children}</section>;
     }
   }
@@ -125,7 +126,7 @@ it('will suspend the whole nav, not one row, when an Item suspends', async () =>
   pending.then(() => (ready = true));
 
   class MyNav extends NavLinks {
-    Item({ route }: { route: Route }) {
+    Item({ route }: { route: NavLinks.Entry }) {
       if (route.path === '/b' && !ready) throw pending;
       return <a href={route.path}>{route.path}</a>;
     }
@@ -152,7 +153,7 @@ it('will show NavLinks fallback while an Item suspends', async () => {
   class MyNav extends NavLinks {
     fallback = (<span data-pending />);
 
-    Item({ route }: { route: Route }) {
+    Item({ route }: { route: NavLinks.Entry }) {
       if (!ready) throw pending;
       return <a href={route.path}>{route.path}</a>;
     }
@@ -168,4 +169,69 @@ it('will show NavLinks fallback while an Item suspends', async () => {
   await act(async () => pending.resolve());
   expect(view.container.querySelector('[data-pending]')).toBeNull();
   expect(links(view)).toEqual(['/a']);
+});
+
+it('will list routes declared after it in a single-pass render', () => {
+  const html = renderToString(
+    <Route as={Page}>
+      <Route to="a" label="Alpha" />
+      <Route to="b" />
+    </Route>
+  );
+
+  expect(html).toContain('href="/a"');
+  expect(html).toContain('href="/b"');
+});
+
+it('will mark a scope with a page active while a child matches', async () => {
+  router.current.goto('/docs/a');
+
+  const view = await renderAct(
+    <Route as={Page}>
+      <Route to="docs" as={({ children }: { children?: React.ReactNode }) => <>{children}</>}>
+        <Route to="a" />
+      </Route>
+      <Route to="b" />
+    </Route>
+  );
+
+  const marked = Array.from(view.container.querySelectorAll('a[aria-current="page"]')).map((a: any) => a.getAttribute('href'));
+
+  expect(marked).toEqual(['/docs', '/docs/a']);
+});
+
+it('will list routes its own scope contributes in a single-pass render', () => {
+  class Docs extends Route {
+    protected get children(): React.ReactNode {
+      return <><Route to="intro" />{super.children}</>;
+    }
+  }
+
+  const html = renderToString(
+    <Docs as={Page}>
+      <Route to="api" />
+    </Docs>
+  );
+
+  expect(html).toContain('href="/intro"');
+  expect(html).toContain('href="/api"');
+});
+
+it('will list routes a nested scope contributes once it mounts', async () => {
+  class Generated extends Route {
+    protected get children(): React.ReactNode {
+      return <>{super.children}<Route to="made" /></>;
+    }
+  }
+
+  const tree = (
+    <Route as={Page}>
+      <Generated to="g">
+        <Route to="declared" />
+      </Generated>
+    </Route>
+  );
+
+  expect(renderToString(tree)).not.toContain('href="/g/made"');
+  expect(links(await renderAct(tree))).toEqual(['/g/declared', '/g/made']);
 });
