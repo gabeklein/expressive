@@ -80,10 +80,10 @@ Meaning of special values:
 
 ### `Model.Values<T>`
 
-All fields with exotic values (child instances, refs, etc.) unwrapped to their inner type. A field whose value has `get: null` is typed `never` - the runtime snapshot omits it.
+All fields with exotic values (child instances, refs, etc.) unwrapped to their inner type. A field whose `get` is typed `never` (`get: never` or `get(): never`) is typed `never` - the runtime snapshot omits it when that `get` throws `false`.
 
 ```ts
-type Values<T> = { [P in Field<T>]: T[P] extends { get: null } ? never : Export<T[P]> };
+type Values<T> = { [P in Field<T>]: T[P] extends { get(): never } ? never : Export<T[P]> };
 ```
 
 ### `Model.Partial<T>`
@@ -91,7 +91,7 @@ type Values<T> = { [P in Field<T>]: T[P] extends { get: null } ? never : Export<
 Object compatible with `Values<T>` - every key optional, Export-unwrapped.
 
 ```ts
-type Partial<T> = { [P in Field<T>]?: T[P] extends { get: null } ? never : Export<T[P]> };
+type Partial<T> = { [P in Field<T>]?: T[P] extends { get(): never } ? never : Export<T[P]> };
 ```
 
 Not currently used by any public signature - `set(assign)` takes [`Model.Assign<T>`](#modelassignt), which preserves declared field types rather than unwrapping them.
@@ -277,14 +277,14 @@ interface ref.Object<T> {
 
 ### `ref.Proxy<T>` and `ref.CustomProxy<T, R>`
 
-Produced by `ref(this)` and `ref(this, mapFn)` respectively. `get: null` keeps them out of snapshots; `Model.Values` types them `never`.
+Produced by `ref(this)` and `ref(this, mapFn)` respectively. A `get()` that throws `false` keeps them out of snapshots; `Model.Values` types them `never`.
 
 ```ts
 type ref.Proxy<T extends Model> =
-  { [P in Model.Field<T>]-?: ref.Object<T[P]> } & { get: null };
+  { [P in Model.Field<T>]-?: ref.Object<T[P]> } & { get(): never };
 
 type ref.CustomProxy<T extends Model, R> =
-  { [P in Model.Field<T>]-?: R } & { get: null };
+  { [P in Model.Field<T>]-?: R } & { get(): never };
 ```
 
 <br />

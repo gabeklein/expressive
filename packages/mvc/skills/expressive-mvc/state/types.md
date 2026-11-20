@@ -13,7 +13,7 @@ Namespace types on `Model` used throughout the API.
 | `Model.Event<T>`    | Valid event keys: `Field<T> \| number \| symbol \| (string & {})`       |
 | `Model.Args<T>`     | Constructor argument union: `(Args \| Init \| Assign \| Context \| void)[]` |
 | `Model.Assign<T>`   | Object overlay - maps properties preserving function `this`             |
-| `Model.Values<T>`   | All fields with child instances and ref objects unwrapped via `Export<R>`; a `get: null` field is `never` |
+| `Model.Values<T>`   | All fields with child instances and ref objects unwrapped via `Export<R>`; a field whose `get` is typed `never` (`get: never` or `get(): never`) is `never` |
 | `Model.Export<R>`   | Model R: recursive `Values<R>`; else R with `.get()`: its return type; else R |
 | `Model.Value<T, K>` | Single property value lookup with Export unwrapping                     |
 

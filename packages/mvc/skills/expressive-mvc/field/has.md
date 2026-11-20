@@ -214,7 +214,7 @@ class Roster extends Model {
 const names = roster.players.map((p) => p.name);
 ```
 
-`get()` with no arguments returns a shallow snapshot array; nested values whose `get` declares no parameters export through it, as in Model snapshots; a `get: null` value is kept.
+`get()` with no arguments returns a shallow snapshot array; nested values whose `get` declares no parameters export through it, as in Model snapshots; a value whose `get` throws `false` is kept.
 
 Member fields read thru a subscribed context track deeply - a parent rendering `players.filter((p) => p.online)` re-renders when any visited member's `online` changes. A method call on a raw instance subscribes nothing: `page.importFor(id).progress` in a render never repaints. Per-row async status must be a tracked read - member field thru the pool, or the member's own `render()`. Never read solely to force tracking (`void x`) in a render - consume it, or move paint to the member.
 

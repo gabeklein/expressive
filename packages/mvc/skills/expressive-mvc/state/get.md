@@ -10,7 +10,7 @@ Instance method for reading values, running effects, checking status, and fetchi
 get(): Model.Values<this>
 ```
 
-Returns a frozen plain object of all managed values - including non-enumerable `set()` / `ref` fields; lazy factories and computeds appear once computed. Recursively exports child instances; objects and functions (ref, etc.) unwrap via a `get` that declares no parameters - `get.length === 0`, so write an optional parameter as rest (`get(...[key]: [K?])`); a `Map`'s `get(key)` keeps it as is; a value with `get: null` is omitted, and `Model.Values` types its field `never`. Circular references (parent/child loops) return the same exported object.
+Returns a frozen plain object of all managed values - including non-enumerable `set()` / `ref` fields; lazy factories and computeds appear once computed. Recursively exports child instances; objects and functions (ref, etc.) unwrap via a `get` that declares no parameters - `get.length === 0`, so write an optional parameter as rest (`get(...[key]: [K?])`); a `Map`'s `get(key)` keeps it as is; a value whose `get` throws `false` - as a getter (`get get(): never { throw false }`) or a method (`get(): never { throw false }`) - is omitted, and `Model.Values` types its field `never`; any other throw propagates. `get: null` is ordinary data and exports as is. Circular references (parent/child loops) return the same exported object.
 
 ```ts
 const values = state.get();
