@@ -63,9 +63,9 @@ class Db extends Model {
 export default main(import.meta, Db, { as: "acme" });
 ```
 
-Whichever package the package manager links as `acme` is the root: its own command, named after its package without the scope (`db`), plus every installed package of the same scope whose `bin` has an `acme` entry. `filter: /^.../` matches other package names. Packages are searched from the working directory upward, then beside the running script - npm, bun and pnpm layouts; not Yarn PnP.
+Whichever package the package manager links as `acme` is the root: its own command, named after its package without the scope (`db`), plus every installed package of the same scope whose `bin` has an `acme` entry. `filter: /^.../` matches other package names - keep it to one scope, or two packages may claim one name. Packages are searched from the working directory upward, then beside the running script - npm, bun and pnpm layouts; not Yarn PnP.
 
-- `acme db migrate` imports only `@acme/db`'s bin and hands it `migrate` - each package parses with its own copy of `@expressive/cli`, so versions may differ.
+- `acme db migrate` imports only `@acme/db`'s bin and hands it `migrate` - each package parses with its own copy of `@expressive/cli`, so versions may differ. Only a root made by `main` hands off; a `cmd({ peer })` field routes in its parent's process, under the parent's options.
 - `acme --help` imports every member's bin and lists each by its `static help`, else its `package.json` `description`. Order: `priority` from each `main` config, higher first, then alphabetical.
 - Imported, `main` runs nothing - it returns the class with its runner attached, for the root to call. Run as the entry without a third argument, the class alone is the command.
 - A member whose bin predates this contract is routed in the root's process, which works only when both share one copy of `@expressive/cli` - release a family's packages together.

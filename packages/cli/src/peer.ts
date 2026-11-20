@@ -82,8 +82,9 @@ function* listing(at: string): Generator<[string, string]> {
 /**
  * Installed packages whose name passes `filter` and whose `bin` has an entry `name` - command name to package.
  *
- * The command is the package name without its scope; entries are read in sorted order. Searches `node_modules` from the working directory
- * upward, then beside the running script; nearest copy wins per package, first found per command.
+ * The command is the package name without its scope; entries are read in sorted order. Searches
+ * `node_modules` from the working directory upward, then beside the running script; nearest copy
+ * wins per package, first found per command.
  * pnpm's hidden hoist is skipped, so only declared dependencies are found.
  */
 function discover(filter: RegExp, name: string) {
@@ -95,6 +96,8 @@ function discover(filter: RegExp, name: string) {
       if (basename(dir) == '.pnpm') continue;
 
       for (const [pkg, at] of listing(join(dir, 'node_modules'))) {
+        filter.lastIndex = 0;
+
         if (seen.has(pkg) || !filter.test(pkg)) continue;
 
         seen.add(pkg);
@@ -108,10 +111,13 @@ function discover(filter: RegExp, name: string) {
   return found;
 }
 
-/** Name of the package holding `file`, or `undefined` outside one. */
+/** Name of the package holding `file` - the nearest `package.json` with a name - or `undefined` outside one. */
 function owner(file: string) {
-  for (const dir of upward(dirname(file)))
-    if (existsSync(join(dir, 'package.json'))) return manifest(dir).name as string;
+  for (const dir of upward(dirname(file))) {
+    const name = existsSync(join(dir, 'package.json')) && manifest(dir).name;
+
+    if (name) return name as string;
+  }
 }
 
 /** `description` of an installed package. */
