@@ -141,7 +141,9 @@ describe('Link', () => {
     ['will resolve relative `to` against nearest Route', '/posts/foo', '/posts/:id', './edit', '/posts/foo/edit'],
     ['will preserve query and fragment in a relative `to`', '/posts/foo', '/posts/:id', './edit?tab=history#form', '/posts/foo/edit?tab=history#form'],
     ['will resolve a fragment against the Route, keeping query', '/posts/foo?view=full#intro', '/posts/:id', '#details', '/posts/foo?view=full#details'],
-    ['will resolve a fragment against the root Route', '/?view=full', '/', '#details', '/?view=full#details']
+    ['will resolve a fragment against the root Route', '/?view=full', '/', '#details', '/?view=full#details'],
+    ['will resolve a parent `to` against nearest Route', '/posts/foo', '/posts/:id', '../bar', '/posts/bar'],
+    ['will collapse dot segments in a relative `to`', '/posts/foo', '/posts/:id', './a/../b/./c', '/posts/foo/b/c']
   ])('%s', async (_, at, route, to, href) => {
     location(at);
     const a = link({ to }, route);
@@ -149,6 +151,27 @@ describe('Link', () => {
 
     await click(a);
     expect(router.current.url).toBe(href);
+  });
+
+  it('will resolve unchanged where a one-letter scheme reads as a drive letter', () => {
+    class DriveURL extends URL {
+      constructor(url: string | URL, base?: string | URL) {
+        super(url, base);
+
+        const drive = /^([a-z]):/i.exec(String(base));
+
+        if (drive) this.pathname = `/${drive[1].toUpperCase()}:${this.pathname}`;
+      }
+    }
+
+    location('/posts/foo');
+    vi.stubGlobal('URL', DriveURL);
+
+    try {
+      expect(link({ to: '../bar?b=1#top' }, '/posts/:id').getAttribute('href')).toBe('/posts/bar?b=1#top');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it.each([

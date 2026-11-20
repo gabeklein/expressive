@@ -116,6 +116,10 @@ export function isExternal(to: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(to) || to.startsWith('//');
 }
 
+// Throwaway base for path math. The scheme must be more than one letter:
+// Chromium on Windows reads `x:` as a drive letter and leaks `X:/` into pathnames.
+export const BASE = 'router://_';
+
 /**
  * Collapse `.`/`..` and stray slashes without touching browser globals, and
  * canonicalize the query so stored urls match the `url` getter byte-for-byte.
@@ -130,7 +134,7 @@ export function normalize(to: string): string {
  * This is what makes the history-dedup a sound string comparison.
  */
 export function canonicalize(url: string): string {
-  const { pathname, searchParams, hash } = new URL(url, 'x://_');
+  const { pathname, searchParams, hash } = new URL(url, BASE);
   const search = searchOf(new Map(searchParams));
   return pathname + (search ? '?' + search : '') + hash;
 }
