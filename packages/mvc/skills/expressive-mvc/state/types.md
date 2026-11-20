@@ -15,6 +15,7 @@ Namespace types on `Model` used throughout the API.
 | `Model.Assign<T>`   | Object overlay - maps properties preserving function `this`             |
 | `Model.Values<T>`   | All fields with child instances and ref objects unwrapped via `Export<R>`; a field whose `get` is typed `never` (`get: never` or `get(): never`) is `never` |
 | `Model.Export<R>`   | Model R: recursive `Values<R>`; else R with `.get()`: its return type; else R |
+| `Model.Item<R>`     | `map()` / `has()` snapshot item: R if its `get` is typed `never`, else `Export<R>` |
 | `Model.Value<T, K>` | Single property value lookup with Export unwrapping                     |
 
 ## Extends vs Type

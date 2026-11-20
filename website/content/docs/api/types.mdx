@@ -112,6 +112,14 @@ type Export<R> = R extends Model
   : R;
 ```
 
+### `Model.Item<R>`
+
+Exported form of one item in a `map()` or `has()` snapshot. As `Export<R>`, except a value whose `get` is typed `never` is kept as is - collection snapshots keep it rather than omit it.
+
+```ts
+type Item<R> = R extends { get(): never } ? R : Export<R>;
+```
+
 <br />
 
 ## Constructor args

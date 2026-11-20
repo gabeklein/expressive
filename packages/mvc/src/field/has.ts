@@ -151,7 +151,7 @@ class List<T> {
    *
    * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
    */
-  get(): (T extends { get(): never } ? T : Model.Export<T>)[];
+  get(): Model.Item<T>[];
 
   /**
    * Item at `index` - negative counts from the end.
@@ -410,7 +410,7 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
    *
    * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
    */
-  get(): (T extends { get(): never } ? T : Model.Export<T>)[];
+  get(): Model.Item<T>[];
 
   /** First member matching `predicate` - tracks membership and members up to the match. */
   get(predicate: Predicate<T>): T | undefined;
