@@ -18,13 +18,21 @@ beforeEach(() => {
 
 it("will run the dev server", async () => {
   expect(await dev([], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, env: true });
   expect(runBuild).not.toHaveBeenCalled();
 });
 
 it("will run without the relay for --no-inspect", async () => {
   expect(await dev(["--no-inspect"], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false, env: true });
+});
+
+it("will skip .env files for --no-env", async () => {
+  expect(await dev(["--no-env"], out)).toBe(0);
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, env: false });
+
+  expect(await dev(["build", "--no-env"], out, "expressive dev")).toBe(0);
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, html: true, env: false });
 });
 
 it("will return 1 with the message of a failure", async () => {
@@ -36,7 +44,7 @@ it("will return 1 with the message of a failure", async () => {
 
 it("will build as a subcommand", async () => {
   expect(await dev(["build", "--pretty"], out, "expressive dev")).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, html: true });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, html: true, env: true });
   expect(runDev).not.toHaveBeenCalled();
 });
 

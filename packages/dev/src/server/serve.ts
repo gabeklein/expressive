@@ -51,7 +51,7 @@ export interface ServeOptions {
 }
 
 /**
- * Production server for a built app - the generated `dist/server/index.js` calls it.
+ * Production server for a built app - the generated server entry calls it, booted by `dist/server/index.js`.
  *
  * Answers calls and twin streams, serves `client` - a page's `<path>/index.html`, else the `200.html` or `index.html` shell, and caches `/assets/` immutably.
  * Listens only after every sidecar's error classes verify.

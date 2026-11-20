@@ -18,5 +18,5 @@ it("will export Dev and run the expressive command as entry", async () => {
   expect(out.log.mock.calls.pop()![0]).toMatch(/^Usage: expressive dev \[options\] \[command\]\n\nRun the app - Vite/);
 
   expect(await command(Expressive)([], out)).toBe(0);
-  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive \[options\] <command>\n\nCommands:\n {2}dev +Run the app - Vite[^\n]*\n {2}sql +Check or sync a database schema/);
+  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive \[options\] <command>\n\nCommands:\n {2}dev +Run the app - Vite[^\n]*\n {2}env +Set up env.d.ts[^\n]*\n {2}sql +Check or sync a database schema/);
 });

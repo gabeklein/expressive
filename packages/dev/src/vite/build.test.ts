@@ -7,6 +7,10 @@ const prerender = vi.hoisted(() => vi.fn(async () => []));
 vi.mock("vite", async importOriginal => ({ ...(await importOriginal<object>()), build }));
 vi.mock("./prerender", () => ({ prerender }));
 
+const registered = vi.hoisted(() => vi.fn());
+
+vi.mock("@expressive/env", () => ({ register: registered }));
+
 import { clientBuild, prerenderBuild, runBuild, serverBuild } from "./build";
 
 it("will build the client, the server, then prerender", async () => {
@@ -15,6 +19,17 @@ it("will build the client, the server, then prerender", async () => {
   expect(build.mock.calls.map(([config]: any) => config.build.outDir)).toEqual(["dist/client", "dist/server"]);
   expect(build.mock.calls[0]).toMatchObject([{ root: "/app", build: { minify: false } }]);
   expect(prerender).toHaveBeenCalledWith("/app", { pretty: true });
+});
+
+it("will register .env before building", async () => {
+  expect(registered).toHaveBeenCalledBefore(build);
+});
+
+it("will not register .env for --no-env", async () => {
+  registered.mockClear();
+
+  await runBuild("/app", { env: false, write: false });
+  expect(registered).not.toHaveBeenCalled();
 });
 
 it("will not prerender when opted out or building in memory", async () => {
@@ -52,6 +67,21 @@ it("will build the working directory by default", async () => {
   await runBuild();
 
   expect(build).toHaveBeenCalledWith(expect.objectContaining({ root: process.cwd() }));
+});
+
+it("will always add env, and take mode from NODE_ENV", () => {
+  const names = (config: { plugins?: unknown[] }) => config.plugins!.map((plugin: any) => plugin && plugin.name);
+
+  for (const config of [clientBuild("/app"), serverBuild("/app"), prerenderBuild("/app", "/out")])
+    expect(names(config)).toEqual(["expressive", "expressive:env"]);
+
+  expect(names(serverBuild("/app", { env: false }))).toEqual(["expressive", "expressive:env"]);
+
+  vi.stubEnv("NODE_ENV", "staging");
+  expect(clientBuild("/app").mode).toBe("staging");
+  vi.stubEnv("NODE_ENV", "");
+  expect(clientBuild("/app").mode).toBeUndefined();
+  vi.unstubAllEnvs();
 });
 
 it("will minify and write by default", () => {
