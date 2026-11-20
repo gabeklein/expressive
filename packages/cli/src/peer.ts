@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 const LOCKS: [string, string][] = [
   ['bun.lock', 'bun add -d'],
@@ -34,14 +34,20 @@ function locate(pkg: string) {
     }
 }
 
+const manifest = (at: string) => JSON.parse(readFileSync(join(at, 'package.json'), 'utf8'));
+
+const unscoped = (pkg: string) => pkg.replace(/^@[^/]+\//, '');
+
+const binOf = (pkg: string, bin: unknown, name: string): string | undefined =>
+  typeof bin == 'string' ? (unscoped(pkg) == name ? bin : undefined) : (bin as any)?.[name];
+
 /** Module path of `pkg`'s `bin` named `name`, or `undefined` when not installed. */
 function peer(pkg: string, name: string) {
   const at = locate(pkg);
 
   if (!at) return;
 
-  const { bin } = JSON.parse(readFileSync(join(at, 'package.json'), 'utf8'));
-  const path = typeof bin == 'string' ? (pkg.replace(/^@[^/]+\//, '') == name ? bin : undefined) : bin?.[name];
+  const path = binOf(pkg, manifest(at).bin, name);
 
   if (!path) throw new Error(`${pkg} has no "${name}" bin.`);
 
@@ -59,4 +65,60 @@ function install(pkg: string) {
   return `npm i -D ${pkg}`;
 }
 
-export { install, locate, peer };
+function* listing(at: string): Generator<[string, string]> {
+  let entries: string[];
+
+  try {
+    entries = readdirSync(at);
+  } catch {
+    return;
+  }
+
+  for (const entry of entries.sort())
+    if (entry[0] == '@') for (const [pkg, dir] of listing(join(at, entry))) yield [`${entry}/${pkg}`, dir];
+    else if (entry[0] != '.') yield [entry, join(at, entry)];
+}
+
+/**
+ * Installed packages whose name passes `filter` and whose `bin` has an entry `name` - command name to package.
+ *
+ * The command is the package name without its scope; entries are read in sorted order. Searches `node_modules` from the working directory
+ * upward, then beside the running script; nearest copy wins per package, first found per command.
+ * pnpm's hidden hoist is skipped, so only declared dependencies are found.
+ */
+function discover(filter: RegExp, name: string) {
+  const found = new Map<string, string>();
+  const seen = new Set<string>();
+
+  for (const origin of origins())
+    for (const dir of upward(origin)) {
+      if (basename(dir) == '.pnpm') continue;
+
+      for (const [pkg, at] of listing(join(dir, 'node_modules'))) {
+        if (seen.has(pkg) || !filter.test(pkg)) continue;
+
+        seen.add(pkg);
+
+        try {
+          if (binOf(pkg, manifest(at).bin, name) && !found.has(unscoped(pkg))) found.set(unscoped(pkg), pkg);
+        } catch {}
+      }
+    }
+
+  return found;
+}
+
+/** Name of the package holding `file`, or `undefined` outside one. */
+function owner(file: string) {
+  for (const dir of upward(dirname(file)))
+    if (existsSync(join(dir, 'package.json'))) return manifest(dir).name as string;
+}
+
+/** `description` of an installed package. */
+function described(pkg: string) {
+  const at = locate(pkg);
+
+  return at && (manifest(at).description as string | undefined);
+}
+
+export { described, discover, install, locate, owner, peer, unscoped };
