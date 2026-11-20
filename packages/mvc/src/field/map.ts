@@ -131,9 +131,9 @@ class Managed<K, V> extends Map<K, V> {
   /**
    * Shallow snapshot of the entries - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
    */
-  get(): ReadonlyMap<K, Model.Export<V>>;
+  get(): ReadonlyMap<K, V extends { get(): never } ? V : Model.Export<V>>;
 
   /** Value at `key` - tracks that key only. */
   get(key: K): V | undefined;

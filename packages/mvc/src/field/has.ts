@@ -149,9 +149,9 @@ class List<T> {
   /**
    * Shallow snapshot array of the items - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
    */
-  get(): Model.Export<T>[];
+  get(): (T extends { get(): never } ? T : Model.Export<T>)[];
 
   /**
    * Item at `index` - negative counts from the end.
@@ -408,9 +408,9 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
   /**
    * Shallow snapshot array of the members - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
    */
-  get(): Model.Export<T>[];
+  get(): (T extends { get(): never } ? T : Model.Export<T>)[];
 
   /** First member matching `predicate` - tracks membership and members up to the match. */
   get(predicate: Predicate<T>): T | undefined;

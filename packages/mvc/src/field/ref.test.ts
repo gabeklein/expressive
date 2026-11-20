@@ -241,6 +241,12 @@ describe('proxy', () => {
       configurable: false
     });
     expect(() => host.refs.get()).toThrow();
+
+    try {
+      host.refs.get();
+    } catch (error) {
+      expect(error).toBe(false);
+    }
     expectTypeOf<Model.Values<Host>['refs']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Subject>['refs']>().toEqualTypeOf<never>();
   });

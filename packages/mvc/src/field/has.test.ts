@@ -1,4 +1,4 @@
-import { vi, describe, it, expect } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { Context } from '../context';
 import { Model } from '../model';
 import { fires } from '../../test.setup';
@@ -140,6 +140,7 @@ describe('get', () => {
     const list = reactive([inner]);
 
     expect(list.get()).toEqual([inner]);
+    expectTypeOf(list.get()).toEqualTypeOf<(typeof inner)[]>();
   });
 
   it('will not unwrap a nested value whose get takes a key', () => {

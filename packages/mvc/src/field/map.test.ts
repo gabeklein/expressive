@@ -1,4 +1,4 @@
-import { vi, describe, it, expect } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { Context } from '../context';
 import { Model } from '../model';
 import { fires } from '../../test.setup';
@@ -136,6 +136,7 @@ describe('map', () => {
     const items = managed([['a', inner]]);
 
     expect(items.get().get('a')).toBe(inner);
+    expectTypeOf(items.get().get('a')).toEqualTypeOf<typeof inner | undefined>();
   });
 
   it('will not unwrap a nested value whose get takes a key', () => {

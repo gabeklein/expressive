@@ -290,16 +290,18 @@ function values(target: object) {
     EXPORT = new Map();
   }
 
-  EXPORT.set(target, values);
+  try {
+    EXPORT.set(target, values);
 
-  for (let [key, value] of entries(target)) {
-    if (EXPORT.has(value)) value = EXPORT.get(value);
-    else if ((value = exported(value, OMIT)) === OMIT) continue;
+    for (let [key, value] of entries(target)) {
+      if (EXPORT.has(value)) value = EXPORT.get(value);
+      else if ((value = exported(value, OMIT)) === OMIT) continue;
 
-    values[key] = value;
+      values[key] = value;
+    }
+  } finally {
+    if (notRecursive) EXPORT = undefined;
   }
-
-  if (notRecursive) EXPORT = undefined;
 
   return Object.freeze(values);
 }

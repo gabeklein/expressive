@@ -635,6 +635,33 @@ describe('get method', () => {
       });
     });
 
+    it('will export fresh values after a get throws', () => {
+      let fail = true;
+
+      class Nested extends Model {
+        value = 1;
+      }
+
+      class Test extends Model {
+        nested = new Nested();
+        flaky = {
+          get() {
+            if (fail) throw new Error('nope');
+            return 1;
+          }
+        };
+      }
+
+      const test = Test.new();
+
+      expect(() => test.get()).toThrow('nope');
+
+      fail = false;
+      test.nested.value = 2;
+
+      expect(test.get()).toEqual({ nested: { value: 2 }, flaky: 1 });
+    });
+
     it('will defer to get method exporting properties', () => {
       class Bar extends Model {
         foo = 'foo';
@@ -3302,6 +3329,10 @@ describe('unmanaged keys', () => {
       text = { get: 'foo' };
       call = { get: () => 'foo' };
       loose = {} as any;
+      maybe?: { get(): never };
+      either = { id: 1 } as { get(): never } | { id: number };
+      refs = ref(this);
+      text2 = ref<string>();
     }
 
     const partial: Model.Partial<Test> = { value: 2 };
@@ -3316,12 +3347,18 @@ describe('unmanaged keys', () => {
     expectTypeOf<Model.Values<Test>['text']>().toEqualTypeOf<{ get: string }>();
     expectTypeOf<Model.Values<Test>['call']>().toEqualTypeOf<string>();
     expectTypeOf<Model.Values<Test>['loose']>().toBeAny();
+    expectTypeOf<Model.Values<Test>['maybe']>().toEqualTypeOf<undefined>();
+    expectTypeOf<Model.Values<Test>['either']>().toEqualTypeOf<{ id: number }>();
+    expectTypeOf<Model.Values<Test>['refs']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Test>['text2']>().toEqualTypeOf<string | null>();
     expect(Test.new().get()).toEqual({
       value: 1,
       data: { get: null },
       text: { get: 'foo' },
       call: 'foo',
-      loose: {}
+      loose: {},
+      either: { id: 1 },
+      text2: null
     });
     expect([partial, bad]).toBeDefined();
   });
