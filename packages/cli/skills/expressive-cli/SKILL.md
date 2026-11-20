@@ -35,37 +35,37 @@ Inputs: `arg` (next operand), `args` (remaining operands), `flag` (boolean, `--n
 | Key | Command | `help` |
 |---|---|---|
 | `from: Class` | a class in hand | optional |
-| `lazy: () => import("./sync")` | a module of this package, default-exporting the class, imported when routed to | required |
-| `peer: "@scope/pkg"` | another package's command - see below | required |
+| `lazy: () => import("./sync")` | a module of this package, default-exporting the class, imported when routed to | optional |
+| `peer: "@scope/pkg"` | another package's command - its `bin` named after the root command | optional |
 | `run() { ... }` | inline, called on the parent, fills the parent's `arg`s | optional |
 
 The field holds the routed child (`true` for inline), else `undefined`. Options of every class on the path work anywhere after their owner's name; only the last class takes operands. A class with commands and no `run` is a group.
 
 Help: `--help`, `-h`, `help` in place of a command (`sql help sync`), or a group run alone prints help and exits 0. Usage errors exit 2, a throw exits 1.
 
-Keep command modules cheap to import - import heavy dependencies inside `run()`. Help lists `lazy` and `peer` commands from their `help` alone.
+A class's own `static help` describes it - in its parent's listing and atop its own help. `cmd({ help })` overrides it. Without either, listing a `lazy` or `peer` command imports its module to read the static, so keep command modules cheap to import - heavy dependencies go inside `run()`. A missing `peer` lists as `(not installed)`; routing to it exits 2 with an install command.
 
 ## One command across packages
 
-Several packages can share a bin name without clobbering each other: each ships the same root class listing the others as `peer`s, and its own bin under that name.
+Packages in one scope share a bin name - each ships its own command and finds the rest.
 
 ```ts
 // @acme/db  dist/bin.js  ←  package.json "bin": { "acme": "dist/bin.js" }
 import { cmd, main } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
-export default class Db extends Model {
-  migrate = cmd({ lazy: () => import("./migrate"), help: "apply migrations" });
+class Db extends Model {
+  static help = "migrate and seed";
+
+  migrate = cmd({ lazy: () => import("./migrate") });
 }
 
-class Acme extends Model {
-  db = cmd({ peer: "@acme/db", help: "migrate and seed" });
-  deploy = cmd({ peer: "@acme/deploy", help: "ship to production" });
-}
-
-main(import.meta, Acme);
+export default main(import.meta, Db, { as: "acme" });
 ```
 
-Whichever package the package manager links as `acme`, `acme db` and `acme deploy` both work. A `peer` resolves from the working directory upward, then beside the running script; its `bin` entry named after the root command (`acme`, the root class in kebab case) is imported and its default export routed to. Not installed, help marks it `(not installed)` and running it exits 2 with an install command for the project's package manager.
+Whichever package the package manager links as `acme` is the root: its own command, named after its package without the scope (`db`), plus every installed package of the same scope whose `bin` has an `acme` entry. `filter: /^.../` matches other package names - keep it to one scope, or two packages may claim one name. Packages are searched from the working directory upward, then beside the running script - npm, bun and pnpm layouts; not Yarn PnP.
 
-Each package keeps its own copy of the root class - keeping them in step is the family's job.
+- `acme db migrate` imports only `@acme/db`'s bin and hands it `migrate` - each package parses with its own copy of `@expressive/cli`, so versions may differ. Only a root made by `main` hands off; a `cmd({ peer })` field routes in its parent's process, under the parent's options.
+- `acme --help` imports every member's bin and lists each by its `static help`, else its `package.json` `description`. Order: `priority` from each `main` config, higher first, then alphabetical.
+- Imported, `main` runs nothing - it returns the class with its runner attached, for the root to call. Run as the entry without a third argument, the class alone is the command.
+- A member whose bin predates this contract is routed in the root's process, which works only when both share one copy of `@expressive/cli` - release a family's packages together.

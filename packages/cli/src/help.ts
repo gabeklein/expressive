@@ -31,7 +31,7 @@ function describe(spec: Spec) {
 function summary({ config, target }: Spec) {
   const { peer } = target as Target;
 
-  return peer && !locate(peer) ? `${config.help} (not installed)` : config.help || '';
+  return peer && !locate(peer) ? [config.help, '(not installed)'].filter(Boolean).join(' ') : config.help || '';
 }
 
 function table(rows: [string, string][]) {
