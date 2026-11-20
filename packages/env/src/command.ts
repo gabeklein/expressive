@@ -198,6 +198,8 @@ class Unset extends Model {
 }
 
 export default class Env extends Model {
+  static help = "Type, check, list and edit the project's .env files without printing secrets.";
+
   sync = cmd({ from: Sync, help: `write ${DECLARATION} - key names and comments from the .env files` });
   check = cmd({ from: Check, help: `fail if a key in ${EXAMPLE} is unset or ${DECLARATION} is stale` });
   list = cmd({ from: List, help: "list keys with length or <empty>/<unset> and the file:line each comes from - never values" });
