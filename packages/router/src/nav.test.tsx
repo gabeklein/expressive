@@ -235,3 +235,128 @@ it('will list routes a nested scope contributes once it mounts', async () => {
   expect(renderToString(tree)).not.toContain('href="/g/made"');
   expect(links(await renderAct(tree))).toEqual(['/g/declared', '/g/made']);
 });
+
+it('will re-render only the rows whose match changes on navigation', async () => {
+  const renders: string[] = [];
+
+  class Counted extends NavLinks {
+    Item({ route, active }: { route: NavLinks.Entry; active: boolean }) {
+      renders.push(route.path);
+      return <a href={route.path} aria-current={active ? 'page' : undefined}>{route.path}</a>;
+    }
+  }
+
+  router.current.goto('/a');
+
+  await renderAct(
+    <Route as={page(Counted)}>
+      <Route to="a" />
+      <Route to="b" />
+      <Route to="c" />
+      <Route to="d/*" />
+    </Route>
+  );
+
+  renders.length = 0;
+  await act(async () => router.current.goto('/b'));
+  expect(renders.sort()).toEqual(['/a', '/b']);
+
+  await act(async () => router.current.goto('/d/1'));
+  renders.length = 0;
+  await act(async () => router.current.goto('/d/2'));
+  expect(renders).toEqual([]);
+});
+
+it('will link a scope that renders its own content, before and after mount', async () => {
+  class Section extends Route {
+    render() {
+      return <section>{super.render()}</section>;
+    }
+  }
+
+  const tree = (
+    <Route as={Page}>
+      <Route to="docs">
+        <h1>Docs</h1>
+        <Route to="a" />
+      </Route>
+      <Section to="guide">
+        <Route to="b" />
+      </Section>
+    </Route>
+  );
+
+  const expected = ['/docs', '/docs/a', '/guide', '/guide/b'];
+  const server = document.createElement('div');
+
+  server.innerHTML = renderToString(tree);
+
+  expect(links({ container: server })).toEqual(expected);
+  expect(links(await renderAct(tree))).toEqual(expected);
+});
+
+it('will list a Route subclass that sets to as a field once it mounts', async () => {
+  class Docs extends Route {
+    to = 'docs';
+    label = 'Docs';
+  }
+
+  const tree = (
+    <Route as={Page}>
+      <Docs />
+      <Route to="b" />
+    </Route>
+  );
+
+  const server = document.createElement('div');
+  server.innerHTML = renderToString(tree);
+
+  expect(links({ container: server })).toEqual(['/b']);
+  expect(links(await renderAct(tree))).toEqual(['/docs', '/b']);
+});
+
+it('will render the same nav in a single pass as after mount', async () => {
+  router.current.goto('/docs/a');
+
+  const tree = (
+    <Route as={Page}>
+      <>
+        <Route to="docs" label="Docs" as={({ children }: { children?: React.ReactNode }) => <>{children}</>}>
+          <Route to="a" label="A" />
+          <Route to="old" redirect={() => undefined} />
+        </Route>
+      </>
+      <Route to="api">
+        <Route to="model" />
+      </Route>
+      <Route none as={() => null} />
+    </Route>
+  );
+
+  const nav = (root: Element) => root.querySelector('ul')!.outerHTML.replace(/<!--[^>]*-->/g, '');
+  const server = document.createElement('div');
+
+  server.innerHTML = renderToString(tree);
+
+  expect(nav((await renderAct(tree)).container)).toBe(nav(server));
+  expect(links({ container: server })).toEqual(['/docs', '/docs/a', '/api/model']);
+  expect(server.querySelector('a[aria-current="page"]')!.getAttribute('href')).toBe('/docs');
+});
+
+it('will follow routes added and removed after mount', async () => {
+  const tree = (extra: boolean) => (
+    <Route as={Page}>
+      <Route to="a" />
+      {extra && <Route to="b" />}
+    </Route>
+  );
+
+  const view = await renderAct(tree(true));
+  expect(links(view)).toEqual(['/a', '/b']);
+
+  await act(async () => view.rerender(tree(false)));
+  expect(links(view)).toEqual(['/a']);
+
+  await act(async () => view.rerender(tree(true)));
+  expect(links(view)).toEqual(['/a', '/b']);
+});

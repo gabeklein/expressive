@@ -1,7 +1,7 @@
 import { Component, get } from '@expressive/mvc';
 
 import { Link } from './link';
-import { allRoutes, exempt, lexicalRoutes, Route, scopeResolves } from './route';
+import { allRoutes, lexicalRoutes, Route, scopeBase, scopeResolves } from './route';
 import type { Router } from './router';
 import { patternSegment } from './url';
 
@@ -22,13 +22,16 @@ declare namespace NavLinks {
   }
 }
 
-interface Node extends NavLinks.Entry {
+interface Listing {
+  entry: NavLinks.Entry;
   base: string;
   page: boolean;
   skip: boolean;
   scope?: Component.Node;
-  inner: Node[];
+  inner: Listing[];
 }
+
+type Declared = { label?: string; meta?: Record<string, any>; as?: unknown; redirect?: unknown; none?: boolean };
 
 class NavLinks extends Component {
   route = get(Route);
@@ -59,26 +62,26 @@ class NavLinks extends Component {
   render(): Component.Node {
     const { route } = this;
 
-    return this.branch(entries(route, effective(route), route.base + patternSegment(route.to)));
+    return this.branch(listings(route, effective(route), scopeBase(route)));
   }
 
-  branch(nodes: Node[]): Component.Node {
+  protected branch(listings: Listing[]): Component.Node {
     const { Item, List, Group } = this;
     const { router } = this.route;
 
     return (
       <List>
-        {nodes.map((node, i) => {
-          if (node.skip) return null;
+        {listings.map((listing, i) => {
+          if (listing.skip) return null;
 
-          const inner = node.inner.length ? this.branch(node.inner) : null;
+          const inner = listing.inner.length ? this.branch(listing.inner) : null;
 
-          return node.page || !inner ? (
-            <Entry key={i} route={node} router={router} Item={Item}>
+          return listing.page || !inner ? (
+            <Row key={i} listing={listing} router={router} Item={Item}>
               {inner}
-            </Entry>
+            </Row>
           ) : (
-            <Group key={i} route={node}>{inner}</Group>
+            <Group key={i} route={listing.entry}>{inner}</Group>
           );
         })}
       </List>
@@ -90,28 +93,34 @@ function effective(route: Route): Component.Node {
   return (route as unknown as { children: Component.Node }).children;
 }
 
-function entries(route: Route | undefined, children: Component.Node, base: string): Node[] {
-  if (route?.inner.length)
-    return route.inner.map((child) => node(child.base, child.to, child, effective(child), child));
+function rendersOwn(type: typeof Route): boolean {
+  for (let T = type; T !== Route; T = Object.getPrototypeOf(T))
+    if (Object.prototype.hasOwnProperty.call(T.prototype, 'render')) return true;
 
-  return lexicalRoutes(children).map(({ props, to }) => node(base, to, undefined, props.children, props));
+  return false;
 }
 
-type Declared = { label?: string; meta?: Record<string, any>; as?: unknown; redirect?: unknown; none?: boolean };
+function listings(route: Route | undefined, children: Component.Node, base: string): Listing[] {
+  if (route?.inner.length)
+    return route.inner.map((child) =>
+      listing(child.base, child.to, child, effective(child), child, rendersOwn(child.constructor as typeof Route)));
 
-function node(base: string, to: string, route: Route | undefined, children: Component.Node, props: Declared): Node {
+  return lexicalRoutes(children)
+    .filter(({ props, type }) => type === Route || 'to' in props)
+    .map(({ props, to, type }) => listing(base, to, undefined, props.children, props, rendersOwn(type)));
+}
+
+function listing(base: string, to: string, route: Route | undefined, children: Component.Node, props: Declared, own: boolean): Listing {
   const path = base + patternSegment(to);
+  const routes = allRoutes(children);
 
   return {
-    path,
-    to,
-    label: props.label,
-    meta: props.meta,
+    entry: { path, to, label: props.label, meta: props.meta },
     base,
-    page: !!props.as,
-    skip: exempt(props) || !!props.redirect,
-    scope: allRoutes(children) ? children : undefined,
-    inner: entries(route, children, path)
+    page: !!props.as || own || (!routes && !!children),
+    skip: !!props.none || !!props.redirect,
+    scope: routes ? children : undefined,
+    inner: listings(route, children, path)
   };
 }
 
@@ -119,27 +128,32 @@ type ItemType = (props: { route: NavLinks.Entry; active: boolean; label?: string
 
 /**
  * Per-item reactive wrapper. `router` arrives as a prop and becomes a managed
- * property, so the match read in render subscribes to navigation - same idiom
- * as `Route.router`, no host hook involved.
+ * property; `active` is a getter, so a row re-renders only when its own
+ * match flips - same idiom as `Route.matched`, no host hook involved.
  */
-class Entry extends Component {
-  route?: Node = undefined;
+class Row extends Component {
+  listing?: Listing = undefined;
   router?: Router = undefined;
   Item?: ItemType = undefined;
 
-  /** Entry never suspends itself; no boundary here - a suspending custom
+  /** Row never suspends itself; no boundary here - a suspending custom
    * `Item` bubbles to NavLinks (or above) rather than blanking one row. */
   fallback = false;
 
-  render() {
-    const route = this.route!;
-    const Item = this.Item!;
+  get active(): boolean {
+    const { base, entry, scope } = this.listing!;
     const { match, path } = this.router!;
-    const active = route.scope ? scopeResolves(route.scope, route.path, path) : !!match(route.base, route.to);
+
+    return scope ? scopeResolves(scope, entry.path, path) : !!match(base, entry.to);
+  }
+
+  render() {
+    const { entry } = this.listing!;
+    const Item = this.Item!;
 
     return (
       <>
-        <Item route={route} active={active} label={route.label} meta={route.meta} />
+        <Item route={entry} active={this.active} label={entry.label} meta={entry.meta} />
         {this.props.children}
       </>
     );
