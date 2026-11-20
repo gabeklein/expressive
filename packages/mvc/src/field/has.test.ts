@@ -135,6 +135,13 @@ describe('get', () => {
     expect(list.get()).toEqual(['unwrapped']);
   });
 
+  it('will keep a nested value whose get throws false', () => {
+    const inner = { get(): never { throw false; } };
+    const list = reactive([inner]);
+
+    expect(list.get()).toEqual([inner]);
+  });
+
   it('will not unwrap a nested value whose get takes a key', () => {
     const inner = new Map([['b', 2]]);
     const list = reactive([inner]);

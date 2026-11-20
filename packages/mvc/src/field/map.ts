@@ -3,6 +3,7 @@ import { def } from './def';
 import { element } from '../element';
 import { event, listener, touch } from '../observable';
 import { Model, parent } from '../model';
+import { exported } from '../store';
 
 const SHAPE = Symbol('shape');
 const KEYED = (_key: unknown, value: unknown) => value;
@@ -144,12 +145,7 @@ class Managed<K, V> extends Map<K, V> {
       : new Map(
         Array.from(MAP.entries.call(target), ([key, value]) => [
           key,
-          value &&
-          (typeof value == 'object' || typeof value == 'function') &&
-          typeof value.get == 'function' &&
-          !value.get.length
-            ? value.get()
-            : value
+          exported(value, value)
         ])
       );
   }

@@ -3,6 +3,7 @@ import { def } from './def';
 import { element } from '../element';
 import { event, listener, touch } from '../observable';
 import { Model, parent } from '../model';
+import { exported } from '../store';
 
 const LENGTH = Symbol('length');
 const SHAPE = Symbol('shape');
@@ -173,7 +174,7 @@ class List<T> {
   get(...[arg, second]: [arg?: number | Predicate<T>, second?: number]): any {
     const values = items<T>(this);
 
-    if (arg === undefined) return values.map(exportValue);
+    if (arg === undefined) return values.map(keep);
 
     if (typeof arg === 'function') return findOf(this, arg);
 
@@ -416,7 +417,7 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
   get(...[predicate]: [predicate?: Predicate<T>]): any {
     return predicate
       ? findOf(this, predicate)
-      : Array.from(members<T>(this), exportValue);
+      : Array.from(members<T>(this), keep);
   }
 
   /** Whether `value` is a member - tracks that value only. */
@@ -536,15 +537,8 @@ function release(target: object, key: unknown) {
   }
 }
 
-function exportValue(value: any) {
-  const type = typeof value;
-
-  return value &&
-    (type == 'object' || type == 'function') &&
-    typeof value.get == 'function' &&
-    !value.get.length
-    ? value.get()
-    : value;
+function keep(value: unknown) {
+  return exported(value, value);
 }
 
 function items<T>(from: object): T[] {

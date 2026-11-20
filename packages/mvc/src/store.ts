@@ -265,7 +265,22 @@ function update<T>(
   return true;
 }
 
-/** Export current values, drilling into any whose `get` takes no parameters and omitting any whose `get` is `null`. Recursive references reuse one export. */
+/** Exported form of a value - what its parameterless `get` returns, else itself; `omit` when that `get` throws `false`. */
+function exported<T>(value: any, omit: T) {
+  if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value)
+    try {
+      if (typeof value.get == 'function' && !value.get.length) return value.get();
+    } catch (error) {
+      if (error === false) return omit;
+      throw error;
+    }
+
+  return value;
+}
+
+const OMIT = {};
+
+/** Export current values, drilling into any whose `get` takes no parameters and omitting any whose `get` throws `false`. Recursive references reuse one export. */
 function values(target: object) {
   const values = {} as any;
   let notRecursive;
@@ -279,10 +294,7 @@ function values(target: object) {
 
   for (let [key, value] of entries(target)) {
     if (EXPORT.has(value)) value = EXPORT.get(value);
-    else if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value) {
-      if (value.get === null) continue;
-      if (typeof value.get == 'function' && !value.get.length) value = value.get();
-    }
+    else if ((value = exported(value, OMIT)) === OMIT) continue;
 
     values[key] = value;
   }
@@ -293,4 +305,4 @@ function values(target: object) {
 }
 
 export type { Config };
-export { access, apply, compute, entries, HELD, manage, store, update, values };
+export { access, apply, compute, entries, exported, HELD, manage, store, update, values };
