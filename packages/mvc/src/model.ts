@@ -162,11 +162,15 @@ declare namespace Model {
   /** What a listener receives - an event, or `true` ready, `false` flush done, `null` destroyed. */
   type Signal<T = Model> = Event<T> | true | false | null;
 
-  /** Exported form of a value - a Model as its `Values`, anything with `get()` as what that returns; `never` if that `get` never returns. */
-  type Export<R> = R extends Model
+  /** Exported form of a value - a Model as its `Values`, anything with `get()` as what that returns; `never` if that `get()` never returns. */
+  type Export<R> = 0 extends 1 & R
+    ? R
+    : R extends Model
     ? Values<R>
-    : R extends { get(): never }
-    ? never
+    : R extends { get: infer G } & { get(): never }
+    ? 0 extends 1 & G
+      ? R
+      : never
     : R extends { get(): infer T }
     ? T
     : R;
@@ -174,7 +178,7 @@ declare namespace Model {
   /**
    * Plain snapshot of managed fields, child Models and `ref`-like values unwrapped - from `get()`.
    *
-   * A field whose `get` is typed `never` is `never` - the snapshot omits it.
+   * A field whose `get()` returns `never` is `never` - the snapshot omits it.
    */
   type Values<T> = { [P in Field<T>]: Export<T[P]> };
 

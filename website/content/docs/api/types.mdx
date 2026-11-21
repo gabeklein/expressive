@@ -102,13 +102,17 @@ Single-property lookup type with `Export<>` unwrapping.
 
 ### `Model.Export<R>`
 
-If `R` is itself a Model, recursively exports `Values<R>`. Otherwise, if `R` has a `get()` returning `never`, gives `never`. Otherwise, if `R` has a `.get(): T` method, extracts `T`. Otherwise returns `R`. Drives child-instance and ref unwrapping in snapshots.
+`any` stays `any`. If `R` is itself a Model, recursively exports `Values<R>`. Otherwise, if `R` has a `get()` returning `never` (and not typed `any`), gives `never`. Otherwise, if `R` has a `.get(): T` method, extracts `T`. Otherwise returns `R`. Drives child-instance and ref unwrapping in snapshots.
 
 ```ts
-type Export<R> = R extends Model
+type Export<R> = 0 extends 1 & R
+  ? R
+  : R extends Model
   ? Values<R>
-  : R extends { get(): never }
-  ? never
+  : R extends { get: infer G } & { get(): never }
+  ? 0 extends 1 & G
+    ? R
+    : never
   : R extends { get(): infer T }
   ? T
   : R;
