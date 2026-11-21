@@ -1,5 +1,13 @@
 # @expressive/router
 
+## 0.10.7
+
+### Patch Changes
+
+- [#763](https://github.com/gabeklein/expressive/pull/763) [`b8fdacf`](https://github.com/gabeklein/expressive/commit/b8fdacf549835549513a899c49aee6122a494256) Resolve and normalize urls against a multi-letter placeholder scheme. Chromium on Windows reads a one-letter scheme as a drive letter, which leaked an `X:/` segment into resolved paths and broke navigation.
+- Updated dependencies [[`340759c`](https://github.com/gabeklein/expressive/commit/340759c8fa3a4b2b6b759e9082f8a731ee338ac2)]:
+  - @expressive/mvc@0.97.0
+
 ## 0.10.6
 
 ### Patch Changes
