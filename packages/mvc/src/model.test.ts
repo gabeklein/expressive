@@ -3367,6 +3367,32 @@ describe('unmanaged keys', () => {
     expect([partial, bad]).toBeDefined();
   });
 
+  it('will type mutually referencing classes with a mapped getter over this', () => {
+    type Class<T extends Entity = Entity> = (abstract new () => T) & typeof Entity;
+    type Columns<T> = { [K in Exclude<keyof T, keyof Entity> as T[K] extends Class ? never : K]: T[K] };
+
+    const one = <T extends Entity>(type: Class<T>) => type as unknown as T;
+
+    abstract class Entity extends Model {
+      get columns(): Columns<this> {
+        return {} as Columns<this>;
+      }
+    }
+
+    class Author extends Entity {
+      name = '';
+      post = one(Post);
+    }
+
+    class Post extends Entity {
+      title = '';
+      author = one(Author);
+    }
+
+    expectTypeOf<Model.Values<Author>['post']['author']['name']>().toEqualTypeOf<string>();
+    expectTypeOf<keyof Model.Values<Post>['columns']>().toEqualTypeOf<'title' | 'author'>();
+  });
+
   it('will resolve exported fields through this', () => {
     function take(values: { value: number }) {
       return values.value;
