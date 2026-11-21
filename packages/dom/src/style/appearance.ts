@@ -55,6 +55,7 @@ interface StyleScope {
 
 interface AppearanceRoute {
   flags: readonly string[];
+  resolved: Map<string, ResolvedAppearance | undefined>;
   scope: StyleScope;
   tag?: string;
 }
@@ -320,7 +321,7 @@ function createAppearanceRoute(
 ): AppearanceRoute | undefined {
   if (!scope) return undefined;
 
-  const keys = Object.keys(props).filter((key) => key.startsWith('_')).sort();
+  const keys = Object.keys(props).filter((key) => key[0] == '_');
   const id = `${tag || ''}\0${keys.join('\0')}`;
   const cached = scope.routes.get(id);
   if (cached) return cached;
@@ -333,6 +334,7 @@ function createAppearanceRoute(
 
   const route: AppearanceRoute = {
     flags,
+    resolved: new Map(),
     scope,
     tag: tag && scope.rules[tag] ? tag : undefined
   };
@@ -349,6 +351,10 @@ function resolveAppearance(
   const route = createAppearanceRoute(scope, props, tag);
 
   if (!route) return undefined;
+
+  let mask = '';
+  for (const name of route.flags) mask += props[`_${name}`] ? '1' : '0';
+  if (route.resolved.has(mask)) return route.resolved.get(mask);
 
   const parts: Expansion[] = [];
   const names: string[] = route.tag ? [route.tag] : [];
@@ -367,14 +373,17 @@ function resolveAppearance(
     for (const nested of part.nested)
       child = createStyleScope(child, nested, tag ? `${route.scope.label}_${tag}` : route.scope.label);
 
-  if (!blocks.length && !classes.length && child === route.scope)
+  if (!blocks.length && !classes.length && child === route.scope) {
+    route.resolved.set(mask, undefined);
     return undefined;
+  }
 
   const appearance: ResolvedAppearance = {};
   if (blocks.length) appearance.blocks = blocks;
   if (classes.length) appearance.classes = classes;
   if (child !== route.scope) appearance.context = createContext(child!);
 
+  route.resolved.set(mask, appearance);
   return appearance;
 }
 

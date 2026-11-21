@@ -691,6 +691,45 @@ describe('appearance', () => {
     expect(getComputedStyle(node).color).toBe('blue');
   });
 
+  it('will emit a known rule into a recreated stylesheet', () => {
+    function Repeat() {
+      return <u _tone />;
+    }
+
+    style(Repeat, { _tone: { color: 'green' } });
+
+    place(<Repeat />);
+    document.head.querySelector('style[data-expressive]')!.remove();
+
+    const node = place(<Repeat />).querySelector('u')!;
+    expect(getComputedStyle(node).color).toBe('green');
+  });
+
+  it('will reuse a resolution for the same rule flags', () => {
+    const scope = createStyleScope(undefined, {
+      _on: { color: 'red' },
+      _off: { color: 'blue' }
+    })!;
+
+    const first = resolveAppearance(scope, { _on: true, _off: false });
+
+    expect(resolveAppearance(scope, { _on: 1, _off: 0 })).toBe(first);
+    expect(resolveAppearance(scope, { _on: false, _off: true })).not.toBe(first);
+  });
+
+  it('will resolve rule flags the same in any attribute order', () => {
+    const scope = createStyleScope(undefined, {
+      _on: { color: 'red' },
+      _off: { fontWeight: 700 }
+    })!;
+
+    const forward = resolveAppearance(scope, { _on: true, _off: true })!;
+    const reverse = resolveAppearance(scope, { _off: true, _on: true })!;
+
+    expect(reverse.blocks).toEqual(forward.blocks);
+    expect(reverse.blocks!.map((block) => block.name)).toEqual(forward.blocks!.map((block) => block.name));
+  });
+
   it('will resolve class-only, empty and plain routes', () => {
     const defined = createStyleScope(undefined, {
       empty: () => null,

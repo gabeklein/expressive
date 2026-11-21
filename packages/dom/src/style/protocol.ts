@@ -41,8 +41,10 @@ type Emit = (block: Block, depth: number, target: Target) => string;
 const SUBCOMPONENT = /^_[A-Z]/;
 const registrations = new WeakMap<object, EnterAppearance>();
 const tokens = new WeakMap<object, ResolvedAppearance>();
+const minted = new WeakMap<ResolvedAppearance, {}>();
 let emitter: Emit | undefined;
 let active: Sink | undefined;
+let generation = 0;
 
 function registerAppearance(type: object, enter: EnterAppearance) {
   registrations.set(type, enter);
@@ -50,6 +52,14 @@ function registerAppearance(type: object, enter: EnterAppearance) {
 
 function registerEmitter(emit: Emit) {
   emitter = emit;
+}
+
+function reopened() {
+  generation++;
+}
+
+function sheetGeneration() {
+  return generation;
 }
 
 function emitClass(block: Block, depth: number, target: Target) {
@@ -99,8 +109,11 @@ function reserved(key: string) {
 }
 
 function createAppearanceToken(appearance: ResolvedAppearance) {
-  const token = {};
+  let token = minted.get(appearance);
+  if (token) return token;
+  token = {};
   tokens.set(token, appearance);
+  minted.set(appearance, token);
   return token;
 }
 
@@ -118,7 +131,9 @@ export {
   enterAppearance,
   registerAppearance,
   registerEmitter,
+  reopened,
   reserved,
+  sheetGeneration,
   SUBCOMPONENT
 };
 

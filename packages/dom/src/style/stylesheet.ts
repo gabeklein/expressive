@@ -1,5 +1,5 @@
 import * as appearance from './appearance';
-import { isSink, registerEmitter } from './protocol';
+import { isSink, registerEmitter, reopened } from './protocol';
 import type { Block, Target } from './protocol';
 import { serialize } from './declarations';
 import type { Declaration } from './declarations';
@@ -268,6 +268,7 @@ function emit(block: Block, depth: number, target: Target) {
   let sheet = sheets.get(target);
 
   if (!sheet?.live()) {
+    reopened();
     sheets.set(target, sheet = open(target));
     attachRoots(target);
   }
