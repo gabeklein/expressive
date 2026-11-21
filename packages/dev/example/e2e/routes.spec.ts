@@ -105,5 +105,5 @@ test("prerenders pages beside the root remote, leaving those that read the serve
 
   expect(await html("/about")).toContain(`<div id="root" data-prerender="/about">`);
   expect(await html("/tally")).toContain(`data-prerender="/tally"`);
-  expect(await html("/counter")).toContain(`<div id="root"></div>`);
+  for (const path of ["/counter", "/gate", "/fortune"]) expect(await html(path)).toContain(`<div id="root"></div>`);
 });
