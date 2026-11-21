@@ -131,5 +131,6 @@ describe("prerenderEntry", () => {
     expect(entry).toContain(`import { paths as p0 } from "../app/blog/[slug].tsx";`);
     expect(entry).toContain("for (const list of [p0])");
     expect(entry).toContain(`renderToString(jsx(App, { path }), { signal: abort.signal })`);
+    expect(entry).toContain("[await scope.run(mark, list)].flat()");
   });
 });

@@ -126,10 +126,23 @@ describe("launch", { timeout: 30_000 }, () => {
         export const paths = () => slugs();
       `,
       "app/docs/[id].tsx": `export const Page = () => <p>doc</p>; export const paths = async () => ["/docs/1"];`,
+      "app/notes/[id].tsx": `export const Page = () => <p>note</p>; export const paths = () => "/notes/1";`,
+      "app/(timer).tsx": `
+        import { Component } from "@expressive/mvc";
+        import { user } from "./remote";
+        export class Page extends Component { new() { setTimeout(() => user(), 10); } render() { return <p>timer</p>; } }
+      `,
+      "app/(slow).tsx": `
+        import { Component, set } from "@expressive/mvc";
+        export class Page extends Component {
+          value = set(() => new Promise(resolve => setTimeout(() => resolve("slow"), 40)));
+          render() { return <p>{this.value}</p>; }
+        }
+      `,
     });
     const renderer = await launch(root);
 
-    expect(await renderer.paths()).toEqual(["/docs/1"]);
+    expect(await renderer.paths()).toEqual(["/docs/1", "/notes/1"]);
     expect((await renderer.render("/privacy"))?.html).toContain("<p>private</p>");
     expect(await renderer.render("/account")).toBeNull();
     expect(await renderer.render("/cart")).toBeNull();
@@ -137,6 +150,8 @@ describe("launch", { timeout: 30_000 }, () => {
     expect(await renderer.render("/caught")).toBeNull();
     expect(await renderer.render("/later")).toBeNull();
     expect((await renderer.render("/docs/1"))?.html).toContain("<p>doc</p>");
+    expect((await renderer.render("/timer"))?.html).toContain("<p>timer</p>");
+    expect((await renderer.render("/slow"))?.html).toContain("<p>slow</p>");
     renderer.close();
   });
 
@@ -157,6 +172,16 @@ describe("launch", { timeout: 30_000 }, () => {
         import Site from "./remote";
         export class Page extends Component { site = get(Site); new() { this.site.visit(); } render() { return <p>visit</p>; } }
       `,
+      "app/(snapshot).tsx": `
+        import { Component, get } from "@expressive/mvc";
+        import Site from "./remote";
+        export class Page extends Component { site = get(Site); render() { return <p>{JSON.stringify(this.site.get())}</p>; } }
+      `,
+      "app/(field).tsx": `
+        import { Component, get } from "@expressive/mvc";
+        import Site from "./remote";
+        export class Page extends Component { site = get(Site); render() { return <p>{this.site.get("visits")}</p>; } }
+      `,
       "app/members/remote.ts": `import { Model } from "@expressive/mvc"; export default class Member extends Model { member = false; }`,
       "app/members/index.tsx": `
         export default route => (route.remote.member ? undefined : "/");
@@ -168,6 +193,8 @@ describe("launch", { timeout: 30_000 }, () => {
     expect((await renderer.render("/"))?.html).toContain("<p>home</p>");
     expect(await renderer.render("/stats")).toBeNull();
     expect(await renderer.render("/visit")).toBeNull();
+    expect(await renderer.render("/snapshot")).toBeNull();
+    expect(await renderer.render("/field")).toBeNull();
     expect(await renderer.render("/members")).toBeNull();
     renderer.close();
   });

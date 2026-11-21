@@ -76,7 +76,7 @@ export async function prerender(root: string, options: BuildOptions = {}): Promi
     close();
   }
 
-  const left = served ? ` - ${served} call${served == 1 ? "s" : ""} the server and render${served == 1 ? "s" : ""} in the browser` : "";
+  const left = served ? ` - ${served} need${served == 1 ? "s" : ""} the server and render${served == 1 ? "s" : ""} in the browser` : "";
 
   console.log(`Prerendered ${written.length} page${written.length == 1 ? "" : "s"}${left}.`);
 

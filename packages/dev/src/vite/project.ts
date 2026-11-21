@@ -89,19 +89,19 @@ export function prerenderEntry(appImport: string, sources: string[]): string {
 import { renderToString } from "@expressive/dom/server";
 import { Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
-import { server } from "./call.ts";
+import { scope } from "./call.ts";
 import App from ${JSON.stringify(appImport)};
 ${imports}
 export async function paths() {
   const found = [];
 
   for (const list of [${lists}]) {
-    server.called = false;
+    const mark = { called: false };
 
     try {
-      found.push(...await list());
+      found.push(...[await scope.run(mark, list)].flat());
     } catch (error) {
-      if (!server.called) throw error;
+      if (!mark.called) throw error;
     }
   }
 
@@ -113,18 +113,15 @@ export default async function page(path) {
   const stop = Router.on({ setup(self) { router = self; } });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
-
-  server.called = false;
-  server.abort = abort;
+  const mark = { called: false, abort };
 
   try {
-    const output = await renderToString(jsx(App, { path }), { signal: abort.signal });
-    return server.called ? null : { ...output, path: router ? router.path : path };
+    const output = await scope.run(mark, () => renderToString(jsx(App, { path }), { signal: abort.signal }));
+    return mark.called ? null : { ...output, path: router ? router.path : path };
   } catch (error) {
-    if (server.called) return null;
+    if (mark.called) return null;
     throw error;
   } finally {
-    server.abort = undefined;
     clearTimeout(timer);
     stop();
   }
@@ -138,19 +135,30 @@ import { define } from "@expressive/rpc";
 
 export { define };
 
-export const server = { called: false, abort: undefined };
+const { AsyncLocalStorage } = process.getBuiltinModule("node:async_hooks");
+
+export const scope = new AsyncLocalStorage();
 
 function halt() {
   const error = new Error("Remote calls do not run at build.");
+  const mark = scope.getStore();
 
-  server.called = true;
-  server.abort?.abort(error);
+  if (mark) {
+    mark.called = true;
+    mark.abort?.abort(error);
+  }
 
   return error;
 }
 
 export function call() {
-  return server.abort ? (halt(), new Promise(() => {})) : Promise.reject(halt());
+  if (scope.getStore()?.abort) return halt(), new Promise(() => {});
+
+  const refused = Promise.reject(halt());
+
+  refused.catch(() => {});
+
+  return refused;
 }
 
 export function twin(_at, methods, fields, name) {
@@ -160,6 +168,12 @@ export function twin(_at, methods, fields, name) {
         super(...args);
 
         for (const field of fields) this[field] = def(() => ({ get() { throw halt(); } }));
+      }
+
+      get(...args) {
+        if (!args.length || typeof args[0] == "string") throw halt();
+
+        return super.get(...args);
       }
     },
   }[name];

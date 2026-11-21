@@ -125,7 +125,7 @@ describe("prerender", () => {
 
     expect(await prerender(root)).toEqual(["/", "/privacy"]);
     expect(warn).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledWith("Prerendered 2 pages - 3 call the server and render in the browser.");
+    expect(log).toHaveBeenCalledWith("Prerendered 2 pages - 3 need the server and render in the browser.");
   });
 
   it("will count one page that calls the server", async () => {
@@ -134,7 +134,7 @@ describe("prerender", () => {
     launch.mockResolvedValueOnce({ paths: async () => [], render: async () => null, close: vi.fn() });
 
     expect(await prerender(root)).toEqual([]);
-    expect(log).toHaveBeenCalledWith("Prerendered 0 pages - 1 calls the server and renders in the browser.");
+    expect(log).toHaveBeenCalledWith("Prerendered 0 pages - 1 needs the server and renders in the browser.");
   });
 
   it("will not bundle the app when it has no page", async () => {
