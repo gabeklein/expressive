@@ -83,16 +83,29 @@ for (const node of document.querySelectorAll("[${PRERENDERED}]"))
 
 export function prerenderEntry(appImport: string, sources: string[]): string {
   const imports = sources.map((source, index) => `import { paths as p${index} } from ${JSON.stringify(source)};\n`).join("");
-  const lists = sources.map((_, index) => `p${index}()`).join(", ");
+  const lists = sources.map((_, index) => `p${index}`).join(", ");
 
   return `\
 import { renderToString } from "@expressive/dom/server";
 import { Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
+import { server } from "./call.ts";
 import App from ${JSON.stringify(appImport)};
 ${imports}
 export async function paths() {
-  return (await Promise.all([${lists}])).flat();
+  const found = [];
+
+  for (const list of [${lists}]) {
+    server.called = false;
+
+    try {
+      found.push(...await list());
+    } catch (error) {
+      if (!server.called) throw error;
+    }
+  }
+
+  return found;
 }
 
 export default async function page(path) {
@@ -101,16 +114,61 @@ export default async function page(path) {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
 
+  server.called = false;
+  server.abort = abort;
+
   try {
     const output = await renderToString(jsx(App, { path }), { signal: abort.signal });
-    return { ...output, path: router ? router.path : path };
+    return server.called ? null : { ...output, path: router ? router.path : path };
+  } catch (error) {
+    if (server.called) return null;
+    throw error;
   } finally {
+    server.abort = undefined;
     clearTimeout(timer);
     stop();
   }
 }
 `;
 }
+
+export const PRERENDER_CALL = `\
+import { Model, def } from "@expressive/mvc";
+import { define } from "@expressive/rpc";
+
+export { define };
+
+export const server = { called: false, abort: undefined };
+
+function halt() {
+  const error = new Error("Remote calls do not run at build.");
+
+  server.called = true;
+  server.abort?.abort(error);
+
+  return error;
+}
+
+export function call() {
+  return server.abort ? (halt(), new Promise(() => {})) : Promise.reject(halt());
+}
+
+export function twin(_at, methods, fields, name) {
+  const Twin = {
+    [name]: class extends Model {
+      constructor(...args) {
+        super(...args);
+
+        for (const field of fields) this[field] = def(() => ({ get() { throw halt(); } }));
+      }
+    },
+  }[name];
+
+  for (const method of Object.keys(methods)) Object.defineProperty(Twin.prototype, method, { configurable: true, writable: true, value: call });
+
+  return Twin;
+}
+`;
 
 export function ensureBootstrap(html: string): string {
   let out = html;

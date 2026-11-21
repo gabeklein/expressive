@@ -107,8 +107,38 @@ describe("prerender", () => {
     expect(launch).toHaveBeenCalledWith(root, { pretty: true });
   });
 
-  it("will not bundle the app when no page can be rendered", async () => {
+  it("will render pages beside a root remote, leaving those that call it to the client quietly", async () => {
+    const root = built({
+      "app/remote.ts": "export async function user() {}",
+      "app/index.tsx": PAGE,
+      "app/(privacy).tsx": PAGE,
+      "app/account/index.tsx": PAGE,
+      "app/account/(settings).tsx": PAGE,
+      "app/board/remote/index.ts": "import { Model } from '@expressive/mvc'; export default class Board extends Model {}",
+      "app/board/index.tsx": PAGE,
+    });
+    launch.mockResolvedValueOnce({
+      paths: async () => [],
+      render: async (path: string) => (path.startsWith("/account") || path == "/board" ? null : { path, html: path, css: "", head: "" }),
+      close: vi.fn(),
+    });
+
+    expect(await prerender(root)).toEqual(["/", "/privacy"]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("Prerendered 2 pages - 3 call the server and render in the browser.");
+  });
+
+  it("will count one page that calls the server", async () => {
     const root = built({ "app/index.tsx": PAGE, "app/remote.ts": "export async function add() {}" });
+
+    launch.mockResolvedValueOnce({ paths: async () => [], render: async () => null, close: vi.fn() });
+
+    expect(await prerender(root)).toEqual([]);
+    expect(log).toHaveBeenCalledWith("Prerendered 0 pages - 1 calls the server and renders in the browser.");
+  });
+
+  it("will not bundle the app when it has no page", async () => {
+    const root = built({ "app/index.tsx": "export const x = 1;", "app/remote.ts": "export async function add() {}" });
 
     expect(await prerender(root)).toEqual([]);
     expect(launch).not.toHaveBeenCalled();
