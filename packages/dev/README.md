@@ -321,13 +321,12 @@ no route matches writes the 404 page.
 
 A page that needs the server while it renders stays client-rendered, wherever its `remote.ts` or
 `remote/` sits, and the build never runs server code. In the build, remote stubs stop at the server:
-calling a remote function or a twin's method, or reading a twin's field, aborts that page's render
-and leaves it alone to the browser. The build's summary counts those pages without a warning per
-page. So a `remote/` at the root of `app/`, shared by many screens, still lets `/privacy` and
-`/terms` prerender, while a dashboard that loads its data on render does not.
+calling a remote function or a twin's method, or reading a twin's values, aborts that page's render
+and leaves that page to the browser, counted in the build's summary. So a `remote/` at the root of
+`app/`, shared by many screens, still lets `/privacy` and `/terms` prerender, while a dashboard that
+loads its data on render does not.
 
-- A call from an event handler or an effect never runs at build, so its page still renders. A
-  call from `new()` runs, and counts.
+- A call from `new()` counts; one from an event handler or effect never runs.
 - A seat is built without a pull. Pages under it render until one reads it, and an entry hook or
   `Layout` that reads it, or calls the server, leaves every page below it to the browser.
 - A `paths()` that calls the server lists nothing.
