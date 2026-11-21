@@ -512,6 +512,47 @@ describe('suspense and recovery', () => {
     await until(() => expect(root.textContent).toBe('Blazy'));
   });
 
+  it('will attach refs and autofocus of content rendered behind a fallback once it shows', async () => {
+    const loaded = mockPromise<string>();
+    const ref = vi.fn((node: Element | null) => node?.isConnected);
+
+    class Page extends Component {
+      value = set(() => loaded);
+
+      render() {
+        return <div ref={ref}><input autofocus />{this.value}</div>;
+      }
+    }
+
+    class Nav extends Model {
+      page = 'home';
+    }
+
+    function Swap() {
+      return Nav.get().page == 'next' ? <Page /> : <p>home</p>;
+    }
+
+    class App extends Component {
+      nav = new Nav();
+      fallback = <i>loading</i>;
+
+      render() {
+        return <Swap />;
+      }
+    }
+
+    const [app, root] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+
+    app.nav.page = 'next';
+    await flushMicrotasks();
+    loaded.resolve('ready');
+    await until(() => expect(root.textContent).toBe('ready'));
+
+    expect(ref).toHaveBeenCalledTimes(1);
+    expect(ref).toHaveReturnedWith(true);
+    expect(document.activeElement).toBe(root.querySelector('input'));
+  });
+
   it('will mount staged transition content once it is in the document', async () => {
     const seen: string[] = [];
     const connected = () => !!document.querySelector('#chart');
