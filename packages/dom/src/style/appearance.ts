@@ -321,20 +321,12 @@ function createAppearanceRoute(
 ): AppearanceRoute | undefined {
   if (!scope) return undefined;
 
-  let fast = tag || '';
-  for (const key in props) if (key.charCodeAt(0) === 95) fast += '\0' + key;
-  const hit = scope.routes.get(fast);
-  if (hit) return hit;
-
-  const keys = Object.keys(props).filter((key) => key.startsWith('_')).sort();
-  const id = `${tag || ''}\0${keys.join('\0')}`;
+  let id = tag || '';
+  for (const key in props) if (key[0] == '_') id += '\0' + key;
   const cached = scope.routes.get(id);
-  if (cached) {
-    scope.routes.set(fast, cached);
-    return cached;
-  }
+  if (cached) return cached;
 
-  const present = new Set(keys.map((key) => key.slice(1)));
+  const present = new Set(Object.keys(props).filter((key) => key[0] == '_').map((key) => key.slice(1)));
   const flags: string[] = [];
 
   for (const name of scope.local)
@@ -348,7 +340,6 @@ function createAppearanceRoute(
   };
 
   scope.routes.set(id, route);
-  scope.routes.set(fast, route);
   return route;
 }
 

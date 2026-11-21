@@ -94,32 +94,42 @@ function claim(
   value: Style
 ): Claimed {
   const entries = appearance?.entries || [];
-  const bare = !entries.length && !className && !value;
+  const context = resolved?.context || appearance?.context;
+  const forwarded = entries.length || className || value;
 
-  if (bare && !resolved) return { ...EMPTY, context: appearance?.context };
+  if (forwarded) return claimed(target, resolved, entries, className, value, context);
+  if (!resolved) return { ...EMPTY, context };
 
-  if (bare) {
-    let byTarget = claims.get(target);
-    if (!byTarget) claims.set(target, (byTarget = new WeakMap()));
-    let hit = byTarget.get(resolved!);
-    if (!hit || hit.generation !== sheetGeneration()) {
-      hit = { ...claimed(target, undefined, resolved, entries, className, value), generation: 0 };
-      hit.generation = sheetGeneration();
-      byTarget.set(resolved!, hit);
-    }
-    return resolved!.context || !appearance?.context ? hit : { ...hit, context: appearance.context };
+  const known = reuse(target, resolved);
+
+  return known.context === context ? known : { ...known, context };
+}
+
+function reuse(target: Target, resolved: ResolvedAppearance) {
+  let byTarget = claims.get(target);
+  if (!byTarget) claims.set(target, (byTarget = new WeakMap()));
+
+  let known = byTarget.get(resolved);
+  const first = resolved.blocks?.[0];
+
+  // Reopens a removed stylesheet, so the generation below is current.
+  if (known && first) emitClass(first, 0, target);
+
+  if (!known || known.generation !== sheetGeneration()) {
+    const fresh = claimed(target, resolved, [], undefined, undefined, resolved.context);
+    byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration() }));
   }
 
-  return claimed(target, appearance, resolved, entries, className, value);
+  return known;
 }
 
 function claimed(
   target: Target,
-  appearance: Appearance | undefined,
   resolved: ResolvedAppearance | undefined,
   entries: Forwarded[],
   className: unknown,
-  value: Style
+  value: Style,
+  context: AppearanceContext | undefined
 ): Claimed {
   const collected: Collected = { classes: [], declarations: {}, tokens: [] };
 
@@ -142,7 +152,7 @@ function claimed(
 
   return {
     className: [...new Set(collected.classes)].join(' '),
-    context: resolved?.context || appearance?.context,
+    context,
     declarations: collected.declarations,
     plain
   };
@@ -151,7 +161,7 @@ function claimed(
 function flatten({ declarations, plain }: Claimed) {
   return Object.assign(
     {},
-    ...plain
+    ...[...plain]
       .sort(([a, x], [b, y]) => a - b || x.ordinal - y.ordinal)
       .map(([, block]) => block.declarations),
     declarations
