@@ -171,9 +171,6 @@ declare namespace Model {
     ? T
     : R;
 
-  /** Exported form of a `map()` / `has()` snapshot item - as `Export`, but a value whose `get` never returns is kept. */
-  type Item<R> = R extends { get(): never } ? R : Export<R>;
-
   /**
    * Plain snapshot of managed fields, child Models and `ref`-like values unwrapped - from `get()`.
    *

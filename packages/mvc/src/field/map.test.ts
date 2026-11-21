@@ -131,12 +131,12 @@ describe('map', () => {
     expect(items.get().get('a')).toBe('unwrapped');
   });
 
-  it('will keep a nested value whose get throws false', () => {
+  it('will omit a nested value whose get throws false', () => {
     const inner = { get(): never { throw false; } };
-    const items = managed([['a', inner]]);
+    const items = managed<string, unknown>([['a', inner], ['b', 1]]);
 
-    expect(items.get().get('a')).toBe(inner);
-    expectTypeOf(items.get().get('a')).toEqualTypeOf<typeof inner | undefined>();
+    expect(Array.from(items.get())).toEqual([['b', 1]]);
+    expectTypeOf(managed([['a', inner]]).get()).toEqualTypeOf<ReadonlyMap<string, never>>();
   });
 
   it('will not unwrap a nested value whose get takes a key', () => {

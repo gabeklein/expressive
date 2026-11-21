@@ -508,7 +508,7 @@ function map<A extends [unknown, ...unknown[]], V>(make: (...args: A) => V): map
 
 // runtime class: reactive native Map subclass - reads, removal, iteration, transforms
 class map.Managed<K, V> extends Map<K, V> {
-  get(): ReadonlyMap<K, Model.Item<V>>;
+  get(): ReadonlyMap<K, Model.Export<V>>;
   get(key: K): V | undefined;
   set(key: K, ...rest: unknown[]): this;
   // has, delete, clear, keys/values/entries (with optional fn), forEach, size

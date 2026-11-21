@@ -3,7 +3,7 @@ import { def } from './def';
 import { element } from '../element';
 import { event, listener, touch } from '../observable';
 import { Model, parent } from '../model';
-import { exported } from '../store';
+import { exported, OMIT } from '../store';
 
 const LENGTH = Symbol('length');
 const SHAPE = Symbol('shape');
@@ -149,9 +149,9 @@ class List<T> {
   /**
    * Shallow snapshot array of the items - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
+   * A value whose `get` declares no parameters exports through it and one that throws `false` is left out, as in Model snapshots.
    */
-  get(): Model.Item<T>[];
+  get(): Model.Export<T>[];
 
   /**
    * Item at `index` - negative counts from the end.
@@ -174,7 +174,7 @@ class List<T> {
   get(...[arg, second]: [arg?: number | Predicate<T>, second?: number]): any {
     const values = items<T>(this);
 
-    if (arg === undefined) return values.map(item);
+    if (arg === undefined) return snapshot(values);
 
     if (typeof arg === 'function') return findOf(this, arg);
 
@@ -408,16 +408,16 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
   /**
    * Shallow snapshot array of the members - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do; one that throws `false` is kept.
+   * A value whose `get` declares no parameters exports through it and one that throws `false` is left out, as in Model snapshots.
    */
-  get(): Model.Item<T>[];
+  get(): Model.Export<T>[];
 
   /** First member matching `predicate` - tracks membership and members up to the match. */
   get(predicate: Predicate<T>): T | undefined;
   get(...[predicate]: [predicate?: Predicate<T>]): any {
     return predicate
       ? findOf(this, predicate)
-      : Array.from(members<T>(this), item);
+      : snapshot(members<T>(this));
   }
 
   /** Whether `value` is a member - tracks that value only. */
@@ -537,8 +537,13 @@ function release(target: object, key: unknown) {
   }
 }
 
-function item(value: unknown) {
-  return exported(value, value);
+function snapshot(from: Iterable<unknown>) {
+  const out = [];
+
+  for (let value of from)
+    if ((value = exported(value)) !== OMIT) out.push(value);
+
+  return out;
 }
 
 function items<T>(from: object): T[] {

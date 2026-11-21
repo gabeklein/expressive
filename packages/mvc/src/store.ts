@@ -265,22 +265,22 @@ function update<T>(
   return true;
 }
 
-/** Exported form of a value - what its parameterless `get` returns, else itself; `omit` when that `get` throws `false`. */
-function exported<T>(value: any, omit: T) {
+const OMIT = {};
+
+/** Exported form of a value - what its parameterless `get` returns, else itself; `OMIT` when that `get` throws `false`. */
+function exported(value: any) {
   if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value)
     try {
       const { get } = value;
 
       if (typeof get == 'function' && !get.length) return get.call(value);
     } catch (error) {
-      if (error === false) return omit;
+      if (error === false) return OMIT;
       throw error;
     }
 
   return value;
 }
-
-const OMIT = {};
 
 /** Export current values, drilling into any whose `get` takes no parameters and omitting any whose `get` throws `false`. Recursive references reuse one export. */
 function values(target: object) {
@@ -297,7 +297,7 @@ function values(target: object) {
 
     for (let [key, value] of entries(target)) {
       if (EXPORT.has(value)) value = EXPORT.get(value);
-      else if ((value = exported(value, OMIT)) === OMIT) continue;
+      else if ((value = exported(value)) === OMIT) continue;
 
       values[key] = value;
     }
@@ -309,4 +309,4 @@ function values(target: object) {
 }
 
 export type { Config };
-export { access, apply, compute, entries, exported, HELD, manage, store, update, values };
+export { access, apply, compute, entries, exported, HELD, manage, OMIT, store, update, values };
