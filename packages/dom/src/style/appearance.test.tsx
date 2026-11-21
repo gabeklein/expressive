@@ -717,6 +717,19 @@ describe('appearance', () => {
     expect(resolveAppearance(scope, { _on: false, _off: true })).not.toBe(first);
   });
 
+  it('will resolve rule flags the same in any attribute order', () => {
+    const scope = createStyleScope(undefined, {
+      _on: { color: 'red' },
+      _off: { fontWeight: 700 }
+    })!;
+
+    const forward = resolveAppearance(scope, { _on: true, _off: true })!;
+    const reverse = resolveAppearance(scope, { _off: true, _on: true })!;
+
+    expect(reverse.blocks).toEqual(forward.blocks);
+    expect(reverse.blocks!.map((block) => block.name)).toEqual(forward.blocks!.map((block) => block.name));
+  });
+
   it('will resolve class-only, empty and plain routes', () => {
     const defined = createStyleScope(undefined, {
       empty: () => null,
