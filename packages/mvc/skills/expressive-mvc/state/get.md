@@ -10,7 +10,7 @@ Instance method for reading values, running effects, checking status, and fetchi
 get(): Model.Values<this>
 ```
 
-Returns a frozen plain object of all managed values - including non-enumerable `set()` / `ref` fields; lazy factories and computeds appear once computed. Recursively exports child instances; objects and functions (ref, etc.) unwrap via a `get` that declares no parameters - `get.length === 0`, so write an optional parameter as rest (`get(...[key]: [K?])`); a `Map`'s `get(key)` keeps it as is; a value whose `get()` throws `false` - including from deeper in its body - is omitted, and `Model.Values` types its field `never`; any other throw propagates. The opt-out is for instruction values with nothing to export, such as `ref(this)` - see [def.md](../field/def.md#snapshot-opt-out). Circular references (parent/child loops) return the same exported object.
+Returns a frozen plain object of all managed values - including non-enumerable `set()` / `ref` fields; lazy factories and computeds appear once computed. Recursively exports child instances; objects and functions (ref, etc.) unwrap via a `get` that declares no parameters - `get.length === 0`, so write an optional parameter as rest (`get(...[key]: [K?])`); a `Map`'s `get(key)` keeps it as is; a value whose `get()` throws `false` is omitted - see [def.md](../field/def.md#snapshot-opt-out). Circular references (parent/child loops) return the same exported object.
 
 ```ts
 const values = state.get();

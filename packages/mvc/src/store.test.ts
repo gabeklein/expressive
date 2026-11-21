@@ -109,7 +109,7 @@ describe('values', () => {
     }
   });
 
-  it('will omit a value whose get rethrows false from deeper', () => {
+  it('will omit a value whose get throws false from deeper', () => {
     function read(): never {
       throw false;
     }
