@@ -23,8 +23,12 @@ function serialize(target: Target, declarations: Declaration) {
   if (isSink(target)) return target.serialize(declarations);
 
   const value = target.createElement('div').style;
-  applyDeclarations(value, declarations);
-  return value.cssText;
+
+  return Object.keys(declarations).map((key) => {
+    value.cssText = '';
+    applyDeclarations(value, { [key]: declarations[key] });
+    return value.cssText;
+  }).filter(Boolean).join(' ');
 }
 
 export { applyDeclarations, serialize };
