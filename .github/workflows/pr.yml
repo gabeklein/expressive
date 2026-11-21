@@ -137,20 +137,23 @@ jobs:
 
   preview:
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.any != 'false' }}
+    if: >-
+      !cancelled() && needs.changes.outputs.any != 'false' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: ./.github/actions/setup
 
       - run: bun run build
 
       - name: Publish to pkg.pr.new
-        run: |
-          paths=$(for p in packages/*/; do jq -e '.private != true' "$p/package.json" >/dev/null && echo "./$p"; done)
-          bunx pkg-pr-new@0.0.94 publish --commentWithSha --packageManager=bun $paths
+        continue-on-error: true
+        run: bunx pkg-pr-new@0.0.94 publish --commentWithSha --packageManager=bun --no-template './packages/*'
 
   e2e:
     needs: changes
