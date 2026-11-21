@@ -41,6 +41,7 @@ type Emit = (block: Block, depth: number, target: Target) => string;
 const SUBCOMPONENT = /^_[A-Z]/;
 const registrations = new WeakMap<object, EnterAppearance>();
 const tokens = new WeakMap<object, ResolvedAppearance>();
+const minted = new WeakMap<ResolvedAppearance, {}>();
 let emitter: Emit | undefined;
 let active: Sink | undefined;
 let generation = 0;
@@ -106,8 +107,6 @@ function reserved(key: string) {
   if (SUBCOMPONENT.test(key))
     throw new Error(`"${key}" is reserved for subcomponents in style() maps.`);
 }
-
-const minted = new WeakMap<ResolvedAppearance, {}>();
 
 function createAppearanceToken(appearance: ResolvedAppearance) {
   let token = minted.get(appearance);

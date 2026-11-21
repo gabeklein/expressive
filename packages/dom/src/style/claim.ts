@@ -97,15 +97,13 @@ function claim(
   const context = resolved?.context || appearance?.context;
   const forwarded = entries.length || className || value;
 
-  if (forwarded) return claimed(target, resolved, entries, className, value, context);
+  if (forwarded) return compose(target, resolved, entries, className, value, context);
   if (!resolved) return { ...EMPTY, context };
 
-  const known = reuse(target, resolved);
-
-  return known.context === context ? known : { ...known, context };
+  return reuse(target, resolved, context);
 }
 
-function reuse(target: Target, resolved: ResolvedAppearance) {
+function reuse(target: Target, resolved: ResolvedAppearance, context: AppearanceContext | undefined) {
   let byTarget = claims.get(target);
   if (!byTarget) claims.set(target, (byTarget = new WeakMap()));
 
@@ -116,14 +114,14 @@ function reuse(target: Target, resolved: ResolvedAppearance) {
   if (known && first) emitClass(first, 0, target);
 
   if (!known || known.generation !== sheetGeneration()) {
-    const fresh = claimed(target, resolved, [], undefined, undefined, resolved.context);
+    const fresh = compose(target, resolved, [], undefined, undefined, context);
     byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration() }));
   }
 
   return known;
 }
 
-function claimed(
+function compose(
   target: Target,
   resolved: ResolvedAppearance | undefined,
   entries: Forwarded[],

@@ -55,9 +55,9 @@ interface StyleScope {
 
 interface AppearanceRoute {
   flags: readonly string[];
+  resolved: Map<string, ResolvedAppearance | undefined>;
   scope: StyleScope;
   tag?: string;
-  resolved: Map<string, ResolvedAppearance | undefined>;
 }
 
 const bases = new WeakMap<StyleScope, Declaration>();
@@ -321,12 +321,12 @@ function createAppearanceRoute(
 ): AppearanceRoute | undefined {
   if (!scope) return undefined;
 
-  let id = tag || '';
-  for (const key in props) if (key[0] == '_') id += '\0' + key;
+  const keys = Object.keys(props).filter((key) => key[0] == '_');
+  const id = `${tag || ''}\0${keys.join('\0')}`;
   const cached = scope.routes.get(id);
   if (cached) return cached;
 
-  const present = new Set(Object.keys(props).filter((key) => key[0] == '_').map((key) => key.slice(1)));
+  const present = new Set(keys.map((key) => key.slice(1)));
   const flags: string[] = [];
 
   for (const name of scope.local)
@@ -334,9 +334,9 @@ function createAppearanceRoute(
 
   const route: AppearanceRoute = {
     flags,
+    resolved: new Map(),
     scope,
-    tag: tag && scope.rules[tag] ? tag : undefined,
-    resolved: new Map()
+    tag: tag && scope.rules[tag] ? tag : undefined
   };
 
   scope.routes.set(id, route);
