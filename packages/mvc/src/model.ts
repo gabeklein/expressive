@@ -163,9 +163,7 @@ declare namespace Model {
   type Signal<T = Model> = Event<T> | true | false | null;
 
   /** Exported form of a value - a Model as its `Values`, anything with `get()` as what that returns; `never` if that `get()` never returns. */
-  type Export<R> = 0 extends 1 & R
-    ? R
-    : R extends Model
+  type Export<R> = R extends Model
     ? Values<R>
     : R extends { get: infer G } & { get(): never }
     ? 0 extends 1 & G
