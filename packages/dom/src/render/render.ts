@@ -132,4 +132,4 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   }
 }
 
-export { attempt, depth, focusing, hydrate, pass, passiveRender, render, rendering };
+export { attempt, depth, focus, focusing, hydrate, pass, passiveRender, render, rendering };

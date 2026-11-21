@@ -1,5 +1,5 @@
 import { isThenable } from '../node/kind';
-import { fragment } from './commits';
+import { attach, fragment } from './commits';
 import { move, moveRange, range } from './fiber';
 import { keep } from './hydrate';
 import type { Boundary, Fiber } from './fiber';
@@ -81,7 +81,7 @@ function settle() {
 }
 
 function hide(owner: Fiber, boundary: Boundary) {
-  const stash = document.createDocumentFragment();
+  const stash = fragment();
 
   for (const child of owner.children) move(child, stash, null);
 
@@ -105,6 +105,7 @@ function draw(owner: Fiber, boundary: Boundary) {
 function reveal(owner: Fiber) {
   unmountFiber(owner.placeholder!);
   owner.end.parentNode!.insertBefore(owner.stash!, owner.end);
+  attach(owner.stash!);
 
   for (const [portal, content] of owner.portals!)
     if (!portal.dead) place(portal, content);
