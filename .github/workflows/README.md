@@ -31,6 +31,11 @@ the diff reaches it:
 
 - `dist-smoke` - any package affected. `dist-smoke.ts` (see below) on Node 24, so a dist a consumer
   cannot load fails the PR that caused it rather than the release.
+- `preview` - any package affected. Publishes every public package to
+  [pkg.pr.new](https://pkg.pr.new) and comments install commands pinned to
+  the commit, e.g. `bun add https://pkg.pr.new/@expressive/mvc@<sha>`.
+  Dependencies between them resolve to the same commit. Needs the pkg.pr.new
+  GitHub App on the repo.
 - `e2e` - `examples/` or a package it imports changed. Every example page's Playwright spec on React and dom.
 - `native` - calls `native.yml` for a PR labeled `react-native`.
 - `hot` - a package `hot-probe.ts` imports changed. `hot-probe.ts`, the hot-reload gauntlet in Chrome on React and dom.
