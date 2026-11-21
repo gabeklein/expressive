@@ -19,6 +19,7 @@ const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
+const attached = new WeakMap<Fiber, unknown>();
 const restoring = new WeakSet<Document>();
 
 function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
@@ -158,8 +159,12 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
 
 function patchProp(fiber: Fiber, element: Element, key: string, previous: any, next: any) {
   if (key == 'ref') {
-    applyRef(previous, null);
-    inserted(fiber, () => applyRef(next, element));
+    detachRef(fiber);
+    inserted(fiber, () => {
+      if (fiber.props!.ref !== next) return;
+      attached.set(fiber, next);
+      applyRef(next, element);
+    });
     return;
   }
 
@@ -259,8 +264,13 @@ function applyRef(ref: unknown, value: Element | null) {
   else if (ref && typeof ref == 'object' && 'current' in ref) (ref as { current: Element | null }).current = value;
 }
 
+function detachRef(fiber: Fiber) {
+  applyRef(attached.get(fiber), null);
+  attached.delete(fiber);
+}
+
 function unmountElement(fiber: Fiber) {
-  applyRef(fiber.props?.ref, null);
+  detachRef(fiber);
   for (const [id, listener] of fiber.events!) {
     const [name, capture] = id.split(':');
     (fiber.start as Element).removeEventListener(name, listener, capture === 'true');
