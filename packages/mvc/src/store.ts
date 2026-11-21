@@ -267,17 +267,19 @@ function update<T>(
 
 const OMIT = {};
 
-/** Exported form of a value - what its parameterless `get` returns, else itself; `OMIT` when that `get` throws `false`. */
+/** Exported form of a value - what its parameterless `get()` returns, else itself; `OMIT` when that call throws `false`. */
 function exported(value: any) {
-  if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value)
-    try {
-      const { get } = value;
+  if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value) {
+    const { get } = value;
 
-      if (typeof get == 'function' && !get.length) return get.call(value);
-    } catch (error) {
-      if (error === false) return OMIT;
-      throw error;
-    }
+    if (typeof get == 'function' && !get.length)
+      try {
+        return get.call(value);
+      } catch (error) {
+        if (error === false) return OMIT;
+        throw error;
+      }
+  }
 
   return value;
 }

@@ -98,11 +98,15 @@ describe('values', () => {
     expect(store.values(data)).toEqual({ foo: 1 });
   });
 
-  it('will omit a value whose get getter throws false', () => {
-    const bar = { get get(): never { throw false; } };
-    const { data } = managed({ foo: 1, bar });
+  it('will throw false from a get getter', () => {
+    const { data } = managed({ bar: { get get(): never { throw false; } } });
 
-    expect(store.values(data)).toEqual({ foo: 1 });
+    try {
+      store.values(data);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBe(false);
+    }
   });
 
   it('will omit a value whose get rethrows false from deeper', () => {

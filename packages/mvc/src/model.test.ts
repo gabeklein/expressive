@@ -3324,7 +3324,6 @@ describe('unmanaged keys', () => {
     class Test extends Model {
       value = 1;
       method = { get(): never { throw false; }, open: () => {} };
-      getter = { get get(): never { throw false; } };
       data = { get: null as string | null };
       text = { get: 'foo' };
       call = { get: () => 'foo' };
@@ -3341,7 +3340,6 @@ describe('unmanaged keys', () => {
     const bad: Model.Partial<Test> = { method: new Test().method };
 
     expectTypeOf<Model.Values<Test>['method']>().toEqualTypeOf<never>();
-    expectTypeOf<Model.Values<Test>['getter']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Test>['value']>().toEqualTypeOf<number>();
     expectTypeOf<Model.Values<Test>['data']>().toEqualTypeOf<{ get: string | null }>();
     expectTypeOf<Model.Values<Test>['text']>().toEqualTypeOf<{ get: string }>();
@@ -3352,7 +3350,7 @@ describe('unmanaged keys', () => {
     expectTypeOf<Model.Values<Test>['refs']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Test>['text2']>().toEqualTypeOf<string | null>();
     expectTypeOf<Model.Value<Test, 'method'>>().toEqualTypeOf<never>();
-    expectTypeOf<Model.Value<Test, 'getter'>>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Export<{ get: never }>>().toEqualTypeOf<never>();
     expect(Test.new().get()).toEqual({
       value: 1,
       data: { get: null },
