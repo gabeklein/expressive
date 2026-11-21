@@ -3,6 +3,7 @@ import { def } from './def';
 import { element } from '../element';
 import { event, listener, touch } from '../observable';
 import { Model, parent } from '../model';
+import { exported, OMIT } from '../store';
 
 const LENGTH = Symbol('length');
 const SHAPE = Symbol('shape');
@@ -148,7 +149,7 @@ class List<T> {
   /**
    * Shallow snapshot array of the items - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it and one that throws `false` is left out, as in Model snapshots.
    */
   get(): Model.Export<T>[];
 
@@ -173,7 +174,7 @@ class List<T> {
   get(...[arg, second]: [arg?: number | Predicate<T>, second?: number]): any {
     const values = items<T>(this);
 
-    if (arg === undefined) return values.map(exportValue);
+    if (arg === undefined) return snapshot(values);
 
     if (typeof arg === 'function') return findOf(this, arg);
 
@@ -407,7 +408,7 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
   /**
    * Shallow snapshot array of the members - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it and one that throws `false` is left out, as in Model snapshots.
    */
   get(): Model.Export<T>[];
 
@@ -416,7 +417,7 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
   get(...[predicate]: [predicate?: Predicate<T>]): any {
     return predicate
       ? findOf(this, predicate)
-      : Array.from(members<T>(this), exportValue);
+      : snapshot(members<T>(this));
   }
 
   /** Whether `value` is a member - tracks that value only. */
@@ -536,15 +537,13 @@ function release(target: object, key: unknown) {
   }
 }
 
-function exportValue(value: any) {
-  const type = typeof value;
+function snapshot(from: Iterable<unknown>) {
+  const out = [];
 
-  return value &&
-    (type == 'object' || type == 'function') &&
-    typeof value.get == 'function' &&
-    !value.get.length
-    ? value.get()
-    : value;
+  for (let value of from)
+    if ((value = exported(value)) !== OMIT) out.push(value);
+
+  return out;
 }
 
 function items<T>(from: object): T[] {

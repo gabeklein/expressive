@@ -236,12 +236,16 @@ describe('proxy', () => {
     const host = Host.new();
 
     expect(Object.keys(host.get())).toEqual(['subject']);
-    expect(Object.getOwnPropertyDescriptor(host.refs, 'get')).toEqual({
-      value: null,
-      writable: false,
+    expect(Object.getOwnPropertyDescriptor(host.refs, 'get')).toMatchObject({
       enumerable: false,
       configurable: false
     });
+    try {
+      host.refs.get();
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBe(false);
+    }
     expectTypeOf<Model.Values<Host>['refs']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Subject>['refs']>().toEqualTypeOf<never>();
   });

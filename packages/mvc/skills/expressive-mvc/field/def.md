@@ -48,6 +48,18 @@ custom = def<string>((key, subject) => ({
 
 Per-option contract: JSDoc on hover, or `node_modules/@expressive/mvc/dist/field/def.d.ts`.
 
+## Snapshot Opt-Out
+
+A value with no exportable form - a handle, a lazy relation - declares it with `get(): never { throw false }`. Snapshots omit it, Model, `map()` and `has()` alike, and `Model.Export` types it `never`. A `false` thrown from deeper in the body counts too; any other throw propagates. `ref(this)` works this way. Meant for instruction values; using it elsewhere is allowed, at your own risk.
+
+```ts
+class Handle {
+  get(): never {
+    throw false;
+  }
+}
+```
+
 ## Child Instance (No Instruction Needed)
 
 Nest instances by direct assignment (`child = new Child()`) - auto-parented, activated, and destroyed with the parent. See [state.md](../state/state.md#child-instances).

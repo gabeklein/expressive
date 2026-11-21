@@ -635,6 +635,33 @@ describe('get method', () => {
       });
     });
 
+    it('will export fresh values after a get throws', () => {
+      let fail = true;
+
+      class Nested extends Model {
+        value = 1;
+      }
+
+      class Test extends Model {
+        nested = new Nested();
+        flaky = {
+          get() {
+            if (fail) throw new Error('nope');
+            return 1;
+          }
+        };
+      }
+
+      const test = Test.new();
+
+      expect(() => test.get()).toThrow('nope');
+
+      fail = false;
+      test.nested.value = 2;
+
+      expect(test.get()).toEqual({ nested: { value: 2 }, flaky: 1 });
+    });
+
     it('will defer to get method exporting properties', () => {
       class Bar extends Model {
         foo = 'foo';
@@ -3293,20 +3320,50 @@ describe('unmanaged keys', () => {
     expect([values, assign, property, field]).toBeDefined();
   });
 
-  it('will type a get: null field as never in exports', () => {
+  it('will type a field whose get never returns as never in exports', () => {
     class Test extends Model {
       value = 1;
-      handle = { get: null, open: () => {} };
+      method = { get(): never { throw false; }, open: () => {} };
+      data = { get: null as string | null };
+      text = { get: 'foo' };
+      call = { get: () => 'foo' };
+      loose = {} as any;
+      maybe?: { get(): never };
+      either = { id: 1 } as { get(): never } | { id: number };
+      refs = ref(this);
+      text2 = ref<string>();
     }
 
     const partial: Model.Partial<Test> = { value: 2 };
 
     // @ts-expect-error - opted out of exports
-    const bad: Model.Partial<Test> = { handle: { get: null, open: () => {} } };
+    const bad: Model.Partial<Test> = { method: new Test().method };
 
-    expectTypeOf<Model.Values<Test>['handle']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Test>['method']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Test>['value']>().toEqualTypeOf<number>();
-    expect(Object.keys(Test.new().get())).toEqual(['value']);
+    expectTypeOf<Model.Values<Test>['data']>().toEqualTypeOf<{ get: string | null }>();
+    expectTypeOf<Model.Values<Test>['text']>().toEqualTypeOf<{ get: string }>();
+    expectTypeOf<Model.Values<Test>['call']>().toEqualTypeOf<string>();
+    expectTypeOf<Model.Values<Test>['loose']>().toBeAny();
+    expectTypeOf<Model.Values<Test>['maybe']>().toEqualTypeOf<undefined>();
+    expectTypeOf<Model.Values<Test>['either']>().toEqualTypeOf<{ id: number }>();
+    expectTypeOf<Model.Values<Test>['refs']>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Values<Test>['text2']>().toEqualTypeOf<string | null>();
+    expectTypeOf<Model.Value<Test, 'method'>>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Export<{ get: never }>>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Export<{ get(): never }>>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Export<{ get: any }>>().toEqualTypeOf<{ get: any }>();
+    expectTypeOf<Model.Export<{ get(): string }>>().toEqualTypeOf<string>();
+    expectTypeOf<Model.Export<any>>().toBeAny();
+    expect(Test.new().get()).toEqual({
+      value: 1,
+      data: { get: null },
+      text: { get: 'foo' },
+      call: 'foo',
+      loose: {},
+      either: { id: 1 },
+      text2: null
+    });
     expect([partial, bad]).toBeDefined();
   });
 

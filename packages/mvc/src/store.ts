@@ -265,7 +265,26 @@ function update<T>(
   return true;
 }
 
-/** Export current values, drilling into any whose `get` takes no parameters and omitting any whose `get` is `null`. Recursive references reuse one export. */
+const OMIT = {};
+
+/** Exported form of a value - what its parameterless `get()` returns, else itself; `OMIT` when that call throws `false`. */
+function exported(value: any) {
+  if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value) {
+    const { get } = value;
+
+    if (typeof get == 'function' && !get.length)
+      try {
+        return get.call(value);
+      } catch (error) {
+        if (error === false) return OMIT;
+        throw error;
+      }
+  }
+
+  return value;
+}
+
+/** Export current values, drilling into any whose `get` takes no parameters and omitting any whose `get` throws `false`. Recursive references reuse one export. */
 function values(target: object) {
   const values = {} as any;
   let notRecursive;
@@ -275,22 +294,21 @@ function values(target: object) {
     EXPORT = new Map();
   }
 
-  EXPORT.set(target, values);
+  try {
+    EXPORT.set(target, values);
 
-  for (let [key, value] of entries(target)) {
-    if (EXPORT.has(value)) value = EXPORT.get(value);
-    else if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value) {
-      if (value.get === null) continue;
-      if (typeof value.get == 'function' && !value.get.length) value = value.get();
+    for (let [key, value] of entries(target)) {
+      if (EXPORT.has(value)) value = EXPORT.get(value);
+      else if ((value = exported(value)) === OMIT) continue;
+
+      values[key] = value;
     }
-
-    values[key] = value;
+  } finally {
+    if (notRecursive) EXPORT = undefined;
   }
-
-  if (notRecursive) EXPORT = undefined;
 
   return Object.freeze(values);
 }
 
 export type { Config };
-export { access, apply, compute, entries, HELD, manage, store, update, values };
+export { access, apply, compute, entries, exported, HELD, manage, OMIT, store, update, values };
