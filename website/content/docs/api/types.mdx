@@ -83,7 +83,7 @@ Meaning of special values:
 All fields with exotic values (child instances, refs, etc.) unwrapped to their inner type. A field whose `get` is typed `never` (`get: never` or `get(): never`) is typed `never` - the runtime snapshot omits it when that `get` throws `false`.
 
 ```ts
-type Values<T> = { [P in Field<T>]: T[P] extends { get(): never } ? never : Export<T[P]> };
+type Values<T> = { [P in Field<T>]: Export<T[P]> };
 ```
 
 ### `Model.Partial<T>`
@@ -91,7 +91,7 @@ type Values<T> = { [P in Field<T>]: T[P] extends { get(): never } ? never : Expo
 Object compatible with `Values<T>` - every key optional, Export-unwrapped.
 
 ```ts
-type Partial<T> = { [P in Field<T>]?: T[P] extends { get(): never } ? never : Export<T[P]> };
+type Partial<T> = { [P in Field<T>]?: Export<T[P]> };
 ```
 
 Not currently used by any public signature - `set(assign)` takes [`Model.Assign<T>`](#modelassignt), which preserves declared field types rather than unwrapping them.
@@ -102,11 +102,13 @@ Single-property lookup type with `Export<>` unwrapping.
 
 ### `Model.Export<R>`
 
-If `R` is itself a Model, recursively exports `Values<R>`. Otherwise, if `R` has a `.get(): T` method, extracts `T`. Otherwise returns `R`. Drives child-instance and ref unwrapping in snapshots.
+If `R` is itself a Model, recursively exports `Values<R>`. Otherwise, if `R` has a `get` typed `never`, gives `never`. Otherwise, if `R` has a `.get(): T` method, extracts `T`. Otherwise returns `R`. Drives child-instance and ref unwrapping in snapshots.
 
 ```ts
 type Export<R> = R extends Model
   ? Values<R>
+  : R extends { get(): never }
+  ? never
   : R extends { get(): infer T }
   ? T
   : R;
@@ -114,7 +116,7 @@ type Export<R> = R extends Model
 
 ### `Model.Item<R>`
 
-Exported form of one item in a `map()` or `has()` snapshot. As `Export<R>`, except a value whose `get` is typed `never` is kept as is - collection snapshots keep it rather than omit it.
+Exported form of one item in a `map()` or `has()` snapshot. As `Export<R>`, except a value whose `get` is typed `never` is kept as is rather than `never` - collection snapshots keep it rather than omit it.
 
 ```ts
 type Item<R> = R extends { get(): never } ? R : Export<R>;

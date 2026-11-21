@@ -3351,6 +3351,8 @@ describe('unmanaged keys', () => {
     expectTypeOf<Model.Values<Test>['either']>().toEqualTypeOf<{ id: number }>();
     expectTypeOf<Model.Values<Test>['refs']>().toEqualTypeOf<never>();
     expectTypeOf<Model.Values<Test>['text2']>().toEqualTypeOf<string | null>();
+    expectTypeOf<Model.Value<Test, 'method'>>().toEqualTypeOf<never>();
+    expectTypeOf<Model.Value<Test, 'getter'>>().toEqualTypeOf<never>();
     expect(Test.new().get()).toEqual({
       value: 1,
       data: { get: null },
