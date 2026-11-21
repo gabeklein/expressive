@@ -42,6 +42,15 @@ const SUBCOMPONENT = /^_[A-Z]/;
 const registrations = new WeakMap<object, EnterAppearance>();
 const tokens = new WeakMap<object, ResolvedAppearance>();
 let emitter: Emit | undefined;
+let generation = 0;
+
+function reopened() {
+  generation++;
+}
+
+function sheetGeneration() {
+  return generation;
+}
 let active: Sink | undefined;
 
 function registerAppearance(type: object, enter: EnterAppearance) {
@@ -98,9 +107,14 @@ function reserved(key: string) {
     throw new Error(`"${key}" is reserved for subcomponents in style() maps.`);
 }
 
+const minted = new WeakMap<ResolvedAppearance, {}>();
+
 function createAppearanceToken(appearance: ResolvedAppearance) {
-  const token = {};
+  let token = minted.get(appearance);
+  if (token) return token;
+  token = {};
   tokens.set(token, appearance);
+  minted.set(appearance, token);
   return token;
 }
 
@@ -109,6 +123,8 @@ function appearanceToken(value: unknown) {
 }
 
 export {
+  reopened,
+  sheetGeneration,
   appearanceToken,
   isSink,
   serving,

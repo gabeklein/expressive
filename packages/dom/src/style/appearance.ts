@@ -57,6 +57,7 @@ interface AppearanceRoute {
   flags: readonly string[];
   scope: StyleScope;
   tag?: string;
+  resolved: Map<string, ResolvedAppearance | undefined>;
 }
 
 const bases = new WeakMap<StyleScope, Declaration>();
@@ -320,10 +321,18 @@ function createAppearanceRoute(
 ): AppearanceRoute | undefined {
   if (!scope) return undefined;
 
+  let fast = tag || '';
+  for (const key in props) if (key.charCodeAt(0) === 95) fast += '\0' + key;
+  const hit = scope.routes.get(fast);
+  if (hit) return hit;
+
   const keys = Object.keys(props).filter((key) => key.startsWith('_')).sort();
   const id = `${tag || ''}\0${keys.join('\0')}`;
   const cached = scope.routes.get(id);
-  if (cached) return cached;
+  if (cached) {
+    scope.routes.set(fast, cached);
+    return cached;
+  }
 
   const present = new Set(keys.map((key) => key.slice(1)));
   const flags: string[] = [];
@@ -334,10 +343,12 @@ function createAppearanceRoute(
   const route: AppearanceRoute = {
     flags,
     scope,
-    tag: tag && scope.rules[tag] ? tag : undefined
+    tag: tag && scope.rules[tag] ? tag : undefined,
+    resolved: new Map()
   };
 
   scope.routes.set(id, route);
+  scope.routes.set(fast, route);
   return route;
 }
 
@@ -349,6 +360,10 @@ function resolveAppearance(
   const route = createAppearanceRoute(scope, props, tag);
 
   if (!route) return undefined;
+
+  let mask = '';
+  for (const name of route.flags) mask += props[`_${name}`] ? '1' : '0';
+  if (route.resolved.has(mask)) return route.resolved.get(mask);
 
   const parts: Expansion[] = [];
   const names: string[] = route.tag ? [route.tag] : [];
@@ -367,14 +382,17 @@ function resolveAppearance(
     for (const nested of part.nested)
       child = createStyleScope(child, nested, tag ? `${route.scope.label}_${tag}` : route.scope.label);
 
-  if (!blocks.length && !classes.length && child === route.scope)
+  if (!blocks.length && !classes.length && child === route.scope) {
+    route.resolved.set(mask, undefined);
     return undefined;
+  }
 
   const appearance: ResolvedAppearance = {};
   if (blocks.length) appearance.blocks = blocks;
   if (classes.length) appearance.classes = classes;
   if (child !== route.scope) appearance.context = createContext(child!);
 
+  route.resolved.set(mask, appearance);
   return appearance;
 }
 

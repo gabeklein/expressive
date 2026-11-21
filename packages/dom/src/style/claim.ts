@@ -1,5 +1,5 @@
 import { applyDeclarations } from './declarations';
-import { appearanceToken, createAppearanceToken, emitClass, reserved } from './protocol';
+import { appearanceToken, createAppearanceToken, emitClass, reserved, sheetGeneration } from './protocol';
 import type { AppearanceContext, Block, ResolvedAppearance, Target } from './protocol';
 
 type Style = string | Record<string, unknown> | false | null | undefined | readonly Style[];
@@ -43,6 +43,8 @@ interface Ticket {
 }
 
 const tickets = new WeakMap<object, Ticket>();
+const claims = new WeakMap<object, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
+const EMPTY: Claimed = { className: '', declarations: {}, plain: [] };
 
 function componentProps(
   type: unknown,
@@ -91,8 +93,35 @@ function claim(
   className: unknown,
   value: Style
 ): Claimed {
-  const collected: Collected = { classes: [], declarations: {}, tokens: [] };
   const entries = appearance?.entries || [];
+  const bare = !entries.length && !className && !value;
+
+  if (bare && !resolved) return { ...EMPTY, context: appearance?.context };
+
+  if (bare) {
+    let byTarget = claims.get(target);
+    if (!byTarget) claims.set(target, (byTarget = new WeakMap()));
+    let hit = byTarget.get(resolved!);
+    if (!hit || hit.generation !== sheetGeneration()) {
+      hit = { ...claimed(target, undefined, resolved, entries, className, value), generation: 0 };
+      hit.generation = sheetGeneration();
+      byTarget.set(resolved!, hit);
+    }
+    return resolved!.context || !appearance?.context ? hit : { ...hit, context: appearance.context };
+  }
+
+  return claimed(target, appearance, resolved, entries, className, value);
+}
+
+function claimed(
+  target: Target,
+  appearance: Appearance | undefined,
+  resolved: ResolvedAppearance | undefined,
+  entries: Forwarded[],
+  className: unknown,
+  value: Style
+): Claimed {
+  const collected: Collected = { classes: [], declarations: {}, tokens: [] };
 
   if (resolved) collect(createAppearanceToken(resolved), collected, 0);
   appendClasses(collected.classes, className);
