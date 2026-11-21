@@ -240,10 +240,9 @@ describe('proxy', () => {
       enumerable: false,
       configurable: false
     });
-    expect(() => host.refs.get()).toThrow();
-
     try {
       host.refs.get();
+      expect.unreachable();
     } catch (error) {
       expect(error).toBe(false);
     }

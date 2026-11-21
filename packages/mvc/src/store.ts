@@ -269,7 +269,9 @@ function update<T>(
 function exported<T>(value: any, omit: T) {
   if (value && (typeof value == 'object' || typeof value == 'function') && 'get' in value)
     try {
-      if (typeof value.get == 'function' && !value.get.length) return value.get();
+      const { get } = value;
+
+      if (typeof get == 'function' && !get.length) return get.call(value);
     } catch (error) {
       if (error === false) return omit;
       throw error;

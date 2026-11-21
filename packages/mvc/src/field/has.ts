@@ -174,7 +174,7 @@ class List<T> {
   get(...[arg, second]: [arg?: number | Predicate<T>, second?: number]): any {
     const values = items<T>(this);
 
-    if (arg === undefined) return values.map(keep);
+    if (arg === undefined) return values.map(item);
 
     if (typeof arg === 'function') return findOf(this, arg);
 
@@ -417,7 +417,7 @@ class Pool<T, A extends unknown[] = unknown[], R = T> {
   get(...[predicate]: [predicate?: Predicate<T>]): any {
     return predicate
       ? findOf(this, predicate)
-      : Array.from(members<T>(this), keep);
+      : Array.from(members<T>(this), item);
   }
 
   /** Whether `value` is a member - tracks that value only. */
@@ -537,7 +537,7 @@ function release(target: object, key: unknown) {
   }
 }
 
-function keep(value: unknown) {
+function item(value: unknown) {
   return exported(value, value);
 }
 
