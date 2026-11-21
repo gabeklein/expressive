@@ -97,6 +97,7 @@ A green `tsc --noEmit` + `bun run build` says nothing about whether a browser-fa
 ## Conventions
 
 - Framework-agnostic logic belongs in `packages/mvc`.
+- **No vendor integrations.** The libraries capture reusable p90 cases as seams and logic anyone might want; a particular service or stack is the consumer's to wire, even by hand. A consumer's integration should stay small - one that would be complicated signals a vendor package, maintained outside these repos. Vendor naming appears only where a feature is literally that platform's (dev's Workers build target), confined to that target's code and docs.
 - React changes must stay aligned across `packages/react/src/{state,component,context}.{ts,test.tsx}`.
 - Update tests alongside behavioral/type changes - tests must fail without the change.
 - New major features need docs in that package's skill (`packages/<pkg>/skills/expressive-<pkg>/`). Agents read skills from `node_modules/@expressive/<pkg>/skills/`, found through the root `skills/expressive/` router skill or a line in the consumer's AGENTS.md. A skill links only its own files and names another skill's in plain text (`expressive-mvc/component.md#props`), present only when that package is installed - so host-agnostic material (Component, conventions) lives in mvc. `bun .github/scripts/docs-check.ts` enforces both, and that every name resolves.
