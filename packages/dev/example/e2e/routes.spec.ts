@@ -69,7 +69,7 @@ test("loads a route module on first entry", async ({ page, open }) => {
   expect(aboutLoaded()).toBe(true);
 });
 
-test("shows the layout's Loading while a page's code arrives on a cold load", async ({ page }) => {
+test("shows the layout's Loading while a page's code arrives on a cold load, or its prerendered markup", async ({ page }, { project }) => {
   let release!: () => void;
   const held = new Promise<void>(done => (release = done));
   const aboutChunk = (url: URL) => {
@@ -86,9 +86,24 @@ test("shows the layout's Loading while a page's code arrives on a cold load", as
 
   await page.goto("/about");
   await expect(page.getByRole("navigation")).toBeVisible();
-  await expect(page.getByText("Loading…")).toBeVisible();
+
+  if (project.name == "prod") {
+    await expect(page.getByRole("heading")).toHaveText("About");
+    await expect(page.getByText("Loading…")).toHaveCount(0);
+  }
+  else await expect(page.getByText("Loading…")).toBeVisible();
 
   release();
   await expect(page.getByRole("heading")).toHaveText("About");
   await expect(page.getByText("Loading…")).toHaveCount(0);
+});
+
+test("prerenders pages beside the root remote, leaving those that read the server to the browser", async ({ request }, { project }) => {
+  test.skip(project.name == "dev", "prerendering runs at build");
+
+  const html = async (path: string) => (await request.get(path, { headers: { accept: "text/html" } })).text();
+
+  expect(await html("/about")).toContain(`<div id="root" data-prerender="/about">`);
+  expect(await html("/tally")).toContain(`data-prerender="/tally"`);
+  expect(await html("/counter")).toContain(`<div id="root"></div>`);
 });
