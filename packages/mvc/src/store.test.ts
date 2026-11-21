@@ -105,6 +105,16 @@ describe('values', () => {
     expect(store.values(data)).toEqual({ foo: 1 });
   });
 
+  it('will omit a value whose get rethrows false from deeper', () => {
+    function read(): never {
+      throw false;
+    }
+
+    const { data } = managed({ foo: 1, bar: { get: () => read() } });
+
+    expect(store.values(data)).toEqual({ foo: 1 });
+  });
+
   it('will throw a promise from get', () => {
     const promise = Promise.resolve();
     const { data } = managed({ bar: { get(): never { throw promise; } } });
