@@ -360,8 +360,8 @@ function exempt(node: { redirect?: unknown; none?: boolean }): boolean {
  * base) and non-Route nodes skipped, each paired with its `to` segment. The
  * shared lexical-walk primitive behind the see-through gate and `as`-arbitration.
  */
-function lexicalRoutes(children: Component.Node) {
-  const out: { props: RouteProps; to: string }[] = [];
+export function lexicalRoutes(children: Component.Node) {
+  const out: { props: RouteProps; to: string; type: typeof Route }[] = [];
 
   for (const node of childrenOf(children)) {
     if (!isElement(node)) continue;
@@ -374,7 +374,7 @@ function lexicalRoutes(children: Component.Node) {
     if (!Route.is(type)) continue;
 
     const props = propsOf(node) as RouteProps;
-    out.push({ props, to: typeof props.to === 'string' ? props.to : '' });
+    out.push({ props, to: typeof props.to === 'string' ? props.to : '', type });
   }
 
   return out;
@@ -405,12 +405,14 @@ function space(route: Route): string {
 }
 
 /** The base a scope's children compose against (own base + segment). */
-function scopeBase(route: Route): string {
+export function scopeBase(route: Route): string {
   return route.base + route.router.segment(route.to);
 }
 
 type RouteProps = {
   to?: string;
+  label?: string;
+  meta?: Record<string, any>;
   as?: unknown;
   redirect?: string | (() => Async<string | null | void>);
   none?: boolean;
@@ -480,7 +482,7 @@ function possible(children: Component.Node, base: string): Contender[] {
     }));
 }
 
-function allRoutes(children: Component.Node): boolean {
+export function allRoutes(children: Component.Node): boolean {
   const nodes = childrenOf(children);
 
   return nodes.length > 0 && nodes.every((node) => {
