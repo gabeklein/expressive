@@ -1,7 +1,6 @@
-import { act, fireEvent, render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { location, browserRouter } from '../test.setup';
+import { act, browserRouter, getByText, location, render } from '../test.setup';
 import { Link } from './link';
 import { Route } from './route';
 
@@ -63,7 +62,7 @@ function grab(props: Props) {
 async function click(a: HTMLAnchorElement, init: object = {}) {
   let result!: boolean;
   await act(async () => {
-    result = fireEvent.click(a, { button: 0, ...init });
+    result = a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...init }));
   });
   return result;
 }
@@ -77,7 +76,7 @@ describe('Link', () => {
 
   it('will render an anchor when invoked without props', () => {
     const link = grab({ to: '/about' });
-    expect(Link.prototype.render.call(link)).toMatchObject({ type: 'a' });
+    expect(link.render()).toMatchObject({ type: 'a' });
   });
 
   it.each([
@@ -270,7 +269,7 @@ describe('Link.match / Link.active', () => {
 it('will accept spread Link.Props', () => {
   location('/');
   const props: Link.Props = { to: '/about', children: 'About' };
-  const { getByText } = render(
+  render(
     <Route>
       <Link {...props} />
     </Route>

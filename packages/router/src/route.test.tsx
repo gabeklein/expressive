@@ -1,10 +1,7 @@
-import { act, render, screen } from '@testing-library/react';
-import { lazy, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import '@expressive/react';
 import { Component } from '@expressive/mvc';
 
-import { location, browserRouter, mockError, mockPromise, renderAct } from '../test.setup';
+import { act, browserRouter, getByText, location, mockError, mockPromise, render, renderAct } from '../test.setup';
 import { Route } from './route';
 import { Router } from './router';
 
@@ -14,18 +11,18 @@ const Home = () => <h1>Home</h1>;
 const Post = () => <article>id: {Route.get().match!.id}</article>;
 const text = (label: string) => () => <span>{label}</span>;
 
-const Layout = (props: { children?: ReactNode }) => <main>{props.children}</main>;
-const Chrome = (props: { children?: ReactNode }) => <main>chrome/{props.children}</main>;
+const Layout = (props: { children?: Component.Node }) => <main>{props.children}</main>;
+const Chrome = (props: { children?: Component.Node }) => <main>chrome/{props.children}</main>;
 
 /** Render an anonymous root Route over `children`, capturing it, then settle. */
-async function mount(children: ReactNode) {
+async function mount(children: Component.Node) {
   let root!: Route;
   const view = await renderAct(<Route is={(r) => void (root = r)}>{children}</Route>);
   return { root, view };
 }
 
 /** Render `ui` at `path` and return its exact text. */
-async function at(path: string, ui: ReactNode) {
+async function at(path: string, ui: Component.Node) {
   location(path);
   return (await renderAct(ui)).container.textContent;
 }
@@ -33,7 +30,7 @@ async function at(path: string, ui: ReactNode) {
 type Capture = (route: Route) => void;
 
 /** Render a leaf Route at `path` - a bare pattern, or a tree placing `is` - and return it. */
-function leafAt(path: string, ui: string | ((is: Capture) => ReactNode)) {
+function leafAt(path: string, ui: string | ((is: Capture) => Component.Node)) {
   let leaf!: Route;
   const is: Capture = (r) => void (leaf = r);
   location(path);
@@ -224,7 +221,7 @@ describe('Route', () => {
       ['will not mount a layout out of prefix', '/elsewhere', blog, ''],
       ['will not let a passthrough group block sibling selection', '/about', <Route><Route><Route to="/about" as={text('Grouped')} /></Route><Route to="/about" as={text('Sibling')} /></Route>, 'GroupedSibling'],
       ['will resolve nested Routes inside a layout via context', '/blog/hello', <Route to="/blog/*" as={Chrome}><Route to=":id" as={Post} /></Route>, 'chrome/id: hello'],
-      ['will compose bases across three levels', '/admin/users/42', <Route to="/admin/*" as={(p: { children?: ReactNode }) => <main>admin/{p.children}</main>}><Route to="users/*" as={(p: { children?: ReactNode }) => <>users/{p.children}</>}><Route to=":id" as={Post} /></Route></Route>, 'admin/users/id: 42'],
+      ['will compose bases across three levels', '/admin/users/42', <Route to="/admin/*" as={(p: { children?: Component.Node }) => <main>admin/{p.children}</main>}><Route to="users/*" as={(p: { children?: Component.Node }) => <>users/{p.children}</>}><Route to=":id" as={Post} /></Route></Route>, 'admin/users/id: 42'],
       ['will nest children of a catch-all layout at root base', '/about', <Route to="*" as={Layout}><Route to="/about" as={text('about')} /></Route>, 'about']
     ])('%s', async (_, path, ui, expected) => {
       expect(await at(path, ui)).toBe(expected);
@@ -378,7 +375,7 @@ describe('Route', () => {
       ['will catch a deep miss with an index sibling present', '/docs/a/b', indexed, 'chrome/section-404'],
       ['will resolve a real child with an index sibling present', '/docs/intro', indexed, 'chrome/detail'],
       ['will not let the section claim the index path', '/', indexed, 'index'],
-      ['will keep outer chrome when an inner section catches', '/site/docs', <Route to="site" as={(p: { children?: ReactNode }) => <div>outer/{p.children}</div>}>{docs}</Route>, 'outer/chrome/section-404'],
+      ['will keep outer chrome when an inner section catches', '/site/docs', <Route to="site" as={(p: { children?: Component.Node }) => <div>outer/{p.children}</div>}>{docs}</Route>, 'outer/chrome/section-404'],
       ['will not throw for a later sibling above the section', '/docs', <Route><Route to="docs/team" as={Chrome}><Route none as={SectionMissing} /></Route><Route to="docs" as={Index} /></Route>, 'index'],
       ['will yield to an earlier flat sibling under the section path', '/docs/team/roster', <Route><Route to="docs/team/roster" as={text('roster')} />{docs}</Route>, 'roster'],
       ['will not claim a sibling path outside the section', '/about', <Route>{docs}<Route to="about" as={text('about')} /></Route>, 'about']
@@ -435,7 +432,7 @@ describe('Route', () => {
           </>
         );
         expect(window.location.pathname).toBe('/login');
-        expect(screen.getByText('login')).toBeDefined();
+        expect(getByText('login')).toBeDefined();
       });
 
       it.each([
@@ -445,7 +442,7 @@ describe('Route', () => {
         location('/admin');
         await renderAct(<Route to="/admin" redirect={() => verdict} as={() => <h1>secret</h1>} />);
         expect(window.location.pathname).toBe('/admin');
-        expect(screen.getByText('secret')).toBeDefined();
+        expect(getByText('secret')).toBeDefined();
       });
 
       it('will not run the guard while unmatched', async () => {
@@ -458,7 +455,7 @@ describe('Route', () => {
           </>
         );
         expect(ran).toBe(0);
-        expect(screen.getByText('here')).toBeDefined();
+        expect(getByText('here')).toBeDefined();
       });
 
       it('will run the guard on a route whose own pattern has a param', async () => {
@@ -472,7 +469,7 @@ describe('Route', () => {
         );
         expect(ran).toBe(1);
         expect(window.location.pathname).toBe('/login');
-        expect(screen.getByText('login')).toBeDefined();
+        expect(getByText('login')).toBeDefined();
       });
 
       it('will guard a whole section, redirecting from a deep child path', async () => {
@@ -486,7 +483,7 @@ describe('Route', () => {
           </>
         );
         expect(window.location.pathname).toBe('/login');
-        expect(screen.getByText('login')).toBeDefined();
+        expect(getByText('login')).toBeDefined();
       });
 
       describe('async', () => {
@@ -501,11 +498,11 @@ describe('Route', () => {
               as={() => <h1>secret</h1>}
             />
           );
-          expect(screen.getByText('checking')).toBeDefined();
+          expect(getByText('checking')).toBeDefined();
 
           await act(async () => { gate.resolve(undefined); });
           expect(window.location.pathname).toBe('/admin');
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
         });
 
         it('will show fallback while pending, then redirect', async () => {
@@ -522,11 +519,11 @@ describe('Route', () => {
               <Route to="/login" as={() => <h1>login</h1>} />
             </>
           );
-          expect(screen.getByText('checking')).toBeDefined();
+          expect(getByText('checking')).toBeDefined();
 
           await act(async () => { gate.resolve('/login'); });
           expect(window.location.pathname).toBe('/login');
-          expect(screen.getByText('login')).toBeDefined();
+          expect(getByText('login')).toBeDefined();
         });
       });
 
@@ -542,10 +539,10 @@ describe('Route', () => {
             </Route>
           );
           expect(ran).toBe(1);
-          expect(screen.getByText('users')).toBeDefined();
+          expect(getByText('users')).toBeDefined();
 
           await visit('/admin/roles');
-          expect(screen.getByText('roles')).toBeDefined();
+          expect(getByText('roles')).toBeDefined();
           expect(ran).toBe(1);
         });
 
@@ -563,10 +560,10 @@ describe('Route', () => {
               <Route none as={() => <h1>missing</h1>} />
             </Route>
           );
-          expect(screen.getByText('doc')).toBeDefined();
+          expect(getByText('doc')).toBeDefined();
 
           await visit('/vault/secrets');
-          expect(screen.getByText('missing')).toBeDefined();
+          expect(getByText('missing')).toBeDefined();
           expect(seen).toEqual(['charter', 'secrets']);
         });
 
@@ -585,7 +582,7 @@ describe('Route', () => {
           expect(ran).toBe(1);
 
           await visit('/org/2/b');
-          expect(screen.getByText('tab')).toBeDefined();
+          expect(getByText('tab')).toBeDefined();
           expect(ran).toBe(2);
         });
 
@@ -602,10 +599,10 @@ describe('Route', () => {
           expect(ran).toBe(1);
 
           await visit('/elsewhere');
-          expect(screen.getByText('here')).toBeDefined();
+          expect(getByText('here')).toBeDefined();
 
           await visit('/admin');
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
           expect(ran).toBe(2);
         });
 
@@ -620,13 +617,13 @@ describe('Route', () => {
             </Route>
           );
           expect(ran).toBe(1);
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
 
           await visit('/admin/open');
-          expect(screen.getByText('open')).toBeDefined();
+          expect(getByText('open')).toBeDefined();
 
           await visit('/admin/secret');
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
           expect(ran).toBe(2);
         });
 
@@ -641,22 +638,22 @@ describe('Route', () => {
               <Route to="open" as={() => <h1>open</h1>} />
             </Route>
           );
-          expect(screen.getByText('checking')).toBeDefined();
+          expect(getByText('checking')).toBeDefined();
 
           await act(async () => gate.resolve(undefined));
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
           expect(ran).toBe(1);
 
           await visit('/admin/open');
-          expect(screen.getByText('open')).toBeDefined();
+          expect(getByText('open')).toBeDefined();
 
           gate = mockPromise<string | void>();
           await visit('/admin/secret');
-          expect(screen.getByText('open')).toBeDefined();
+          expect(getByText('open')).toBeDefined();
           expect(ran).toBe(2);
 
           await act(async () => gate.resolve(undefined));
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
         });
       });
 
@@ -700,13 +697,13 @@ describe('Route', () => {
 
           await act(async () => router.goto('/document/1'));
           await act(async () => gate.resolve('/login'));
-          expect(screen.getByText('login')).toBeDefined();
+          expect(getByText('login')).toBeDefined();
 
           await act(async () => router.goto('/'));
           gate = mockPromise();
           await act(async () => router.goto('/document/2'));
           await act(async () => gate.resolve(null));
-          expect(screen.getByText('not found')).toBeDefined();
+          expect(getByText('not found')).toBeDefined();
         });
 
         it('will mark the forfeited path on the router, cleared on navigation', async () => {
@@ -721,11 +718,11 @@ describe('Route', () => {
           );
           await act(async () => { gate.resolve(null); });
           expect(router.rejected).toBe('/document/123');
-          expect(screen.getByText('not found')).toBeDefined();
+          expect(getByText('not found')).toBeDefined();
 
           await act(async () => router.goto('/document/999'));
           expect(router.rejected === router.path).toBe(false);
-          expect(screen.getByText('doc')).toBeDefined();
+          expect(getByText('doc')).toBeDefined();
         });
 
         it('will clear the rejection when the guard later allows', async () => {
@@ -742,12 +739,12 @@ describe('Route', () => {
 
           const view = await renderAct(tree());
           expect(owner.rejected).toBe('/admin');
-          expect(screen.getByText('not found')).toBeDefined();
+          expect(getByText('not found')).toBeDefined();
 
           allow = true;
           await act(async () => view.rerender(tree()));
           expect(owner.rejected).toBe('');
-          expect(screen.getByText('secret')).toBeDefined();
+          expect(getByText('secret')).toBeDefined();
         });
 
         it('will not report a force-404\'d leaf as the active child', async () => {
@@ -843,7 +840,7 @@ describe('extends', () => {
 
   const section = (
     <Route>
-      <Route to="section/*" as={(p: { children?: ReactNode }) => <div>chrome:{p.children}</div>}>
+      <Route to="section/*" as={(p: { children?: Component.Node }) => <div>chrome:{p.children}</div>}>
         <Page to="info" as={text('info')} />
       </Route>
     </Route>
@@ -869,7 +866,7 @@ describe('extends', () => {
     it('will tolerate the layer render invoked bare', async () => {
       router.current.goto('/a');
       const { root } = await mount(<Route to="a" as={Home} />);
-      expect(Route.prototype.render.call(root)).toBeDefined();
+      expect(root.render()).toBeDefined();
     });
 
     const info = (
@@ -1063,7 +1060,7 @@ describe('none', () => {
     const { view } = await mount(
       <>
         <Route as={text('home')} />
-        <Route to="posts" as={(props: { children?: ReactNode }) => <>{props.children}</>}>
+        <Route to="posts" as={(props: { children?: Component.Node }) => <>{props.children}</>}>
           <Route to=":id" as={text('post')} />
           <Route none as={text('posts404')} />
         </Route>
@@ -1212,7 +1209,7 @@ describe('a lazy page as `as`', () => {
       <Route
         to="/posts/:id"
         fallback={<span>loading</span>}
-        as={lazy(() => module)}
+        as={() => module}
         is={(r) => { created(); route = r; }}
       />
     );
@@ -1230,7 +1227,7 @@ describe('a lazy page as `as`', () => {
     let mounted = 0;
     let child!: Route;
 
-    const Counted = (props: { children?: ReactNode }) => {
+    const Counted = (props: { children?: Component.Node }) => {
       mounted++;
       return <main>{props.children}</main>;
     };
@@ -1240,7 +1237,7 @@ describe('a lazy page as `as`', () => {
         <Route
           to="users/:id"
           fallback={<span>loading</span>}
-          as={lazy(() => module)}
+          as={() => module}
           is={(r) => void (child = r)}
         />
       </Route>
@@ -1260,7 +1257,7 @@ describe('a lazy page as `as`', () => {
     let scope!: Route;
 
     const view = await renderAct(
-      <Route to="/admin/*" fallback={<span>loading</span>} as={lazy(() => module)} is={(r) => void (scope = r)}>
+      <Route to="/admin/*" fallback={<span>loading</span>} as={() => module} is={(r) => void (scope = r)}>
         <Route to="users" as={text('users')} />
         <Route to="roles" as={text('roles')} />
       </Route>
@@ -1328,7 +1325,7 @@ describe('a lazy page as `as`', () => {
     }
 
     const view = await renderAct(
-      <Page to="/posts/:id" as={lazy(() => module)} />
+      <Page to="/posts/:id" as={() => module} />
     );
     expect(view.container.textContent).toBe('loading');
 
@@ -1347,7 +1344,7 @@ describe('a lazy page as `as`', () => {
 
     const view = await renderAct(
       <>
-        <Route to="/posts/:id" fallback={<span>loading</span>} as={lazy(() => module)} />
+        <Route to="/posts/:id" fallback={<span>loading</span>} as={() => module} />
         <Route to="/about" as={text('about')} />
       </>
     );
@@ -1370,7 +1367,7 @@ describe('deferred presentation', () => {
     const view = await renderAct(
       <>
         <Route to="/" as={Home} />
-        <Route to="/next" fallback={<span>loading</span>} as={lazy(() => module)} />
+        <Route to="/next" fallback={<span>loading</span>} as={() => module} />
       </>
     );
     expect(view.container.textContent).toBe('Home');

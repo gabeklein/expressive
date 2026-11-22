@@ -1,7 +1,7 @@
-import { act } from '@testing-library/react';
 import { expect, it } from 'vitest';
+import type { Component } from '@expressive/mvc';
 
-import { browserRouter, mockPromise, renderAct } from '../test.setup';
+import { act, browserRouter, mockPromise, renderAct } from '../test.setup';
 import { NavLinks } from './nav';
 import { Route } from './route';
 
@@ -13,7 +13,7 @@ const current = (view: any) =>
 const links = (view: any) =>
   Array.from(view.container.querySelectorAll('a')).map((a: any) => a.getAttribute('href'));
 
-const page = (Nav: typeof NavLinks = NavLinks) => ({ children }: { children?: React.ReactNode }) => (
+const page = (Nav: typeof NavLinks = NavLinks) => ({ children }: { children?: Component.Node }) => (
   <div>
     <span data-page />
     <Nav />
@@ -103,7 +103,7 @@ it('will render an anonymous group transparently', async () => {
 
 it('will wrap a group via an overridden Group slot', async () => {
   class Sectioned extends NavLinks {
-    Group({ route, children }: { route: Route; children?: React.ReactNode }) {
+    Group({ route, children }: { route: Route; children?: Component.Node }) {
       return <section data-group>{route.label}{children}</section>;
     }
   }
