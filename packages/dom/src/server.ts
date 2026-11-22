@@ -18,17 +18,10 @@ import type { Appearance } from './style/claim';
 import { serialize } from './style/declarations';
 import type { Declaration } from './style/declarations';
 import { unmatched } from './style/diagnose';
-import { reserved, serving } from './style/protocol';
+import { reserved } from './style/protocol';
+import { isBare } from './style/numeric';
 import type { Sink } from './style/protocol';
 import { attachRoots } from './style/root';
-
-const UNITLESS = new Set(
-  ('animationIterationCount aspectRatio baselineShift borderImageOutset borderImageSlice borderImageWidth columnCount ' +
-  'columns cx cy fillOpacity flex flexGrow flexShrink floodOpacity fontSizeAdjust fontWeight gridArea gridColumn ' +
-  'gridColumnEnd gridColumnStart gridRow gridRowEnd gridRowStart hyphenateLimitChars initialLetter lineHeight mathDepth ' +
-  'opacity order orphans r rx ry scale shapeImageThreshold stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit ' +
-  'strokeOpacity strokeWidth tabSize webkitBoxFlex webkitBoxOrdinalGroup webkitLineClamp widows x y zIndex zoom').split(' ')
-);
 
 const VOID = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
 const RAW = new Set(['script', 'style']);
@@ -83,7 +76,7 @@ function kebab(key: string) {
 }
 
 function camel(key: string) {
-  return key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+  return key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase()).replace(/^[A-Z]/, (char) => char.toLowerCase());
 }
 
 function contained(value: string) {
@@ -115,7 +108,7 @@ function text(declarations: Declaration) {
     if (value == null || value === '' || typeof value == 'boolean') continue;
     if (typeof value == 'number' && !Number.isFinite(value)) continue;
 
-    const css = typeof value == 'number' && value !== 0 && !key.startsWith('--') && !UNITLESS.has(camel(key)) ? `${value}px` : String(value);
+    const css = typeof value == 'number' && value !== 0 && !key.startsWith('--') && !isBare(camel(key)) ? `${value}px` : String(value);
 
     if (contained(css)) output.push(`${kebab(key)}: ${css.replace(/</g, '\\3c ')};`);
   }
@@ -148,8 +141,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
   const sink: Sink = {
     insert: (rule, index) => rules.splice(index, 0, rule),
     root: (key, css) => roots.set(key, css),
-    serialize: text,
-    unitless: (property) => UNITLESS.has(property)
+    serialize: text
   };
   const context = new Context(Context.root);
   const pass: Pass = { contexts: [context], frames: [], head: [], inline, markers, signal, sink };
@@ -236,7 +228,7 @@ async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
 
   while (true)
     try {
-      return serving(pass.sink, run);
+      return run();
     } catch (thrown) {
       if (!isThenable(thrown)) throw new Failure(thrown, index);
       await settle(thrown, pass.signal);
@@ -268,7 +260,7 @@ function scoped(context: Context, fiber: Rendered, render: () => Node) {
 }
 
 async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
-  const resolved = serving(pass.sink, () => componentProps(value.type, value.props, appearance));
+  const resolved = componentProps(value.type, value.props, appearance);
   const type = value.type as Function;
   const fiber = {
     kind: 'function',
@@ -279,11 +271,11 @@ async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appea
 
   const output = await attempt(pass, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
 
-  return walk(output, pass, context, serving(pass.sink, () => renderedAppearance(fiber)), svg);
+  return walk(output, pass, context, renderedAppearance(fiber), svg);
 }
 
 async function owned(value: VNode, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
-  const resolved = serving(pass.sink, () => componentProps(value.type, value.props, appearance));
+  const resolved = componentProps(value.type, value.props, appearance);
   const Type = value.type as new (props: unknown) => Component;
   const props = observe(resolved.props);
   const instance = new Type(props);
@@ -321,7 +313,7 @@ async function component(instance: Component, pass: Pass, context: Context, appe
 
     try {
       const output = await attempt(pass, () => scoped(child, fiber, () => unbind(proxy.render).call(proxy, fiber.props)));
-      return await walk(output, pass, child, serving(pass.sink, () => renderedAppearance(fiber)), svg);
+      return await walk(output, pass, child, renderedAppearance(fiber), svg);
     } catch (thrown) {
       if (!handler) throw thrown;
 
@@ -360,13 +352,11 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if (!TAG.test(tag)) throw new TypeError(`Invalid element name "${tag}".`);
 
-  const claimed = serving(sink, () => {
-    const resolved = appearance?.context?.resolve(props, tag);
+  const resolved = appearance?.context?.resolve(props, tag);
 
-    unmatched(props, [appearance?.context], appearance?.author, undefined, tag);
+  unmatched(props, [appearance?.context], appearance?.author, undefined, tag);
 
-    return claim(sink, appearance, resolved, props.className, props.style);
-  });
+  const claimed = claim(sink, appearance, resolved, props.className, props.style);
 
   for (const key of Object.keys(props)) {
     const next = props[key];

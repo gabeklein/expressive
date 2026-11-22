@@ -166,6 +166,17 @@ check('rotate in degrees', getComputedStyle(box).rotate, '45deg');
 check('durations in ms', getComputedStyle(box).animationDuration, '0.2s, 0s');
 check('transitions by property', `${getComputedStyle(box).transitionProperty} / ${getComputedStyle(box).transitionDuration} / ${getComputedStyle(box).transitionDelay}`, 'opacity, color / 0.3s, 0.05s / 0.1s, 0s');
 check('offset rotate in degrees', getComputedStyle(box).offsetRotate, '30deg');
+
+function Counted() {
+  return <var _count>count</var>;
+}
+
+style(Counted, { _count: { '--count': 4, zIndex: 'var(--count)' } });
+
+const counted = document.body.appendChild(document.createElement('div'));
+render(<Counted />, counted);
+
+check('custom property number stays bare', getComputedStyle(counted.querySelector('var')!).zIndex, '4');
 const [toggle, picked] = root.querySelectorAll('input');
 
 check('state beats base', getComputedStyle(toggle).color, 'rgb(11, 11, 11)');

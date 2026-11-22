@@ -75,12 +75,21 @@ const { numeric, unitless, single } = JSON.parse(out!) as Record<string, string[
 const union = (doc: string, name: string, names: string[]) =>
   [`/** ${doc} */`, `type ${name} =`, ...names.map((key, index) => `  | '${key}'${index == names.length - 1 ? ';' : ''}`), ''];
 
+const list = (doc: string, name: string, constant: string, names: string[]) =>
+  [`const ${constant} = [`, names.map((key) => `  '${key}'`).join(',\n'), `] as const;`, ``, `/** ${doc} */`, `type ${name} = typeof ${constant}[number];`, ''];
+
 const source = [
   `// Generated from Chrome by .github/scripts/numeric-properties.ts - rerun it rather than editing.`,
   ``,
   ...union('Properties where a number is valid CSS once `Css` gives it px.', 'Numeric', numeric),
-  ...union('Properties where a bare number is valid CSS.', 'Unitless', unitless),
-  ...union('Properties where a lone number is valid but a number inside a sequence is not.', 'Single', single),
+  ...list('Properties where a bare number is valid CSS.', 'Unitless', 'UNITLESS', unitless),
+  ...list('Properties where a lone number is valid but a number inside a sequence is not.', 'Single', 'SINGLE', single),
+  `/** Does the renderer write a number to this property as is, without \`px\`? */`,
+  `function isBare(property: string) {`,
+  `  return (UNITLESS as readonly string[]).includes(property) || (SINGLE as readonly string[]).includes(property);`,
+  `}`,
+  ``,
+  `export { isBare };`,
   `export type { Numeric, Single, Unitless };`,
   ``
 ].join('\n');

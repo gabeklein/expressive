@@ -119,11 +119,15 @@ describe('Css', () => {
     expect(getComputedStyle(node).animationDelay).toBe('0ms');
   });
 
-  it('will decide a property once and stay consistent', () => {
+  it('will size a number from the unitless table', () => {
     expect(glob(1, 'marginTop')).toEqual({ marginTop: '1px' });
-    expect(glob(2, 'marginTop')).toEqual({ marginTop: '2px' });
     expect(glob(3, 'zIndex')).toEqual({ zIndex: 3 });
-    expect(glob(4, 'zIndex')).toEqual({ zIndex: 4 });
+    expect(glob(2, 'readingOrder')).toEqual({ readingOrder: 2 });
+    expect(glob(1, 'flex')).toEqual({ flex: 1 });
+  });
+
+  it('will keep a number on a custom property bare', () => {
+    expect(glob(2, '--depth')).toEqual({ '--depth': 2 });
   });
 });
 
