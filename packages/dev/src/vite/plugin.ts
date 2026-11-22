@@ -9,7 +9,7 @@ import { wrap, type AppConfig, type Ctx } from "../server/config";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
-import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
+import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
 import { isCall, scoped, toNode } from "@expressive/rpc/http";
 import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
@@ -72,6 +72,17 @@ export function expressive(): Plugin<Host> {
   let build: "client" | "server" | undefined;
   let prerendering = false;
   let settings: AppConfig | undefined;
+  const scans = new Map<string, { source: string; scan: Scan }>();
+  const scanRoute: ExportScanner = async (source, path) => {
+    const hit = scans.get(path);
+    if (hit?.source === source) return hit.scan;
+
+    const scan = await scanExports(source, path);
+    scans.set(path, { source, scan });
+    return scan;
+  };
+  let routes: string | undefined;
+  const generate = () => generateRoutes(project.appDir!, generatedDir, scanRoute);
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -211,7 +222,7 @@ export function expressive(): Plugin<Host> {
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
-          return generateRoutes(project.appDir!, generatedDir, scanExports);
+          return (routes = await generate());
         case serverId:
           return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, seated(project));
         case prerenderId: {
@@ -240,7 +251,7 @@ export function expressive(): Plugin<Host> {
     configureServer(server) {
       const host = (runner = createServerModuleRunner(server.environments.ssr));
       install();
-      watchRoutes(server, project, routesId);
+      watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
       const ctx: Ctx = {
@@ -293,22 +304,33 @@ export function expressive(): Plugin<Host> {
   };
 }
 
-function watchRoutes(server: ViteDevServer, project: Project, routesId: string) {
+function watchRoutes(server: ViteDevServer, project: Project, routesId: string, stale: () => Promise<boolean>) {
   const { appDir } = project;
   if (!appDir) return;
 
   server.watcher.add(appDir);
 
-  const changed = (file: string) => {
-    if (!file.startsWith(appDir)) return;
-
+  const reload = () => {
     const mod = server.moduleGraph.getModuleById(routesId);
     if (mod) server.moduleGraph.invalidateModule(mod);
     server.ws.send({ type: "full-reload" });
   };
 
-  server.watcher.on("add", changed);
-  server.watcher.on("unlink", changed);
+  const moved = (file: string) => {
+    if (file.startsWith(appDir)) reload();
+  };
+
+  const edited = async (file: string) => {
+    if (!file.startsWith(appDir)) return;
+
+    try {
+      if (await stale()) reload();
+    } catch {}
+  };
+
+  server.watcher.on("add", moved);
+  server.watcher.on("unlink", moved);
+  server.watcher.on("change", edited);
 }
 
 function hosted() {

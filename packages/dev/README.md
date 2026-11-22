@@ -420,7 +420,7 @@ node dist/server/index.js       run the built service (port from index.ts, defau
 
 Nothing is written into the project. The shell, the client entry and the generated router module
 are virtual, addressed under `/.expressive/`. The router module regenerates when files appear or
-vanish under `app/`.
+vanish under `app/`, or an edit changes what it generates.
 
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
 adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
