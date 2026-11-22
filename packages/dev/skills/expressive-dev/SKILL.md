@@ -27,7 +27,7 @@ app/                  file-based routes
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth
 app.tsx | src/app.tsx single root component instead of app/ (default export)
-index.ts              optional server entry: export default config({ port })
+index.ts              optional server entry: export default config({ port, fetch, target })
 index.html            optional shell (#root and the entry script injected if missing)
 vite.config.ts        optional, merged under the host's
 ```
@@ -129,6 +129,47 @@ node dist/server/index.js       run the built service (port from index.ts, defau
 ```
 
 Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+
+## App routes
+
+`config({ fetch(request, env, ctx) { ... } })` in `index.ts` answers after remote calls, before static files; return nothing to fall through. Runs in the request's scope - `Current`, `Cookies` work. On Node `env` is `{}`. In dev it also sees Vite's requests (`/@vite/client`, `/.expressive/*`) - match the paths it answers.
+
+## Fetch target
+
+`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404. Static files are the host's - `config.fetch` forwards to them.
+
+- `Current.get().env` - the host's second `fetch` argument. Type it: `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`, with `@expressive/rpc` a dependency of the app.
+- Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build with what it imports.
+- Other config members join the default export (`scheduled`); named exports of `index.ts` but `bindings` are re-exported.
+- `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
+- Stateless: a remote that default-exports a seat or exports a Model class fails dev and the build. Remote functions only.
+- The bundle imports `node:async_hooks` and `node:crypto`.
+
+Cloudflare Workers with static assets, for example - `fetch` forwards to `ASSETS` and serves the shell for client routes:
+
+```ts
+// index.ts
+import { config } from "@expressive/dev/server";
+
+declare module "@expressive/rpc" { interface Env { ASSETS?: Fetcher } }
+
+export default config({
+  target: "fetch",
+  async fetch(request, env) {
+    const found = await env.ASSETS?.fetch(request); // undefined in dev - Vite answers
+    if (found?.status !== 404 || request.method !== "GET") return found;
+
+    for (const shell of ["/200", "/"]) {
+      const page = await env.ASSETS!.fetch(new URL(shell, request.url));
+      if (page.ok) return page;
+    }
+
+    return found;
+  },
+});
+```
+
+`wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 
 ## Prerendering
 
