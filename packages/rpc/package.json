@@ -62,7 +62,7 @@
     "es-module-lexer": "^1.6.0"
   },
   "peerDependencies": {
-    "@expressive/mvc": "^0.97.0",
+    "@expressive/mvc": "^0.97.1",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
