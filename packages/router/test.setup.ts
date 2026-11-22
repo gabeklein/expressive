@@ -13,21 +13,31 @@ async function settle() {
     await vi.runAllTimersAsync();
 }
 
+const mounted = new Set<() => void>();
+const logged: unknown[][] = [];
+const error = console.error;
+
+console.error = (...args: unknown[]) => {
+  logged.push(args);
+  error(...args);
+};
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 });
 
 afterEach(async () => {
-  await vi.runAllTimersAsync();
-  vi.useRealTimers();
-});
-
-const mounted = new Set<() => void>();
-
-afterEach(() => {
   mounted.forEach((unmount) => unmount());
   mounted.clear();
   document.body.innerHTML = '';
+
+  await vi.runAllTimersAsync();
+  vi.useRealTimers();
+
+  const errors = logged.splice(0);
+
+  if (errors.length)
+    throw new Error(`Unexpected console.error (use mockError() to expect one):\n${errors.map(String).join('\n')}`);
 });
 
 export { mockError, mockPromise, mockWarn } from '../mvc/test.setup';
@@ -68,15 +78,12 @@ export const location = (path: string) => window.history.replaceState(null, '', 
 /** Mount into a container on `document.body`; unmounted after each test. */
 export function render(ui: Component.Node) {
   const container = document.body.appendChild(document.createElement('div'));
-  let unmount = mount(ui, container);
+  const unmount = mount(ui, container);
 
   mounted.add(() => unmount());
 
   return {
     container,
-    rerender(next: Component.Node) {
-      unmount = mount(next, container);
-    },
     unmount() {
       unmount();
     }
