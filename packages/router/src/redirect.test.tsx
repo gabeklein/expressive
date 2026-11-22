@@ -1,7 +1,6 @@
-import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { browserRouter, location, renderAct } from '../test.setup';
+import { browserRouter, location, render, renderAct } from '../test.setup';
 import { Redirect } from './redirect';
 import { Route } from './route';
 

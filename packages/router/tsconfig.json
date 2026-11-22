@@ -11,9 +11,10 @@
     "noUnusedLocals": true,
     "sourceMap": true,
     "strict": true,
-    "types": ["react", "node"],
+    "types": ["node"],
     "paths": {
       "@expressive/mvc/*": ["../mvc/src/*"],
+      "@expressive/dom/*": ["../dom/src/*"],
       "@expressive/*": ["../*/src"]
     }
   },
