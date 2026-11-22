@@ -45,11 +45,11 @@ class Menu extends NavLinks {
     return <nav className="menu">{props.children}</nav>;
   }
 
-  Item(props: { route: Route; label?: string }) {
+  Item(props: { route: NavLinks.Entry; label?: string }) {
     return <Tab to={props.route.path}>{props.label}</Tab>;
   }
 
-  Group(props: { route: Route; children?: Component.Node }) {
+  Group(props: { route: NavLinks.Entry; children?: Component.Node }) {
     return (
       <section className="group">
         <h4>{props.route.label}</h4>
