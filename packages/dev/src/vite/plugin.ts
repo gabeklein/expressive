@@ -72,12 +72,17 @@ export function expressive(): Plugin<Host> {
   let build: "client" | "server" | undefined;
   let prerendering = false;
   let settings: AppConfig | undefined;
-  const scans = new Map<string, string>();
+  const scans = new Map<string, { source: string; scan: Scan }>();
   const scanRoute: ExportScanner = async (source, path) => {
+    const hit = scans.get(path);
+    if (hit?.source === source) return hit.scan;
+
     const scan = await scanExports(source, path);
-    scans.set(path, signature(scan));
+    scans.set(path, { source, scan });
     return scan;
   };
+  let routes: string | undefined;
+  const generate = () => generateRoutes(project.appDir!, generatedDir, scanRoute);
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -217,7 +222,7 @@ export function expressive(): Plugin<Host> {
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
-          return generateRoutes(project.appDir!, generatedDir, scanRoute);
+          return (routes = await generate());
         case serverId:
           return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, seated(project));
         case prerenderId: {
@@ -246,7 +251,7 @@ export function expressive(): Plugin<Host> {
     configureServer(server) {
       const host = (runner = createServerModuleRunner(server.environments.ssr));
       install();
-      watchRoutes(server, project, routesId, scans);
+      watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
       const ctx: Ctx = {
@@ -299,11 +304,7 @@ export function expressive(): Plugin<Host> {
   };
 }
 
-function signature(scan: Scan): string {
-  return JSON.stringify({ ...scan, exports: [...scan.exports].sort() });
-}
-
-function watchRoutes(server: ViteDevServer, project: Project, routesId: string, scans: Map<string, string>) {
+function watchRoutes(server: ViteDevServer, project: Project, routesId: string, stale: () => Promise<boolean>) {
   const { appDir } = project;
   if (!appDir) return;
 
@@ -320,11 +321,11 @@ function watchRoutes(server: ViteDevServer, project: Project, routesId: string, 
   };
 
   const edited = async (file: string) => {
-    const before = scans.get(file);
-    if (before === undefined) return;
+    if (!file.startsWith(appDir)) return;
 
-    const after = await Promise.resolve(file).then(file => scanExports(readFileSync(file, "utf8"), file)).then(signature, () => before);
-    if (after !== before) reload();
+    try {
+      if (await stale()) reload();
+    } catch {}
   };
 
   server.watcher.on("add", moved);

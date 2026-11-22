@@ -794,28 +794,37 @@ describe("vite host", () => {
     expect(sent).toEqual([{ type: "full-reload" }, { type: "full-reload" }]);
   });
 
-  it("will reload the page when an edit changes a route module's exports", async () => {
-    const root = realpathSync(project({ "app/index.tsx": PAGE, "app/helper.ts": "export const x = 1;" }));
+  it("will reload the page when an edit changes the route tree", async () => {
+    const root = realpathSync(project({
+      "app/index.tsx": PAGE,
+      "app/helper.ts": "export const x = 1;",
+    }));
     const index = join(root, "app/index.tsx");
     const server = await serve(root);
     const sent: unknown[] = [];
-    server.ws.send = ((payload: { triggeredBy?: string }) => void (payload.triggeredBy || sent.push(payload))) as any;
 
-    await server.transformRequest("/.expressive/routes.tsx");
+    server.ws.send = ((payload: { triggeredBy?: string }) =>
+      void (payload.triggeredBy || sent.push(payload))) as any;
 
-    const edit = async (source: string) => {
-      writeFileSync(index, source);
-      server.watcher.emit("change", index);
+    const edit = async (file: string, source: string) => {
+      writeFileSync(file, source);
+      server.watcher.emit("change", file);
       await new Promise(resolve => setTimeout(resolve, 50));
     };
 
-    await edit(PAGE.replace("hi", "ho"));
-    await edit("export function Page( {");
-    server.watcher.emit("change", join(root, "app/helper.ts"));
+    await edit(index, `${PAGE}\nexport const early = 1;`);
+    await server.transformRequest("/.expressive/routes.tsx");
+    await edit(index, PAGE.replace("hi", "ho"));
+    await edit(index, `${PAGE}\nexport const paths = () => [];`);
+    await edit(index, "export function Page( {");
+    await edit(join(root, "app/helper.ts"), "export const x = 2;");
+    server.watcher.emit("change", join(root, "elsewhere.ts"));
     expect(sent).toEqual([]);
 
-    await edit(`${PAGE}\nexport function Layout({ children }) { return children }`);
-    expect(sent).toEqual([{ type: "full-reload" }]);
+    writeFileSync(index, `${PAGE}\nexport function Layout({ children }) { return children }`);
+    server.watcher.emit("change", index);
+
+    await vi.waitFor(() => expect(sent).toEqual([{ type: "full-reload" }]));
     expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain("Layout as RootLayout");
   });
 
