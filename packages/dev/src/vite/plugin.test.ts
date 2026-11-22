@@ -55,6 +55,7 @@ describe("vite host", () => {
       plugins: [host],
       resolve,
       optimizeDeps: { noDiscovery: true, include: [] },
+      server: { watch: null },
     });
     servers.push(server);
     return server;
