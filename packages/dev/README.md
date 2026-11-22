@@ -53,7 +53,79 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
 `dist/server/index.js`, which serves `dist/client` and falls back to `index.html` for client routes.
-It imports `config` from `@expressive/dev/server`: `port`, and `remote.opaque` (below).
+It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch` and
+`target`.
+
+### App routes
+
+```ts
+// index.ts
+import { config } from "@expressive/dev/server";
+
+export default config({
+  async fetch(request) {
+    if (new URL(request.url).pathname === "/health") return new Response("ok");
+  },
+});
+```
+
+`fetch(request, env, ctx)` answers after remote calls and before static files; returning nothing
+falls through. It runs in the request's scope - `Current` and `Cookies` work as in a call. In dev it
+also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only the paths it
+answers. On Node, `env` is `{}`.
+
+### Deploying to a fetch host
+
+`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }` with
+every dependency bundled - for a host that calls a module's `fetch` rather than running a server. A
+request goes to remote calls, then the app's `fetch`, else 404. Static files are the host's: the
+app's `fetch` forwards to them.
+
+- `env` is the host's second `fetch` argument, and `Current.get().env` anywhere in the request.
+  Type it by extending rpc's `Env` - `declare module "@expressive/rpc" { interface Env { API_KEY:
+  string } }` - with `@expressive/rpc` a dependency of the app.
+- In dev, `export async function bindings()` in `index.ts` supplies `env`: once per server, again
+  after a throw. The build drops it - import what it needs inside it, so that goes too:
+  `export const bindings = async () => (await import("./dev-env")).env();`
+- The config's other members join the default export (a `scheduled` handler, say), and `index.ts`'s
+  named exports other than `bindings` are re-exported - listed ones only, not `export *`; export
+  types with `export type`.
+- `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
+  and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
+- Requests keep no state between them: a remote that default-exports a seat or exports a Model class
+  fails the dev server and the build. Remote functions only.
+- The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
+
+Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
+serves the shell for client routes, as the Node server does.
+
+```ts
+// index.ts
+import { config } from "@expressive/dev/server";
+
+declare module "@expressive/rpc" { interface Env { ASSETS?: Fetcher } }
+
+export default config({
+  target: "fetch",
+  async fetch(request, env) {
+    const found = await env.ASSETS?.fetch(request); // undefined in dev - Vite answers
+    if (found?.status !== 404 || request.method !== "GET") return found;
+
+    for (const shell of ["/200", "/"]) {
+      const page = await env.ASSETS!.fetch(new URL(shell, request.url));
+      if (page.ok) return page;
+    }
+
+    return found;
+  },
+});
+```
+
+`wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
+and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*",
+"!/assets/*"] }`. Without `run_worker_first`, a call posted to a path with a file (a root remote's,
+to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
+prerendered home page for client routes.
 
 ### Sidecars
 
@@ -277,7 +349,7 @@ calls can still carry the previous identity's data until the page reloads.
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
-expressive dev build            dist/client (static app) and dist/server/index.js (node service)
+expressive dev build            dist/client (static app) and dist/server/index.js (node service, or fetch handler)
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
 expressive help [command]       commands, or one command's inputs
@@ -291,7 +363,8 @@ vanish under `app/`.
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
 adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
 Server-only API - `config`, `serve`, `Current` - is `@expressive/dev/server`; the generated server
-entry imports `serve` from there.
+entry imports `serve` from there. Under `target: "fetch"` it calls `@expressive/dev/fetch` instead - the
+generated entry's runtime, not an API to call by hand.
 
 ### Prerendering
 

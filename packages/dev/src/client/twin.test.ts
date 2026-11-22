@@ -112,6 +112,12 @@ describe("call", () => {
     expect(headers(fetch, 1)["x-expressive-connection"]).toBe(headers(fetch, 0)["x-expressive-connection"]);
   });
 
+  it("will resolve a reply without a frame, as a stateless server sends", async () => {
+    serve({ body: { value: 3 } });
+
+    expect(await call(["tally"], "add", [1, 2])).toBe(3);
+  });
+
   it("will apply the frame to the tab's twins before resolving", async () => {
     const fetch = serve(
       { body: snap({ total: 0 }, "g:1") },

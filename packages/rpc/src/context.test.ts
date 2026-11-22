@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Context, get, set, Model } from "@expressive/mvc";
 
-import { construct, Current, headersOf, install, onBuild, seated, within, type Gate, type Seat } from "./context";
+import { bind, construct, Current, headersOf, install, onBuild, seated, within, type Gate, type Seat } from "./context";
 
 const request = (url = "/", cookie = "") => new Request(`http://localhost${url}`, { headers: { cookie } });
 const call = <T>(segments: string[], run: () => T) => within(request("/" + segments.join("/")), segments, run);
@@ -510,9 +510,20 @@ describe("Current", () => {
     expect(await within(new Request("http://localhost/"), [], () => Current.get().cookies)).toEqual({});
   });
 
+  it("will read the bindings given its request, else none", async () => {
+    const req = request("/");
+    const env = { DB: "db" };
+
+    bind(req, env);
+
+    expect(await within(req, [], () => Current.get().env)).toBe(env);
+    expect(await call([], () => Current.get().env)).toEqual({});
+  });
+
   it("will refuse writes", async () => {
     await call([], () => {
       const current = Current.get() as any;
+      expect(() => { current.env = {}; }).toThrow("Current is read-only.");
       expect(() => { current.request = {}; }).toThrow("Current is read-only.");
       expect(() => { current.url = {}; }).toThrow("Current is read-only.");
       expect(() => { current.cookies = {}; }).toThrow("Current is read-only.");

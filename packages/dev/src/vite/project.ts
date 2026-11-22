@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { shapeOf, type Exposure } from "./remote";
+import { shapeOf, type Exposed, type Exposure } from "./remote";
 import type { Remote } from "./routes";
 
 export interface Project {
@@ -227,6 +227,29 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
     "  sidecars: [", ...entries, "  ],",
     "  seats: [", ...seats.map(seat => `    { pattern: ${JSON.stringify(seat.pattern)}, Type: ${alias(seat.file)}.default },`), "  ],",
     "});",
+    "",
+  ].join("\n");
+}
+
+export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
+  const configSpec = JSON.stringify(importRel(from, project.configPath!));
+  const files = [...exposure.modules.keys()];
+  const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
+  const ids = (group: Exposed[], names: (remote: Exposed) => string[], id: (remote: Exposed, name: string) => string) =>
+    Object.fromEntries(group.flatMap(remote => names(remote).map(name => [id(remote, name), ref(remote, name)])));
+  const manifest = exposure.byPattern().map(group => ({
+    pattern: group[0].pattern,
+    calls: ids(group, remote => remote.calls, (remote, name) => exposure.callId(remote, name)),
+    classes: ids(group, remote => remote.errors.map(error => error.name), (remote, name) => exposure.classId(remote, name)),
+  }));
+
+  return [
+    `import { fetchHandler } from "@expressive/dev/fetch";`,
+    `import config from ${configSpec};`,
+    ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
+    `export { ${named.join(", ")} } from ${configSpec};`,
+    "",
+    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
     "",
   ].join("\n");
 }
