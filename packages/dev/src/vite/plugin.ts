@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 import { createServerModuleRunner, runnerImport, type Plugin, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
-import type { AppConfig, Ctx } from "../server/config";
+import { wrap, type AppConfig, type Ctx } from "../server/config";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
 import { isCall, scoped, toNode } from "@expressive/rpc/http";
-import { bind, dispatch, verify, type Seats } from "@expressive/rpc/protocol";
+import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
@@ -267,11 +267,13 @@ export function expressive(): Plugin<Host> {
 
         const env = config.target === "fetch" ? await bindings() : {};
 
+        const scope = { request, env, ctx };
+
         bind(request, env);
 
-        if (call) return dispatch(request, endpoints, true, seatsOf(host, project), twins);
+        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
 
-        return scoped(config).fetch!(request, env, ctx);
+        return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx));
       }));
 
       return () => {

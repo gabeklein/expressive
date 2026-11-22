@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, it, vi } from "vitest";
 import { Current, HttpError } from "@expressive/rpc";
 
@@ -62,6 +63,35 @@ describe("fetchHandler", () => {
     expect((await fetch(new Request("http://localhost/missing"), {}, ctx)).status).toBe(404);
   });
 
+  it("will run calls and the app's fetch inside around", async () => {
+    const store = new AsyncLocalStorage<string>();
+    const where = async () => store.getStore();
+    const { fetch } = fetchHandler({
+      around: (next, { request, env }) => store.run(`${new URL(request.url).pathname} ${(env as { NAME: string }).NAME}`, next),
+      fetch: async () => Response.json(await where()),
+    }, [{ where }], [{ pattern: ["tally"], calls: { where: [0, "where"] }, classes: {} }]);
+    const env = { NAME: "prod" } as object;
+
+    expect(await json(fetch(post("where", []), env))).toEqual({ value: "/tally prod" });
+    expect(await json(fetch(new Request("http://localhost/hello"), env))).toBe("/hello prod");
+  });
+
+  it("will reply what around throws as the call's error", async () => {
+    const { fetch } = fetchHandler({
+      around(next, { request }) {
+        if (request.headers.has("x-fail")) throw new Error("no session");
+        throw new Taken("no seat");
+      },
+    }, [tally, shop], manifest);
+    const failed = post("add", [1, 1]);
+    failed.headers.set("x-fail", "1");
+    const refused = await fetch(failed);
+    const taken = await fetch(post("add", [1, 1]));
+
+    expect([refused.status, await refused.json()]).toEqual([500, { message: "Internal error." }]);
+    expect([taken.status, (await taken.json()).error]).toEqual([409, "Taken"]);
+  });
+
   it("will log a rejected waitUntil where the host passes no ctx", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const late = new Error("late");
@@ -77,7 +107,7 @@ describe("fetchHandler", () => {
 
   it("will keep the config's other members, but not its settings", () => {
     const scheduled = () => {};
-    const handler = fetchHandler({ target: "fetch", port: 1, remote: { opaque: false }, fetch: async () => undefined, scheduled }, [], []);
+    const handler = fetchHandler({ target: "fetch", port: 1, remote: { opaque: false }, fetch: async () => undefined, around: next => next(), scheduled }, [], []);
 
     expect(Object.keys(handler).sort()).toEqual(["fetch", "scheduled"]);
     expect(handler.scheduled).toBe(scheduled);

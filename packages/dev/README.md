@@ -53,8 +53,8 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
 `dist/server/index.js`, which serves `dist/client` and falls back to `index.html` for client routes.
-It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch` and
-`target`.
+It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch`,
+`around` and `target`.
 
 ### App routes
 
@@ -73,6 +73,32 @@ export default config({
 falls through. It runs in the request's scope - `Current` and `Cookies` work as in a call. In dev it
 also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only the paths it
 answers. On Node, `env` is `{}`.
+
+### Request scope
+
+`around(next, scope)` wraps each remote call and the app's `fetch` on every host - Node, the
+`fetch` target and dev. Run `next` inside whatever the request needs, such as a database session,
+and resolve what it resolves. `scope` holds `request`, `env` and `ctx`. It runs around the call's
+scope, so read the request from `scope.request`, not `Current`.
+
+- With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes
+  on - in dev, Vite's too. Without one, only calls do. Twin streams skip it.
+- The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler.
+- The scope ends when `next` resolves: `ctx.waitUntil` work and a streamed body run after it.
+- A throw or rejection on a call replies as a call's error would - an error class a remote exports
+  keeps its status, anything else is a 500. On `fetch` it reaches the host, as a throw in `fetch` does.
+
+```ts
+import { config } from "@expressive/dev/server";
+import { db } from "./db";   // SQLiteConnection.new(types, "app.db")
+
+export default config({
+  around: next => db.session(next),
+});
+```
+
+With `@expressive/sql`, each request gets its own identity map. A session can also take the
+request's database as its second argument - see the fetch target below.
 
 ### Deploying to a fetch host
 
@@ -126,6 +152,30 @@ and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_fi
 "!/assets/*"] }`. Without `run_worker_first`, a call posted to a path with a file (a root remote's,
 to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
 prerendered home page for client routes.
+
+A session per request on a D1 binding there, through `around`:
+
+```ts
+import { config } from "@expressive/dev/server";
+import { db } from "./db";   // SQLiteConnection.new(types) - no source
+import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
+import { sweep } from "./jobs";
+
+export async function bindings() {
+  const { sqlite } = await import("@expressive/sql");
+  return { DB: await sqlite("local.db", { migrations: "migrations" }) };
+}
+
+export default config({
+  target: "fetch",
+  around: (next, { env }) => db.session(next, d1(env.DB)),
+  scheduled: (event, env) => db.session(() => sweep(), d1(env.DB)),
+});
+```
+
+`d1` is app code: it wraps a D1 binding in sql's `Engine` (`all`, `get`, `run`, `exec`, `close`) and
+passes an `Engine` through, so dev's `sqlite()` file - migrated on first use - serves unchanged.
+`scheduled` is outside `around`, so it opens its own session.
 
 ### Sidecars
 

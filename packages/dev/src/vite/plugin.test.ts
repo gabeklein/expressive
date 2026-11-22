@@ -808,6 +808,10 @@ describe("vite host", () => {
         target: "fetch",
         port: 8080,
         remote: { opaque: false },
+        around(next: () => Promise<unknown>, { request, env }: { request: Request; env: any }) {
+          ((globalThis as any).around ??= []).push(\`\${new URL(request.url).pathname} \${env.NAME}\`);
+          return request.headers.has("x-fail") ? Promise.reject(new Error("no session")) : next();
+        },
         async fetch(request: Request, env: any, ctx: any) {
           ctx.waitUntil(Promise.reject(new Error("late")));
           if (new URL(request.url).pathname === "/hello") return (await import("./hello")).hello(env);
@@ -863,6 +867,7 @@ describe("vite host", () => {
 
   it("will run the app's fetch in dev with its bindings, after calls and before Vite", async () => {
     (globalThis as any).hostCurrent = Current;
+    (globalThis as any).around = [];
     const server = await serve(project(FETCH));
     const error = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
     await server.listen(0);
@@ -872,11 +877,16 @@ describe("vite host", () => {
 
     const bound = await fetch(at("/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": TAB, "x-expressive-call": "bound" }, body: "[]" });
 
+    const refused = await fetch(at("/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": TAB, "x-expressive-call": "bound", "x-fail": "1" }, body: "[]" });
+
     expect(await bound.json()).toEqual({ value: "dev-only-binding", frame: {} });
+    expect([refused.status, (await refused.json()).message]).toEqual([500, "no session"]);
     expect(await (await fetch(at("/hello"))).json()).toEqual({ name: "dev-only-binding", path: "/hello" });
     expect(await (await fetch(at("/"), { headers: { accept: "text/html" } })).text()).toContain('<div id="root"></div>');
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
+    expect((globalThis as any).around.splice(0)).toEqual(["/tally dev-only-binding", "/tally dev-only-binding", "/hello dev-only-binding", "/ dev-only-binding"]);
     delete (globalThis as any).hostCurrent;
+    delete (globalThis as any).around;
   });
 
   it("will retry dev bindings that failed, and give a Node app's fetch none", async () => {
