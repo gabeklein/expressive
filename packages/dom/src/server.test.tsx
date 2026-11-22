@@ -191,13 +191,13 @@ describe('renderToString', () => {
       return <div>box</div>;
     }
 
-    styled(Box, ($) => ({ marginTop: 4, lineHeight: 1.5, opacity: 0, webkitLineClamp: 2, cssFloat: 'left', color: $.tone }));
+    styled(Box, ($) => ({ marginTop: 4, lineHeight: 1.5, opacity: 0, webkitLineClamp: 2, webkitBoxFlex: 1, readingOrder: 2, cssFloat: 'left', color: $.tone }));
 
     const { css, html } = await serve(<Box />);
 
     expect(html).toBe('<!--fragment--><!--function--><div class="Box">box</div><!--/function--><!--/fragment-->');
     expect(css).toBe(
-      '.Box{margin-top: 4px; line-height: 1.5; opacity: 0; -webkit-line-clamp: 2; float: left; color: var(--tone);}\n' +
+      '.Box{margin-top: 4px; line-height: 1.5; opacity: 0; -webkit-line-clamp: 2; -webkit-box-flex: 1; reading-order: 2; float: left; color: var(--tone);}\n' +
       ':where(:root){--tone: red;}'
     );
   });

@@ -31,7 +31,6 @@ interface Sink {
   insert(rule: string, index: number): void;
   root(key: object, css: string): void;
   serialize(declarations: Declaration): string;
-  unitless(property: string): boolean;
 }
 
 type StyleTarget = Document | ShadowRoot;
@@ -44,7 +43,6 @@ const registrations = new WeakMap<object, EnterAppearance>();
 const tokens = new WeakMap<object, ResolvedAppearance>();
 const minted = new WeakMap<ResolvedAppearance, {}>();
 let emitter: Emit | undefined;
-let active: Sink | undefined;
 const generations = new WeakMap<Target, number>();
 
 function registerAppearance(type: object, enter: EnterAppearance) {
@@ -73,21 +71,6 @@ function isSink(target: Target): target is Sink {
 
 function documentOf(target: StyleTarget): Document {
   return target.nodeType == 9 ? target as Document : target.ownerDocument!;
-}
-
-function serving<T>(sink: Sink, run: () => T): T {
-  const previous = active;
-  active = sink;
-
-  try {
-    return run();
-  } finally {
-    active = previous;
-  }
-}
-
-function sinking() {
-  return active;
 }
 
 function enterAppearance(type: Function, key?: string, parent?: AppearanceContext) {
@@ -130,8 +113,6 @@ export {
   appearanceToken,
   documentOf,
   isSink,
-  serving,
-  sinking,
   createAppearanceToken,
   emitClass,
   enterAppearance,
