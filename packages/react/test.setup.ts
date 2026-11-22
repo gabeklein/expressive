@@ -80,8 +80,8 @@ export async function collect() {
 }
 
 
-/** React behavior preact lacks - skipped when packages/preact runs this suite. */
+/** React behavior preact lacks - skipped when the compat suite runs. */
 export const reactOnly = { describe, it };
 
-/** React behavior preact handles differently - runs as `it.fails` under packages/preact. */
+/** React behavior preact handles differently - runs as `it.fails` in the compat suite. */
 export const preactDiffers = it;

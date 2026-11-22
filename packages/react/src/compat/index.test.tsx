@@ -3,7 +3,7 @@ import { act, render, screen } from '@testing-library/preact';
 import { StrictMode, Suspense } from 'preact/compat';
 import { expect, it, describe, vi } from 'vitest';
 
-import { flushMicrotasks, mockPromise } from '../test.setup';
+import { flushMicrotasks, mockPromise } from '../../test.compat.setup';
 import { Model } from '@expressive/mvc';
 import '.';
 import { Component, pending } from '@expressive/mvc';
