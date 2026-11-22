@@ -2,8 +2,6 @@ name: Preview
 
 on:
   workflow_dispatch:
-  push:
-    branches: [chore/pkg-pr-new]
 
 concurrency:
   group: preview-${{ github.ref }}
