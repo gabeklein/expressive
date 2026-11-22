@@ -19,7 +19,7 @@ tsconfig: `"jsxImportSource": "@expressive/dev"` - dom's runtime and its `Model`
 
 ```
 app/                  file-based routes
-  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, default
+  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, label, default
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the page
   blog/[slug].tsx     /blog/:slug  param leaf
@@ -41,6 +41,8 @@ Bare-named files under `app/` are support modules. Siblings match static before 
 - `Loading` - placeholder for the slot of the `Layout` beside it, for any page below still loading code, an entry hook or data, until a nested `Layout`. A page's own `Loading` covers it first. Shown on cold arrival only - in-app navigation holds the current page (`Router.get().navigating`).
 - `Catch` - error boundary for the route, given `{ error, retry }`.
 - `NotFound` - replaces the default 404 below the folder.
+- `label` - names the route for breadcrumbs (`Route.get().parent.label`). A string literal, inlined into the tree. A folder's `index.tsx` labels the folder - or the one route it collapses to, with no other routes inside.
+- `Router` - root `index.tsx` only: a subclass of `Router` from `@expressive/dev` (not router's `BrowserRouter`), mounted in its place - override `navigate()`, add methods. `Router.get()` and the subclass's `get()` both find it. Prerendering runs it without `window` - guard what touches it.
 - `default`, read by kind:
   - a function is the entry hook: runs with the Route before render, may be async; a returned string redirects, `null` falls through to the 404. Under a seat it runs after the first pull - type it `(route: Route & { remote: Seat })`.
   - a Model or Component class renders around the content (around `Layout` if present) and is provided below.
