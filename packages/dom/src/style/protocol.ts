@@ -34,7 +34,8 @@ interface Sink {
   unitless(property: string): boolean;
 }
 
-type Target = Document | ShadowRoot | Sink;
+type StyleTarget = Document | ShadowRoot;
+type Target = StyleTarget | Sink;
 
 type Emit = (block: Block, depth: number, target: Target) => string;
 
@@ -44,7 +45,7 @@ const tokens = new WeakMap<object, ResolvedAppearance>();
 const minted = new WeakMap<ResolvedAppearance, {}>();
 let emitter: Emit | undefined;
 let active: Sink | undefined;
-let generation = 0;
+const generations = new WeakMap<Target, number>();
 
 function registerAppearance(type: object, enter: EnterAppearance) {
   registrations.set(type, enter);
@@ -54,12 +55,12 @@ function registerEmitter(emit: Emit) {
   emitter = emit;
 }
 
-function reopened() {
-  generation++;
+function reopened(target: Target) {
+  generations.set(target, sheetGeneration(target) + 1);
 }
 
-function sheetGeneration() {
-  return generation;
+function sheetGeneration(target: Target) {
+  return generations.get(target) || 0;
 }
 
 function emitClass(block: Block, depth: number, target: Target) {
@@ -70,7 +71,7 @@ function isSink(target: Target): target is Sink {
   return 'insert' in target;
 }
 
-function documentOf(target: Document | ShadowRoot): Document {
+function documentOf(target: StyleTarget): Document {
   return target.nodeType == 9 ? target as Document : target.ownerDocument!;
 }
 
@@ -142,4 +143,4 @@ export {
   SUBCOMPONENT
 };
 
-export type { AppearanceContext, Block, Condition, Declaration, ResolvedAppearance, Sink, Target };
+export type { AppearanceContext, Block, Condition, Declaration, ResolvedAppearance, Sink, StyleTarget, Target };

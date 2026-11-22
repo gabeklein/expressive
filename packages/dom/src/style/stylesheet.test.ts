@@ -723,6 +723,10 @@ describe('targets', () => {
     return root.querySelector<HTMLStyleElement>('style[data-expressive=dom]');
   }
 
+  function adopted(root: ShadowRoot) {
+    return root.adoptedStyleSheets.flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText));
+  }
+
   function shadow() {
     return document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
   }
@@ -735,8 +739,54 @@ describe('targets', () => {
     const root = shadow();
     render(createElement(Inside, {}), root);
 
-    expect(sheet(root)).not.toBeNull();
+    expect(root.children).toHaveLength(1);
+    expect(adopted(root).some((rule) => rule.includes('color: red'))).toBe(true);
     expect(getComputedStyle(root.querySelector('p')!).color).toBe('red');
+  });
+
+  it('will style a shadow root whose host is detached', () => {
+    const Loose = () => createElement('p', {});
+
+    style(Loose, { color: 'teal' });
+
+    const root = document.createElement('div').attachShadow({ mode: 'open' });
+    render(createElement(Loose, {}), root);
+    document.body.append(root.host);
+
+    expect(getComputedStyle(root.querySelector('p')!).color).toBe('teal');
+  });
+
+  it('will keep a shadow root styled across renders into it', () => {
+    const Again = () => createElement('p', {});
+
+    style(Again, { color: 'navy' });
+
+    const root = shadow();
+    render(createElement(Again, {}), root);
+    render(createElement(Again, {}), root);
+
+    expect(root.adoptedStyleSheets).toHaveLength(1);
+    expect(getComputedStyle(root.querySelector('p')!).color).toBe('navy');
+  });
+
+  it('will style an update in a shadow root', async () => {
+    class Toggle extends Component {
+      on = false;
+
+      render() {
+        return createElement('p', { _on: this.on });
+      }
+    }
+
+    style(Toggle, { _on: { color: 'olive' } });
+
+    const root = shadow();
+    const [view] = [Toggle.new()];
+    render(view, root);
+    view.on = true;
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(getComputedStyle(root.querySelector('p')!).color).toBe('olive');
   });
 
   it('will style a portal into a shadow root', () => {
@@ -746,7 +796,6 @@ describe('targets', () => {
     style(Ported, { _b: { color: 'blue' } });
     place(createElement(Ported, {}));
 
-    expect(sheet(into)).not.toBeNull();
     expect(getComputedStyle(into.querySelector('b')!).color).toBe('blue');
   });
 
@@ -758,6 +807,26 @@ describe('targets', () => {
     render(createElement(Away, {}), other.body.appendChild(other.createElement('main')));
 
     expect(sheet(other)).not.toBeNull();
+  });
+
+  it('will write a variable default declared after the sheet opened', () => {
+    const Early = () => createElement('i', {});
+
+    style(Early, { color: 'red' });
+    place(createElement(Early, {}));
+
+    class Later extends Style {
+      readonly $laterHue = 'maroon';
+    }
+
+    const later = Later.use();
+    const Plain = () => createElement('i', { style: { color: 'var(--later-hue)' } });
+
+    later(Plain, {});
+
+    const node = place(createElement(Plain, {})).querySelector('i')!;
+
+    expect(getComputedStyle(node).color).toBe('maroon');
   });
 
   it('will write pack roots for a shadow root into its document', () => {
@@ -777,6 +846,7 @@ describe('targets', () => {
     expect(written.some((text) => text!.includes('--shade-hue'))).toBe(true);
     expect(getComputedStyle(root.querySelector('i')!).color).toBe('purple');
   });
+
   it('will style a fallback a late recovery draws in a shadow root', async () => {
     const Waiting = () => createElement('i', {});
 

@@ -96,11 +96,12 @@ function hide(owner: Fiber, boundary: Boundary) {
 
   owner.stash = stash;
   owner.placeholder = range('fragment', owner.end.parentNode!, owner.end, owner.childContext!);
+  owner.placeholder.target = owner.target;
   draw(owner, boundary);
 }
 
 function draw(owner: Fiber, boundary: Boundary) {
-  within(owner.target, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
+  within(owner.target!, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
 }
 
 function reveal(owner: Fiber) {

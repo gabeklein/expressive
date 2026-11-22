@@ -47,8 +47,10 @@ function mountRoot(node: RenderNode, container: Container): () => void {
   const context = new Context(Context.root);
   const fiber = range('fragment', container, null, context);
 
+  fiber.target = targetOf(container);
+
   try {
-    within(fiber.target = targetOf(container), () => pass(() => reconcile(fiber, node, context, undefined, undefined)));
+    within(fiber.target, () => pass(() => reconcile(fiber, node, context, undefined, undefined)));
   } catch (error) {
     unmountFiber(fiber);
     context.pop();
@@ -101,7 +103,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   const dehydrated = fiber.dehydrated;
   fiber.dehydrated = undefined;
 
-  const run = () => within(fiber.target, () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update()));
+  const run = () => within(fiber.target!, () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update()));
   const update = () => {
     const parent = rendering;
     rendering = fiber.type ? fiber : parent;

@@ -5,7 +5,7 @@ import type { Appearance, Claim } from '../style/claim';
 import type { Scope } from '../core/adapter';
 import { adoptRange } from './hydrate';
 import { activeTarget } from './target';
-import type { StyleTarget } from './target';
+import type { StyleTarget } from '../style/protocol';
 
 type Container = Element | DocumentFragment;
 

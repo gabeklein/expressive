@@ -1,7 +1,7 @@
 import { serialize } from './declarations';
 import type { Declaration } from './declarations';
 import { documentOf, isSink } from './protocol';
-import type { Target } from './protocol';
+import type { Sink, StyleTarget } from './protocol';
 
 interface Root {
   declarations: Declaration;
@@ -13,7 +13,7 @@ const elements = new WeakMap<Document, Map<object, HTMLStyleElement>>();
 const synced = new WeakMap<Document, number>();
 let version = 0;
 
-function rule(target: Target, { declarations, when }: Root) {
+function rule(target: Document | Sink, { declarations, when }: Root) {
   const states = when.filter((condition) => condition[0] == ':').map((state) => `:is(${state})`).join('');
   const selector = `:where(:root${states})`;
 
@@ -22,7 +22,7 @@ function rule(target: Target, { declarations, when }: Root) {
     .reduceRight((css, condition) => `${condition}{${css}}`, `${selector}{${serialize(target, declarations)}}`);
 }
 
-function write(target: Target, key: object) {
+function write(target: Document | Sink, key: object) {
   const css = groups.get(key)!
     .filter((root) => Object.keys(root.declarations).length)
     .map((root) => rule(target, root))
@@ -30,16 +30,15 @@ function write(target: Target, key: object) {
 
   if (isSink(target)) return target.root(key, css);
 
-  const document = target as Document;
-  let known = elements.get(document);
-  if (!known) elements.set(document, (known = new Map()));
+  let known = elements.get(target);
+  if (!known) elements.set(target, (known = new Map()));
 
   let element = known.get(key);
 
   if (!element?.isConnected) {
-    element = document.createElement('style');
+    element = target.createElement('style');
     element.dataset.expressive = 'root';
-    document.head.append(element);
+    target.head.append(element);
     known.set(key, element);
   }
 
@@ -51,15 +50,15 @@ function setRoot(key: object, roots: readonly Root[]) {
   version++;
 }
 
-function attachRoots(target: Target) {
-  const into = isSink(target) ? target : documentOf(target);
-
-  for (const key of groups.keys()) write(into, key);
-  if (!isSink(into)) synced.set(into, version);
+function attachRoots(target: Document | Sink) {
+  for (const key of groups.keys()) write(target, key);
+  if (!isSink(target)) synced.set(target, version);
 }
 
-function syncRoots(target: Target) {
-  if (!isSink(target) && synced.get(documentOf(target)) !== version) attachRoots(target);
+function syncRoots(target: StyleTarget) {
+  const document = documentOf(target);
+
+  if (synced.get(document) !== version) attachRoots(document);
 }
 
 export { attachRoots, setRoot, syncRoots };
