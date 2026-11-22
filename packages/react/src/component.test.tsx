@@ -41,6 +41,7 @@ reactOnly.it('will transition Component dispatch', async () => {
 
   class Control extends Component {
     value = 'a';
+    fallback = (<i>loading</i>);
 
     render() {
       if (this.value === 'b') throw gate;
@@ -51,17 +52,18 @@ reactOnly.it('will transition Component dispatch', async () => {
   let instance!: Control;
   let setLocal!: React.Dispatch<React.SetStateAction<string>>;
 
-  function View() {
+  function Local() {
     const [local, update] = React.useState('a');
     setLocal = update;
 
-    return <>{local}<Control is={(current) => void (instance = current)} /></>;
+    return <>{local}</>;
   }
 
   const view = render(
-    <Suspense fallback={<i>loading</i>}>
-      <View />
-    </Suspense>
+    <>
+      <Local />
+      <Control is={(current) => void (instance = current)} />
+    </>
   );
 
   await act(async () => {
@@ -72,8 +74,6 @@ reactOnly.it('will transition Component dispatch', async () => {
     await Promise.resolve();
   });
 
-  // Local state updates urgently - pending() scopes to mvc-driven updates - while
-  // the Component holds its own content rather than suspending to fallback.
   expect(view.container.querySelector('i')).toBeNull();
   expect(view.container.textContent).toBe('ba');
 
