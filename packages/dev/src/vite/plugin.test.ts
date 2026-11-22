@@ -794,6 +794,31 @@ describe("vite host", () => {
     expect(sent).toEqual([{ type: "full-reload" }, { type: "full-reload" }]);
   });
 
+  it("will reload the page when an edit changes a route module's exports", async () => {
+    const root = realpathSync(project({ "app/index.tsx": PAGE, "app/helper.ts": "export const x = 1;" }));
+    const index = join(root, "app/index.tsx");
+    const server = await serve(root);
+    const sent: unknown[] = [];
+    server.ws.send = ((payload: { triggeredBy?: string }) => void (payload.triggeredBy || sent.push(payload))) as any;
+
+    await server.transformRequest("/.expressive/routes.tsx");
+
+    const edit = async (source: string) => {
+      writeFileSync(index, source);
+      server.watcher.emit("change", index);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    };
+
+    await edit(PAGE.replace("hi", "ho"));
+    await edit("export function Page( {");
+    server.watcher.emit("change", join(root, "app/helper.ts"));
+    expect(sent).toEqual([]);
+
+    await edit(`${PAGE}\nexport function Layout({ children }) { return children }`);
+    expect(sent).toEqual([{ type: "full-reload" }]);
+    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain("Layout as RootLayout");
+  });
+
   it("builds the node service for a single-file project", async () => {
     const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" });
 
