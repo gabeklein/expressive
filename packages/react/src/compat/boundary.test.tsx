@@ -2,7 +2,7 @@
 import { render, screen, act } from '@testing-library/preact';
 import { vi, expect, it, describe } from 'vitest';
 
-import { mockError, mockPromise, flushMicrotasks } from '../test.setup';
+import { mockError, mockPromise, flushMicrotasks } from '../../test.compat.setup';
 import '.';
 import { Component } from '@expressive/mvc';
 

@@ -1,7 +1,7 @@
 import { Component } from '@expressive/mvc';
 import * as React from 'react';
 
-import './element';
+import { seamElements } from './element';
 import './jsx-runtime';
 
 import { Runtime } from './adapter';
@@ -24,6 +24,8 @@ Object.defineProperty(Component.prototype, '_reactInternals', {
     FIBER.set(this, weak(fiber));
   }
 });
+
+seamElements();
 
 Object.assign(Runtime, {
   idle: idle(React),

@@ -52,20 +52,32 @@ export function seam(
 /**
  * Every class the core declares renderable - `Component`, `has` lists and
  * pools, `map` collections - gets the one getter. `is` resolves a derived view
- * to its instance; a Component renders through its ownership frame, anything
- * else through `render()`.
+ * to its instance.
  */
-elements((Type) => {
-  Object.defineProperty(Type.prototype, '$$typeof', {
-    get(this: Renderable) {
-      const self = this.is;
+export function seamElements() {
+  elements((Type) => {
+    Object.defineProperty(Type.prototype, '$$typeof', {
+      get(this: Renderable) {
+        const self = this.is;
+        const type = elementType(self);
 
-      return self instanceof Component
-        ? seam(self, false, Element.bind(self), self.key)
-        : seam(self, {}, Members.bind(self), null);
-    }
+        return self instanceof Component
+          ? seam(self, false, type, self.key)
+          : seam(self, {}, type, null);
+      }
+    });
   });
-});
+}
+
+/**
+ * Host component rendering an element instance - a Component through its
+ * ownership frame, a collection through `render()`. A new function per call.
+ */
+export function elementType(from: Renderable) {
+  const self = from.is;
+
+  return self instanceof Component ? Element.bind(self) : Members.bind(self);
+}
 
 function Element(this: Component){
   const outer = useAmbient();
