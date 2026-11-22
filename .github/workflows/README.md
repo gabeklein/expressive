@@ -66,6 +66,18 @@ outside a stack, runs only `verify`: create stacks with `gh stack`.
 `verify` typechecks from scratch. Restored incremental build info re-checks
 only changed files, in an order that can surface type cycles a clean run does not.
 
+## preview.yml (manual)
+
+`publish` - `gh workflow run preview.yml --ref <branch>`. Builds the branch head
+and publishes every public package to [pkg.pr.new](https://pkg.pr.new), URLs
+pinned to the commit; the run summary lists them (`gh run view <id>`). Needs
+write access. Install `@expressive/mvc` from the same commit - it is a peer
+range, so npm's release would satisfy it otherwise. `dev` and `env` reference
+siblings through long-form URLs
+(`https://pkg.pr.new/gabeklein/expressive/@expressive/<pkg>@<sha>`); bun keys
+tarballs by URL, so add those siblings in that form or not at all, or each
+installs twice.
+
 ## major.yml (pull requests)
 
 `major` - `major-check.ts`: fails while the PR would publish a major without
