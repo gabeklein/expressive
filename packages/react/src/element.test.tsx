@@ -730,7 +730,7 @@ describe('collection element', () => {
     expect(element.container.textContent).toBe('a=x;b=y;');
   });
 
-  it.each([
+  reactOnly.it.each([
     [
       'map',
       () => map<string, Suspends>(),
