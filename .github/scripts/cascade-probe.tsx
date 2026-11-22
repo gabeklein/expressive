@@ -1,6 +1,6 @@
 /** @jsxImportSource @expressive/dom */
 import { Component } from '@expressive/mvc';
-import { Css, render } from '@expressive/dom';
+import { Css, Portal, render } from '@expressive/dom';
 
 const style = Css.use();
 
@@ -216,5 +216,22 @@ render(<><Late /><Field /></>, second);
 check('stylesheet recreated', getComputedStyle(second.querySelector('u')!).color, 'rgb(5, 5, 5)');
 second.querySelector('input')!.focus();
 check('group anchor recreated', getComputedStyle(second.querySelector('label b')!).color, 'rgb(14, 14, 14)');
+
+const host = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+render(<><Outer /><Swatch /></>, host);
+
+check('shadow root styled', getComputedStyle(host.querySelector('b')!).color, 'rgb(4, 4, 4)');
+check('shadow root reads pack variables', getComputedStyle(host.querySelector('s')!).color, 'rgb(30, 30, 30)');
+
+const away = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+
+function Ported() {
+  return <Portal into={away}><q _ported>ported</q></Portal>;
+}
+
+style(Ported, { _ported: { color: 'rgb(7, 7, 7)' } });
+render(<Ported />, document.body.appendChild(document.createElement('div')));
+
+check('portal into shadow root styled', getComputedStyle(away.querySelector('q')!).color, 'rgb(7, 7, 7)');
 
 report();
