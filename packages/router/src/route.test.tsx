@@ -525,6 +525,31 @@ describe('Route', () => {
           expect(window.location.pathname).toBe('/login');
           expect(getByText('login')).toBeDefined();
         });
+        it('will rethrow the pending verdict to a render retried before it settles', async () => {
+          location('/admin');
+          let ran = 0;
+          let route!: Route;
+          const gate = mockPromise<string | void>();
+          await renderAct(
+            <Route
+              to="/admin"
+              fallback={<h1>checking</h1>}
+              redirect={() => { ran++; return gate; }}
+              as={() => <h1>secret</h1>}
+              is={(r) => void (route = r)}
+            />
+          );
+          expect(getByText('checking')).toBeDefined();
+
+          let thrown: unknown;
+          try { route.render(); } catch (error) { thrown = error; }
+          expect(thrown).toBeInstanceOf(Promise);
+          expect(ran).toBe(1);
+
+          await act(async () => gate.resolve(undefined));
+          expect(getByText('secret')).toBeDefined();
+          expect(ran).toBe(1);
+        });
       });
 
       describe('caching', () => {
@@ -862,6 +887,13 @@ describe('extends', () => {
         return (<>{super.children}<Route none as={this.None} /></>) as any;
       }
     }
+
+    it('will run a subclass render the host pinned as a plain value', async () => {
+      class Pinned extends Route {}
+      Object.defineProperty(Pinned.prototype, 'render', { value: () => <h1>pinned</h1>, configurable: false });
+
+      expect(await at('/a', <Pinned to="a" />)).toBe('pinned');
+    });
 
     it('will tolerate the layer render invoked bare', async () => {
       router.current.goto('/a');
