@@ -379,6 +379,7 @@ function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Rem
 
 const FETCH: UserConfig = {
   environments: { ssr: { resolve: { noExternal: true } } },
+  build: { rollupOptions: { preserveEntrySignatures: "strict" } },
 };
 
 function stateless(context: { error(message: string): never }, file: string, { seat, pooled }: { seat?: unknown; pooled: { name: string }[] }) {

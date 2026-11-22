@@ -85,9 +85,11 @@ app's `fetch` forwards to them.
   Type it by extending rpc's `Env` - `declare module "@expressive/rpc" { interface Env { API_KEY:
   string } }` - with `@expressive/rpc` a dependency of the app.
 - In dev, `export async function bindings()` in `index.ts` supplies `env`: once per server, again
-  after a throw. The build drops it, with what it imports.
+  after a throw. The build drops it - import what it needs inside it, so that goes too:
+  `export const bindings = async () => (await import("./dev-env")).env();`
 - The config's other members join the default export (a `scheduled` handler, say), and `index.ts`'s
-  named exports other than `bindings` are re-exported.
+  named exports other than `bindings` are re-exported - listed ones only, not `export *`; export
+  types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
 - Requests keep no state between them: a remote that default-exports a seat or exports a Model class

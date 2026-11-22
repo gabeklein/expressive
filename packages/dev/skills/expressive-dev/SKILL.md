@@ -139,8 +139,8 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 `config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404. Static files are the host's - `config.fetch` forwards to them.
 
 - `Current.get().env` - the host's second `fetch` argument. Type it: `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`, with `@expressive/rpc` a dependency of the app.
-- Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build with what it imports.
-- Other config members join the default export (`scheduled`); named exports of `index.ts` but `bindings` are re-exported.
+- Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build - import what it needs inside it: `export const bindings = async () => (await import("./dev-env")).env();`.
+- Other config members join the default export (`scheduled`); listed named exports of `index.ts` but `bindings` are re-exported - not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
 - Stateless: a remote that default-exports a seat or exports a Model class fails dev and the build. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.

@@ -840,7 +840,7 @@ describe("vite host", () => {
     await build(quiet(serverBuild(root)));
 
     const dir = join(root, "dist/server");
-    const code = readdirSync(dir).filter(file => file.endsWith(".js")).map(file => readFileSync(join(dir, file), "utf8")).join("\n");
+    const code = readdirSync(dir, { recursive: true, encoding: "utf8" }).filter(file => /\.m?js$/.test(file)).map(file => readFileSync(join(dir, file), "utf8")).join("\n");
     const { default: handler, ...named } = await import(join(dir, "index.js"));
     const env = { NAME: "prod" };
     const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => {}) };
@@ -851,6 +851,7 @@ describe("vite host", () => {
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod", path: "/hello" });
     expect((await handler.fetch(new Request("http://localhost/tally"), undefined, ctx)).status).toBe(404);
+    expect(await (await handler.fetch(post("/tally", "bound", "[]"))).json()).toEqual({});
     expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
     expect(handler.cron(env)).toBe("prod");
     expect(Object.keys(named)).toEqual(["Counter"]);
