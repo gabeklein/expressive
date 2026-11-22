@@ -5,6 +5,14 @@ export interface Ctx {
   waitUntil(promise: Promise<unknown>): void;
 }
 
+/** What `around` gets beside the work it wraps. */
+export interface Scope {
+  request: Request;
+  /** The host's per-request bindings - `{}` on Node; in dev under the `fetch` target, `bindings()`. */
+  env: Env;
+  ctx: Ctx;
+}
+
 /** Server settings - the default export of the app's `index.ts`. */
 export interface AppConfig {
   /** Port to listen on - production defaults to 3000, dev to Vite's. Ignored by the `fetch` target. */
@@ -26,6 +34,16 @@ export interface AppConfig {
    * A body read here is gone for the static files after it - answer the request, or read a `clone()`.
    */
   fetch?(request: Request, env: Env, ctx: Ctx): Response | undefined | Promise<Response | undefined>;
+  /**
+   * Wraps each remote call and the app's `fetch` - run `next` inside and resolve what it resolves.
+   *
+   * Runs on every host and target, around the call's scope - read the request from `scope.request`, not `Current`.
+   * Static files, twin streams and other members of the default export skip it. A rejection here is the request's error.
+   *
+   * @example
+   * config({ around: next => db.session(next) });
+   */
+  around?<T>(next: () => Promise<T>, scope: Scope): Promise<T>;
 }
 
 /**
@@ -36,4 +54,9 @@ export interface AppConfig {
  */
 export function config<T extends AppConfig>(config: T): T {
   return config;
+}
+
+/** Run `next` inside the app's `around`, or alone without one. */
+export function wrap<T>(config: AppConfig, scope: Scope, next: () => Promise<T>): Promise<T> {
+  return config.around ? config.around(next, scope) : next();
 }

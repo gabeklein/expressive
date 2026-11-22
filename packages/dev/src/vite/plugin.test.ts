@@ -808,6 +808,10 @@ describe("vite host", () => {
         target: "fetch",
         port: 8080,
         remote: { opaque: false },
+        around(next: () => Promise<unknown>, { request, env }: { request: Request; env: any }) {
+          ((globalThis as any).around ??= []).push(\`\${new URL(request.url).pathname} \${env.NAME}\`);
+          return next();
+        },
         async fetch(request: Request, env: any, ctx: any) {
           ctx.waitUntil(Promise.reject(new Error("late")));
           if (new URL(request.url).pathname === "/hello") return (await import("./hello")).hello(env);
@@ -854,6 +858,7 @@ describe("vite host", () => {
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod", path: "/hello" });
     expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
+    expect((globalThis as any).around.splice(0)).toEqual(["/tally prod", "/tally prod", "/tally prod", "/hello prod", "/tally undefined", "/tally undefined"]);
     expect(handler.cron(env)).toBe("prod");
     expect(Object.keys(named)).toEqual(["Counter"]);
     expect([...new Set(imports)].sort()).toEqual(["node:async_hooks", "node:crypto"]);
@@ -876,6 +881,7 @@ describe("vite host", () => {
     expect(await (await fetch(at("/hello"))).json()).toEqual({ name: "dev-only-binding", path: "/hello" });
     expect(await (await fetch(at("/"), { headers: { accept: "text/html" } })).text()).toContain('<div id="root"></div>');
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
+    expect((globalThis as any).around.splice(0)).toEqual(["/tally dev-only-binding", "/hello dev-only-binding", "/ dev-only-binding"]);
     delete (globalThis as any).hostCurrent;
   });
 

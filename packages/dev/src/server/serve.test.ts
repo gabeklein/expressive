@@ -143,6 +143,59 @@ describe("serve", () => {
     vi.restoreAllMocks();
   });
 
+  it("will run calls and the app's fetch inside around, but not files", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { AsyncLocalStorage } = await import("node:async_hooks");
+    const store = new AsyncLocalStorage<string>();
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "index.html"), "home");
+
+    const seen: string[] = [];
+    const config = {
+      port: 0,
+      around<T>(next: () => Promise<T>, { request, env }: { request: Request; env: object }) {
+        seen.push(`${new URL(request.url).pathname} ${JSON.stringify(env)}`);
+        return store.run("inside", next);
+      },
+      async fetch(request: Request) {
+        if (new URL(request.url).pathname === "/hello") return Response.json(store.getStore());
+      },
+    };
+
+    const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
+    const server = serve({ config, client: dir, sidecars: [{ pattern: ["tally"], exports } as any] });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const call = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where" }, body: "[]" });
+
+    expect(await call.json()).toMatchObject({ value: "inside" });
+    expect(await (await fetch(base + "/hello")).json()).toBe("inside");
+    expect(await (await fetch(base + "/")).text()).toBe("home");
+    expect(seen).toEqual(["/tally {}", "/hello {}", "/ {}"]);
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
+  it("will skip around for files when the app has no fetch", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "index.html"), "home");
+
+    const around = vi.fn((next: () => Promise<unknown>) => next());
+    const server = serve({ config: { port: 0, around } as any, client: dir });
+    await new Promise(done => server.once("listening", done));
+
+    expect(await (await fetch(`http://localhost:${(server.address() as AddressInfo).port}/`)).text()).toBe("home");
+    expect(around).not.toHaveBeenCalled();
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
   it("will reply 404 with no file and no shell", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
 
