@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, it, vi } from "vitest";
 import { Current, HttpError } from "@expressive/rpc";
 
@@ -62,6 +63,22 @@ describe("fetchHandler", () => {
     expect((await fetch(new Request("http://localhost/missing"), {}, ctx)).status).toBe(404);
   });
 
+  it("will run calls and the app's fetch inside around, and reply its rejection as the call's error", async () => {
+    const store = new AsyncLocalStorage<string>();
+    const { fetch } = fetchHandler({
+      around: (next, { request, env }) =>
+        request.headers.has("x-fail") ? Promise.reject(new Error("no session")) : store.run(`${new URL(request.url).pathname} ${(env as { NAME?: string }).NAME}`, next),
+      fetch: async () => Response.json(store.getStore()),
+    }, [{ ...tally, where: async () => store.getStore() }], [{ pattern: ["tally"], calls: { where: [0, "where"] }, classes: {} }]);
+    const failed = post("where", []);
+    failed.headers.set("x-fail", "1");
+    const refused = await fetch(failed);
+
+    expect(await json(fetch(post("where", []), { NAME: "prod" } as object))).toEqual({ value: "/tally prod" });
+    expect(await json(fetch(new Request("http://localhost/hello"), { NAME: "prod" } as object))).toBe("/hello prod");
+    expect([refused.status, await refused.json()]).toEqual([500, { message: "Internal error." }]);
+  });
+
   it("will log a rejected waitUntil where the host passes no ctx", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const late = new Error("late");
@@ -77,7 +94,7 @@ describe("fetchHandler", () => {
 
   it("will keep the config's other members, but not its settings", () => {
     const scheduled = () => {};
-    const handler = fetchHandler({ target: "fetch", port: 1, remote: { opaque: false }, fetch: async () => undefined, scheduled }, [], []);
+    const handler = fetchHandler({ target: "fetch", port: 1, remote: { opaque: false }, fetch: async () => undefined, around: next => next(), scheduled }, [], []);
 
     expect(Object.keys(handler).sort()).toEqual(["fetch", "scheduled"]);
     expect(handler.scheduled).toBe(scheduled);

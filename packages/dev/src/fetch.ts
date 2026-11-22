@@ -1,8 +1,8 @@
 import type { Env } from "@expressive/rpc";
 import { isCall, scoped } from "@expressive/rpc/http";
-import { bind, dispatch, install, verify, type Endpoint } from "@expressive/rpc/protocol";
+import { bind, dispatch, failure, install, verify, type Endpoint } from "@expressive/rpc/protocol";
 
-import type { AppConfig, Ctx } from "./server/config";
+import { wrap, type AppConfig, type Ctx } from "./server/config";
 
 /** An export of a server module - its index in the module list, and its name. */
 export type Ref = [module: number, name: string];
@@ -14,14 +14,14 @@ export interface FolderRefs {
   classes: Record<string, Ref>;
 }
 
-type Handlers<T> = Omit<T, "port" | "remote" | "target" | "fetch">;
+type Handlers<T> = Omit<T, "port" | "remote" | "target" | "fetch" | "around">;
 
 /**
  * The `target: "fetch"` server - the generated `dist/server/index.js` default-exports it.
  *
- * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env`.
+ * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env` - both inside `config.around`.
  * `env` defaults to `{}`; `ctx` to a stand-in whose `waitUntil` logs a rejection.
- * Members of `config` other than `port`, `remote`, `target` and `fetch` join the result.
+ * Members of `config` other than `port`, `remote`, `target`, `fetch` and `around` join the result.
  * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */
 export function fetchHandler<T extends AppConfig>(config: T, modules: Record<string, unknown>[], manifest: FolderRefs[]): Handlers<T> & {
@@ -44,14 +44,16 @@ export function fetchHandler<T extends AppConfig>(config: T, modules: Record<str
   });
 
   const app = scoped(config);
-  const { port, remote, target, fetch: _, ...handlers } = config;
+  const { port, remote, target, fetch: _, around: __, ...handlers } = config;
 
   const later: Ctx = { waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)) };
 
   const respond = async (request: Request, env: Env, ctx: Ctx): Promise<Response> => {
-    if (isCall(request)) return dispatch(request, () => sidecars, false);
+    const scope = { request, env, ctx };
 
-    return (await app.fetch?.(request, env, ctx)) ?? new Response("Not found.", { status: 404 });
+    if (isCall(request)) return wrap(config, scope, () => dispatch(request, () => sidecars, false)).catch(error => failure(error, sidecars, false));
+
+    return (app.fetch && (await wrap(config, scope, async () => app.fetch!(request, env, ctx)))) ?? new Response("Not found.", { status: 404 });
   };
 
   return {
