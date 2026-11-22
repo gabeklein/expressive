@@ -14,13 +14,14 @@ import { depth, focus, focusing } from './render';
 import { afterFlush } from '../core/scheduler';
 import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
+import { activeTarget } from './target';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
 const attached = new WeakMap<Fiber, unknown>();
-const restoring = new WeakSet<Document>();
+const restoring = new WeakSet<Document | ShadowRoot>();
 
 function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const tag = value.type as string;
@@ -110,7 +111,7 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(element.ownerDocument, appearance, resolved, next.className, next.style);
+  const claimed = claim(activeTarget()!, appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;
@@ -141,14 +142,14 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
   }
 
   if (CONTROLS.some((key) => next[key] != null)) {
-    const document = element.ownerDocument;
+    const root = activeTarget()!;
 
     controlled.set(element, fiber);
 
-    if (!restoring.has(document)) {
-      restoring.add(document);
-      document.addEventListener('input', restoreTarget);
-      document.addEventListener('change', restoreTarget);
+    if (!restoring.has(root)) {
+      restoring.add(root);
+      root.addEventListener('input', restoreTarget);
+      root.addEventListener('change', restoreTarget);
     }
   }
 

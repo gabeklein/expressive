@@ -4,6 +4,8 @@ import type { Key, Node as RenderNode } from '../node/vnode';
 import type { Appearance, Claim } from '../style/claim';
 import type { Scope } from '../core/adapter';
 import { adoptRange } from './hydrate';
+import { activeTarget } from './target';
+import type { StyleTarget } from '../style/protocol';
 
 type Container = Element | DocumentFragment;
 
@@ -57,12 +59,13 @@ interface Fiber {
   consumed?: boolean;
   claimed?: Claim;
   dehydrated?: boolean;
+  target?: StyleTarget;
 }
 
 function range(kind: Kind, parent: globalThis.Node, before: globalThis.Node | null, context: Context): Fiber {
   const [start, end] = adoptRange(parent, before, kind);
 
-  return { kind, context, start, end, children: [] };
+  return { kind, context, start, end, children: [], target: activeTarget() };
 }
 
 function makeScope(context: Context, update: (passive: boolean) => void): Scope {

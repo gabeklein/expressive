@@ -113,9 +113,9 @@ function reuse(target: Target, resolved: ResolvedAppearance, context: Appearance
   // Reopens a removed stylesheet, so the generation below is current.
   if (known && first) emitClass(first, 0, target);
 
-  if (!known || known.generation !== sheetGeneration()) {
+  if (!known || known.generation !== sheetGeneration(target)) {
     const fresh = compose(target, resolved, [], undefined, undefined, context);
-    byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration() }));
+    byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration(target) }));
   }
 
   return known;

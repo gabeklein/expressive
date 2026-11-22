@@ -1,7 +1,7 @@
 import { serialize } from './declarations';
 import type { Declaration } from './declarations';
-import { isSink } from './protocol';
-import type { Target } from './protocol';
+import { documentOf, isSink } from './protocol';
+import type { Sink, StyleTarget } from './protocol';
 
 interface Root {
   declarations: Declaration;
@@ -9,10 +9,11 @@ interface Root {
 }
 
 const groups = new Map<object, readonly Root[]>();
-const documents = new Set<Document>();
 const elements = new WeakMap<Document, Map<object, HTMLStyleElement>>();
+const synced = new WeakMap<Document, number>();
+let version = 0;
 
-function rule(target: Target, { declarations, when }: Root) {
+function rule(target: Document | Sink, { declarations, when }: Root) {
   const states = when.filter((condition) => condition[0] == ':').map((state) => `:is(${state})`).join('');
   const selector = `:where(:root${states})`;
 
@@ -21,7 +22,7 @@ function rule(target: Target, { declarations, when }: Root) {
     .reduceRight((css, condition) => `${condition}{${css}}`, `${selector}{${serialize(target, declarations)}}`);
 }
 
-function write(target: Target, key: object) {
+function write(target: Document | Sink, key: object) {
   const css = groups.get(key)!
     .filter((root) => Object.keys(root.declarations).length)
     .map((root) => rule(target, root))
@@ -46,15 +47,19 @@ function write(target: Target, key: object) {
 
 function setRoot(key: object, roots: readonly Root[]) {
   groups.set(key, roots);
-
-  for (const document of documents) write(document, key);
+  version++;
 }
 
-function attachRoots(target: Target) {
-  if (!isSink(target)) documents.add(target);
-
+function attachRoots(target: Document | Sink) {
   for (const key of groups.keys()) write(target, key);
+  if (!isSink(target)) synced.set(target, version);
 }
 
-export { attachRoots, setRoot };
+function syncRoots(target: StyleTarget) {
+  const document = documentOf(target);
+
+  if (synced.get(document) !== version) attachRoots(document);
+}
+
+export { attachRoots, setRoot, syncRoots };
 export type { Root };

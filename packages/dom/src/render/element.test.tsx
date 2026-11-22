@@ -432,6 +432,20 @@ describe('element', () => {
     expect(input.value).toBe('ab');
   });
 
+  it('will restore a controlled value inside a shadow root', async () => {
+    const shadow = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+
+    render(<input value="fixed" onInput={() => {}} />, shadow);
+
+    const input = shadow.querySelector('input')!;
+
+    input.value = 'typed';
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    await flushMicrotasks();
+
+    expect(input.value).toBe('fixed');
+  });
+
   it('will not touch a controlled value the handler accepted', async () => {
     let writes = 0;
 

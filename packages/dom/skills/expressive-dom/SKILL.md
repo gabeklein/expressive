@@ -59,6 +59,8 @@ Events are native `addEventListener` listeners (`onClick`, `onKeyDown`, `onClick
 
 Classes use React's `className` - the DOM property name. The attribute spelling `class` is not accepted, and is ignored through untyped spreads. A string in `style` is a class token, not CSS declaration text. Treat arrays and objects as immutable render values—replace them when their contents change.
 
+Rules land in the root a tree mounts into, resolved at mount - the document head, or an adopted sheet on a shadow root (`render()` container or `Portal` target). Variable defaults go to the document and inherit into shadow roots.
+
 ### Component appearance rules
 
 Register immutable maps with `style(Component, map)`. A `_name` entry is a **rule** - a static block. Bare keys are declarations, or **macro** calls where the pack owns the name.
