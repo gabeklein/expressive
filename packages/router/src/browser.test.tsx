@@ -47,8 +47,8 @@ describe('BrowserRouter', () => {
     expect(window.history.length).toBe(before + added);
   });
 
-  it('will update path on popstate', () => {
-    act(() => {
+  it('will update path on popstate', async () => {
+    await act(() => {
       window.history.pushState(null, '', '/elsewhere');
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
@@ -58,8 +58,8 @@ describe('BrowserRouter', () => {
   it.each([
     ['will notice external history.pushState', 'pushState'],
     ['will notice external history.replaceState', 'replaceState']
-  ] as const)('%s', (_, method) => {
-    act(() => window.history[method](null, '', '/external#section'));
+  ] as const)('%s', async (_, method) => {
+    await act(() => window.history[method](null, '', '/external#section'));
     expect(router.current.path).toBe('/external');
     expect(router.current.hash).toBe('#section');
   });
@@ -72,13 +72,13 @@ describe('BrowserRouter', () => {
     expect(router.current.url).toBe('/results?q=hello#answer');
     expect(router.current.query.get('q')).toBe('hello');
 
-    act(() => window.history.pushState(null, '', '/results'));
+    await act(() => window.history.pushState(null, '', '/results'));
     expect(router.current.url).toBe('/results');
   });
 
   it('will not re-push when external navigation uses non-canonical encoding', async () => {
     const len = window.history.length;
-    act(() => window.history.pushState(null, '', '/enc?q=a%20b'));
+    await act(() => window.history.pushState(null, '', '/enc?q=a%20b'));
     await router.current.set();
 
     expect(router.current.query.get('q')).toBe('a b');
@@ -86,7 +86,7 @@ describe('BrowserRouter', () => {
   });
 
   it('will push to window.history when writing a query param', async () => {
-    act(() => router.current.goto('/page?x=1#results'));
+    await act(() => router.current.goto('/page?x=1#results'));
     router.current.query.set('x', '9');
     await router.current.set();
 
@@ -96,7 +96,7 @@ describe('BrowserRouter', () => {
   });
 
   it('will push to window.history when writing hash', async () => {
-    act(() => router.current.goto('/page?x=1#intro'));
+    await act(() => router.current.goto('/page?x=1#intro'));
     await router.current.set();
     const before = window.history.length;
 
@@ -109,8 +109,8 @@ describe('BrowserRouter', () => {
     expect(window.history.length).toBe(before + 1);
   });
 
-  it('will synchronize native hash changes', () => {
-    act(() => {
+  it('will synchronize native hash changes', async () => {
+    await act(() => {
       window.location.hash = '#native';
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
@@ -159,14 +159,14 @@ describe('BrowserRouter', () => {
 });
 
 describe('history patch', () => {
-  it('will notice external pushState after an earlier router is destroyed', () => {
+  it('will notice external pushState after an earlier router is destroyed', async () => {
     location('/');
 
     const first = new Context({ BrowserRouter });
     const second = new Context({ BrowserRouter });
 
     first.pop();
-    act(() => window.history.pushState(null, '', '/after'));
+    await act(() => window.history.pushState(null, '', '/after'));
 
     expect(second.get(BrowserRouter).path).toBe('/after');
     second.pop();
