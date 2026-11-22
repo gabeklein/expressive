@@ -84,10 +84,12 @@ const source = [
   ...union('Properties where a number is valid CSS once `Css` gives it px.', 'Numeric', numeric),
   ...list('Properties where a bare number is valid CSS.', 'Unitless', 'UNITLESS', unitless),
   ...list('Properties where a lone number is valid but a number inside a sequence is not.', 'Single', 'SINGLE', single),
-  `/** Properties the renderer writes a number to as is, without \`px\`. */`,
-  `const bare = new Set<string>([...UNITLESS, ...SINGLE]);`,
+  `/** Does the renderer write a number to this property as is, without \`px\`? */`,
+  `function isBare(property: string) {`,
+  `  return (UNITLESS as readonly string[]).includes(property) || (SINGLE as readonly string[]).includes(property);`,
+  `}`,
   ``,
-  `export { bare };`,
+  `export { isBare };`,
   `export type { Numeric, Single, Unitless };`,
   ``
 ].join('\n');
