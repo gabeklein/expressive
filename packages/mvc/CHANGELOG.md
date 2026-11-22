@@ -1,5 +1,11 @@
 # @expressive/mvc
 
+## 0.97.1
+
+### Patch Changes
+
+- [#768](https://github.com/gabeklein/expressive/pull/768) [`1116f78`](https://github.com/gabeklein/expressive/commit/1116f784670ca1e94628884904ab99f11315d261) `Model.Values` no longer fails with "circularly references itself" on classes that reference each other and inherit a getter returning a mapped type over `this`, such as an ORM entity's `columns`. A regression in 0.97.0.
+
 ## 0.97.0
 
 ### Minor Changes

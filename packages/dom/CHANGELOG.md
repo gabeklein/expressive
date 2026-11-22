@@ -1,5 +1,19 @@
 # @expressive/dom
 
+## 0.13.3
+
+### Patch Changes
+
+- [#769](https://github.com/gabeklein/expressive/pull/769) [`876715c`](https://github.com/gabeklein/expressive/commit/876715ca05858503120c901dc7836bef869906bd) A callback `ref` or `autofocus` on an element whose child suspends in a transition, as on a client navigation to a page that loads its data, now applies once the element is on the page; it was never applied. Content rendered while a boundary shows its fallback now gets its refs once revealed, not while still detached.
+
+- [#772](https://github.com/gabeklein/expressive/pull/772) [`24116ac`](https://github.com/gabeklein/expressive/commit/24116acbe624b04c81a5ce1d30d0bf2fc015b1b2) A `ref` in portal content added while its boundary shows a fallback now attaches once revealed, with the element in the document. A ref replaced while hidden no longer receives the element, and is not sent `null` for an element it never got.
+
+- [#770](https://github.com/gabeklein/expressive/pull/770) [`a0b361e`](https://github.com/gabeklein/expressive/commit/a0b361e82020797e1520b01c8826d3fb1a080f19) Re-rendering styled elements reuses resolved rules and class names instead of resolving them again - about a third faster on a styled-list benchmark.
+
+- [#771](https://github.com/gabeklein/expressive/pull/771) [`e534144`](https://github.com/gabeklein/expressive/commit/e534144a1eef8a01a6cc403ce77f37dbcfc5ef80) A `var()` shorthand followed by one of its longhands in the same rule - `font: \`700 ${$.size}/1 ${$.face}\``, then `fontSize` - no longer loses the shorthand's other parts.
+- Updated dependencies [[`1116f78`](https://github.com/gabeklein/expressive/commit/1116f784670ca1e94628884904ab99f11315d261)]:
+  - @expressive/mvc@0.97.1
+
 ## 0.13.2
 
 ### Patch Changes
