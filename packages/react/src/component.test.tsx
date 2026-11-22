@@ -661,18 +661,21 @@ describe('lazy child', () => {
     const module = mockPromise<Module>();
     const Page = React.lazy(() => module);
     const created = vi.fn();
+    let host!: Host;
 
     class Host extends Component {
       fallback = (<span>loading</span>);
+      marker = 'initial';
     }
 
     const element = render(
-      <Host is={created}>
+      <Host is={(x) => { created(); host = x; }}>
         <Page />
       </Host>
     );
 
     expect(element).toHaveText('loading');
+    host.marker = 'kept';
 
     await act(async () => {
       module.resolve({ default: () => <span>page</span> });
@@ -680,10 +683,12 @@ describe('lazy child', () => {
     });
 
     expect(element).toHaveText('page');
+    expect(element).not.toHaveText('loading');
     expect(created).toHaveBeenCalledTimes(1);
+    expect(host.marker).toBe('kept');
   });
 
-  reactOnly.it('will hold current content while a pending swap loads it', async () => {
+  reactOnly.it('will hold current content while a pending swap to a lazy child loads', async () => {
     const module = mockPromise<Module>();
     const Page = React.lazy(() => module);
     let host!: Host;
@@ -706,6 +711,7 @@ describe('lazy child', () => {
     });
 
     expect(element).toHaveText('home');
+    expect(element).not.toHaveText('loading');
 
     await act(async () => {
       module.resolve({ default: () => <span>page</span> });
