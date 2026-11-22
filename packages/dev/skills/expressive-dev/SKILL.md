@@ -136,7 +136,7 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 ## Request scope
 
-`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. With `config.fetch`, every non-call request runs inside it, including those `fetch` passes on (in dev, Vite's); without, only calls. Twin streams and the fetch target's other handlers (`scheduled`) skip it - wrap those in the handler. The scope ends when `next` resolves - `ctx.waitUntil` work and streamed bodies run after. A rejection on a call replies as a call's error.
+`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. With `config.fetch`, every non-call request runs inside it, including those `fetch` passes on (in dev, Vite's); without, only calls. Twin streams and the fetch target's other handlers (`scheduled`) skip it - wrap those in the handler. The scope ends when `next` resolves - `ctx.waitUntil` work and streamed bodies run after. A throw on a call replies as a call's error; on `fetch` it reaches the host.
 
 An `@expressive/sql` session per request (skill `expressive-sql`) - its own identity map:
 

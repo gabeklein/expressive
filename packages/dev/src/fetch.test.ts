@@ -63,20 +63,33 @@ describe("fetchHandler", () => {
     expect((await fetch(new Request("http://localhost/missing"), {}, ctx)).status).toBe(404);
   });
 
-  it("will run calls and the app's fetch inside around, and reply its rejection as the call's error", async () => {
+  it("will run calls and the app's fetch inside around", async () => {
     const store = new AsyncLocalStorage<string>();
+    const where = async () => store.getStore();
     const { fetch } = fetchHandler({
-      around: (next, { request, env }) =>
-        request.headers.has("x-fail") ? Promise.reject(new Error("no session")) : store.run(`${new URL(request.url).pathname} ${(env as { NAME?: string }).NAME}`, next),
-      fetch: async () => Response.json(store.getStore()),
-    }, [{ ...tally, where: async () => store.getStore() }], [{ pattern: ["tally"], calls: { where: [0, "where"] }, classes: {} }]);
-    const failed = post("where", []);
+      around: (next, { request, env }) => store.run(`${new URL(request.url).pathname} ${(env as { NAME: string }).NAME}`, next),
+      fetch: async () => Response.json(await where()),
+    }, [{ where }], [{ pattern: ["tally"], calls: { where: [0, "where"] }, classes: {} }]);
+    const env = { NAME: "prod" } as object;
+
+    expect(await json(fetch(post("where", []), env))).toEqual({ value: "/tally prod" });
+    expect(await json(fetch(new Request("http://localhost/hello"), env))).toBe("/hello prod");
+  });
+
+  it("will reply what around throws as the call's error", async () => {
+    const { fetch } = fetchHandler({
+      around(next, { request }) {
+        if (request.headers.has("x-fail")) throw new Error("no session");
+        throw new Taken("no seat");
+      },
+    }, [tally, shop], manifest);
+    const failed = post("add", [1, 1]);
     failed.headers.set("x-fail", "1");
     const refused = await fetch(failed);
+    const taken = await fetch(post("add", [1, 1]));
 
-    expect(await json(fetch(post("where", []), { NAME: "prod" } as object))).toEqual({ value: "/tally prod" });
-    expect(await json(fetch(new Request("http://localhost/hello"), { NAME: "prod" } as object))).toBe("/hello prod");
     expect([refused.status, await refused.json()]).toEqual([500, { message: "Internal error." }]);
+    expect([taken.status, (await taken.json()).error]).toEqual([409, "Taken"]);
   });
 
   it("will log a rejected waitUntil where the host passes no ctx", async () => {

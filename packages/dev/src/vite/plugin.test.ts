@@ -886,6 +886,7 @@ describe("vite host", () => {
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
     expect((globalThis as any).around.splice(0)).toEqual(["/tally dev-only-binding", "/tally dev-only-binding", "/hello dev-only-binding", "/ dev-only-binding"]);
     delete (globalThis as any).hostCurrent;
+    delete (globalThis as any).around;
   });
 
   it("will retry dev bindings that failed, and give a Node app's fetch none", async () => {

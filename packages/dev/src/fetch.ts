@@ -19,7 +19,8 @@ type Handlers<T> = Omit<T, "port" | "remote" | "target" | "fetch" | "around">;
 /**
  * The `target: "fetch"` server - the generated `dist/server/index.js` default-exports it.
  *
- * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env` - both inside `config.around`.
+ * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env`.
+ * Calls and `config.fetch` each run inside `config.around`.
  * `env` defaults to `{}`; `ctx` to a stand-in whose `waitUntil` logs a rejection.
  * Members of `config` other than `port`, `remote`, `target`, `fetch` and `around` join the result.
  * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.

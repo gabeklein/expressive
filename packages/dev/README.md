@@ -85,8 +85,8 @@ scope, so read the request from `scope.request`, not `Current`.
   on - in dev, Vite's too. Without one, only calls do. Twin streams skip it.
 - The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler.
 - The scope ends when `next` resolves: `ctx.waitUntil` work and a streamed body run after it.
-- A rejection on a call replies as a call's error would - an error class a remote exports keeps its
-  status, anything else is a 500.
+- A throw or rejection on a call replies as a call's error would - an error class a remote exports
+  keeps its status, anything else is a 500. On `fetch` it reaches the host, as a throw in `fetch` does.
 
 ```ts
 import { config } from "@expressive/dev/server";
