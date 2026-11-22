@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Component } from '@expressive/mvc';
+import { Component, unbind } from '@expressive/mvc';
+import { typeOf } from '@expressive/mvc/jsx-runtime';
 
-import { act, browserRouter, getByText, location, mockError, mockPromise, render, renderAct } from '../test.setup';
+import { act, browserRouter, getByText, location, mockPromise, render, renderAct } from '../test.setup';
 import { Route } from './route';
 import { Router } from './router';
 
@@ -752,22 +753,31 @@ describe('Route', () => {
 
         it('will clear the rejection when the guard later allows', async () => {
           location('/admin');
-          let allow = false;
           let owner!: Router;
-          const gate = () => (allow ? undefined : null);
-          const tree = () => (
-            <Route is={(r) => void (owner = r.router)}>
-              <Route to="admin" redirect={() => gate()} as={() => <h1>secret</h1>} />
-              <Route none as={NotFound} />
-            </Route>
-          );
+          let shell!: Shell;
 
-          const view = await renderAct(tree());
+          class Shell extends Component {
+            allow = false;
+
+            render() {
+              const { allow } = this;
+
+              return (
+                <Route is={(r) => void (owner = r.router)}>
+                  <Route to="admin" redirect={() => (allow ? undefined : null)} as={() => <h1>secret</h1>} />
+                  <Route none as={NotFound} />
+                </Route>
+              );
+            }
+          }
+
+          await renderAct(<Shell is={(s) => void (shell = s)} />);
+          const first = owner;
           expect(owner.rejected).toBe('/admin');
           expect(getByText('not found')).toBeDefined();
 
-          allow = true;
-          await act(async () => view.rerender(tree()));
+          await act(() => { shell.allow = true; });
+          expect(owner).toBe(first);
           expect(owner.rejected).toBe('');
           expect(getByText('secret')).toBeDefined();
         });
@@ -791,6 +801,16 @@ describe('Route', () => {
 });
 
 describe('extends', () => {
+  it('will run a subclass render the host pinned as a plain value', async () => {
+    class Pinned extends Route {}
+    Object.defineProperty(Pinned.prototype, 'render', {
+      value: function (this: Route) { return <h1>{this.to}</h1>; },
+      configurable: false
+    });
+
+    expect(await at('/a', <Pinned to="a" />)).toBe('a');
+  });
+
   it('will gate subclass render() on match', async () => {
     let ran = 0;
     class Profile extends Route {
@@ -888,17 +908,13 @@ describe('extends', () => {
       }
     }
 
-    it('will run a subclass render the host pinned as a plain value', async () => {
-      class Pinned extends Route {}
-      Object.defineProperty(Pinned.prototype, 'render', { value: () => <h1>pinned</h1>, configurable: false });
-
-      expect(await at('/a', <Pinned to="a" />)).toBe('pinned');
-    });
-
     it('will tolerate the layer render invoked bare', async () => {
       router.current.goto('/a');
       const { root } = await mount(<Route to="a" as={Home} />);
-      expect(root.render()).toBeDefined();
+      const { get, value } = Object.getOwnPropertyDescriptor(Route.prototype, 'render')!;
+      const layer = unbind(get || value) as () => Component.Node;
+
+      expect(typeOf(layer.call(root))).toBe(Route);
     });
 
     const info = (
@@ -1134,15 +1150,26 @@ it('will keep match identity when recompute yields equal params', async () => {
 it('will deregister a child from parent.inner on unmount', async () => {
   location('/');
   let parent!: Route;
+  let shell!: Shell;
 
-  const view = await renderAct(
-    <Route is={(r) => void (parent = r)}>
-      <Route to="a" />
-    </Route>
-  );
+  class Shell extends Component {
+    child = true;
+
+    render() {
+      return (
+        <Route is={(r) => void (parent = r)}>
+          {this.child && <Route to="a" />}
+        </Route>
+      );
+    }
+  }
+
+  await renderAct(<Shell is={(s) => void (shell = s)} />);
+  const first = parent;
   expect(parent.inner.map((r) => r.path)).toEqual(['/a']);
 
-  await act(async () => view.rerender(<Route is={(r) => void (parent = r)} />));
+  await act(() => { shell.child = false; });
+  expect(parent).toBe(first);
   expect(parent.inner).toEqual([]);
 });
 
@@ -1306,7 +1333,6 @@ describe('a lazy page as `as`', () => {
   });
 
   it('will reach the Route catch when an async redirect rejects after navigating', async () => {
-    mockError();
     location('/');
     const gate = mockPromise<string | void>();
     const failure = new Error('refused');
@@ -1340,7 +1366,6 @@ describe('a lazy page as `as`', () => {
   });
 
   it('will reach the Route catch when the module rejects', async () => {
-    mockError();
     location('/posts/foo');
     const module = mockPromise<Module>();
     const failure = new Error('chunk load failed');
