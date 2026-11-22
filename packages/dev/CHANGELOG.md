@@ -1,5 +1,20 @@
 # @expressive/dev
 
+## 0.4.0
+
+### Minor Changes
+
+- [#777](https://github.com/gabeklein/expressive/pull/777) [`fd081ec`](https://github.com/gabeklein/expressive/commit/fd081eca6f5d898eb52da67c480f9fd657270f94) `config({ around(next, { request, env, ctx }) })` wraps every remote call and the app's `fetch` on each host - Node, the `fetch` target and dev - for per-request context such as a database session: `around: next => db.session(next)`.
+
+- [#773](https://github.com/gabeklein/expressive/pull/773) [`5b5c802`](https://github.com/gabeklein/expressive/commit/5b5c8022f8d653aa35b2141e024d03c54a470971) Prerendering skips by page, not by folder. A `remote.ts` or `remote/` no longer leaves its folder and everything below it unrendered: every page renders at build, and remote stubs stop at the server there - calling a remote function or twin method, or reading a twin's values, aborts that page's render and leaves that page to the browser. A remote at the root of `app/`, shared by many screens, no longer disables prerendering for static pages beside it, and a seat no longer blocks pages under it that never read it. The build never runs server code.
+
+- [#774](https://github.com/gabeklein/expressive/pull/774) [`54a571e`](https://github.com/gabeklein/expressive/commit/54a571e8a6902e0baedd38fac03239024fb92b46) `config({ fetch })` in `index.ts` gives the app its own routes, after remote calls and before static files, in the request's scope - on Node, in a build and in `expressive dev`. `config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }` with every dependency bundled, for a host that calls a module's `fetch`: remote calls, then the app's `fetch`, else 404. Its runtime ships as `@expressive/dev/fetch`, which the generated entry calls. Static files are the host's, forwarded by the app's `fetch`. The config's other members join the default export and `index.ts`'s named exports are re-exported; a named `bindings` export supplies `env` in dev and is left out of the build. The target serves remote functions only - a remote that default-exports a seat or exports a Model class fails the dev server and the build.
+
+### Patch Changes
+
+- Updated dependencies [[`54a571e`](https://github.com/gabeklein/expressive/commit/54a571e8a6902e0baedd38fac03239024fb92b46)]:
+  - @expressive/rpc@0.5.0
+
 ## 0.3.1
 
 ### Patch Changes
