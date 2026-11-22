@@ -8,7 +8,7 @@ on the dev server.
 
 ```
 app/                  file-based routes
-  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, label, default
+  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, label, Router, default
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the "/blog" page
   blog/[slug].tsx     /blog/:slug  param leaf
@@ -41,15 +41,17 @@ it - the current page holds until the next is ready (`Router.get().navigating` m
 for arriving cold, by link or refresh. A Component or a Model with its own `fallback` keeps its
 waits to itself.
 
-`label` names the route for breadcrumbs - `Route.get().parent.label` from a page below. It must be
-a string literal (`export const label = "Blog"`): the generated tree inlines it, so a lazy module's
-label is on hand before its chunk loads. A folder's `index.tsx` labels the folder - or, with no
-other routes inside, the one route it collapses to - and a leaf labels itself.
+`label` names the route for breadcrumbs (`Route.get().parent.label`). It must be a `const` string
+literal (`export const label = "Blog"`) - the generated tree inlines it, so a lazy module's label is
+on hand before its chunk loads; anything else fails generation. A leaf labels itself, a folder's
+`index.tsx` its folder: the parent of its page, or, with no other routes inside, the one route it
+collapses to - its page's own `Route.get().label`. In dev, an edited label shows after a restart.
 
 The root `index.tsx` may export `Router`, a subclass of dev's `Router`, mounted in its place - to
 override `navigate()` for View Transitions, or add methods. Subclass dev's, not router's
 `BrowserRouter`: both `Router.get()` and the subclass's `get()` then find it, and prerendering
-records where it lands. On the server there is no `window` - guard what touches it.
+records where it lands. Prerendering constructs it and runs `new()` without `window` - guard what
+touches it there.
 
 Each route module becomes its own chunk, loaded when the route is first entered - `default`
 included - unless it is the root or exports `Loading` or `Catch`, which must be on hand before
