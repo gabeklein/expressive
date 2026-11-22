@@ -129,9 +129,20 @@ function Panel() {
 theme(Swatch, ($) => ({ color: $.ink, paddingTop: $.gap, border: ['1px', 'solid', $.ink], outlineColor: $.probeTone }));
 theme(Panel, { $ink: 'rgb(32, 32, 32)' });
 
+function Typed() {
+  return <dfn>typed</dfn>;
+}
+
+style(Typed, {
+  '--face': 'monospace',
+  '--small': '9px',
+  font: '700 var(--small)/1 var(--face)',
+  fontSize: '13px'
+});
+
 const root = document.getElementById('app')!;
 
-render(<><Outer /><Inline /><Nested /><Units /><Readout /><Toggle /><Picker /><Tip /><Field /><Keys /><Swatch /><Panel /></>, root);
+render(<><Outer /><Inline /><Nested /><Units /><Readout /><Toggle /><Picker /><Tip /><Field /><Keys /><Swatch /><Panel /><Typed /></>, root);
 
 const leaf = root.querySelector('b')!;
 const inline = root.querySelector('i')!;
@@ -163,6 +174,10 @@ check('callee state still applies under a door', getComputedStyle(picked).outlin
 check('matching media applies', getComputedStyle(toggle).letterSpacing, '2px');
 check('other media does not', getComputedStyle(toggle).wordSpacing, '0px');
 check('pseudo-element applies', getComputedStyle(root.querySelector('span[class*=Tip]')!, '::before').content, '"x"');
+
+const typed = getComputedStyle(root.querySelector('dfn')!);
+
+check('var() font shorthand keeps parts beside a longhand', `${typed.fontFamily} ${typed.fontWeight} ${typed.fontSize}`, 'monospace 700 13px');
 
 const hint = root.querySelector('label b')!;
 
