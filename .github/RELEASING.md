@@ -1,6 +1,6 @@
 # CI & Release
 
-The monorepo uses [bun](https://bun.sh) workspaces and [changesets](https://github.com/changesets/changesets). Only `@expressive/mvc` and `@expressive/react` publish; `@expressive/preact` is private and ignored by changesets.
+The monorepo uses [bun](https://bun.sh) workspaces and [changesets](https://github.com/changesets/changesets). Only `@expressive/mvc` and `@expressive/react` publish.
 
 ## Workflows
 
