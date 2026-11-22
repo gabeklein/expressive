@@ -31,14 +31,6 @@ the diff reaches it:
 
 - `dist-smoke` - any package affected. `dist-smoke.ts` (see below) on Node 24, so a dist a consumer
   cannot load fails the PR that caused it rather than the release.
-- `preview` - any package affected, same-repo PRs only. Builds the PR head and
-  publishes every public package to [pkg.pr.new](https://pkg.pr.new), commenting
-  install commands pinned to the commit. Install `@expressive/mvc` from the same
-  commit - it is a peer, left as a range, so npm's release would satisfy it
-  otherwise. `dev` and `env` depend on siblings through long-form URLs
-  (`https://pkg.pr.new/gabeklein/expressive/@expressive/<pkg>@<sha>`); bun keys
-  tarballs by URL, so add those siblings in that form or not at all, or each
-  installs twice. Needs the pkg.pr.new GitHub App. Not a required check.
 - `e2e` - `examples/` or a package it imports changed. Every example page's Playwright spec on React and dom.
 - `native` - calls `native.yml` for a PR labeled `react-native`.
 - `hot` - a package `hot-probe.ts` imports changed. `hot-probe.ts`, the hot-reload gauntlet in Chrome on React and dom.
@@ -73,6 +65,18 @@ outside a stack, runs only `verify`: create stacks with `gh stack`.
 
 `verify` typechecks from scratch. Restored incremental build info re-checks
 only changed files, in an order that can surface type cycles a clean run does not.
+
+## preview.yml (manual)
+
+`publish` - `gh workflow run preview.yml --ref <branch>`. Builds the branch head
+and publishes every public package to [pkg.pr.new](https://pkg.pr.new), URLs
+pinned to the commit; the run summary lists them (`gh run view <id>`). Needs
+write access. Install `@expressive/mvc` from the same commit - it is a peer
+range, so npm's release would satisfy it otherwise. `dev` and `env` reference
+siblings through long-form URLs
+(`https://pkg.pr.new/gabeklein/expressive/@expressive/<pkg>@<sha>`); bun keys
+tarballs by URL, so add those siblings in that form or not at all, or each
+installs twice.
 
 ## major.yml (pull requests)
 
