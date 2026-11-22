@@ -79,9 +79,14 @@ answers. On Node, `env` is `{}`.
 `around(next, scope)` wraps each remote call and the app's `fetch` on every host - Node, the
 `fetch` target and dev. Run `next` inside whatever the request needs, such as a database session,
 and resolve what it resolves. `scope` holds `request`, `env` and `ctx`. It runs around the call's
-scope, so read the request from `scope.request`, not `Current`. Static files, twin streams and the
-fetch target's other handlers skip it - wrap those in the handler. A rejection is the request's
-error.
+scope, so read the request from `scope.request`, not `Current`.
+
+- With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes
+  on - in dev, Vite's too. Without one, only calls do. Twin streams skip it.
+- The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler.
+- The scope ends when `next` resolves: `ctx.waitUntil` work and a streamed body run after it.
+- A rejection on a call replies as a call's error would - an error class a remote exports keeps its
+  status, anything else is a 500.
 
 ```ts
 import { config } from "@expressive/dev/server";
@@ -92,9 +97,8 @@ export default config({
 });
 ```
 
-With `@expressive/sql`, `db.session(next)` gives each request its own identity map, so `get` reads
-rows afresh rather than from another request's entities. A session can also take the request's
-database as its second argument - see the fetch target below.
+With `@expressive/sql`, each request gets its own identity map. A session can also take the
+request's database as its second argument - see the fetch target below.
 
 ### Deploying to a fetch host
 
@@ -155,6 +159,7 @@ A session per request on a D1 binding there, through `around`:
 import { config } from "@expressive/dev/server";
 import { db } from "./db";   // SQLiteConnection.new(types) - no source
 import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
+import { sweep } from "./jobs";
 
 export async function bindings() {
   const { sqlite } = await import("@expressive/sql");
@@ -164,11 +169,13 @@ export async function bindings() {
 export default config({
   target: "fetch",
   around: (next, { env }) => db.session(next, d1(env.DB)),
+  scheduled: (event, env) => db.session(() => sweep(), d1(env.DB)),
 });
 ```
 
 `d1` is app code: it wraps a D1 binding in sql's `Engine` (`all`, `get`, `run`, `exec`, `close`) and
 passes an `Engine` through, so dev's `sqlite()` file - migrated on first use - serves unchanged.
+`scheduled` is outside `around`, so it opens its own session.
 
 ### Sidecars
 

@@ -38,7 +38,9 @@ export interface AppConfig {
    * Wraps each remote call and the app's `fetch` - run `next` inside and resolve what it resolves.
    *
    * Runs on every host and target, around the call's scope - read the request from `scope.request`, not `Current`.
-   * Static files, twin streams and other members of the default export skip it. A rejection here is the request's error.
+   * With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes on - in dev, Vite's too.
+   * Twin streams and the default export's other members skip it. The scope ends when `next` resolves - `ctx.waitUntil` work and a streamed body run after.
+   * A rejection on a call replies as a call's error would - an error class a remote exports keeps its status.
    *
    * @example
    * config({ around: next => db.session(next) });
@@ -56,7 +58,6 @@ export function config<T extends AppConfig>(config: T): T {
   return config;
 }
 
-/** Run `next` inside the app's `around`, or alone without one. */
 export function wrap<T>(config: AppConfig, scope: Scope, next: () => Promise<T>): Promise<T> {
   return config.around ? config.around(next, scope) : next();
 }

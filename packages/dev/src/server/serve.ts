@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize } from "node:path";
 
 import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
-import { dispatch, verify, type Seat } from "@expressive/rpc/protocol";
+import { dispatch, failure, verify, type Seat } from "@expressive/rpc/protocol";
 
 import { wrap, type AppConfig, type Ctx } from "./config";
 import { install } from "./install";
@@ -76,10 +76,10 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
 
     const scope = { request, env: {}, ctx };
 
-    if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, seatAt, twins)));
+    if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, seatAt, twins)).catch(error => failure(error, sidecars, false)));
     if (isStream(request)) return send(res, stream(request));
 
-    const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, {}, ctx)));
+    const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, scope.env, ctx)));
 
     if (response) return send(res, response);
 

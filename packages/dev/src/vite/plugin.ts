@@ -11,7 +11,7 @@ import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
 import { isCall, scoped, toNode } from "@expressive/rpc/http";
-import { bind, dispatch, verify, type Seats } from "@expressive/rpc/protocol";
+import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
@@ -271,7 +271,7 @@ export function expressive(): Plugin<Host> {
 
         bind(request, env);
 
-        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins));
+        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
 
         return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx));
       }));

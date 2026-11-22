@@ -143,7 +143,7 @@ describe("serve", () => {
     vi.restoreAllMocks();
   });
 
-  it("will run calls and the app's fetch inside around, but not files", async () => {
+  it("will run calls and the app's fetch inside around, and reply a rejection as the call's error", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const { AsyncLocalStorage } = await import("node:async_hooks");
     const store = new AsyncLocalStorage<string>();
@@ -155,6 +155,7 @@ describe("serve", () => {
       port: 0,
       around<T>(next: () => Promise<T>, { request, env }: { request: Request; env: object }) {
         seen.push(`${new URL(request.url).pathname} ${JSON.stringify(env)}`);
+        if (request.headers.has("x-fail")) return Promise.reject(new Error("no session"));
         return store.run("inside", next);
       },
       async fetch(request: Request) {
@@ -167,12 +168,15 @@ describe("serve", () => {
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const call = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where" }, body: "[]" });
+    const post = (headers: Record<string, string> = {}) => fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where", ...headers }, body: "[]" });
+    const failed = await post({ "x-fail": "1" });
 
-    expect(await call.json()).toMatchObject({ value: "inside" });
+    expect(await (await post()).json()).toMatchObject({ value: "inside" });
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ message: "Internal error." });
     expect(await (await fetch(base + "/hello")).json()).toBe("inside");
     expect(await (await fetch(base + "/")).text()).toBe("home");
-    expect(seen).toEqual(["/tally {}", "/hello {}", "/ {}"]);
+    expect(seen).toEqual(["/tally {}", "/tally {}", "/hello {}", "/ {}"]);
 
     server.closeAllConnections();
     server.close();

@@ -136,7 +136,7 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 ## Request scope
 
-`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. Static files, twin streams and the fetch target's other handlers skip it - wrap those in the handler.
+`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. With `config.fetch`, every non-call request runs inside it, including those `fetch` passes on (in dev, Vite's); without, only calls. Twin streams and the fetch target's other handlers (`scheduled`) skip it - wrap those in the handler. The scope ends when `next` resolves - `ctx.waitUntil` work and streamed bodies run after. A rejection on a call replies as a call's error.
 
 An `@expressive/sql` session per request (skill `expressive-sql`) - its own identity map:
 
@@ -184,7 +184,7 @@ export default config({
 
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 
-Session on a D1 binding there: `around: (next, { env }) => db.session(next, d1(env.DB))` - `d1` is app code wrapping a D1 binding in sql's `Engine` and passing an `Engine` through; `db` has no source. Dev: `bindings()` returns `{ DB: await sqlite("local.db", { migrations: "migrations" }) }` (`sqlite` from `@expressive/sql`, imported inside `bindings`).
+Session on a D1 binding there: `around: (next, { env }) => db.session(next, d1(env.DB))` - `d1` is app code wrapping a D1 binding in sql's `Engine` and passing an `Engine` through; `db` has no source; `scheduled` opens its own: `scheduled: (event, env) => db.session(() => sweep(), d1(env.DB))`. Dev: `bindings()` returns `{ DB: await sqlite("local.db", { migrations: "migrations" }) }` (`sqlite` from `@expressive/sql`, imported inside `bindings`).
 
 ## Prerendering
 
