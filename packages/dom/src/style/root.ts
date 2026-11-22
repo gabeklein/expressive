@@ -1,6 +1,6 @@
 import { serialize } from './declarations';
 import type { Declaration } from './declarations';
-import { isSink } from './protocol';
+import { documentOf, isSink } from './protocol';
 import type { Target } from './protocol';
 
 interface Root {
@@ -9,8 +9,9 @@ interface Root {
 }
 
 const groups = new Map<object, readonly Root[]>();
-const documents = new Set<Document>();
 const elements = new WeakMap<Document, Map<object, HTMLStyleElement>>();
+const synced = new WeakMap<Document, number>();
+let version = 0;
 
 function rule(target: Target, { declarations, when }: Root) {
   const states = when.filter((condition) => condition[0] == ':').map((state) => `:is(${state})`).join('');
@@ -29,15 +30,16 @@ function write(target: Target, key: object) {
 
   if (isSink(target)) return target.root(key, css);
 
-  let known = elements.get(target);
-  if (!known) elements.set(target, (known = new Map()));
+  const document = target as Document;
+  let known = elements.get(document);
+  if (!known) elements.set(document, (known = new Map()));
 
   let element = known.get(key);
 
   if (!element?.isConnected) {
-    element = target.createElement('style');
+    element = document.createElement('style');
     element.dataset.expressive = 'root';
-    target.head.append(element);
+    document.head.append(element);
     known.set(key, element);
   }
 
@@ -46,15 +48,19 @@ function write(target: Target, key: object) {
 
 function setRoot(key: object, roots: readonly Root[]) {
   groups.set(key, roots);
-
-  for (const document of documents) write(document, key);
+  version++;
 }
 
 function attachRoots(target: Target) {
-  if (!isSink(target)) documents.add(target);
+  const into = isSink(target) ? target : documentOf(target);
 
-  for (const key of groups.keys()) write(target, key);
+  for (const key of groups.keys()) write(into, key);
+  if (!isSink(into)) synced.set(into, version);
 }
 
-export { attachRoots, setRoot };
+function syncRoots(target: Target) {
+  if (!isSink(target) && synced.get(documentOf(target)) !== version) attachRoots(target);
+}
+
+export { attachRoots, setRoot, syncRoots };
 export type { Root };

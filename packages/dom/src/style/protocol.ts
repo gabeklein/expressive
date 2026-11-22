@@ -34,7 +34,7 @@ interface Sink {
   unitless(property: string): boolean;
 }
 
-type Target = Document | Sink;
+type Target = Document | ShadowRoot | Sink;
 
 type Emit = (block: Block, depth: number, target: Target) => string;
 
@@ -68,6 +68,10 @@ function emitClass(block: Block, depth: number, target: Target) {
 
 function isSink(target: Target): target is Sink {
   return 'insert' in target;
+}
+
+function documentOf(target: Document | ShadowRoot): Document {
+  return target.nodeType == 9 ? target as Document : target.ownerDocument!;
 }
 
 function serving<T>(sink: Sink, run: () => T): T {
@@ -123,6 +127,7 @@ function appearanceToken(value: unknown) {
 
 export {
   appearanceToken,
+  documentOf,
   isSink,
   serving,
   sinking,

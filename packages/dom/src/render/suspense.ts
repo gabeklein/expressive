@@ -8,6 +8,7 @@ import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
 import { release, schedule, transition } from '../core/scheduler';
+import { within } from './target';
 
 const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();
@@ -99,7 +100,7 @@ function hide(owner: Fiber, boundary: Boundary) {
 }
 
 function draw(owner: Fiber, boundary: Boundary) {
-  reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent);
+  within(owner.target, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
 }
 
 function reveal(owner: Fiber) {

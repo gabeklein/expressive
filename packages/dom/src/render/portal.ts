@@ -10,6 +10,7 @@ import { adopt, adopted, aside, isComment, reserve } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
+import { targetOf, within } from './target';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const marker = adopt(parent, before, () => document.createComment('portal'), (node) => isComment(node, 'portal'));
@@ -35,7 +36,8 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
     children: [],
     portalContainer: container,
     portalStart,
-    portalEnd
+    portalEnd,
+    target: targetOf(container)
   };
 
   complete(output, () => {
@@ -97,7 +99,7 @@ function target(into: unknown, parent: globalThis.Node): Container {
 }
 
 function reconcilePortal(fiber: Fiber, value: RenderNode, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  reconcileChildren(fiber, fiber.portalEnd!.parentNode!, fiber.portalEnd!, value, context, boundary, appearance);
+  within(fiber.target, () => reconcileChildren(fiber, fiber.portalEnd!.parentNode!, fiber.portalEnd!, value, context, boundary, appearance));
 }
 
 function leads(props: object) {

@@ -14,6 +14,7 @@ import { depth, focus, focusing } from './render';
 import { afterFlush } from '../core/scheduler';
 import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
+import { activeTarget } from './target';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
@@ -110,7 +111,7 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(element.ownerDocument, appearance, resolved, next.className, next.style);
+  const claimed = claim(activeTarget()!, appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;
