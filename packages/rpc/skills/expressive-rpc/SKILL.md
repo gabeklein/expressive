@@ -194,7 +194,7 @@ export async function logout() {
 
 Set-Cookie reaches a browser's cookie jar on its own; a cross-origin client needs `credentials: "include"` in its `transport`.
 
-`Current` is the lower level, for adapters and libraries: `.request`, `.url`, `.cookies` (every cookie as sent, undeclared ones included) and `setHeader(name, value)` for any other reply header - the reply's own (`content-type` and the like) win; read one on the client through `configure({ reply })`.
+`Current` is the lower level, for adapters and libraries: `.request`, `.url`, `.cookies` (every cookie as sent, undeclared ones included), `.env` (the built server's second `fetch` argument, the plugin's `env` in dev, `{}` without; type it with `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`) and `setHeader(name, value)` for any other reply header - the reply's own (`content-type` and the like) win; read one on the client through `configure({ reply })`.
 
 ## Client
 

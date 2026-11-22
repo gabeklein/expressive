@@ -43,6 +43,7 @@ interface Entry {
 type Resolve = (spec: string, importer: string) => Promise<string | undefined>;
 
 interface Runtime {
+  bind: typeof import("../context").bind;
   handler: typeof import("../http/call").handler;
   route: typeof import("../route").route;
   scoped: typeof import("../http/call").scoped;
@@ -234,10 +235,10 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
 
       if (id === ENTRY && main) {
         const from = JSON.stringify(main);
-        return `import app from ${from};\nimport { scoped } from "@expressive/rpc/http";\n\nexport * from ${from};\nexport default scoped(app);\n`;
+        return `import app from ${from};\nimport { scoped } from "@expressive/rpc/http";\nimport { bind } from "@expressive/rpc/protocol";\n\nexport * from ${from};\nconst scope = scoped(app);\nconst run = scope?.fetch;\nexport default run ? Object.assign(scope, { fetch(request, env, ...rest) { if (env) bind(request, env); return run.call(scope, request, env, ...rest); } }) : scope;\n`;
       }
-      if (id === ENTRY) return `import { handle } from "@expressive/rpc/calls";\n\nexport default { async fetch(request, env) { return (await handle(request)) ?? env?.ASSETS?.fetch(request) ?? new Response("Not found.", { status: 404 }); } };\n`;
-      if (id === RUNTIME) return `export { handler, route, scoped } from "@expressive/rpc/http";\nexport { install, verify } from "@expressive/rpc/protocol";\n`;
+      if (id === ENTRY) return `import { handle } from "@expressive/rpc/calls";\nimport { bind } from "@expressive/rpc/protocol";\n\nexport default { async fetch(request, env) { if (env) bind(request, env); return (await handle(request)) ?? env?.ASSETS?.fetch(request) ?? new Response("Not found.", { status: 404 }); } };\n`;
+      if (id === RUNTIME) return `export { handler, route, scoped } from "@expressive/rpc/http";\nexport { bind, install, verify } from "@expressive/rpc/protocol";\n`;
       if (this.environment.config.consumer !== "client") return;
 
       const file = id.split("?")[0];
@@ -299,14 +300,14 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
       let installed: unknown;
 
       const runtime = async (): Promise<Runtime> => {
-        const { handler, install, route, scoped, verify } = await runner.import(RUNTIME);
+        const { bind, handler, install, route, scoped, verify } = await runner.import(RUNTIME);
 
         if (installed !== install) {
           installed = install;
           install();
         }
 
-        return { handler, route, scoped, verify };
+        return { bind, handler, route, scoped, verify };
       };
 
       const loader = async (pattern: string[]) => {
@@ -346,15 +347,20 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
         if (Reflect.get(globalThis, Symbol.for(CALLS)) === handle) Reflect.deleteProperty(globalThis, Symbol.for(CALLS));
       });
 
-      if (!main) return void server.middlewares.use(toNode(handle));
+      let bindings: Promise<object> | undefined;
+      const bound = () => (bindings ??= Promise.resolve(env?.() ?? {}));
+
+      if (!main)
+        return void server.middlewares.use(toNode(async request => {
+          (await runtime()).bind(request, await bound());
+          return handle(request);
+        }));
 
       const file = main;
       const ctx = {
         waitUntil: (promise: unknown) => void Promise.resolve(promise).catch((error: unknown) => server.config.logger.error(`${relative(root, file)} waitUntil: ${error}`)),
         passThroughOnException() {},
       };
-      let bindings: Promise<object> | undefined;
-
       server.middlewares.use(toNode(async request => {
         const { default: app }: { default?: Entry } = await runner.import(file);
 
@@ -362,8 +368,12 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
 
         // ASSETS hands the request back to Vite - marked, since the scope may rebuild the response to add cookies
         const ASSETS = { fetch: async () => new Response(null, { status: 404, headers: { [NEXT]: "1" } }) };
-        const { scoped } = await runtime();
-        const response = await scoped(app).fetch!(request, { ...(await (bindings ??= Promise.resolve(env?.() ?? {}))), ASSETS }, ctx);
+        const env = { ...(await bound()), ASSETS };
+        const { bind: bindEnv, scoped } = await runtime();
+
+        bindEnv(request, env);
+
+        const response = await scoped(app).fetch!(request, env, ctx);
 
         return response?.headers.has(NEXT) ? undefined : response;
       }));

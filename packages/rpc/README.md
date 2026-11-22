@@ -68,7 +68,7 @@ export const { api } = client<typeof Api>({ base: "/api" });
 - **Gates** - an `index.ts` default runs before every call in its folder and below: a function, whose activated Models are the call's context and refuse it if their `new()` fails, or a `Model` with `static key()`. Throw to refuse.
 - **Values** - `Date`, `BigInt`, `Map`, `Set`, `Uint8Array` and `undefined` in arrays survive the trip, tagged inside plain JSON.
 - **Cookies** - declare them as fields of a `Cookies` subclass; `AppCookies.get().session` reads this request's, `AppCookies.set({ session: id })` sends `Set-Cookie` with the reply.
-- **Request** - `Current.get().request`, `.url` and `.cookies` inside a call, and `setHeader` for its reply.
+- **Request** - `Current.get().request`, `.url`, `.cookies` and `.env` (the `env` the server's `fetch` got) inside a call, and `setHeader` for its reply.
 - **Base path** - `rpc({ base: "/api" })` serves the calls under a prefix: stubs send there and the server matches it, with nothing to strip.
 - **Addresses** - a call's place in the tree: `api/admin/users.ts#ban` posts to `/admin/users` as `ban`. Readable and stable across deploys; `rpc({ opaque: true })` seals the names in a build.
 - **Client** - `configure({ base, headers, transport, reply, errors })` for cross-origin servers, auth headers, a custom fetch or error classes to rebuild as themselves. Any call takes `.with({ signal, timeout })`: `list.with({ timeout: 5000 })()`.
