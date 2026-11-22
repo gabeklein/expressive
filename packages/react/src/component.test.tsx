@@ -41,6 +41,7 @@ reactOnly.it('will transition Component dispatch', async () => {
 
   class Control extends Component {
     value = 'a';
+    fallback = (<i>loading</i>);
 
     render() {
       if (this.value === 'b') throw gate;
@@ -49,39 +50,25 @@ reactOnly.it('will transition Component dispatch', async () => {
   }
 
   let instance!: Control;
-  let setLocal!: React.Dispatch<React.SetStateAction<string>>;
+  let settled = false;
 
-  function View() {
-    const [local, update] = React.useState('a');
-    setLocal = update;
-
-    return <>{local}<Control is={(current) => void (instance = current)} /></>;
-  }
-
-  const view = render(
-    <Suspense fallback={<i>loading</i>}>
-      <View />
-    </Suspense>
-  );
+  const view = render(<Control is={(current) => void (instance = current)} />);
 
   await act(async () => {
-    pending(() => {
-      setLocal('b');
-      instance.value = 'b';
-    });
+    pending(() => { instance.value = 'b'; }).then(() => (settled = true));
     await Promise.resolve();
   });
 
-  // Local state updates urgently - pending() scopes to mvc-driven updates - while
-  // the Component holds its own content rather than suspending to fallback.
   expect(view.container.querySelector('i')).toBeNull();
-  expect(view.container.textContent).toBe('ba');
+  expect(view.container.textContent).toBe('a');
+  expect(settled).toBe(false);
 
   instance.value = 'c';
   gate.resolve();
   await act(async () => {});
 
-  expect(view.container.textContent).toBe('bc');
+  expect(view.container.textContent).toBe('c');
+  expect(settled).toBe(true);
 });
 
 reactOnly.it('will not commit mixed revisions across repeated placement', async () => {
