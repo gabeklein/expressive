@@ -6,7 +6,7 @@ import { createServerModuleRunner, runnerImport, type Plugin, type ViteDevServer
 import type { ModuleRunner } from "vite/module-runner";
 
 import type { AppConfig } from "../server/config";
-import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_ENTRY, resolveProject, serverEntry, type Project } from "./project";
+import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
@@ -70,6 +70,7 @@ export function expressive(): Plugin<Host> {
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
+  let prerendering = false;
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -99,6 +100,7 @@ export function expressive(): Plugin<Host> {
       root = realpathSync(resolve(user.root ?? process.cwd()));
       project = resolveProject(root);
       build = env.command !== "build" ? undefined : env.isSsrBuild ? "server" : "client";
+      prerendering = user.build?.rollupOptions?.input === PRERENDER_ENTRY;
 
       const entries = project.appDir
         ? ["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*", "!app/**/remote.*", "!app/**/remote/**"]
@@ -111,7 +113,7 @@ export function expressive(): Plugin<Host> {
         optimizeDeps: { entries, include: DEPS },
         resolve: { alias: hosted() },
         environments: { ssr: { resolve: { external: SHARED } } },
-        build: env.isSsrBuild || user.build?.rollupOptions?.input === PRERENDER_ENTRY ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
+        build: env.isSsrBuild || prerendering ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
       };
     },
 
@@ -190,6 +192,8 @@ export function expressive(): Plugin<Host> {
 
       switch (id) {
         case callId:
+          if (prerendering) return PRERENDER_CALL;
+
           return [
             `import { Context, Model, def } from "@expressive/mvc";`,
             `import { Route } from "@expressive/dev";`,

@@ -317,12 +317,21 @@ export const paths = () => Object.keys(posts).map(file => `/blog/${file.split("/
 
 `paths()` is bundled with the client code, so it has no Node APIs - list from static imports,
 `import.meta.glob` or an absolute-URL `fetch`. Its paths are not checked against the routes: one
-under a skipped folder is still rendered, and one no route matches writes the 404 page.
+no route matches writes the 404 page.
 
-Every folder with a `remote.ts` or `remote/` folder is skipped, along with everything below it:
-those pages stay client-rendered, and the build never runs server code. A page that redirects,
-renders nothing, throws or takes over 30 seconds is skipped with a warning. Keep each `remote.ts`
-in the deepest folder that uses it: one at the root of `app/` leaves the whole app unrendered.
+A page that needs the server while it renders stays client-rendered, wherever its `remote.ts` or
+`remote/` sits, and the build never runs server code. In the build, remote stubs stop at the server:
+calling a remote function or a twin's method, or reading a twin's values, aborts that page's render
+and leaves that page to the browser, counted in the build's summary. So a `remote/` at the root of
+`app/`, shared by many screens, still lets `/privacy` and `/terms` prerender, while a dashboard that
+loads its data on render does not.
+
+- A call from `new()` counts; one from an event handler or effect never runs.
+- A seat is built without a pull. Pages under it render until one reads it, and an entry hook or
+  `Layout` that reads it, or calls the server, leaves every page below it to the browser.
+- A `paths()` that calls the server lists nothing.
+
+A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
 
 `new()` runs during the render and effects never do, so DOM listeners and browser-only reads
 belong in effects; `typeof window` tells the build apart, since `import.meta.env.SSR` is false

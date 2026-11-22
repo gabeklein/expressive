@@ -41,12 +41,15 @@ function built(files: Record<string, string>, shell = SHELL) {
   return root;
 }
 
-function renderer(render: (path: string) => Partial<Page>, listed: string[] = []) {
+function renderer(render: (path: string) => Partial<Page> | null, listed: string[] = []) {
   const close = vi.fn();
 
   launch.mockResolvedValueOnce({
     paths: async () => listed,
-    render: async (path: string) => ({ path, html: path, css: "", head: "", ...render(path) }),
+    render: async (path: string) => {
+      const page = render(path);
+      return page && { path, html: path, css: "", head: "", ...page };
+    },
     close,
   });
 
@@ -71,10 +74,11 @@ describe("prerender", () => {
   });
 
   it("will leave a page that moves, renders nothing or fails to the client", async () => {
-    const root = built({ "app/(a).tsx": PAGE, "app/(b).tsx": PAGE, "app/(c).tsx": PAGE, "app/(d).tsx": PAGE });
+    const root = built({ "app/(a).tsx": PAGE, "app/(b).tsx": PAGE, "app/(c).tsx": PAGE, "app/(d).tsx": PAGE, "app/(e).tsx": PAGE });
 
     renderer(path => {
       if (path == "/a") return { path: "/" };
+      if (path == "/e") return null;
       if (path == "/b") return { html: "<!--fragment--> <!--/fragment-->" };
       if (path == "/c") throw new Error("broke");
       return {};
@@ -91,7 +95,7 @@ describe("prerender", () => {
       "/%E0%A4%A is not an absolute path - not prerendered.",
       "7 is not an absolute path - not prerendered.",
     ]);
-    expect(log).toHaveBeenCalledWith("Prerendered 1 page.");
+    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 needs the server and renders in the browser.");
   });
 
   it("will render a path encoded, as a browser reports it, into its decoded folder", async () => {
@@ -107,8 +111,18 @@ describe("prerender", () => {
     expect(launch).toHaveBeenCalledWith(root, { pretty: true });
   });
 
-  it("will not bundle the app when no page can be rendered", async () => {
-    const root = built({ "app/index.tsx": PAGE, "app/remote.ts": "export async function add() {}" });
+  it("will render pages beside a root remote, leaving those that call it to the client quietly", async () => {
+    const root = built({ "app/remote.ts": "export async function user() {}", "app/index.tsx": PAGE, "app/(a).tsx": PAGE, "app/(b).tsx": PAGE });
+
+    renderer(path => (path == "/" ? {} : null));
+
+    expect(await prerender(root)).toEqual(["/"]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 2 need the server and render in the browser.");
+  });
+
+  it("will not bundle the app when it has no page", async () => {
+    const root = built({ "app/index.tsx": "export const x = 1;", "app/remote.ts": "export async function add() {}" });
 
     expect(await prerender(root)).toEqual([]);
     expect(launch).not.toHaveBeenCalled();

@@ -54,9 +54,9 @@ describe("launch", { timeout: 30_000 }, () => {
     const renderer = await launch(root);
 
     expect(await renderer.paths()).toEqual(["/blog/a", "/blog/b"]);
-    expect((await renderer.render("/blog/b")).html).toContain("<h3>b</h3>");
+    expect((await renderer.render("/blog/b"))!.html).toContain("<h3>b</h3>");
 
-    const about = await renderer.render("/about");
+    const about = (await renderer.render("/about"))!;
 
     expect(about).toMatchObject({ path: "/about", css: ".Layout{color: teal;}", head: "<title>Site</title>" });
     expect(about.html).toMatch(/<main class="Layout">.*<h2>about<\/h2>.*<\/main>/);
@@ -78,11 +78,76 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
+  it("will render pages beside a root remote and return null for one whose render calls it", async () => {
+    const root = project({
+      "app/remote.ts": `
+        import { Model } from "@expressive/mvc";
+        export async function user() { return "ada"; }
+        export async function slugs() { return ["a"]; }
+        export default class Site extends Model { visits = 0; async visit() {} }
+      `,
+      "app/index.tsx": `
+        import { Component, get } from "@expressive/mvc";
+        import Site from "./remote";
+        export class Page extends Component { site = get(Site); render() { return <button onClick={() => this.site.visit()}>home</button>; } }
+      `,
+      "app/(account).tsx": `
+        import { Component, set } from "@expressive/mvc";
+        import { user } from "./remote";
+        export class Page extends Component { name = set(() => user()); render() { return <p>{this.name}</p>; } }
+      `,
+      "app/(caught).tsx": `
+        import { Component, set } from "@expressive/mvc";
+        import { user } from "./remote";
+        export class Page extends Component { name = set(() => user()); catch() {} render() { return <p>{this.name}</p>; } }
+      `,
+      "app/(later).tsx": `
+        import { Component } from "@expressive/mvc";
+        import { user } from "./remote";
+        export class Page extends Component { new() { user(); } render() { return <p>later</p>; } }
+      `,
+      "app/(stats).tsx": `
+        import { Component, get } from "@expressive/mvc";
+        import Site from "./remote";
+        export class Page extends Component { site = get(Site); render() { return <p>{this.site.visits}</p>; } }
+      `,
+      "app/(snapshot).tsx": `
+        import { Component, get } from "@expressive/mvc";
+        import Site from "./remote";
+        export class Page extends Component { site = get(Site); render() { return <p>{this.site.get("visits")}</p>; } }
+      `,
+      "app/(timer).tsx": `
+        import { Component } from "@expressive/mvc";
+        import { user } from "./remote";
+        export class Page extends Component { new() { setTimeout(() => user(), 10); } render() { return <p>timer</p>; } }
+      `,
+      "app/(broke).tsx": `export const Page = () => { throw new Error("broke"); };`,
+      "app/blog/[slug].tsx": `
+        import { slugs } from "../remote";
+        export const Page = () => <p>post</p>;
+        export const paths = () => slugs();
+      `,
+    });
+    const renderer = await launch(root);
+
+    expect(await renderer.paths()).toEqual([]);
+    expect((await renderer.render("/"))?.html).toContain("home</button>");
+    expect(await renderer.render("/account")).toBeNull();
+    expect(await renderer.render("/caught")).toBeNull();
+    expect(await renderer.render("/later")).toBeNull();
+    expect(await renderer.render("/stats")).toBeNull();
+    expect(await renderer.render("/snapshot")).toBeNull();
+    expect((await renderer.render("/timer"))?.html).toContain("<p>timer</p>");
+    await expect(renderer.render("/broke")).rejects.toThrow("broke");
+    await new Promise(resolve => setTimeout(resolve, 20));
+    renderer.close();
+  });
+
   it("will render a single-file app and list no paths", async () => {
     const renderer = await launch(project({ "app.tsx": `export default () => <p>solo</p>;` }));
 
     expect(await renderer.paths()).toEqual([]);
-    expect((await renderer.render("/")).html).toContain("<p>solo</p>");
+    expect((await renderer.render("/"))!.html).toContain("<p>solo</p>");
     renderer.close();
   });
 

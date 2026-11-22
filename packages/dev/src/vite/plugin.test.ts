@@ -682,7 +682,7 @@ describe("vite host", () => {
     const code = typeof entry == "string" ? entry : entry!.code;
 
     expect(code).toContain(`import App from "../app.tsx";`);
-    expect(code).toContain("await Promise.all([])");
+    expect(code).toContain("for (const list of [])");
   });
 
   it("will resolve the prerender entry's renderer from this package", async () => {
@@ -702,6 +702,15 @@ describe("vite host", () => {
 
     expect(await input("/.expressive/prerender.tsx")).toBe("/.expressive/prerender.tsx");
     expect(await input("/x.ts")).toBe(join(realpathSync(root), "index.html"));
+  });
+
+  it("will serve the prerender build a call module that stops at the server", async () => {
+    const root = project({ "app/index.tsx": PAGE });
+    const host = expressive();
+    await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [host], build: { rollupOptions: { input: "/.expressive/prerender.tsx" } } }, "build");
+    const load = host.load as (this: unknown, id: string, options?: object) => Promise<unknown>;
+
+    expect(await load.call({}, join(realpathSync(root), ".expressive/call.ts"))).toContain("Remote calls do not run at build.");
   });
 
   it("will throw if config is read before the dev server runs", async () => {
