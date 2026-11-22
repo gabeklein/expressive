@@ -53,8 +53,8 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
 `dist/server/index.js`, which serves `dist/client` and falls back to `index.html` for client routes.
-It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch` and
-`target`.
+It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch`,
+`around` and `target`.
 
 ### App routes
 
@@ -73,6 +73,28 @@ export default config({
 falls through. It runs in the request's scope - `Current` and `Cookies` work as in a call. In dev it
 also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only the paths it
 answers. On Node, `env` is `{}`.
+
+### Request scope
+
+`around(next, scope)` wraps each remote call and the app's `fetch` on every host - Node, the
+`fetch` target and dev. Run `next` inside whatever the request needs, such as a database session,
+and resolve what it resolves. `scope` holds `request`, `env` and `ctx`. It runs around the call's
+scope, so read the request from `scope.request`, not `Current`. Static files, twin streams and the
+fetch target's other handlers skip it - wrap those in the handler. A rejection is the request's
+error.
+
+```ts
+import { config } from "@expressive/dev/server";
+import { db } from "./db";   // SQLiteConnection.new(types, "app.db")
+
+export default config({
+  around: next => db.session(next),
+});
+```
+
+With `@expressive/sql`, `db.session(next)` gives each request its own identity map, so `get` reads
+rows afresh rather than from another request's entities. A session can also take the request's
+database as its second argument - see the fetch target below.
 
 ### Deploying to a fetch host
 
@@ -126,6 +148,27 @@ and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_fi
 "!/assets/*"] }`. Without `run_worker_first`, a call posted to a path with a file (a root remote's,
 to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
 prerendered home page for client routes.
+
+A session per request on a D1 binding there, through `around`:
+
+```ts
+import { config } from "@expressive/dev/server";
+import { db } from "./db";   // SQLiteConnection.new(types) - no source
+import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
+
+export async function bindings() {
+  const { sqlite } = await import("@expressive/sql");
+  return { DB: await sqlite("local.db", { migrations: "migrations" }) };
+}
+
+export default config({
+  target: "fetch",
+  around: (next, { env }) => db.session(next, d1(env.DB)),
+});
+```
+
+`d1` is app code: it wraps a D1 binding in sql's `Engine` (`all`, `get`, `run`, `exec`, `close`) and
+passes an `Engine` through, so dev's `sqlite()` file - migrated on first use - serves unchanged.
 
 ### Sidecars
 

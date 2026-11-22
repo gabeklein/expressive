@@ -27,7 +27,7 @@ app/                  file-based routes
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth
 app.tsx | src/app.tsx single root component instead of app/ (default export)
-index.ts              optional server entry: export default config({ port, fetch, target })
+index.ts              optional server entry: export default config({ port, fetch, around, target })
 index.html            optional shell (#root and the entry script injected if missing)
 vite.config.ts        optional, merged under the host's
 ```
@@ -134,6 +134,19 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 `config({ fetch(request, env, ctx) { ... } })` in `index.ts` answers after remote calls, before static files; return nothing to fall through. Runs in the request's scope - `Current`, `Cookies` work. On Node `env` is `{}`. In dev it also sees Vite's requests (`/@vite/client`, `/.expressive/*`) - match the paths it answers.
 
+## Request scope
+
+`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. Static files, twin streams and the fetch target's other handlers skip it - wrap those in the handler.
+
+An `@expressive/sql` session per request (skill `expressive-sql`) - its own identity map:
+
+```ts
+// index.ts - db is SQLiteConnection.new(types, "app.db")
+export default config({
+  around: next => db.session(next),
+});
+```
+
 ## Fetch target
 
 `config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404 Static files are the host's - `config.fetch` forwards to them.
@@ -170,6 +183,8 @@ export default config({
 ```
 
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
+
+Session on a D1 binding there: `around: (next, { env }) => db.session(next, d1(env.DB))` - `d1` is app code wrapping a D1 binding in sql's `Engine` and passing an `Engine` through; `db` has no source. Dev: `bindings()` returns `{ DB: await sqlite("local.db", { migrations: "migrations" }) }` (`sqlite` from `@expressive/sql`, imported inside `bindings`).
 
 ## Prerendering
 
