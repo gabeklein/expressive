@@ -687,6 +687,7 @@ describe('collection element', () => {
 
   class Suspends extends Component {
     label = '';
+    fallback = false as const;
 
     render() {
       if (this.label === 'wait') throw gate;
