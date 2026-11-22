@@ -22,6 +22,6 @@ class Widget extends Component {
 
 assert.equal(render(h(Widget, { label: 'patched' })), '<b>patched</b>');
 
-assert.throws(() => render(h('div', null, Widget.new())), /cannot be rendered directly under Preact/);
+assert.equal(render(h('div', null, Widget.new({ label: 'child' }))), '<div><b>child</b></div>');
 
 console.log('@expressive/react/compat: preact host renders from dist');
