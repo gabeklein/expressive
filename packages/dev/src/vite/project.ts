@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { shapeOf, type Exposure } from "./remote";
+import { shapeOf, type Exposed, type Exposure } from "./remote";
 import type { Remote } from "./routes";
 
 export interface Project {
@@ -234,40 +234,22 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
 export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
   const configSpec = JSON.stringify(importRel(from, project.configPath!));
   const files = [...exposure.modules.keys()];
-  const alias = (file: string) => `s${files.indexOf(file)}`;
-  const groups = exposure.byPattern();
-  const tables = groups.flatMap((group, i) => [
-    `const t${i} = { ${exposure.table(group, alias)} };`,
-    `verify(${JSON.stringify("/" + group[0].pattern.join("/"))}, t${i});`,
-  ]);
+  const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
+  const ids = (group: Exposed[], names: (remote: Exposed) => string[], id: (remote: Exposed, name: string) => string) =>
+    Object.fromEntries(group.flatMap(remote => names(remote).map(name => [id(remote, name), ref(remote, name)])));
+  const manifest = exposure.byPattern().map(group => ({
+    pattern: group[0].pattern,
+    calls: ids(group, remote => remote.calls, (remote, name) => exposure.callId(remote, name)),
+    classes: ids(group, remote => remote.errors.map(error => error.name), (remote, name) => exposure.classId(remote, name)),
+  }));
 
   return [
-    `import { isCall, scoped } from "@expressive/rpc/http";`,
-    `import { bind, dispatch, install, verify } from "@expressive/rpc/protocol";`,
+    `import { fetchHandler } from "@expressive/dev/fetch";`,
     `import config from ${configSpec};`,
-    `export { ${named.join(", ")} } from ${configSpec};`,
     ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
+    `export { ${named.join(", ")} } from ${configSpec};`,
     "",
-    "install();",
-    "",
-    ...tables,
-    "",
-    "const sidecars = [",
-    ...groups.map((group, i) => `  { pattern: ${JSON.stringify(group[0].pattern)}, exports: async () => t${i} },`),
-    "];",
-    "const app = scoped(config);",
-    "const { port, remote, target, fetch: _, ...handlers } = config;",
-    "",
-    "export default {",
-    "  ...handlers,",
-    "  async fetch(request, env = {}, ctx) {",
-    "    bind(request, env);",
-    "",
-    "    if (isCall(request)) return dispatch(request, () => sidecars, false);",
-    "",
-    `    return (await app.fetch?.(request, env, ctx)) ?? new Response("Not found.", { status: 404 });`,
-    "  },",
-    "};",
+    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
     "",
   ].join("\n");
 }

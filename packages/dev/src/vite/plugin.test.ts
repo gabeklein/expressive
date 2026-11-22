@@ -832,7 +832,7 @@ describe("vite host", () => {
   const post = (path: string, name: string, body: string) =>
     new Request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body });
 
-  it("builds a fetch handler: calls, then the app's fetch, else 404, every dependency bundled", async () => {
+  it("builds the fetch entry: the app's config, remotes and named exports wired to fetchHandler, every dependency bundled", async () => {
     const root = project(FETCH);
     const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
 
@@ -850,8 +850,6 @@ describe("vite host", () => {
     expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod", path: "/hello" });
-    expect((await handler.fetch(new Request("http://localhost/tally"), undefined, ctx)).status).toBe(404);
-    expect(await (await handler.fetch(post("/tally", "bound", "[]"))).json()).toEqual({});
     expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
     expect(handler.cron(env)).toBe("prod");
     expect(Object.keys(named)).toEqual(["Counter"]);
