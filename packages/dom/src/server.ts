@@ -19,7 +19,7 @@ import { serialize } from './style/declarations';
 import type { Declaration } from './style/declarations';
 import { unmatched } from './style/diagnose';
 import { reserved } from './style/protocol';
-import { bare } from './style/numeric';
+import { isBare } from './style/numeric';
 import type { Sink } from './style/protocol';
 import { attachRoots } from './style/root';
 
@@ -76,7 +76,7 @@ function kebab(key: string) {
 }
 
 function camel(key: string) {
-  return key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+  return key.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase()).replace(/^[A-Z]/, (char) => char.toLowerCase());
 }
 
 function contained(value: string) {
@@ -108,7 +108,7 @@ function text(declarations: Declaration) {
     if (value == null || value === '' || typeof value == 'boolean') continue;
     if (typeof value == 'number' && !Number.isFinite(value)) continue;
 
-    const css = typeof value == 'number' && value !== 0 && !key.startsWith('--') && !bare.has(camel(key)) ? `${value}px` : String(value);
+    const css = typeof value == 'number' && value !== 0 && !key.startsWith('--') && !isBare(camel(key)) ? `${value}px` : String(value);
 
     if (contained(css)) output.push(`${kebab(key)}: ${css.replace(/</g, '\\3c ')};`);
   }

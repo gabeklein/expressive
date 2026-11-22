@@ -1,4 +1,4 @@
-import { bare } from './numeric';
+import { isBare } from './numeric';
 import { Style } from './stylesheet';
 import type { style } from './stylesheet';
 
@@ -6,7 +6,7 @@ function sized(property: string, value: unknown): unknown {
   if (Array.isArray(value))
     return value.map((entry) => sized(property, entry));
 
-  return typeof value == 'number' && value !== 0 && !bare.has(property)
+  return typeof value == 'number' && value !== 0 && !property.startsWith('--') && !isBare(property)
     ? `${value}px`
     : value;
 }
