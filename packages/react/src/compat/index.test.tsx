@@ -22,16 +22,19 @@ describe('Component', () => {
     ).toBeUndefined();
   });
 
-  it('will throw rendering existing instance', () => {
-    class Control extends Component {}
+  it('will render existing instance as child', () => {
+    class Control extends Component {
+      render() {
+        return <span>hello</span>;
+      }
+    }
 
     const instance = Control.new({});
-    const message =
-      'Component instances cannot be rendered directly under Preact - render the class as <Foo /> instead.';
+    const screen = render(<div>{instance}</div>);
 
-    expect(() => render(<>{instance}</>)).toThrow(message);
-    expect(() => render(<>{[instance]}</>)).toThrow(message);
+    expect(screen.container.innerHTML).toBe('<div><span>hello</span></div>');
 
+    act(() => void screen.unmount());
     instance.set(null);
   });
 

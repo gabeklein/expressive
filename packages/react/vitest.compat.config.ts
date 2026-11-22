@@ -17,8 +17,6 @@ const skipFiles = [
   // react's own JSX host registration and vite plugin
   'jsx-runtime.test.tsx',
   'vite.test.ts',
-  // instances and collections placed as children - unsupported under preact
-  'element.test.tsx',
   // react's ErrorBoundary; compat has its own suite beside compat/boundary.ts
   'boundary.test.tsx'
 ];

@@ -2,7 +2,7 @@ import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, describe, vi, type MockInstance } from 'vitest';
 import React, { Suspense } from 'react';
 
-import { flushMicrotasks, mockError, mockPromise, revisions } from '../test.setup';
+import { flushMicrotasks, mockError, mockPromise, reactOnly, revisions } from '../test.setup';
 import { Model } from '@expressive/mvc';
 import '.';
 import { Component, get, has, map } from '@expressive/mvc';
@@ -54,10 +54,6 @@ describe('instance element', () => {
     const instance = Control.new({ value: 'first' });
     const element = render(<>{instance}</>, { reactStrictMode: true });
 
-    expect(React.isValidElement(instance)).toBe(true);
-    expect((instance as any).$$typeof).toBe(
-      (React.createElement('template') as any).$$typeof
-    );
     expect((instance as any).key).toBe(String(instance));
     expect(screen).toHaveText('first');
 
@@ -119,7 +115,18 @@ describe('instance element', () => {
     expect(screen).toHaveText('second');
   });
 
-  it('will use an overridden key', () => {
+  reactOnly.it('will pass as a React element', () => {
+    const instance = Control.new({});
+
+    expect(React.isValidElement(instance)).toBe(true);
+    expect((instance as any).$$typeof).toBe(
+      (React.createElement('template') as any).$$typeof
+    );
+
+    instance.set(null);
+  });
+
+  reactOnly.it('will use an overridden key', () => {
     class Custom extends Control {
       override readonly key = 'custom';
     }
@@ -137,7 +144,6 @@ describe('instance element', () => {
     const element = render(<>{collection}</>);
 
     expect(element.container.textContent).toBe('foobar');
-    expect((first as any)._store).not.toBe((second as any)._store);
 
     await act(async () => {
       first.value = 'baz';
@@ -383,7 +389,16 @@ describe('instance element', () => {
     expect(element.container.textContent).toBe('!b');
   });
 
-  it('will warn when rendering one instance twice as siblings', () => {
+  reactOnly.it('will give each placed instance its own dev store', () => {
+    const first = Control.new({ value: 'foo' });
+    const second = Control.new({ value: 'bar' });
+
+    render(<>{[first, second]}</>);
+
+    expect((first as any)._store).not.toBe((second as any)._store);
+  });
+
+  reactOnly.it('will warn when rendering one instance twice as siblings', () => {
     const instance = Control.new({ value: 'first' });
 
     render(<>{[instance, instance]}</>);
@@ -769,7 +784,7 @@ describe('collection element', () => {
   });
 });
 
-describe('collection concurrent consistency', () => {
+reactOnly.describe('collection concurrent consistency', () => {
   it.each([
     ['pool', () => has(Item), (items: any, key: string) => items.add({ key, label: key })],
     ['map', () => map((key: string) => new Item({ key, label: key })), (items: any, key: string) => items.set(key)]

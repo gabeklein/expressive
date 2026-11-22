@@ -125,7 +125,7 @@ import '@expressive/react/compat';
 
 One adapter per build - importing the root `@expressive/react` as well throws. Gaps against React:
 
-- Instances placed as children throw - render a Component as `<Foo />`. `has`/`map` collections placed as children render nothing - map them to elements.
+- An instance or `has`/`map` collection returned bare from `render()` renders nothing - wrap it: `return <>{this.items}</>`. Placed as children, they render as under React.
 - A ref object passed as `ref` stays empty - pass `is` or a callback ref.
 - No transitions - updates from `pending()` work render as ordinary updates.
 - No pre-commit revision validation - preact does not yield mid-render.

@@ -1,26 +1,59 @@
-import { Runtime } from '@expressive/react/adapter';
+import { elementType, Runtime } from '@expressive/react/adapter';
 import { Component } from '@expressive/mvc';
+import { elements, type Renderable } from '@expressive/mvc/jsx-runtime';
 import { options, type ComponentChildren } from 'preact';
 import * as compat from 'preact/compat';
 
 import './jsx-runtime';
 import { ErrorBoundary } from './boundary';
 
+const ELEMENT = Symbol('element');
+
+elements((Type) => {
+  Object.defineProperty(Type.prototype, ELEMENT, { value: true });
+});
+
 const vnode = options.vnode;
 
 options.vnode = (node) => {
+  const { children } = node.props;
+  const adopted = adopt(children);
+
+  if (adopted !== children) node.props.children = adopted;
+
   vnode?.(node);
-  reject(node.props.children);
 };
 
-function reject(children: ComponentChildren) {
-  if (children instanceof Component)
-    throw new TypeError(
-      'Component instances cannot be rendered directly under Preact - render the class as <Foo /> instead.'
-    );
+function adopt(child: ComponentChildren): ComponentChildren {
+  if (Array.isArray(child)) {
+    const next = child.map(adopt);
 
-  if (Array.isArray(children))
-    for (const child of children) reject(child);
+    return next.some((item, i) => item !== child[i]) ? next : child;
+  }
+
+  if (child && typeof child == 'object' && ELEMENT in child) {
+    const self = (child as unknown as Renderable).is;
+
+    return compat.createElement(adopted(self), {
+      key: self instanceof Component ? self.key : undefined
+    });
+  }
+
+  return child;
+}
+
+const TYPES = new WeakMap<Renderable, () => ComponentChildren>();
+
+function adopted(self: Renderable) {
+  let type = TYPES.get(self);
+
+  if (!type) {
+    const render = elementType(self) as () => ComponentChildren;
+
+    TYPES.set(self, type = () => adopt(render()));
+  }
+
+  return type;
 }
 
 Object.assign(Runtime, {
