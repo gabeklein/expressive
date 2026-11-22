@@ -10,7 +10,7 @@ import { inserted } from './commits';
 import type { Boundary, Fiber } from './fiber';
 import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
-import { focusing } from './render';
+import { depth, focus, focusing } from './render';
 import { afterFlush } from '../core/scheduler';
 import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
@@ -52,12 +52,15 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     if (tag != 'textarea' && !CONTENT.some((key) => key in value.props)) touch(element);
   }
 
-  complete(fiber, () => {
+  if (!adopting && (value.props.autofocus || value.props.autoFocus))
+    inserted(fiber, () => {
+      focusing.push(element);
+      if (!depth) focus();
+    });
+
+  return complete(fiber, () => {
     patchProps(fiber, value.props, appearance, adopting);
   });
-
-  if (!adopting && (value.props.autofocus || value.props.autoFocus)) focusing.push(element);
-  return fiber;
 }
 
 function attributeOf(key: string) {
@@ -110,7 +113,6 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;
-  fiber.props = next;
   fiber.appearance = appearance;
 
   if (!raw) {
@@ -148,6 +150,8 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
       document.addEventListener('change', restoreTarget);
     }
   }
+
+  fiber.props = next;
 
   if (previous.ref !== next.ref) patchProp(fiber, element, 'ref', previous.ref, next.ref);
 }
