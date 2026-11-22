@@ -227,7 +227,7 @@ function collectImports(root: RouteNode, outDir: string) {
 
   (function walk(node: RouteNode) {
     const roles = ROLES.filter(role => node.alias[role]);
-    const router = isRoot(node) && node.exports.has("Router");
+    const router = node === root && node.exports.has("Router");
 
     if (node.file && (roles.length || router)) {
       const spec = JSON.stringify(importRel(outDir, node.file));

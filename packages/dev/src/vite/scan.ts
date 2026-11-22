@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { sep } from "node:path";
 import { init, parse } from "es-module-lexer";
-import { transformWithOxc, type ESTree } from "vite";
+import { parseAst, transformWithOxc, type ESTree } from "vite";
 import * as root from "@expressive/rpc";
 import { isClass, moduleOf, scanModule, type ErrorClass, type Module, type Sources, type Value } from "@expressive/rpc/vite";
 
@@ -19,12 +19,23 @@ export const scanExports: ExportScanner = async (source, path) => {
     ? new RegExp(`\\bclass\\s+${local}\\b`).test(code)
     : /\bexport\s+default\s+(abstract\s+)?class\b/.test(code);
 
-  const named = entries.find(entry => entry.n === "label")?.ln;
-  const literal = named && new RegExp(`\\b(?:const|let|var)\\s+${named}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")\\s*;`).exec(code);
-  const label = literal ? JSON.parse(literal[1]) as string : undefined;
+  const label = labelOf(code, entries.find(entry => entry.n === "label")?.ln);
 
   return { exports: entries.map(entry => entry.n), classDefault, label };
 };
+
+function labelOf(code: string, local: string | undefined): string | undefined {
+  if (!local) return;
+
+  for (const node of parseAst(code).body) {
+    const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
+    if (decl?.type !== "VariableDeclaration" || decl.kind !== "const") continue;
+
+    for (const { id, init } of decl.declarations)
+      if (id.type === "Identifier" && id.name === local)
+        return init!.type === "Literal" && typeof init!.value == "string" ? init!.value : undefined;
+  }
+}
 
 export interface Twin {
   name: string;
