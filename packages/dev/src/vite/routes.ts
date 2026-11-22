@@ -23,6 +23,7 @@ type Role = (typeof ROLES)[number];
 export interface Scan {
   exports: Iterable<string>;
   classDefault?: boolean;
+  label?: string;
 }
 
 export type ExportScanner = (source: string, path: string) => Scan | Promise<Scan>;
@@ -33,6 +34,7 @@ interface RouteNode {
   file?: string;
   exports: Set<string>;
   classDefault: boolean;
+  label?: string;
   children: RouteNode[];
   isLeaf: boolean;
   alias: Partial<Record<Role, string>>;
@@ -48,7 +50,11 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const { imports, loaders } = collectImports(root, outDir);
   const wrappers = collectWrappers(root);
   const tree = emitNode(root, true, 2, "null").join("\n");
-  const pageImports = root.exports.has("NotFound") ? "{ Route, Router }" : "{ NotFound, Route, Router }";
+  const pageImports = `{ ${[
+    !root.exports.has("NotFound") && "NotFound",
+    "Route",
+    !root.exports.has("Router") && "Router",
+  ].filter(Boolean).join(", ")} }`;
   const provides = [...loaders, ...wrappers].some(line => line.includes("<Component for="));
 
   return [
@@ -116,11 +122,16 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
     const scanned = await scan(readFileSync(full, "utf8"), full);
     const exports = new Set(scanned.exports);
     const classDefault = !!scanned.classDefault;
+    const { label } = scanned;
+
+    if (exports.has("label") && typeof label != "string")
+      throw new Error(`${full} exports a label that is not a string literal.`);
 
     if (tag.kind === "index") {
       node.file = full;
       node.exports = exports;
       node.classDefault = classDefault;
+      node.label = label;
       continue;
     }
 
@@ -130,6 +141,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
       file: full,
       exports,
       classDefault,
+      label,
       isLeaf: true,
     }));
   }
@@ -215,11 +227,12 @@ function collectImports(root: RouteNode, outDir: string) {
 
   (function walk(node: RouteNode) {
     const roles = ROLES.filter(role => node.alias[role]);
+    const router = isRoot(node) && node.exports.has("Router");
 
-    if (node.file && roles.length) {
+    if (node.file && (roles.length || router)) {
       const spec = JSON.stringify(importRel(outDir, node.file));
       if (lazy(node)) loaders.push(...roles.map(role => loaderFor(node, role, spec)));
-      else imports.push(importFor(node, roles, spec));
+      else imports.push(importFor(node, roles, spec, router));
     }
 
     if (node.twin) imports.push(`import ${node.twin} from ${JSON.stringify(importRel(outDir, node.remote!))};`);
@@ -243,8 +256,9 @@ function loaderFor(node: RouteNode, role: Role, spec: string): string {
   return `const ${node.alias[role]} = ${load};`;
 }
 
-function importFor(node: RouteNode, roles: Role[], spec: string): string {
+function importFor(node: RouteNode, roles: Role[], spec: string, router: boolean): string {
   const named = roles.filter(role => role !== "default").map(role => `${role} as ${node.alias[role]}`);
+  if (router) named.push("Router");
   const namedClause = named.length ? `{ ${named.join(", ")} }` : undefined;
   const clause = [node.alias.default, namedClause].filter(Boolean).join(", ");
 
@@ -287,6 +301,7 @@ function collectWrappers(root: RouteNode): string[] {
 function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string): string[] {
   const pad = "  ".repeat(depth);
   const { Page, Layout, Loading, Catch, NotFound, default: def } = node.alias;
+  const label = node.label === undefined ? undefined : JSON.stringify(node.label);
   const enter = node.classDefault ? undefined : def;
   const scope = node.classDefault ? def : undefined;
 
@@ -294,7 +309,7 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string)
   const isScope = isRoot || node.children.length > 0 || !!Layout || !!NotFound || !!scope || !!node.twin;
 
   if (!isScope)
-    return Page ? route(pad, { to: node.segment, as: Page, enter, fallback: own ?? slot, Catch }) : [];
+    return Page ? route(pad, { to: node.segment, label, as: Page, enter, fallback: own ?? slot, Catch }) : [];
 
   const inner: string[] = [];
   const childSlot = own ?? (Layout ? "null" : slot);
@@ -311,13 +326,14 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string)
 
   return route(
     pad,
-    { to: isRoot ? undefined : node.segment, as, remote: node.twin, NotFound: fallbackPage, enter, fallback: slot, Catch },
+    { to: isRoot ? undefined : node.segment, label, as, remote: node.twin, NotFound: fallbackPage, enter, fallback: slot, Catch },
     inner,
   );
 }
 
 interface RouteProps {
   to?: string;
+  label?: string;
   as?: string;
   remote?: string;
   NotFound?: string;

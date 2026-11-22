@@ -19,7 +19,11 @@ export const scanExports: ExportScanner = async (source, path) => {
     ? new RegExp(`\\bclass\\s+${local}\\b`).test(code)
     : /\bexport\s+default\s+(abstract\s+)?class\b/.test(code);
 
-  return { exports: entries.map(entry => entry.n), classDefault };
+  const named = entries.find(entry => entry.n === "label")?.ln;
+  const literal = named && new RegExp(`\\b(?:const|let|var)\\s+${named}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")\\s*;`).exec(code);
+  const label = literal ? JSON.parse(literal[1]) as string : undefined;
+
+  return { exports: entries.map(entry => entry.n), classDefault, label };
 };
 
 export interface Twin {
