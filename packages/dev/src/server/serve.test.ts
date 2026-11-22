@@ -108,6 +108,41 @@ describe("serve", () => {
     vi.restoreAllMocks();
   });
 
+  it("will run the app's fetch in scope before files, falling through when it answers nothing", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { Current } = await import("@expressive/rpc");
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "index.html"), "home");
+
+    const config = {
+      port: 0,
+      async fetch(request: Request, env: object, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+        if (new URL(request.url).pathname !== "/hello") return;
+
+        ctx.waitUntil(Promise.reject(new Error("late")));
+        Current.get().setHeader("x-seen", "1");
+
+        return Response.json({ env, path: Current.get().url.pathname });
+      },
+    };
+
+    const server = serve({ config, client: dir });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const hello = await fetch(base + "/hello");
+
+    expect(await hello.json()).toEqual({ env: {}, path: "/hello" });
+    expect(hello.headers.get("x-seen")).toBe("1");
+    expect(await (await fetch(base + "/")).text()).toBe("home");
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil:", new Error("late")));
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
   it("will reply 404 with no file and no shell", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
 

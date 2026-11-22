@@ -1,11 +1,11 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, createServer, createServerModuleRunner, optimizeDeps, resolveConfig, type InlineConfig, type ViteDevServer } from "vite";
-import { client, HttpError } from "@expressive/rpc";
+import { client, Current, HttpError } from "@expressive/rpc";
 
 import { clientBuild, serverBuild } from "./build";
 import { expressive } from "./plugin";
@@ -212,6 +212,7 @@ describe("vite host", () => {
 
     return { alias: [{ find: /^@expressive\/mvc$/, replacement: shim }, ...(SOURCES!.alias as any[])] };
   }
+
   const SEAT = `
     ${HOST}
     export default class Tally extends Model {
@@ -728,9 +729,9 @@ describe("vite host", () => {
     expect(await other.api!.config()).toEqual({});
   });
 
-  it("will resolve the working directory as the root by default", () => {
+  it("will resolve the working directory as the root by default", async () => {
     const host = expressive() as any;
-    expect(() => host.config({}, { command: "serve", mode: "development" })).toThrow("Missing app.tsx");
+    await expect(host.config({}, { command: "serve", mode: "development" })).rejects.toThrow("Missing app.tsx");
   });
 
   it("will serve a project's own index.html as the shell", async () => {
@@ -797,6 +798,116 @@ describe("vite host", () => {
     const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" });
 
     expect(server).toContain('from "@expressive/dev/server"');
+  });
+
+  const FETCH = {
+    "index.ts": `
+      export async function bindings() { return (await import("./local")).local(); }
+      export { Counter } from "./counter";
+      export default {
+        target: "fetch",
+        port: 8080,
+        remote: { opaque: false },
+        async fetch(request: Request, env: any, ctx: any) {
+          ctx.waitUntil(Promise.reject(new Error("late")));
+          if (new URL(request.url).pathname === "/hello") return (await import("./hello")).hello(env);
+        },
+        cron(env: any) { return env.NAME; },
+      };
+    `,
+    "hello.ts": `
+      import { Current } from "@expressive/rpc";
+      export const hello = (env: any) => Response.json({ name: env.NAME, path: (globalThis.hostCurrent ?? Current).get().url.pathname });
+    `,
+    "counter.ts": "export class Counter {}",
+    "local.ts": `import { readFileSync } from "node:fs"; export const local = () => ({ NAME: typeof readFileSync == "function" ? "dev-only-binding" : "" });`,
+    "app/index.tsx": PAGE,
+    "app/tally/index.tsx": "import { add, bound } from './remote'; export const Page = () => [add, bound]",
+    "app/tally/remote.ts": `${SIDECAR}
+      import { Current } from "@expressive/rpc";
+      export async function bound() { return ((globalThis.hostCurrent ?? Current).get().env as any).NAME; }
+    `,
+  };
+
+  const post = (path: string, name: string, body: string) =>
+    new Request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body });
+
+  it("builds a fetch handler: calls, then the app's fetch, else 404, every dependency bundled", async () => {
+    const root = project(FETCH);
+    const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
+
+    await build(quiet(clientBuild(root)));
+    await build(quiet(serverBuild(root)));
+
+    const dir = join(root, "dist/server");
+    const code = readdirSync(dir).filter(file => file.endsWith(".js")).map(file => readFileSync(join(dir, file), "utf8")).join("\n");
+    const { default: handler, ...named } = await import(join(dir, "index.js"));
+    const env = { NAME: "prod" };
+    const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => {}) };
+    const imports = [...code.matchAll(/from\s*"([^"]+)"|import\s*"([^"]+)"/g)].map(([, a, b]) => a ?? b).filter(spec => !spec.startsWith("./"));
+
+    expect(await (await handler.fetch(post("/tally", "add", "[2, 3]"), env, ctx)).json()).toEqual({ value: 5 });
+    expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
+    expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
+    expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod", path: "/hello" });
+    expect((await handler.fetch(new Request("http://localhost/tally"), undefined, ctx)).status).toBe(404);
+    expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
+    expect(handler.cron(env)).toBe("prod");
+    expect(Object.keys(named)).toEqual(["Counter"]);
+    expect([...new Set(imports)].sort()).toEqual(["node:async_hooks", "node:crypto"]);
+    expect(code).not.toContain("dev-only-binding");
+    expect(code).not.toContain("createServer");
+  });
+
+  it("will run the app's fetch in dev with its bindings, after calls and before Vite", async () => {
+    (globalThis as any).hostCurrent = Current;
+    const server = await serve(project(FETCH));
+    const error = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
+    await server.listen(0);
+    const at = (path: string) => new URL(path, server.resolvedUrls!.local[0]);
+
+    await server.transformRequest("/app/tally/remote.ts");
+
+    const bound = await fetch(at("/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": TAB, "x-expressive-call": "bound" }, body: "[]" });
+
+    expect(await bound.json()).toEqual({ value: "dev-only-binding", frame: {} });
+    expect(await (await fetch(at("/hello"))).json()).toEqual({ name: "dev-only-binding", path: "/hello" });
+    expect(await (await fetch(at("/"), { headers: { accept: "text/html" } })).text()).toContain('<div id="root"></div>');
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
+    delete (globalThis as any).hostCurrent;
+  });
+
+  it("will retry dev bindings that failed, and give a Node app's fetch none", async () => {
+    const root = project({
+      "index.ts": `
+        let tries = 0;
+        export function bindings() { if (!tries++) throw new Error("not yet"); return { NAME: "dev" }; }
+        export default { target: "fetch", fetch: async (_: Request, env: any) => Response.json(env.NAME) };
+      `,
+      "app/index.tsx": PAGE,
+    });
+    const server = await serve(root);
+    await server.listen(0);
+    const at = new URL("/name", server.resolvedUrls!.local[0]);
+
+    expect((await fetch(at)).status).toBe(500);
+    expect(await (await fetch(at)).json()).toBe("dev");
+
+    const node = await serve(project({ "index.ts": `export default { fetch: async (_: Request, env: any) => Response.json(env) };`, "app/index.tsx": PAGE }));
+    await node.listen(0);
+
+    expect(await (await fetch(new URL("/name", node.resolvedUrls!.local[0]))).json()).toEqual({});
+  });
+
+  it("will refuse a seat or a pooled class under the fetch target, and bind nothing without bindings()", async () => {
+    const index = `export default { target: "fetch", fetch: async (_: Request, env: any) => Response.json(env) };`;
+    const server = await serve(project({ "index.ts": index, "app/index.tsx": PAGE, "app/tally/remote.ts": SEAT, "app/shop/remote.ts": POOLED }));
+    await server.listen(0);
+
+    expect(await (await fetch(new URL("/env", server.resolvedUrls!.local[0]))).json()).toEqual({});
+
+    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts default-exports a seat - the fetch target keeps no state between requests");
+    await expect(server.transformRequest("/app/shop/remote.ts")).rejects.toThrow("app/shop/remote.ts exports Model Cart - the fetch target");
   });
 
   it("will salt ids when index.ts has no default", async () => {

@@ -2,10 +2,10 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 
-import { isCall, send, toRequest } from "@expressive/rpc/http";
+import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
 import { dispatch, verify, type Seat } from "@expressive/rpc/protocol";
 
-import type { AppConfig } from "./config";
+import type { AppConfig, Ctx } from "./config";
 import { install } from "./install";
 import { isStream, stream } from "./stream";
 import { twins, type Endpoint } from "./twin";
@@ -53,13 +53,17 @@ export interface ServeOptions {
 /**
  * Production server for a built app - the generated `dist/server/index.js` calls it.
  *
- * Answers calls and twin streams, serves `client` - a page's `<path>/index.html`, else the `200.html` or `index.html` shell, and caches `/assets/` immutably.
+ * Answers calls and twin streams, then the app's own `fetch`, then serves `client` - a page's `<path>/index.html`, else the `200.html` or `index.html` shell, and caches `/assets/` immutably.
  * Listens only after every sidecar's error classes verify.
  */
 export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
   install();
 
   const seated = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
+  const app = scoped(config);
+  const ctx: Ctx = {
+    waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)),
+  };
   const seatAt = async (pattern: string[]) => seated.get(pattern.join("/"));
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
@@ -72,6 +76,10 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
 
     if (isCall(request)) return send(res, await dispatch(request, () => sidecars, false, seatAt, twins));
     if (isStream(request)) return send(res, stream(request));
+
+    const response = await app.fetch?.(request, {}, ctx);
+
+    if (response) return send(res, response);
 
     const { pathname } = new URL(request.url);
 

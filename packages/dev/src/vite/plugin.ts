@@ -2,16 +2,16 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServerModuleRunner, runnerImport, type Plugin, type ViteDevServer } from "vite";
+import { createServerModuleRunner, runnerImport, type Plugin, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
-import type { AppConfig } from "../server/config";
-import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, serverEntry, type Project } from "./project";
+import type { AppConfig, Ctx } from "../server/config";
+import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
-import { isCall, toNode } from "@expressive/rpc/http";
-import { dispatch, verify, type Seats } from "@expressive/rpc/protocol";
+import { isCall, scoped, toNode } from "@expressive/rpc/http";
+import { bind, dispatch, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
@@ -71,6 +71,7 @@ export function expressive(): Plugin<Host> {
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
   let prerendering = false;
+  let settings: AppConfig | undefined;
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -81,6 +82,16 @@ export function expressive(): Plugin<Host> {
 
   const remoteAt = (file: string) => (project.appDir ? remoteOf(project.appDir, file) : undefined);
 
+  const api: Host = {
+    async config() {
+      if (!runner) throw new Error("The dev server is not running.");
+      if (!project.configPath) return {};
+      return ((await runner.import(project.configPath)).default as AppConfig) ?? {};
+    },
+  };
+
+  const target = async () => (build ? settings!.target : (await api.config()).target);
+
   const readShell = () =>
     project.htmlPath ? ensureBootstrap(readFileSync(project.htmlPath, "utf8")) : SHELL;
 
@@ -88,19 +99,14 @@ export function expressive(): Plugin<Host> {
     name: "expressive",
     enforce: "pre",
 
-    api: {
-      async config() {
-        if (!runner) throw new Error("The dev server is not running.");
-        if (!project.configPath) return {};
-        return ((await runner.import(project.configPath)).default as AppConfig) ?? {};
-      },
-    },
+    api,
 
-    config(user, env) {
+    async config(user, env) {
       root = realpathSync(resolve(user.root ?? process.cwd()));
       project = resolveProject(root);
       build = env.command !== "build" ? undefined : env.isSsrBuild ? "server" : "client";
       prerendering = user.build?.rollupOptions?.input === PRERENDER_ENTRY;
+      settings = build && (await buildConfig(project));
 
       const entries = project.appDir
         ? ["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*", "!app/**/remote.*", "!app/**/remote/**"]
@@ -114,6 +120,7 @@ export function expressive(): Plugin<Host> {
         resolve: { alias: hosted() },
         environments: { ssr: { resolve: { external: SHARED } } },
         build: env.isSsrBuild || prerendering ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
+        ...(build === "server" && settings!.target === "fetch" && FETCH),
       };
     },
 
@@ -130,7 +137,7 @@ export function expressive(): Plugin<Host> {
 
     async buildStart() {
       if (build === "client") {
-        const salt = (await buildConfig(project)).remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
+        const salt = settings!.remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
         builds.set(root, (exposure = new Exposure(salt)));
       }
 
@@ -183,6 +190,7 @@ export function expressive(): Plugin<Host> {
         const { problems, ...scanned } = await scanRemote(remote, readFileSync(file, "utf8"), sources, remoteAt);
 
         if (problems.length) this.error(`${relative(root, file)}: ${problems.join(" ")}`);
+        if ((await target()) === "fetch") stateless(this, relative(root, file), scanned);
 
         const exposed = { ...remote, ...scanned };
         exposure.modules.set(file, exposed);
@@ -205,7 +213,7 @@ export function expressive(): Plugin<Host> {
         case routesId:
           return generateRoutes(project.appDir!, generatedDir, scanExports);
         case serverId:
-          return serverEntry(project, generatedDir, exposure, seated(project));
+          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, seated(project));
         case prerenderId: {
           if (!project.appDir) return prerenderEntry(importRel(generatedDir, project.appPath!), []);
 
@@ -235,10 +243,35 @@ export function expressive(): Plugin<Host> {
       watchRoutes(server, project, routesId);
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
+      const ctx: Ctx = {
+        waitUntil: promise => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)),
+      };
+      let bound: Promise<object> | undefined;
+
+      const bindings = () =>
+        (bound ??= (async () => {
+          const { bindings: provide } = await host.import(project.configPath!);
+          return typeof provide == "function" ? provide() : {};
+        })().catch(error => {
+          bound = undefined;
+          throw error;
+        }));
 
       server.middlewares.use(toNode(async request => {
         if (isStream(request)) return stream(request);
-        if (isCall(request)) return dispatch(request, endpoints, true, seatsOf(host, project), twins);
+
+        const config = await api.config();
+        const call = isCall(request);
+
+        if (!call && !config.fetch) return;
+
+        const env = config.target === "fetch" ? await bindings() : {};
+
+        bind(request, env);
+
+        if (call) return dispatch(request, endpoints, true, seatsOf(host, project), twins);
+
+        return scoped(config).fetch!(request, env, ctx);
       }));
 
       return () => {
@@ -342,6 +375,22 @@ function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Rem
       ...(remote.seat ? [`export default ${twinOf(exposure.definition(remote, remote.seat, false))};`] : []),
     ],
   });
+}
+
+const FETCH: UserConfig = {
+  environments: { ssr: { resolve: { noExternal: true } } },
+};
+
+function stateless(context: { error(message: string): never }, file: string, { seat, pooled }: { seat?: unknown; pooled: { name: string }[] }) {
+  const why = "- the fetch target keeps no state between requests, so a remote there exports functions only.";
+
+  if (seat) context.error(`${file} default-exports a seat ${why}`);
+  if (pooled.length) context.error(`${file} exports Model ${pooled.map(twin => twin.name).join(", ")} ${why}`);
+}
+
+async function namedExports(project: Project): Promise<string[]> {
+  const { exports } = await scanExports(readFileSync(project.configPath!, "utf8"), project.configPath!);
+  return [...exports].filter(name => name !== "default" && name !== "bindings");
 }
 
 async function buildConfig(project: Project): Promise<AppConfig> {

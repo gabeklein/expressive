@@ -170,7 +170,7 @@ export function runtime(client: typeof Client, Base: typeof Model, def: typeof i
   async function call(pattern: string[], name: string, args: unknown[]): Promise<unknown> {
     const reply = await send(pathOf(pattern, name), { "x-expressive-call": name }, args);
 
-    apply(reply.frame);
+    if (reply.frame) apply(reply.frame);
 
     return reply.value;
   }

@@ -231,6 +231,47 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
   ].join("\n");
 }
 
+export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
+  const configSpec = JSON.stringify(importRel(from, project.configPath!));
+  const files = [...exposure.modules.keys()];
+  const alias = (file: string) => `s${files.indexOf(file)}`;
+  const groups = exposure.byPattern();
+  const tables = groups.flatMap((group, i) => [
+    `const t${i} = { ${exposure.table(group, alias)} };`,
+    `verify(${JSON.stringify("/" + group[0].pattern.join("/"))}, t${i});`,
+  ]);
+
+  return [
+    `import { isCall, scoped } from "@expressive/rpc/http";`,
+    `import { bind, dispatch, install, verify } from "@expressive/rpc/protocol";`,
+    `import config from ${configSpec};`,
+    `export { ${named.join(", ")} } from ${configSpec};`,
+    ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
+    "",
+    "install();",
+    "",
+    ...tables,
+    "",
+    "const sidecars = [",
+    ...groups.map((group, i) => `  { pattern: ${JSON.stringify(group[0].pattern)}, exports: async () => t${i} },`),
+    "];",
+    "const app = scoped(config);",
+    "const { port, remote, target, fetch: _, ...handlers } = config;",
+    "",
+    "export default {",
+    "  ...handlers,",
+    "  async fetch(request, env = {}, ctx) {",
+    "    bind(request, env);",
+    "",
+    "    if (isCall(request)) return dispatch(request, () => sidecars, false);",
+    "",
+    `    return (await app.fetch?.(request, env, ctx)) ?? new Response("Not found.", { status: 404 });`,
+    "  },",
+    "};",
+    "",
+  ].join("\n");
+}
+
 function props(object: object): string {
   return Object.entries(object).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(", ");
 }
