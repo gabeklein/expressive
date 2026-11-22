@@ -307,78 +307,88 @@ type Numeric =
   | 'zIndex'
   | 'zoom';
 
+const UNITLESS = [
+  'animationIterationCount',
+  'aspectRatio',
+  'baselineShift',
+  'borderImage',
+  'borderImageOutset',
+  'borderImageSlice',
+  'borderImageWidth',
+  'columnCount',
+  'cx',
+  'cy',
+  'fillOpacity',
+  'flexGrow',
+  'flexLineCount',
+  'flexShrink',
+  'floodOpacity',
+  'fontSizeAdjust',
+  'fontWeight',
+  'gridArea',
+  'gridColumn',
+  'gridColumnEnd',
+  'gridColumnStart',
+  'gridRow',
+  'gridRowEnd',
+  'gridRowStart',
+  'hyphenateLimitChars',
+  'initialLetter',
+  'lineHeight',
+  'mathDepth',
+  'opacity',
+  'order',
+  'orphans',
+  'r',
+  'readingOrder',
+  'rx',
+  'ry',
+  'scale',
+  'shapeImageThreshold',
+  'stopOpacity',
+  'strokeDasharray',
+  'strokeDashoffset',
+  'strokeMiterlimit',
+  'strokeOpacity',
+  'strokeWidth',
+  'tabSize',
+  'webkitAnimationIterationCount',
+  'webkitBorderImage',
+  'webkitBoxFlex',
+  'webkitBoxOrdinalGroup',
+  'webkitColumnCount',
+  'webkitFlexGrow',
+  'webkitFlexShrink',
+  'webkitLineClamp',
+  'webkitMaskBoxImageOutset',
+  'webkitMaskBoxImageSlice',
+  'webkitMaskBoxImageWidth',
+  'webkitOpacity',
+  'webkitOrder',
+  'webkitPerspective',
+  'webkitShapeImageThreshold',
+  'widows',
+  'x',
+  'y',
+  'zIndex',
+  'zoom'
+] as const;
+
 /** Properties where a bare number is valid CSS. */
-type Unitless =
-  | 'animationIterationCount'
-  | 'aspectRatio'
-  | 'baselineShift'
-  | 'borderImage'
-  | 'borderImageOutset'
-  | 'borderImageSlice'
-  | 'borderImageWidth'
-  | 'columnCount'
-  | 'cx'
-  | 'cy'
-  | 'fillOpacity'
-  | 'flexGrow'
-  | 'flexLineCount'
-  | 'flexShrink'
-  | 'floodOpacity'
-  | 'fontSizeAdjust'
-  | 'fontWeight'
-  | 'gridArea'
-  | 'gridColumn'
-  | 'gridColumnEnd'
-  | 'gridColumnStart'
-  | 'gridRow'
-  | 'gridRowEnd'
-  | 'gridRowStart'
-  | 'hyphenateLimitChars'
-  | 'initialLetter'
-  | 'lineHeight'
-  | 'mathDepth'
-  | 'opacity'
-  | 'order'
-  | 'orphans'
-  | 'r'
-  | 'readingOrder'
-  | 'rx'
-  | 'ry'
-  | 'scale'
-  | 'shapeImageThreshold'
-  | 'stopOpacity'
-  | 'strokeDasharray'
-  | 'strokeDashoffset'
-  | 'strokeMiterlimit'
-  | 'strokeOpacity'
-  | 'strokeWidth'
-  | 'tabSize'
-  | 'webkitAnimationIterationCount'
-  | 'webkitBorderImage'
-  | 'webkitBoxFlex'
-  | 'webkitBoxOrdinalGroup'
-  | 'webkitColumnCount'
-  | 'webkitFlexGrow'
-  | 'webkitFlexShrink'
-  | 'webkitLineClamp'
-  | 'webkitMaskBoxImageOutset'
-  | 'webkitMaskBoxImageSlice'
-  | 'webkitMaskBoxImageWidth'
-  | 'webkitOpacity'
-  | 'webkitOrder'
-  | 'webkitPerspective'
-  | 'webkitShapeImageThreshold'
-  | 'widows'
-  | 'x'
-  | 'y'
-  | 'zIndex'
-  | 'zoom';
+type Unitless = typeof UNITLESS[number];
+
+const SINGLE = [
+  'columns',
+  'flex',
+  'webkitColumns',
+  'webkitFlex'
+] as const;
 
 /** Properties where a lone number is valid but a number inside a sequence is not. */
-type Single =
-  | 'columns'
-  | 'flex'
-  | 'webkitColumns'
-  | 'webkitFlex';
+type Single = typeof SINGLE[number];
 
+/** Properties the renderer writes a number to as is, without `px`. */
+const bare = new Set<string>([...UNITLESS, ...SINGLE]);
+
+export { bare };
 export type { Numeric, Single, Unitless };
