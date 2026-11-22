@@ -654,6 +654,68 @@ describe('suspense', () => {
   });
 });
 
+describe('lazy child', () => {
+  type Module = { default: () => React.ReactNode };
+
+  it('will suspend into fallback, then resolve in place', async () => {
+    const module = mockPromise<Module>();
+    const Page = React.lazy(() => module);
+    const created = vi.fn();
+
+    class Host extends Component {
+      fallback = (<span>loading</span>);
+    }
+
+    const element = render(
+      <Host is={created}>
+        <Page />
+      </Host>
+    );
+
+    expect(element).toHaveText('loading');
+
+    await act(async () => {
+      module.resolve({ default: () => <span>page</span> });
+      await module;
+    });
+
+    expect(element).toHaveText('page');
+    expect(created).toHaveBeenCalledTimes(1);
+  });
+
+  reactOnly.it('will hold current content while a pending swap loads it', async () => {
+    const module = mockPromise<Module>();
+    const Page = React.lazy(() => module);
+    let host!: Host;
+
+    class Host extends Component {
+      fallback = (<span>loading</span>);
+      page = 'home';
+
+      render() {
+        return this.page == 'home' ? <span>home</span> : <Page />;
+      }
+    }
+
+    const element = render(<Host is={(x) => void (host = x)} />);
+
+    expect(element).toHaveText('home');
+
+    await act(async () => {
+      pending(() => { host.page = 'lazy'; });
+    });
+
+    expect(element).toHaveText('home');
+
+    await act(async () => {
+      module.resolve({ default: () => <span>page</span> });
+      await module;
+    });
+
+    expect(element).toHaveText('page');
+  });
+});
+
 describe('unmount', () => {
   it.each([false, true])('will dispose instance (strict: %s)', (reactStrictMode) => {
     const didDispose = vi.fn();
