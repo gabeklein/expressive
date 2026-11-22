@@ -1,5 +1,11 @@
 # @expressive/rpc
 
+## 0.5.0
+
+### Minor Changes
+
+- [#774](https://github.com/gabeklein/expressive/pull/774) [`54a571e`](https://github.com/gabeklein/expressive/commit/54a571e8a6902e0baedd38fac03239024fb92b46) `Current.get().env` reads the `env` the built server's `fetch` got (the plugin's `env` in dev, `{}` without). Type it by extending the exported `Env` interface.
+
 ## 0.4.4
 
 ### Patch Changes
