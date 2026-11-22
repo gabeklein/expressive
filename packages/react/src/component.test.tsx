@@ -50,38 +50,25 @@ reactOnly.it('will transition Component dispatch', async () => {
   }
 
   let instance!: Control;
-  let setLocal!: React.Dispatch<React.SetStateAction<string>>;
+  let settled = false;
 
-  function Local() {
-    const [local, update] = React.useState('a');
-    setLocal = update;
-
-    return <>{local}</>;
-  }
-
-  const view = render(
-    <>
-      <Local />
-      <Control is={(current) => void (instance = current)} />
-    </>
-  );
+  const view = render(<Control is={(current) => void (instance = current)} />);
 
   await act(async () => {
-    pending(() => {
-      setLocal('b');
-      instance.value = 'b';
-    });
+    pending(() => { instance.value = 'b'; }).then(() => (settled = true));
     await Promise.resolve();
   });
 
   expect(view.container.querySelector('i')).toBeNull();
-  expect(view.container.textContent).toBe('ba');
+  expect(view.container.textContent).toBe('a');
+  expect(settled).toBe(false);
 
   instance.value = 'c';
   gate.resolve();
   await act(async () => {});
 
-  expect(view.container.textContent).toBe('bc');
+  expect(view.container.textContent).toBe('c');
+  expect(settled).toBe(true);
 });
 
 reactOnly.it('will not commit mixed revisions across repeated placement', async () => {
