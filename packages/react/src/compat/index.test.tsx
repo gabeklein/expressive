@@ -27,7 +27,7 @@ describe('Component', () => {
 
     const instance = Control.new({});
     const message =
-      'Component instances cannot be rendered directly with @expressive/preact.';
+      'Component instances cannot be rendered directly under Preact - render the class as <Foo /> instead.';
 
     expect(() => render(<>{instance}</>)).toThrow(message);
     expect(() => render(<>{[instance]}</>)).toThrow(message);

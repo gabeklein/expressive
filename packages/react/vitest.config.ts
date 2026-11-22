@@ -4,7 +4,7 @@ import { suite } from '../../vitest.config';
 
 export default mergeConfig(suite(true), defineConfig({
   test: {
-    name: 'react',
+    name: '@expressive/react',
     exclude: [...configDefaults.exclude, 'src/compat/**'],
     projects: [{ extends: true }, './vitest.compat.config.ts']
   }

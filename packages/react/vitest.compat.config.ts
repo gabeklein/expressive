@@ -17,7 +17,7 @@ const skipFiles = [
   // react's own JSX host registration and vite plugin
   'jsx-runtime.test.tsx',
   'vite.test.ts',
-  // instances and collections placed as children - preact rejects them
+  // instances and collections placed as children - unsupported under preact
   'element.test.tsx',
   // react's ErrorBoundary; compat has its own suite beside compat/boundary.ts
   'boundary.test.tsx'
@@ -30,7 +30,11 @@ for (const file of skipFiles)
 if (!readdirSync(src).some((file) => /\.test\./.test(file) && !skipFiles.includes(file)))
   throw new Error('compat suite: no react tests to run');
 
-export default mergeConfig(suite(true), defineProject({
+const base = suite(true);
+
+base.test!.setupFiles = [];
+
+export default mergeConfig(base, defineProject({
   plugins: [
     {
       name: 'compat-suite',
@@ -52,8 +56,7 @@ export default mergeConfig(suite(true), defineProject({
     ]
   },
   test: {
-    name: 'compat',
-    include: ['src/*.test.*', 'src/compat/*.test.*'],
+    name: '@expressive/react/compat',
     exclude: [...configDefaults.exclude, ...skipFiles.map((file) => `src/${file}`)],
     setupFiles: [setup]
   }

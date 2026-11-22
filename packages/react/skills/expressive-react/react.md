@@ -117,7 +117,7 @@ Works with no configuration - the adapter imports only `react` and `react/jsx-ru
 
 ## Preact
 
-`@expressive/react/compat` is the host for a Preact app - import it once from the entry module in place of `@expressive/react`. It imports only `preact`, so aliasing `react` to `preact/compat` is needed only for other React libraries.
+`@expressive/react/compat` is the host for a Preact app - import it once from the entry module in place of `@expressive/react`. It imports only `preact`, so aliasing `react` to `preact/compat` is needed only for other React libraries. Keep `jsxImportSource: "preact"` - JSX types and the `ref` prop arrive with the import.
 
 ```ts
 import '@expressive/react/compat';
@@ -125,11 +125,12 @@ import '@expressive/react/compat';
 
 One adapter per build - importing the root `@expressive/react` as well throws. Gaps against React:
 
-- Instances and `has`/`map` collections placed as children throw - render a Component as `<Foo />`.
+- Instances placed as children throw - render a Component as `<Foo />`. `has`/`map` collections placed as children render nothing - map them to elements.
 - A ref object passed as `ref` stays empty - pass `is` or a callback ref.
 - No transitions - updates from `pending()` work render as ordinary updates.
 - No pre-commit revision validation - preact does not yield mid-render.
-- `@expressive/react/vite` is unverified under Preact - its hot reload leaves function components to React Refresh.
+- `fallback` on `<Component for>` does not take over from an outer `Suspense`.
+- `@expressive/react/vite` is unverified under Preact - pair it with prefresh.
 
 ## Hot reload (Vite)
 

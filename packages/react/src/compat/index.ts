@@ -16,7 +16,7 @@ options.vnode = (node) => {
 function reject(children: ComponentChildren) {
   if (children instanceof Component)
     throw new TypeError(
-      'Component instances cannot be rendered directly with @expressive/preact.'
+      'Component instances cannot be rendered directly under Preact - render the class as <Foo /> instead.'
     );
 
   if (Array.isArray(children))
