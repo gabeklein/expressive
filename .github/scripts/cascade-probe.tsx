@@ -234,4 +234,33 @@ render(<Ported />, document.body.appendChild(document.createElement('div')));
 
 check('portal into shadow root styled', getComputedStyle(away.querySelector('q')!).color, 'rgb(7, 7, 7)');
 
+const detached = document.createElement('div').attachShadow({ mode: 'open' });
+render(<Outer />, detached);
+document.body.append(detached.host);
+
+check('detached shadow host styled once attached', getComputedStyle(detached.querySelector('b')!).color, 'rgb(4, 4, 4)');
+
+host.host.remove();
+document.body.append(host.host);
+render(<><Outer /><Late /></>, host);
+
+check('moved shadow host keeps its rules', getComputedStyle(host.querySelector('b')!).color, 'rgb(4, 4, 4)');
+check('moved shadow host takes new rules', getComputedStyle(host.querySelector('u')!).color, 'rgb(5, 5, 5)');
+
+const form = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+render(<input value="fixed" onInput={() => {}} />, form);
+
+const field = form.querySelector('input')!;
+field.value = 'typed';
+field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+await new Promise((resolve) => setTimeout(resolve, 20));
+
+check('controlled input restores in a shadow root', field.value, 'fixed');
+
+const iframe = document.body.appendChild(document.createElement('iframe'));
+const framed = iframe.contentDocument!.body.appendChild(iframe.contentDocument!.createElement('div')).attachShadow({ mode: 'open' });
+render(<Outer />, framed);
+
+check('shadow root in an iframe styled', iframe.contentWindow!.getComputedStyle(framed.querySelector('b')!).color, 'rgb(4, 4, 4)');
+
 report();
