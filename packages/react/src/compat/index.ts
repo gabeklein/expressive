@@ -17,9 +17,9 @@ const vnode = options.vnode;
 
 options.vnode = (node) => {
   const { children } = node.props;
-  const adopted = adopt(children);
+  const next = adopt(children);
 
-  if (adopted !== children) node.props.children = adopted;
+  if (next !== children) node.props.children = next;
 
   vnode?.(node);
 };

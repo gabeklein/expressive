@@ -59,10 +59,11 @@ export function seamElements() {
     Object.defineProperty(Type.prototype, '$$typeof', {
       get(this: Renderable) {
         const self = this.is;
+        const type = elementType(self);
 
         return self instanceof Component
-          ? seam(self, false, elementType(self), self.key)
-          : seam(self, {}, elementType(self), null);
+          ? seam(self, false, type, self.key)
+          : seam(self, {}, type, null);
       }
     });
   });

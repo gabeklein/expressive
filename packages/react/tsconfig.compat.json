@@ -1,40 +1,15 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "target": "es2020",
-    "useDefineForClassFields": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "lib": [
-      "ES2023",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "moduleResolution": "bundler",
-    "skipLibCheck": true,
-    "skipDefaultLibCheck": true,
-    "noUnusedLocals": true,
-    "sourceMap": true,
-    "strict": true,
-    "types": [
-      "preact",
-      "node"
-    ],
+    "types": ["preact", "node"],
     "paths": {
-      "@expressive/mvc/*": [
-        "../mvc/src/*"
-      ],
-      "@expressive/react/adapter": [
-        "./src/adapter"
-      ],
-      "@expressive/*": [
-        "../*/src"
-      ]
+      "@expressive/mvc/*": ["../mvc/src/*"],
+      "@expressive/react/adapter": ["./src/adapter"],
+      "@expressive/*": ["../*/src"]
     },
     "tsBuildInfoFile": "./tsconfig.compat.tsbuildinfo"
   },
-  "include": [
-    "src/compat",
-    "test.compat.setup.ts"
-  ]
+  "include": ["src/compat", "test.compat.setup.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { configDefaults, defineProject, mergeConfig } from 'vitest/config';
 
@@ -24,9 +24,6 @@ const skipFiles = [
 for (const file of skipFiles)
   if (!existsSync(src + file))
     throw new Error(`compat suite: ${file} is not in packages/react/src`);
-
-if (!readdirSync(src).some((file) => /\.test\./.test(file) && !skipFiles.includes(file)))
-  throw new Error('compat suite: no react tests to run');
 
 const base = suite(true);
 

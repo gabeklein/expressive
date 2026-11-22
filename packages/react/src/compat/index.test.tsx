@@ -4,9 +4,8 @@ import { StrictMode, Suspense } from 'preact/compat';
 import { expect, it, describe, vi } from 'vitest';
 
 import { flushMicrotasks, mockPromise } from '../../test.compat.setup';
-import { Model } from '@expressive/mvc';
+import { Component, Model, pending } from '@expressive/mvc';
 import '.';
-import { Component, pending } from '@expressive/mvc';
 
 describe('Component', () => {
   it('will expose a base render for class detection', () => {
