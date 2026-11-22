@@ -8,7 +8,7 @@ import type { AppConfig, Ctx } from "./server/config";
 export type Ref = [module: number, name: string];
 
 /** One folder of remotes: its route pattern, and its calls and error classes by id. */
-export interface Folder {
+export interface FolderRefs {
   pattern: string[];
   calls: Record<string, Ref>;
   classes: Record<string, Ref>;
@@ -19,21 +19,27 @@ type Handlers<T> = Omit<T, "port" | "remote" | "target" | "fetch">;
 /**
  * The `target: "fetch"` server - the generated `dist/server/index.js` default-exports it.
  *
- * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.env`.
+ * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env`.
+ * `env` defaults to `{}`; `ctx` to a stand-in whose `waitUntil` logs a rejection.
  * Members of `config` other than `port`, `remote`, `target` and `fetch` join the result.
- * Every folder's error classes verify on creation - a bad export fails at module load.
+ * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */
-export function fetchHandler<T extends AppConfig>(config: T, modules: Record<string, unknown>[], manifest: Folder[]): Handlers<T> & {
+export function fetchHandler<T extends AppConfig>(config: T, modules: Record<string, unknown>[], manifest: FolderRefs[]): Handlers<T> & {
   fetch(request: Request, env?: Env, ctx?: Ctx): Promise<Response>;
 } {
   install();
 
-  const pick = (refs: Record<string, Ref>) =>
-    Object.fromEntries(Object.entries(refs).map(([id, [module, name]]) => [id, modules[module][name]]));
-
   const sidecars: Endpoint[] = manifest.map(({ pattern, calls, classes }) => {
+    const path = "/" + pattern.join("/");
+    const pick = (refs: Record<string, Ref>) =>
+      Object.fromEntries(Object.entries(refs).map(([id, [module, name]]) => {
+        const value = modules[module]?.[name];
+        if (value === undefined) throw new Error(`${path} has no export ${name}.`);
+        return [id, value];
+      }));
     const exports = { calls: pick(calls), classes: pick(classes) };
-    verify("/" + pattern.join("/"), exports);
+
+    verify(path, exports);
     return { pattern, exports: async () => exports };
   });
 

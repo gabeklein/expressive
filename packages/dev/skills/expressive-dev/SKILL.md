@@ -136,7 +136,7 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 ## Fetch target
 
-`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404 - `fetchHandler` from `@expressive/dev/fetch`, called by the generated entry. Static files are the host's - `config.fetch` forwards to them.
+`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404 Static files are the host's - `config.fetch` forwards to them.
 
 - `Current.get().env` - the host's second `fetch` argument. Type it: `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`, with `@expressive/rpc` a dependency of the app.
 - Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build - import what it needs inside it: `export const bindings = async () => (await import("./dev-env")).env();`.

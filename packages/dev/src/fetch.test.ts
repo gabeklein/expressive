@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Current, HttpError } from "@expressive/rpc";
 
-import { fetchHandler, type Folder } from "./fetch";
+import { fetchHandler, type FolderRefs } from "./fetch";
 
 class Taken extends HttpError {
   status = 409;
@@ -18,26 +18,30 @@ const tally = {
   Taken,
 };
 
-const manifest: Folder[] = [
+const shop = { async price() { return 3; } };
+
+const manifest: FolderRefs[] = [
   { pattern: ["tally"], calls: { add: [0, "add"], name: [0, "name"] }, classes: { Taken: [0, "Taken"] } },
+  { pattern: ["shop"], calls: { price: [1, "price"] }, classes: {} },
 ];
 
-const post = (name: string, args: unknown[]) =>
-  new Request("http://localhost/tally", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body: JSON.stringify(args) });
+const post = (name: string, args: unknown[], at = "/tally") =>
+  new Request(`http://localhost${at}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body: JSON.stringify(args) });
 
 const json = async (response: Response | Promise<Response>) => (await response).json();
 
 describe("fetchHandler", () => {
   it("will answer calls with the env the host passed", async () => {
-    const { fetch } = fetchHandler({ target: "fetch" }, [tally], manifest);
+    const { fetch } = fetchHandler({ target: "fetch" }, [tally, shop], manifest);
 
     expect(await json(fetch(post("add", [2, 3])))).toEqual({ value: 5 });
+    expect(await json(fetch(post("price", [], "/shop")))).toEqual({ value: 3 });
     expect(await json(fetch(post("name", []), { NAME: "prod" } as object))).toEqual({ value: "prod" });
     expect(await json(fetch(post("name", [])))).toEqual({});
   });
 
   it("will reply a thrown error class with its status", async () => {
-    const { fetch } = fetchHandler({}, [tally], manifest);
+    const { fetch } = fetchHandler({}, [tally, shop], manifest);
     const response = await fetch(post("add", [1, 0]));
 
     expect(response.status).toBe(409);
@@ -77,6 +81,11 @@ describe("fetchHandler", () => {
 
     expect(Object.keys(handler).sort()).toEqual(["fetch", "scheduled"]);
     expect(handler.scheduled).toBe(scheduled);
+  });
+
+  it("will throw on creation if a ref names no export", () => {
+    expect(() => fetchHandler({}, [tally], [{ pattern: ["shop"], calls: { price: [1, "price"] }, classes: {} }]))
+      .toThrow("/shop has no export price.");
   });
 
   it("will throw on creation if a folder exports a class that is not an Error", () => {

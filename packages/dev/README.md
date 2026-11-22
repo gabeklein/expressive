@@ -78,9 +78,8 @@ answers. On Node, `env` is `{}`.
 
 `config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }` with
 every dependency bundled - for a host that calls a module's `fetch` rather than running a server. A
-request goes to remote calls, then the app's `fetch`, else 404 - `fetchHandler` from
-`@expressive/dev/fetch`, which the generated entry calls. Static files are the host's: the app's
-`fetch` forwards to them.
+request goes to remote calls, then the app's `fetch`, else 404. Static files are the host's: the
+app's `fetch` forwards to them.
 
 - `env` is the host's second `fetch` argument, and `Current.get().env` anywhere in the request.
   Type it by extending rpc's `Env` - `declare module "@expressive/rpc" { interface Env { API_KEY:
@@ -364,8 +363,8 @@ vanish under `app/`.
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
 adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
 Server-only API - `config`, `serve`, `Current` - is `@expressive/dev/server`; the generated server
-entry imports `serve` from there. Under `target: "fetch"` it default-exports `fetchHandler(config,
-modules, manifest)` from `@expressive/dev/fetch` instead.
+entry imports `serve` from there. Under `target: "fetch"` it calls `@expressive/dev/fetch` instead - the
+generated entry's runtime, not an API to call by hand.
 
 ### Prerendering
 

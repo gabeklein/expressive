@@ -822,6 +822,8 @@ describe("vite host", () => {
     "counter.ts": "export class Counter {}",
     "local.ts": `import { readFileSync } from "node:fs"; export const local = () => ({ NAME: typeof readFileSync == "function" ? "dev-only-binding" : "" });`,
     "app/index.tsx": PAGE,
+    "app/shop/index.tsx": "import { price } from './remote'; export const Page = () => price",
+    "app/shop/remote.ts": "export async function price() { return 3; }",
     "app/tally/index.tsx": "import { add, bound } from './remote'; export const Page = () => [add, bound]",
     "app/tally/remote.ts": `${SIDECAR}
       import { Current } from "@expressive/rpc";
@@ -847,6 +849,7 @@ describe("vite host", () => {
     const imports = [...code.matchAll(/from\s*"([^"]+)"|import\s*"([^"]+)"/g)].map(([, a, b]) => a ?? b).filter(spec => !spec.startsWith("./"));
 
     expect(await (await handler.fetch(post("/tally", "add", "[2, 3]"), env, ctx)).json()).toEqual({ value: 5 });
+    expect(await (await handler.fetch(post("/shop", "price", "[]"), env, ctx)).json()).toEqual({ value: 3 });
     expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod", path: "/hello" });
