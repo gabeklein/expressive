@@ -86,7 +86,7 @@ function hide(owner: Fiber, boundary: Boundary) {
   for (const child of owner.children) move(child, stash, null);
 
   owner.portals = portals(owner, []).map((portal) => {
-    const content = document.createDocumentFragment();
+    const content = fragment();
     moveRange(portal.portalStart!, portal.portalEnd!, content);
     return [portal, content];
   });
@@ -108,7 +108,10 @@ function reveal(owner: Fiber) {
   attach(owner.stash!);
 
   for (const [portal, content] of owner.portals!)
-    if (!portal.dead) place(portal, content);
+    if (!portal.dead) {
+      place(portal, content);
+      attach(content);
+    }
 
   owner.portals = undefined;
   owner.placeholder = undefined;

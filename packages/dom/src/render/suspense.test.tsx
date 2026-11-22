@@ -882,6 +882,71 @@ describe('suspense and recovery', () => {
     expect(root.textContent).toBe('inner');
   });
 
+  describe('refs of suspended content', () => {
+    it('will attach only the latest ref given while hidden', async () => {
+      const [Lazy, loaded] = lazy();
+      const first = vi.fn();
+      const second = vi.fn();
+
+      class Slot extends Model {
+        ref?: (node: Element | null) => void = undefined;
+      }
+
+      function Target() {
+        const { ref } = Slot.get();
+        return ref ? <section ref={ref} /> : null;
+      }
+
+      class App extends Component {
+        slot = new Slot();
+        fallback = <i>loading</i>;
+
+        render() {
+          return <><Target /><Lazy /></>;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      app.slot.ref = first;
+      await flushMicrotasks();
+      app.slot.ref = second;
+      await flushMicrotasks();
+      loaded.resolve(() => <span>ready</span>);
+      await flushMicrotasks();
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(second).toHaveBeenCalledWith(root.querySelector('section'));
+    });
+
+    it('will attach a ref in portal content added while hidden', async () => {
+      const [Lazy, loaded] = lazy();
+      const target = document.body.appendChild(document.createElement('aside'));
+      const ref = { current: null as HTMLElement | null };
+
+      class App extends Component {
+        fallback = <i>loading</i>;
+        extra = false;
+
+        render() {
+          return <><Portal into={target}><b>modal</b>{this.extra && <u ref={ref} />}</Portal><Lazy /></>;
+        }
+      }
+
+      const [app] = mount(App);
+
+      app.extra = true;
+      await flushMicrotasks();
+      expect(ref.current).toBe(null);
+
+      loaded.resolve(() => <span>ready</span>);
+      await flushMicrotasks();
+      expect(ref.current).toBe(target.querySelector('u'));
+      expect(ref.current!.isConnected).toBe(true);
+    });
+  });
+
   it('will hide portal content while its boundary shows a fallback', async () => {
     const [Lazy, loaded] = lazy();
     const target = document.createElement('aside');
