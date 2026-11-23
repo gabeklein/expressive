@@ -9,10 +9,15 @@ export function exposed(root: string, mode: string, prefix: string | false): Rec
   return Object.fromEntries(keys.map(key => [key, process.env[key] ?? files[key]]));
 }
 
+const REGISTER = `export function register() {
+  throw new Error("register() fills process.env - call it on the server.");
+}
+`;
+
 export function client(values: Record<string, string>, prefix: string | false): string {
   const json = JSON.stringify(values);
 
-  if (!prefix) return `export const env = Object.freeze(${json});\n`;
+  if (!prefix) return `export const env = Object.freeze(${json});\n${REGISTER}`;
 
   const tag = JSON.stringify(prefix);
 
@@ -28,5 +33,5 @@ export const env = new Proxy(values, {
   },
   set: () => false,
 });
-`;
+${REGISTER}`;
 }

@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { env, reset } from "./env";
+import { env, register, reset } from "./env";
 
 let root: string;
 
@@ -124,4 +124,44 @@ it("will read past a byte order mark", () => {
   write({ ".env": "\uFEFFA=1" });
 
   expect(read.A).toBe("1");
+});
+
+describe("register", () => {
+  afterEach(() => {
+    for (const key of ["FILLED", "GONE", "KEPT", "LATER"]) delete process.env[key];
+  });
+
+  it("will fill unset keys into process.env", () => {
+    write({ ".env": "FILLED=file\nKEPT=file" });
+    vi.stubEnv("KEPT", "shell");
+
+    register();
+
+    expect(process.env.FILLED).toBe("file");
+    expect(process.env.KEPT).toBe("shell");
+  });
+
+  it("will not set NODE_ENV - mode is chosen before files load", () => {
+    write({ ".env": "NODE_ENV=production\nFILLED=file" });
+    vi.stubEnv("NODE_ENV", undefined);
+
+    register();
+
+    expect(process.env.NODE_ENV).toBeUndefined();
+    expect(process.env.FILLED).toBe("file");
+  });
+
+  it("will refresh only the keys it filled on reset", () => {
+    write({ ".env": "FILLED=one\nGONE=x\nKEPT=file" });
+    vi.stubEnv("KEPT", "shell");
+    register();
+
+    write({ ".env": "FILLED=two\nLATER=two\nKEPT=changed" });
+    reset();
+
+    expect(process.env.FILLED).toBe("two");
+    expect(process.env.GONE).toBeUndefined();
+    expect(process.env.LATER).toBe("two");
+    expect(process.env.KEPT).toBe("shell");
+  });
 });

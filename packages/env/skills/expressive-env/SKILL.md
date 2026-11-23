@@ -21,9 +21,17 @@ Files load from the working directory on the first read, later winning:
 
 Mode is `NODE_ENV`, default `development` - the same files and order as Vite. Commit `.env.example` with every key and no secrets; keep the rest out of git.
 
+Dependencies that read `process.env` - database clients, SDKs, tool configs - need the keys there. Call `register()` from `@expressive/env` before they load, or preload it:
+
+```sh
+node --import @expressive/env/register server.js
+```
+
+It copies the same files into `process.env`, skipping keys already set and `NODE_ENV` - the mode is chosen before they load - so the shell and platform still win. The Vite plugin's reload refreshes the keys it copied.
+
 ## Types
 
-`expressive env sync` writes `env.d.ts` at the project root: every key in every `.env*` file, as a member of `Env`. Commit it - it holds names and comments, no values - and include it in `tsconfig.json`. A key in `.env.example` - or `.env` when there is no example - is `string`; any other is optional.
+`expressive env` writes `env.d.ts` at the project root - every key in every `.env*` file, as a member of `Env` - then warns of keys `.env.example` lists but nothing sets. It exits 0, so it fits a `prepare` script; `check` is the failing gate, `sync` writes types alone. Commit `env.d.ts` - names and comments, no values - and include it in `tsconfig.json`. A key in `.env.example` - or `.env` when there is no example - is `string`; any other is optional.
 
 Comments carry over as JSDoc. A comment block directly above a key documents it; one followed by a blank line names a section for the keys below it.
 
@@ -44,13 +52,13 @@ import { env } from "@expressive/env/vite";
 export default { plugins: [env()] };
 ```
 
-Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; so does a prefixed key absent at build. `env({ prefix: "CLIENT" })` changes the prefix to `CLIENT_`; `env({ prefix: false })` sends every key in the `.env` files, secrets included, and the build logs the count. `process.env` adds prefixed keys only.
+Server code - SSR, server modules - keeps the real module. In the browser, reading a server-only key throws, naming the prefix it needs; so does a prefixed key absent at build. `env({ prefix: "CLIENT" })` changes the prefix to `CLIENT_`; a second `env()` in one config defers to the first, so one in `vite.config.ts` wins over a host's; `env({ prefix: false })` sends every key in the `.env` files, secrets included, and the build logs the count. `process.env` adds prefixed keys only.
 
 The client reads Vite's `root` and `mode`; the server reads the working directory and `NODE_ENV`. Keep them aligned - `vite build --mode staging` otherwise gives each side different files. Neither side expands `$VAR`.
 
 Without the plugin, a browser bundle gets a stub that throws on any uppercase key.
 
-In dev the plugin writes `env.d.ts` on start and on every root `.env*` change, then reloads the page.
+In dev, a root `.env*` change reloads the page and refreshes `env.d.ts` if it exists - the plugin never creates it.
 
 ## Agents: manage .env through the command
 
@@ -66,7 +74,7 @@ Do not open, print or `cat` a `.env` file - values are secrets and land in the t
 | Set a secret | `some-generator \| expressive env write KEY` - a bare key reads stdin, out of argv and the transcript; empty stdin is refused |
 | Set values | `expressive env write A=1 B=two` - quoted as needed; `A=` empties a key |
 | Remove keys | `expressive env unset A B` - drops each line and its doc comment |
-| Refresh types | `expressive env sync` - `write` and `unset` run it too |
+| Set up, refresh types | `expressive env` - writes `env.d.ts`, warns of unset keys; `write` and `unset` refresh it too |
 
 `--mode production` (`-m`) reads that mode's files; `write` and `unset` edit `.env` unless given `--file` (`-f`) - a bare name means `.env.<name>`: `-f example`, `-f local`, `-f production.local`. A new key belongs in `.env.example` too, with a doc comment, so `check` and the types know it.
 

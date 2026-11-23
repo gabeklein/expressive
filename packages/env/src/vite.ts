@@ -1,11 +1,13 @@
-import { posix } from "node:path";
+import { existsSync } from "node:fs";
+import { join, posix } from "node:path";
 import { normalizePath, type Plugin } from "vite";
 
-import { write } from "./declaration";
+import { DECLARATION, write } from "./declaration";
 import { reset } from "./env";
 import { isEnvFile } from "./files";
 import { client, exposed } from "./client";
 
+const NAME = "expressive:env";
 const ID = "@expressive/env";
 const VIRTUAL = "\0@expressive/env";
 
@@ -25,7 +27,8 @@ export interface EnvOptions {
  *
  * Server code keeps the real module, which reads from the working directory with mode `NODE_ENV`.
  * The client reads from Vite's `root` with Vite's `mode` - align them, or `--mode staging` gives each side different files.
- * In dev, writes `env.d.ts` and reloads when a root `.env*` file changes.
+ * In dev, reloads when a root `.env*` file changes and refreshes an existing `env.d.ts` - `expressive env` creates it.
+ * A second `env()` in the same config does nothing, so one in `vite.config.ts` wins over a host's.
  */
 export function env(options: EnvOptions = {}): Plugin {
   const { prefix: word = "PUBLIC" } = options;
@@ -33,9 +36,10 @@ export function env(options: EnvOptions = {}): Plugin {
   let root: string;
   let mode: string;
   let building = false;
+  let active = true;
 
-  return {
-    name: "expressive:env",
+  const plugin: Plugin = {
+    name: NAME,
     enforce: "pre",
 
     config: () => ({ optimizeDeps: { exclude: [ID] } }),
@@ -44,10 +48,11 @@ export function env(options: EnvOptions = {}): Plugin {
       root = config.root;
       mode = config.mode;
       building = config.command === "build";
+      active = config.plugins.find(each => each.name === NAME) === plugin;
     },
 
     resolveId(id, _importer, options) {
-      if (id === ID && !options?.ssr) return VIRTUAL;
+      if (active && id === ID && !options?.ssr) return { id: VIRTUAL, moduleSideEffects: false };
     },
 
     load(id) {
@@ -61,7 +66,7 @@ export function env(options: EnvOptions = {}): Plugin {
     },
 
     configureServer(server) {
-      write(root);
+      if (!active) return;
 
       server.watcher.on("all", (_event, file) => {
         const path = normalizePath(file);
@@ -69,7 +74,7 @@ export function env(options: EnvOptions = {}): Plugin {
         if (posix.dirname(path) !== root || !isEnvFile(posix.basename(path))) return;
 
         reset();
-        write(root);
+        if (existsSync(join(root, DECLARATION))) write(root);
 
         const graph = server.environments.client.moduleGraph;
         const module = graph.getModuleById(VIRTUAL);
@@ -79,4 +84,6 @@ export function env(options: EnvOptions = {}): Plugin {
       });
     },
   };
+
+  return plugin;
 }
