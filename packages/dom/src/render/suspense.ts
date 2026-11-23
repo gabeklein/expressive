@@ -8,8 +8,7 @@ import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
 import { release, schedule, transition } from '../core/scheduler';
-import { documentOf } from '../style/protocol';
-import { activeDocument, within } from './target';
+import { activeRoot, within } from './target';
 
 const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();
@@ -17,7 +16,7 @@ let holding: { thrown: unknown; fiber?: Fiber } | undefined;
 let settling = false;
 
 function park(fiber: Fiber) {
-  move(fiber, fragment(activeDocument()), null);
+  move(fiber, fragment(activeRoot()), null);
 }
 
 function hold(fiber: Fiber, error: unknown) {
@@ -83,12 +82,12 @@ function settle() {
 }
 
 function hide(owner: Fiber, boundary: Boundary) {
-  const stash = fragment(documentOf(owner.target!));
+  const stash = fragment(owner.root!);
 
   for (const child of owner.children) move(child, stash, null);
 
   owner.portals = portals(owner, []).map((portal) => {
-    const content = fragment(documentOf(portal.target!));
+    const content = fragment(portal.root!);
     moveRange(portal.portalStart!, portal.portalEnd!, content);
     return [portal, content];
   });
@@ -96,12 +95,12 @@ function hide(owner: Fiber, boundary: Boundary) {
   stashes.set(stash, owner);
 
   owner.stash = stash;
-  owner.placeholder = within(owner.target!, () => range('fragment', owner.end.parentNode!, owner.end, owner.childContext!));
+  owner.placeholder = within(owner.root!, () => range('fragment', owner.end.parentNode!, owner.end, owner.childContext!));
   draw(owner, boundary);
 }
 
 function draw(owner: Fiber, boundary: Boundary) {
-  within(owner.target!, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
+  within(owner.root!, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
 }
 
 function reveal(owner: Fiber) {

@@ -1,5 +1,3 @@
-import { Context } from '@expressive/mvc';
-
 import { ALIASES, SVG, isEvent, isStringified } from '../node/tags';
 import type { VNode } from '../node/vnode';
 import { applyClaim, claim } from '../style/claim';
@@ -8,14 +6,14 @@ import type { Appearance } from '../style/claim';
 import { unmatched } from '../style/diagnose';
 import { reserved } from '../style/protocol';
 import { inserted } from './commits';
-import type { Boundary, Fiber } from './fiber';
+import type { Fiber } from './fiber';
 import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
 import { depth, focus, focusing } from './render';
 import { afterFlush } from '../core/scheduler';
 import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
-import { activeDocument, activeTarget } from './target';
+import { activeDocument } from './target';
 
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
@@ -23,7 +21,7 @@ const controlled = new WeakMap<Element, Fiber>();
 const attached = new WeakMap<Fiber, unknown>();
 const restoring = new WeakSet<Document | ShadowRoot>();
 
-function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
+function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null, appearance?: Appearance) {
   const tag = value.type as string;
   const host = hostOf(parent) as Element;
   const namespace = tag == 'svg' || host.namespaceURI == SVG && host.localName != 'foreignObject' ? SVG : undefined;
@@ -33,18 +31,8 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     () => namespace ? activeDocument().createElementNS(SVG, tag) : activeDocument().createElement(tag),
     (node) => node.nodeType == 1 && (node as Element).localName == tag && ((node as Element).namespaceURI == SVG) == !!namespace
   );
-  const fiber: Fiber = {
-    kind: 'element',
-    key: value.key,
-    type: tag,
-    props: {},
-    context,
-    boundary,
-    start: element,
-    end: element,
-    children: [],
-    events: new Map()
-  };
+  fiber.start = fiber.end = element;
+  fiber.events = new Map();
 
   const adopting = adopted(element);
 
@@ -112,7 +100,7 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adoptin
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(stylesOf(activeTarget()!), appearance, resolved, next.className, next.style);
+  const claimed = claim(stylesOf(fiber.root!.target!), appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;
@@ -143,7 +131,7 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adoptin
   }
 
   if (CONTROLS.some((key) => next[key] != null)) {
-    const root = activeTarget()!;
+    const root = fiber.root!.target!;
 
     controlled.set(element, fiber);
 

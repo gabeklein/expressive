@@ -1,4 +1,4 @@
-import { activeDocument } from './target';
+import { activeRoot } from './target';
 
 interface Claiming {
   root: globalThis.Node;
@@ -79,8 +79,18 @@ function reserve(start: globalThis.Node, end: globalThis.Node) {
   state?.kept.set(start, end);
 }
 
+function text(value: string) {
+  const root = activeRoot();
+  return root.host.text(root, value);
+}
+
+function marker(kind: string) {
+  const root = activeRoot();
+  return root.host.marker(root, kind);
+}
+
 function adoptText(parent: globalThis.Node, before: globalThis.Node | null, value: string) {
-  return adopt(parent, before, () => activeDocument().createTextNode(value), (node) => {
+  return adopt(parent, before, () => text(value), (node) => {
     if (node.nodeType != 3 || !value) return false;
 
     const text = node as Text;
@@ -92,14 +102,14 @@ function adoptText(parent: globalThis.Node, before: globalThis.Node | null, valu
 }
 
 function adoptRange(parent: globalThis.Node, before: globalThis.Node | null, kind: string) {
-  const start = adopt(parent, before, () => activeDocument().createComment(kind), (node) => isComment(node, kind));
+  const start = adopt(parent, before, () => marker(kind), (node) => isComment(node, kind));
 
   if (!adopted(start))
-    return [start, place(parent, start, activeDocument().createComment(`/${kind}`))];
+    return [start, place(parent, start, marker(`/${kind}`))];
 
   const end = closer(start, kind);
 
-  if (!end) return [start, place(parent, start, activeDocument().createComment(`/${kind}`))];
+  if (!end) return [start, place(parent, start, marker(`/${kind}`))];
 
   state!.claimed.add(end);
   return [start, end];
@@ -175,4 +185,5 @@ function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Nod
   }
 }
 
-export { adopt, adopted, adoptRange, adoptText, aside, hydrating, isComment, keep, reserve, touch };
+export {
+  marker, adopt, adopted, adoptRange, adoptText, aside, hydrating, isComment, keep, reserve, touch };

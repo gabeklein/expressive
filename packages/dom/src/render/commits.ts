@@ -1,3 +1,5 @@
+import type { Root } from './host';
+
 interface Placed {
   start: Node;
   dead?: boolean;
@@ -15,8 +17,8 @@ function inserted(fiber: Placed, run: () => unknown) {
 }
 
 /** A fragment whose commits wait until it attaches. */
-function fragment(document: Document) {
-  const root = document.createDocumentFragment();
+function fragment(at: Root) {
+  const root = at.host.fragment(at);
 
   DETACHED.set(root, []);
   return root;
