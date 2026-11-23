@@ -394,7 +394,6 @@ describe('hydrate', () => {
     hydrate(<Card />, root);
 
     const other = early.querySelector('b')!;
-    const card = root.querySelector('p')!;
     const server = [...sheet.sheet!.cssRules] as CSSStyleRule[];
 
     expect(server.some((rule) => other.matches(rule.selectorText))).toBe(false);
