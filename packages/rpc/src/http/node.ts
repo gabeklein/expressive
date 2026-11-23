@@ -12,6 +12,8 @@ interface NodeResponse {
   flushHeaders(): void;
   write(chunk: Uint8Array): unknown;
   end(chunk?: Uint8Array): unknown;
+  destroy(): unknown;
+  destroyed?: boolean;
 }
 
 export function toRequest(req: NodeRequest, res: NodeResponse): Request {
@@ -59,13 +61,21 @@ export async function send(res: NodeResponse, response: Response): Promise<void>
   const reader = response.body.getReader();
   let wake = () => {};
 
-  res.once("close", () => {
+  const stop = () => {
     wake();
     reader.cancel().catch(() => {});
-  });
+  };
 
-  for (let read = await reader.read(); !read.done; read = await reader.read())
-    if (res.write(read.value) === false) await new Promise<void>(done => res.once("drain", (wake = done)));
+  if (res.destroyed) stop();
+  else res.once("close", stop);
+
+  try {
+    for (let read = await reader.read(); !read.done; read = await reader.read())
+      if (res.write(read.value) === false) await new Promise<void>(done => res.once("drain", (wake = done)));
+  } catch (error) {
+    res.destroy();
+    throw error;
+  }
 
   res.end();
 }
