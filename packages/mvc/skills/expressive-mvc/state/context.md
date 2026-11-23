@@ -196,6 +196,8 @@ scene.get(Model, (node) => attach(node), true); // direct members only - a, not 
 
 A host installs `resolver((Type, compute) => ...)` from `@expressive/mvc/jsx-runtime`, which runs for every `Context.get` outside an origin - `Type` is undefined for bare `Context.get()`. `resolver` returns the previous one; the host calls it where it is not rendering, so installs stack. Its return value is what the caller receives. In render the host runs `compute` against a tracked view of its own context, so a provider any lookup in `compute` reads arriving, replaced or leaving renders again, and tracks a returned Model, one subscription per instance per render.
 
+A host rendering a capitalized method as a component (`<this.Header />`) finds the instance it was read from with `methodOf(fn)` from the same subpath, and tracks that instance for the render.
+
 ## API Surface
 
 Per-member contract - constructor, `get`, `add`, `push`, `pop`, `Context.get`, `Context.root`: JSDoc on hover, or `node_modules/@expressive/mvc/dist/context.d.ts`. Placement through `Type.new(context, ...args)`: [Context Arguments](#context-arguments).

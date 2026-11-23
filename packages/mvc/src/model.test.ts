@@ -371,8 +371,10 @@ describe('methods', () => {
     const test = Test.new();
     const { Header } = test;
 
-    expect(methodOf(Header)).toEqual({ owner: test.is, key: 'Header' });
+    expect(methodOf(Header)!.owner).toBe(test.is);
+    expect(methodOf(Header)!.key).toBe('Header');
     expect(methodOf(() => null)).toBeUndefined();
+
   });
 
   it('will auto bind', async () => {
