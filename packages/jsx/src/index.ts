@@ -3,6 +3,7 @@ export { Style, style } from './style/stylesheet';
 export { Fragment, PORTAL, Portal, createElement, isVNode, vnode } from './node/vnode';
 export type { Node as RenderNode, VNode } from './node/vnode';
 export type { JSX } from './jsx-runtime';
+export type { Module } from './node/loader';
 
 export { afterFlush } from './core/scheduler';
 export { fragment, inserted } from './render/commits';

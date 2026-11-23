@@ -93,7 +93,7 @@ describe('mount', () => {
   it('will name an element from another registered host', async () => {
     vi.resetModules();
 
-    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const runtime = await vi.importActual<typeof import('@expressive/jsx/jsx-runtime')>('@expressive/jsx/jsx-runtime');
     const { render } = await vi.importActual<typeof import('@expressive/dom')>('@expressive/dom');
     const foreign = { host: true } as never;
     const Page = () => foreign;
