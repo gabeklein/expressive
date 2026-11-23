@@ -548,10 +548,8 @@ describe('renderToString', () => {
   it('will await a suspended render and retry it in place', async () => {
     class Data extends Component {
       value = set(async () => 'loaded');
-      renders = 0;
 
       render() {
-        this.renders++;
         return <p>{this.value}</p>;
       }
     }
@@ -561,7 +559,7 @@ describe('renderToString', () => {
     expect(html).toContain('<p>loaded</p>');
   });
 
-  it('will render a get consumer once a void required factory settles', async () => {
+  it('will not wait on a void required factory, which holds only ready', async () => {
     let done = false;
 
     class Session extends Model {
@@ -582,7 +580,7 @@ describe('renderToString', () => {
       </Component>
     );
 
-    expect(html).toContain('<span>true</span>');
+    expect(html).toContain('<span>false</span>');
   });
 
 

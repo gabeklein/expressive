@@ -23,6 +23,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - **Host hooks act only during their own host's render.** Several hosts can share a process, e.g. dom plus a headless JSON/agent host.
 - **CI's Chrome stays unpinned**, so browser regressions surface. The number-table check stays non-blocking.
 
+- **One walker.** `renderToString` renders through the reconciler: `settled()` waits out suspense instead of drawing fallbacks, and dom serializes a string-tree host. A `catch` retry that gets no further escalates outward, so a server render ends.
 - **/jsx stays thin: vnodes for hosts, and generic style.** Framework-host concerns live in dom: `renderToString` and HTML semantics, hydration, DOM portal targets, focus.
 - **CSS tentatively belongs to dom.** That covers `Css`, units, property types and emission. React may duplicate what it needs, or reuse React's own CSS handling. A separate `/css` package (maybe with a runtime or a Vite extraction plugin) is the fallback, not the plan. It isn't first in line.
 
