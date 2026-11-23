@@ -1,7 +1,6 @@
 import * as appearance from './appearance';
-import { documentOf, isSink, registerEmitter, reopened } from './protocol';
-import type { Block, Sink, Target } from './protocol';
-import { serialize } from './declarations';
+import { registerEmitter, reopened } from './protocol';
+import type { Block, Styles } from './protocol';
 import type { Declaration } from './declarations';
 import { attachRoots, setRoot, syncRoots } from './root';
 import type { Numeric, Single, Unitless } from './numeric';
@@ -155,14 +154,12 @@ interface Fields {
 }
 
 interface Sheet {
-  insert(rule: string, index: number): void;
-  live(): boolean;
   emitted: WeakMap<Block, Map<number, string>>;
   names: Map<string, string>;
   positions: [number, number][];
 }
 
-const sheets = new WeakMap<Target, Sheet>();
+const sheets = new WeakMap<Styles, Sheet>();
 const bound = new WeakMap<Function, style.Apply<any>>();
 const packs = new WeakMap<Function, Fields>();
 let groups = 0;
@@ -251,38 +248,17 @@ function layers(type: Function) {
   return maps;
 }
 
-function open(target: Target): Sheet {
-  const state = { emitted: new WeakMap(), names: new Map(), positions: [] };
+function emit(block: Block, depth: number, styles: Styles): string {
+  let sheet = sheets.get(styles);
 
-  if (isSink(target))
-    return { ...state, live: () => true, insert: (rule, index) => target.insert(rule, index) };
-
-  if (target.nodeType != 9) {
-    const root = target as ShadowRoot;
-    const sheet = new (documentOf(root).defaultView!.CSSStyleSheet)();
-
-    root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-
-    return { ...state, live: () => root.adoptedStyleSheets.includes(sheet), insert: (rule, index) => sheet.insertRule(rule, index) };
+  if (!sheet || !styles.live()) {
+    reopened(styles);
+    styles.open();
+    sheets.set(styles, sheet = { emitted: new WeakMap(), names: new Map(), positions: [] });
+    attachRoots(styles);
   }
 
-  const element = (target as Document).createElement('style');
-  element.dataset.expressive = 'dom';
-  (target as Document).head.append(element);
-
-  return { ...state, live: () => !!element.sheet, insert: (rule, index) => element.sheet!.insertRule(rule, index) };
-}
-
-function emit(block: Block, depth: number, target: Target): string {
-  let sheet = sheets.get(target);
-
-  if (!sheet?.live()) {
-    reopened(target);
-    sheets.set(target, sheet = open(target));
-    if (isSink(target) || target.nodeType == 9) attachRoots(target as Document | Sink);
-  }
-
-  if (!isSink(target)) syncRoots(target);
+  syncRoots(styles);
 
   if (block.group) depth = 0;
 
@@ -299,10 +275,10 @@ function emit(block: Block, depth: number, target: Target): string {
   const states = split < 0 ? pseudo : pseudo.slice(0, split);
   const element = split < 0 ? '' : pseudo.slice(split);
   const scope = when.map((condition) =>
-    typeof condition == 'string' ? '' : `:where(.${emit(condition.on, 0, target)}${condition.state}) `
+    typeof condition == 'string' ? '' : `:where(.${emit(condition.on, 0, styles)}${condition.state}) `
   ).join('');
   const selector = `${scope}.%${states ? `:where(${states})` : ''}${element}`;
-  const css = block.group ? `\0${groups++}` : serialize(target, block.declarations);
+  const css = block.group ? `\0${groups++}` : styles.serialize(block.declarations);
   const key = [...at, selector, css, block.ordinal].join('\0');
   const label = [
     depth ? `${block.name}-d${depth}` : block.name,
@@ -310,7 +286,7 @@ function emit(block: Block, depth: number, target: Target): string {
     ...block.group ? ['group'] : []
   ].join('-');
   const readable = label.replace(/[^\w-]+/g, '_').replace(/_*(-)_*|_+$/g, '$1') || 'c';
-  const base = isSink(target) && !block.group ? `${readable}-${hash(key)}` : readable;
+  const base = styles.hashed && !block.group ? `${readable}-${hash(key)}` : readable;
   let name = base;
 
   for (let index = 2; sheet.names.has(name) && sheet.names.get(name) !== key; index++)
@@ -325,7 +301,7 @@ function emit(block: Block, depth: number, target: Target): string {
       if (index < 0) index = positions.length;
 
       positions.splice(index, 0, [depth, block.ordinal]);
-      sheet.insert(
+      styles.insert(
         at.reduceRight((rule, condition) => `${condition}{${rule}}`, `${selector.replace('%', name)}{${css}}`),
         index
       );

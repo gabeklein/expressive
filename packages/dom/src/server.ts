@@ -13,12 +13,11 @@ import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './node/ta
 import type { Node, VNode } from './node/vnode';
 import { claim, componentProps, flatten, placed } from './style/claim';
 import type { Appearance } from './style/claim';
-import { serialize } from './style/declarations';
 import type { Declaration } from './style/declarations';
 import { unmatched } from './style/diagnose';
 import { reserved } from './style/protocol';
 import { isBare } from './style/numeric';
-import type { Sink } from './style/protocol';
+import type { Styles } from './style/protocol';
 import { attachRoots } from './style/root';
 
 const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'defaultChecked', 'defaultValue', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
@@ -56,7 +55,7 @@ interface Pass {
   inline?: boolean;
   markers: boolean;
   signal?: AbortSignal;
-  sink: Sink;
+  sink: Styles;
   inHead?: boolean;
   selected?: string;
 }
@@ -130,13 +129,17 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
   const { inline, markers = true, signal } = options;
   const rules: string[] = [];
   const roots = new Map<object, string>();
-  const sink: Sink = {
+  const sink: Styles = {
+    open() {},
+    live: () => true,
+    hashed: true,
+    inline,
     insert: (rule, index) => rules.splice(index, 0, rule),
     root: (key, css) => roots.set(key, css),
     serialize: text
   };
   const context = new Context(Context.root);
-  const pass: Pass = { contexts: [context], frames: [], head: [], inline, markers, signal, sink };
+  const pass: Pass = { contexts: [context], frames: [], head: [], markers, signal, sink };
 
   try {
     signal?.throwIfAborted();
@@ -367,7 +370,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if (claimed.className) attributes += ` class="${escape(claimed.className, true)}"`;
 
-  const style = serialize(sink, pass.inline ? flatten(claimed) : claimed.declarations);
+  const style = sink.serialize(sink.inline ? flatten(claimed) : claimed.declarations);
 
   if (style) attributes += ` style="${escape(style, true)}"`;
 
