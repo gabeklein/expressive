@@ -15,7 +15,7 @@ function inserted(fiber: Placed, run: () => unknown) {
 }
 
 /** A fragment whose commits wait until it attaches. */
-function fragment() {
+function fragment(document: Document) {
   const root = document.createDocumentFragment();
 
   DETACHED.set(root, []);
