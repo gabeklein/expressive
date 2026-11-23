@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Component } from '@expressive/mvc';
 
 import { Portal, hydrate, render } from '@expressive/dom';
-import { renderToString } from '../server';
+import { renderToString } from '@expressive/dom/server';
 import { mockPromise } from '../../test.setup';
 
 describe('render', () => {

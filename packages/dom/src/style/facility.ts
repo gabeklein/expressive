@@ -1,5 +1,7 @@
-import { documentOf, serialize } from '@expressive/jsx/host';
-import type { Styles, StyleTarget } from '@expressive/jsx/host';
+import { documentOf } from '@expressive/jsx';
+
+import { serialize } from './declarations';
+import type { Styles, StyleTarget } from '@expressive/jsx';
 
 const known = new WeakMap<StyleTarget, Styles>();
 const roots = new WeakMap<Document, Map<object, HTMLStyleElement>>();

@@ -1,4 +1,4 @@
-type Declaration = Record<string, unknown>;
+import type { Claim, Declaration } from '@expressive/jsx';
 
 function applyDeclarations(style: CSSStyleDeclaration, declarations: Declaration, previous: Declaration = {}) {
   const target = style as any;
@@ -26,5 +26,15 @@ function serialize(document: Document, declarations: Declaration) {
   }).filter(Boolean).join(' ');
 }
 
-export { applyDeclarations, serialize };
-export type { Declaration };
+function applyClaim(element: Element, before: Claim | undefined, after: Claim) {
+  const previous = before || { className: '', declarations: {} };
+
+  if (previous.className !== after.className) {
+    if (after.className) element.setAttribute('class', after.className);
+    else element.removeAttribute('class');
+  }
+
+  applyDeclarations((element as HTMLElement).style, after.declarations, previous.declarations);
+}
+
+export { applyClaim, applyDeclarations, serialize };

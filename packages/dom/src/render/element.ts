@@ -1,5 +1,7 @@
-import { ALIASES, SVG, activeDocument, adopt, adopted, afterFlush, applyClaim, claim, complete, depth, focus, focusing, hostOf, inserted, isEvent, isStringified, reconcileChildren, reserved, touch, unmatched, unmountFiber } from '@expressive/jsx/host';
-import type { Appearance, Fiber, VNode } from '@expressive/jsx/host';
+import { activeDocument, adopt, afterPass, adopted, afterFlush, claim, complete, hostOf, inserted, reconcileChildren, reserved, touch, unmatched, unmountFiber } from '@expressive/jsx';
+import { applyClaim } from '../style/declarations';
+import { ALIASES, SVG, isEvent, isStringified } from '../tags';
+import type { Appearance, Fiber, VNode } from '@expressive/jsx';
 
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
@@ -30,8 +32,7 @@ function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, befor
 
   if (!adopting && (value.props.autofocus || value.props.autoFocus))
     inserted(fiber, () => {
-      focusing.push(element);
-      if (!depth) focus();
+      afterPass(() => element.isConnected && (element as HTMLElement).focus());
     });
 
   return complete(fiber, () => {

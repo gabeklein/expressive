@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Component, set } from '@expressive/mvc';
 
 import { hydrate, Portal, render, style } from '@expressive/dom';
-import { renderToString } from '../server';
+import { renderToString } from '@expressive/dom/server';
 import { adoptRange, hydrating } from './hydrate';
 import { dom } from '@expressive/dom/host';
 import { within } from './target';

@@ -1,4 +1,3 @@
-import { isEvent } from '../node/tags';
 import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { documentOf } from '../style/protocol';
@@ -49,6 +48,8 @@ function rootOf(host: Host, container: globalThis.Node): Root {
 
   return { host, container, target, styles: target && host.styles?.(target) };
 }
+
+const isEvent = (key: string) => /^on[A-Z]/.test(key);
 
 function ownerOf(root: Root) {
   return documentOf(root.container);

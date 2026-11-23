@@ -1,4 +1,4 @@
-import type { Declaration } from './declarations';
+import type { Declaration } from './protocol';
 import type { Styles } from './protocol';
 
 interface Root {

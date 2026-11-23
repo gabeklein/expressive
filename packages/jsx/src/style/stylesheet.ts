@@ -1,7 +1,7 @@
 import * as appearance from './appearance';
 import { registerEmitter, reopened } from './protocol';
 import type { Block, Styles } from './protocol';
-import type { Declaration } from './declarations';
+import type { Declaration } from './protocol';
 import { attachRoots, setRoot, syncRoots } from './root';
 import type { Numeric, Single, Unitless } from './numeric';
 import { announce } from '../copies';

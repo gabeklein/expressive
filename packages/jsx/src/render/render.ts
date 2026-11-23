@@ -15,7 +15,7 @@ import { within } from './target';
 import { announce } from '../copies';
 
 const roots = new WeakMap<Container, () => void>();
-const focusing: Element[] = [];
+const passed: (() => void)[] = [];
 let passiveRender = false;
 let rendering: Fiber | undefined;
 let depth = 0;
@@ -69,14 +69,15 @@ function pass<T>(work: () => T): T {
   } finally {
     if (!--depth) {
       settle();
-      focus();
+      passed.splice(0).forEach((run) => run());
     }
   }
 }
 
-function focus() {
-  for (const element of focusing.splice(0))
-    if (element.isConnected) (element as HTMLElement).focus();
+/** Run `run` once the current render pass ends - now, outside one. */
+function afterPass(run: () => void) {
+  if (depth) passed.push(run);
+  else run();
 }
 
 function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true | PromiseLike<unknown> | void {
@@ -126,4 +127,4 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   }
 }
 
-export { attempt, depth, focus, focusing, hydrate, mountRoot, pass, passiveRender, render, rendering };
+export { afterPass, attempt, depth, hydrate, mountRoot, pass, passiveRender, render, rendering };

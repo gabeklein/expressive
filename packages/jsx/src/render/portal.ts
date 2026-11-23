@@ -1,17 +1,15 @@
 import { Context } from '@expressive/mvc';
 
-import { SVG, isHoisted } from '../node/tags';
-import { isVNode, PORTAL, vnode } from '../node/vnode';
+import { PORTAL } from '../node/vnode';
 import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
 import { adopt, adopted, aside, isComment, marker, reserve } from './hydrate';
-import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 import { rootOf } from './host';
-import { activeDocument, activeRoot, isShadowRoot, within } from './target';
+import { activeDocument, activeRoot, within } from './target';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const anchor = adopt(parent, before, () => marker('portal'), (node) => isComment(node, 'portal'));
@@ -74,16 +72,6 @@ function retire(twin: Element, element: Element) {
 
 const LEAD = Symbol('lead');
 
-function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
-  if (!isVNode(value) || !isHoisted(value.type, value.props)) return value;
-
-  const host = hostOf(parent) as Element;
-
-  if (host.closest?.('head') || isShadowRoot(host.getRootNode())) return value;
-  if (host.namespaceURI == SVG && host.localName != 'foreignObject') return value;
-
-  return vnode(PORTAL, { into: activeDocument().head, children: value, [LEAD]: value.type == 'title' }, value.key);
-}
 
 function target(into: unknown, parent: globalThis.Node): Container {
   if (typeof into != 'string') return into as Container;
@@ -133,4 +121,4 @@ function unmountPortal(fiber: Fiber) {
   (fiber.portalEnd as ChildNode).remove();
 }
 
-export { hoist, mountPortal, patchPortal, place, unmountPortal };
+export { LEAD, mountPortal, patchPortal, place, unmountPortal };

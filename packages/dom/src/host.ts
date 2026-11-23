@@ -1,6 +1,7 @@
-import { documentOf, hoist, targetOf } from '@expressive/jsx/host';
-import type { Host } from '@expressive/jsx/host';
+import { documentOf, targetOf } from '@expressive/jsx';
+import type { Host } from '@expressive/jsx';
 
+import { hoist } from './hoist';
 import { mountElement, patchProps, unmountElement } from './render/element';
 import { stylesOf } from './style/facility';
 

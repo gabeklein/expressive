@@ -1,5 +1,5 @@
-import { hydrate as hydrateWith, render as renderWith } from '@expressive/jsx/host';
-import type { Container, RenderNode } from '@expressive/jsx/host';
+import { hydrate as hydrateWith, render as renderWith } from '@expressive/jsx';
+import type { Container, RenderNode } from '@expressive/jsx';
 
 import { dom } from './host';
 

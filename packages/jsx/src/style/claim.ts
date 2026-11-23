@@ -1,4 +1,3 @@
-import { applyDeclarations } from './declarations';
 import { appearanceToken, createAppearanceToken, emitClass, reserved, sheetGeneration } from './protocol';
 import type { AppearanceContext, Block, ResolvedAppearance, Styles } from './protocol';
 
@@ -166,16 +165,6 @@ function flatten({ declarations, plain }: Claimed) {
   ) as Record<string, unknown>;
 }
 
-function applyClaim(element: Element, before: Claim | undefined, after: Claim) {
-  const previous = before || { className: '', declarations: {} };
-
-  if (previous.className !== after.className) {
-    if (after.className) element.setAttribute('class', after.className);
-    else element.removeAttribute('class');
-  }
-
-  applyDeclarations((element as HTMLElement).style, after.declarations, previous.declarations);
-}
 
 function collect(value: Style, collected: Collected, doors: number) {
   if (!value) return;
@@ -213,5 +202,5 @@ function appendClasses(classes: string[], value: unknown) {
   if (typeof value == 'string') classes.push(...value.split(/\s+/).filter(Boolean));
 }
 
-export { applyClaim, claim, componentProps, door, flatten, placed };
+export { claim, componentProps, door, flatten, placed };
 export type { Appearance, Claim, Style };
