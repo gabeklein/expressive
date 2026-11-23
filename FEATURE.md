@@ -5,7 +5,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 ## Scope
 
 - **A root-owned host contract.** `render`/`renderToString` own all configuration; nothing is installed on import and nothing is global.
-- **`@expressive/jsx`** holds the base host: the renderer (vnode, reconciler, host seam), the style engine, and `renderToString`. dom becomes DOM node operations, hydration and DOM-only APIs on top of it.
+- **`@expressive/jsx`** is the base other hosts build on: vnodes and the reconciler with its host seam, plus the style engine. dom becomes the DOM host on top of it: element patching, hydration, portal targets, `renderToString`, focus and DOM style writing.
 - **React** keeps registering `host()` as the element-factory override. Its styling through a required `render` comes after the extraction.
 
 ## Decided
@@ -17,6 +17,8 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - **A render root is `{ host, container, target? }`.** A `Host` creates text, markers and fragments and mounts/patches/unmounts intrinsics. Its nodes keep a DOM-shaped structural contract.
   - `dom` is the full host.
   - `limp` is what /jsx does with no host opinion: tags as written, props as attributes, `on*` handlers attached.
+  - Optional host seams: `hydration` (adopt existing markup, keep and resume suspended ranges; without it `hydrate` renders), `locate` (string `Portal` targets; without it targets must be nodes), `portaled` (after a portal mounts), `hoist`, and `target`/`styles`.
+- **/jsx has one export surface, its root.** It's a vendor package for hosts, so it exports internals freely, with no `./host` or `./server` subpaths. dom stays the curated surface.
 - **`Context.root` is shared across hosts on purpose.** Root-held globals keep a human UI and an agent interface in sync. Releasing a root pops only its own child context.
 - **Host hooks act only during their own host's render.** Several hosts can share a process, e.g. dom plus a headless JSON/agent host.
 - **CI's Chrome stays unpinned**, so browser regressions surface. The number-table check stays non-blocking.
@@ -42,12 +44,11 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - **Refactor the moved tests** onto limp and custom hosts. Then drop the doubled vitest includes in jsx and dom and the temporary jsx→dom edge in `affected.ts`.
 - **A /jsx skill** (`packages/jsx/skills/`) once its public shape settles.
 - **Public API**, iterated once the first extraction exists:
-  - /jsx's exports: root `style`/`Css`, plus the renderer and style-engine subpaths;
+  - trimming /jsx's root export to what hosts actually use;
   - the `Host` type;
   - `render(node, el, options)`, with options as partial `Host` overrides over limp.
   - The `Host` hands the core a `Styles` receiver, and the core resolves element styles for any host that has one.
 - **Fat cutting, after the extraction:**
-  - autofocus handling out of the reconciler;
   - `Fiber.root` required;
   - the host returns its node while the core does the fiber bookkeeping;
   - revisit `methodOf`/`onElement` once the runtime entry is mandatory.

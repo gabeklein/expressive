@@ -1,7 +1,7 @@
 export { Css } from './style/css';
 export { Style, style } from './style/stylesheet';
 export { Fragment, PORTAL, Portal, createElement, isVNode, vnode } from './node/vnode';
-export type { ComponentType, Key, Node as RenderNode, VNode } from './node/vnode';
+export type { Node as RenderNode, VNode } from './node/vnode';
 export type { JSX } from './jsx-runtime';
 
 export { announce } from './copies';
@@ -25,7 +25,7 @@ export { LEAD } from './render/portal';
 export { reconcileChildren } from './render/reconcile';
 export { afterPass, hydrate, mountRoot, render } from './render/render';
 export { hostOf } from './render/suspense';
-export { activeDocument, isShadowRoot, targetOf, within } from './render/target';
+export { activeRoot, within } from './render/target';
 export { claim, componentProps, flatten, placed } from './style/claim';
 export type { Appearance, Claim } from './style/claim';
 export { unmatched } from './style/diagnose';

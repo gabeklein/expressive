@@ -4,6 +4,8 @@ import { Component } from '@expressive/mvc';
 
 import { Portal, hydrate, render } from '@expressive/dom';
 import { renderToString } from '@expressive/dom/server';
+import { afterPass, mountRoot } from './render';
+import { limp } from './host';
 import { mockPromise } from '../../test.setup';
 
 describe('render', () => {
@@ -82,5 +84,24 @@ describe('render', () => {
     } finally {
       spies.forEach((spy) => spy.mockRestore());
     }
+  });
+
+  it('will run after the pass, or now outside one', () => {
+    const order: string[] = [];
+
+    afterPass(() => order.push('now'));
+
+    function Child() {
+      afterPass(() => {
+        order.push('after');
+        afterPass(() => order.push('during flush'));
+      });
+      order.push('render');
+      return null;
+    }
+
+    mountRoot(<Child />, document.createElement('main'), limp);
+
+    expect(order).toEqual(['now', 'render', 'after', 'during flush']);
   });
 });

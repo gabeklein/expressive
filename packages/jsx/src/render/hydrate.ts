@@ -13,14 +13,23 @@ interface Hydration {
   adopt<T extends Node>(parent: Node, before: Node | null, create: () => T, match: (node: Node) => boolean): T;
   /** True for a node `adopt` took from existing markup. */
   adopted(node: Node): boolean;
+  /** Place a text node, adopting one that holds `value`. */
   adoptText(parent: Node, before: Node | null, value: string): Node;
   /** Place a range's start and end markers. */
-  adoptRange(parent: Node, before: Node | null, kind: string): Node[];
+  adoptRange(parent: Node, before: Node | null, kind: string): [Node, Node];
   /** Run `work` creating nodes, not adopting them. */
   aside<T>(work: () => T): T;
-  /** Run `work` adopting what is under `root`, between `from` and `to` when given. */
+  /**
+   * Run `work` adopting what is under `root`, then remove what went unadopted.
+   *
+   * On resume, `from` and `to` are a kept range's own markers, and only nodes between them are claimed or removed.
+   */
   hydrating<T>(root: Node, work: () => T, from?: Node | null, to?: Node | null): T;
-  /** Keep a suspended range's existing markup until it renders. True if there was some. */
+  /**
+   * Keep a suspended range's existing markup until it renders. True if there was some.
+   *
+   * A `true` commits the hydration to a later `hydrating(parent, work, start, end)` for that range.
+   */
   keep(start: Node, end: Node): boolean;
   /** Leave a range alone when cleaning up unadopted nodes. */
   reserve(start: Node, end: Node): void;

@@ -103,7 +103,7 @@ const Fragment = FRAGMENT as unknown as (props: { children?: Node }) => Node;
 /**
  * Render children into another element, keeping their context, ownership and boundaries.
  *
- * `into` is an `Element`, a `DocumentFragment`, or a selector matching exactly one element - resolved at mount and when the string changes.
+ * `into` is an `Element` or a `DocumentFragment` - or, where the host resolves them (dom), a selector matching exactly one element, resolved at mount and when the string changes.
  */
 const Portal = PORTAL as unknown as (props: { into: Element | DocumentFragment | string; children?: Node }) => Node;
 

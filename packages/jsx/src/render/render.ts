@@ -78,7 +78,7 @@ function pass<T>(work: () => T): T {
   }
 }
 
-/** Run `run` once the current render pass ends - now, outside one. */
+/** Run `run` once the current render pass ends - now, outside one. It must not throw: a throw replaces the pass's own error. */
 function afterPass(run: () => void) {
   if (depth) passed.push(run);
   else run();

@@ -9,6 +9,7 @@ import { hydrate, mountRoot } from './render';
 import { LEAD } from './portal';
 import { PORTAL, vnode } from '../node/vnode';
 import { limp } from './host';
+import type { Hydration } from './hydrate';
 import type { Host } from './host';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
@@ -103,6 +104,78 @@ describe('limp host', () => {
     expect(root.textContent).toBe('fresh');
     expect(aside.textContent).toBe('first');
     release();
+  });
+
+  it('will ask the host to locate a string target, and tell it once a portal mounts', () => {
+    const root = document.createElement('main');
+    const aside = document.createElement('aside');
+    const locate = vi.fn(() => aside);
+    const portaled = vi.fn((fiber: { children: unknown[] }, _adopted: boolean) => fiber.children.length);
+
+    mountRoot(<Portal into="#away"><i>in</i></Portal>, root, { ...limp, locate, portaled });
+
+    expect(locate).toHaveBeenCalledWith('#away', root);
+    expect(aside.textContent).toBe('in');
+    expect(portaled).toHaveBeenCalledTimes(1);
+    expect(portaled.mock.calls[0][1]).toBe(false);
+    expect(portaled.mock.results[0].value).toBe(1);
+  });
+
+  it('will drive a host hydration through hydrate, keep and resume', async () => {
+    const log: string[] = [];
+    const loading = mockPromise<void>();
+    const root = document.createElement('main');
+    const aside = document.createElement('aside');
+    let waiting = true;
+
+    const hydration: Hydration = {
+      adopt(parent, before, create) {
+        log.push('adopt');
+        return parent.insertBefore(create(), before);
+      },
+      adopted: () => false,
+      adoptText: (parent, before, value) => parent.insertBefore(document.createTextNode(value), before),
+      adoptRange: (parent, before) => [
+        parent.insertBefore(document.createComment('start'), before),
+        parent.insertBefore(document.createComment('end'), before)
+      ],
+      aside(work) {
+        log.push('aside');
+        return work();
+      },
+      hydrating(_root, work, from) {
+        log.push(from ? 'resume' : 'hydrating');
+        return work();
+      },
+      keep() {
+        log.push('keep');
+        return true;
+      },
+      reserve() {
+        log.push('reserve');
+      }
+    };
+
+    function Slow() {
+      if (waiting) throw loading;
+      return 'done';
+    }
+
+    class Box extends Component {
+      fallback = 'wait';
+    }
+
+    hydrate(<><Portal into={aside}>away</Portal><Box><Slow /></Box></>, root, { ...limp, hydration });
+
+    expect(root.textContent).toBe('');
+
+    waiting = false;
+    loading.resolve();
+    await loading;
+    await flushMicrotasks();
+
+    expect(root.textContent).toBe('done');
+    expect(log).toEqual(['hydrating', 'adopt', 'reserve', 'aside', 'keep', 'resume']);
   });
 
   it('will suspend into a fallback and show text', async () => {

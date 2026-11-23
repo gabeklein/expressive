@@ -1,6 +1,7 @@
-import { LEAD, PORTAL, activeDocument, hostOf, isShadowRoot, isVNode, vnode } from '@expressive/jsx';
+import { LEAD, PORTAL, hostOf, isVNode, vnode } from '@expressive/jsx';
 import type { RenderNode } from '@expressive/jsx';
 
+import { activeDocument, isShadowRoot } from './document';
 import { SVG, isHoisted } from './tags';
 
 /** Send a top-level `<title>`, `<meta>` or `<link>` to the document head, as a portal. */

@@ -18,7 +18,7 @@ interface Root {
 /**
  * What a render needs from its platform.
  *
- * Nodes are shaped like DOM nodes. The core walks `parentNode`/`nextSibling`, calls `getRootNode()`, writes a text node's `nodeValue`, and moves nodes with `insertBefore`, `appendChild`, `prepend`, `append` and `remove`.
+ * Nodes are shaped like DOM nodes. The core walks `parentNode`/`nextSibling`, calls `getRootNode()`, writes a text node's `nodeValue`, empties a container with `replaceChildren()`, and moves nodes with `insertBefore`, `appendChild`, `prepend`, `append` and `remove`.
  * Inserting a fragment moves its children, not the fragment.
  */
 interface Host {
@@ -39,11 +39,11 @@ interface Host {
   patch(fiber: Fiber, value: VNode, appearance?: Appearance): void;
   /** Release what `mount` attached - the core removes the node. */
   unmount(fiber: Fiber): void;
-  /** Adopt existing markup instead of creating nodes - dom's hydration. */
+  /** Adopt existing markup instead of creating nodes - dom's hydration. Without it, `hydrate()` renders instead, clearing the container. */
   hydration?: Hydration;
   /** Resolve a string `Portal` target - a selector, for dom. Without it, targets must be nodes. */
   locate?(into: string, parent: globalThis.Node): Container;
-  /** Called once a portal mounts, `adopted` if its anchor came from existing markup. */
+  /** Called once a portal and its children mount, `adopted` if its anchor came from existing markup. */
   portaled?(fiber: Fiber, adopted: boolean): void;
   /** Redirect a child before it mounts, as dom sends `<title>` to the head. */
   hoist?(value: RenderNode, parent: globalThis.Node): RenderNode;

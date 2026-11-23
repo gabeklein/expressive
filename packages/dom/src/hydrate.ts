@@ -92,7 +92,7 @@ function adoptText(parent: globalThis.Node, before: globalThis.Node | null, valu
   });
 }
 
-function adoptRange(parent: globalThis.Node, before: globalThis.Node | null, kind: string) {
+function adoptRange(parent: globalThis.Node, before: globalThis.Node | null, kind: string): [globalThis.Node, globalThis.Node] {
   const start = adopt(parent, before, () => marker(kind), (node) => isComment(node, kind));
 
   if (!adopted(start))
@@ -174,4 +174,4 @@ function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Nod
 
 const hydration: Hydration = { adopt, adopted, adoptRange, adoptText, aside, hydrating, keep, reserve };
 
-export { adopt, adopted, adoptRange, hydrating, hydration, touch };
+export { adopt, adopted, hydration, touch };

@@ -12,7 +12,7 @@ Monorepo: bun workspaces + changesets. Install, scripts, and builds run under bu
 
 ```
 packages/mvc    - Core primitives (@expressive/mvc)
-packages/jsx    - Base JSX host: renderer, style engine, runtime, renderToString (@expressive/jsx)
+packages/jsx    - Base JSX host for other hosts: renderer, style engine, runtime (@expressive/jsx)
 packages/react  - React adapter (@expressive/react; /compat for preact)
 packages/router - Router built on Component (@expressive/router)
 packages/inspect - In-page inspector for agents and devtools (@expressive/inspect)

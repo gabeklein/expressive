@@ -1,5 +1,7 @@
-import { LEAD, activeDocument } from '@expressive/jsx';
+import { LEAD } from '@expressive/jsx';
 import type { Container, Fiber } from '@expressive/jsx';
+
+import { activeDocument } from './document';
 
 const hoisted = new WeakSet<globalThis.Node>();
 

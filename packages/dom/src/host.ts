@@ -1,6 +1,7 @@
-import { documentOf, targetOf } from '@expressive/jsx';
+import { documentOf } from '@expressive/jsx';
 import type { Host } from '@expressive/jsx';
 
+import { targetOf } from './document';
 import { hoist } from './hoist';
 import { hydration } from './hydrate';
 import { locate, portaled } from './portal';
