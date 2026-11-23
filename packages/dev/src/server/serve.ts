@@ -1,7 +1,6 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { extname, join, normalize } from "node:path";
-import { Readable } from "node:stream";
+import { extname, join, normalize, resolve, sep } from "node:path";
 
 import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
 import { dispatch, failure, verify, type Seat } from "@expressive/rpc/protocol";
@@ -28,19 +27,37 @@ const MIME: Record<string, string> = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
   ".wasm": "application/wasm",
 };
 
-/** A file under `dir` as a response, typed by extension - `/assets/` cached immutably. */
+/** A file under `dir` as a response, typed by extension - opened on first read. */
 export function fileResponse(dir: string, pathname: string): Response | undefined {
-  const file = join(dir, normalize(decodeURIComponent(pathname)));
+  const root = resolve(dir);
+  let file: string;
 
-  if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) return;
+  try {
+    file = join(root, normalize(decodeURIComponent(pathname)));
+  } catch {
+    return;
+  }
 
-  const headers = new Headers({ "content-type": MIME[extname(file)] ?? "application/octet-stream" });
-  if (pathname.startsWith("/assets/")) headers.set("cache-control", "public, max-age=31536000, immutable");
+  if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) return;
 
-  return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers });
+  let chunks: AsyncIterator<Uint8Array> | undefined;
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await (chunks ??= createReadStream(file)[Symbol.asyncIterator]()).next();
+
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel: () => void chunks?.return!(),
+  }, { highWaterMark: 0 });
+
+  return new Response(body, { headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" } });
 }
 
 export interface ServeOptions {
@@ -81,9 +98,14 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
     if (isStream(request)) return send(res, stream(request));
 
     const { pathname } = new URL(request.url);
-    const next = async () =>
-      [pathname, join(pathname, "index.html"), "/200.html", "/index.html"].reduce<Response | undefined>((found, path) => found ?? fileResponse(client, path), undefined) ??
-      new Response("Not found", { status: 404 });
+    const next = async () => {
+      const asset = fileResponse(client, pathname);
+      if (asset && pathname.startsWith("/assets/")) asset.headers.set("cache-control", "public, max-age=31536000, immutable");
+
+      const found = asset ?? fileResponse(client, join(pathname, "index.html")) ?? fileResponse(client, "/200.html") ?? fileResponse(client, "/index.html");
+
+      return found ?? new Response("Not found", { status: 404 });
+    };
 
     const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, scope.env, ctx, next)));
 

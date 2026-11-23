@@ -14,11 +14,19 @@ describe("static files", () => {
   writeFileSync(join(dir, "index.html"), "<html></html>");
   writeFileSync(join(dir, "assets", "app.js"), "1");
 
-  it("sends a file under the directory with its type; assets are immutable", async () => {
+  it("sends a file under the directory with its type, opened on first read", async () => {
     const res = fileResponse(dir, "/assets/app.js")!;
     expect(res.headers.get("content-type")).toContain("javascript");
-    expect(res.headers.get("cache-control")).toContain("immutable");
+    expect(res.headers.has("cache-control")).toBe(false);
     expect(await res.text()).toBe("1");
+  });
+
+  it("will cancel a file's body whether or not it was read", async () => {
+    await fileResponse(dir, "/index.html")!.body!.cancel();
+
+    const reader = fileResponse(dir, "/index.html")!.body!.getReader();
+    await reader.read();
+    await reader.cancel();
   });
 
   it("will not serve a missing file, a directory, or a path outside the directory", () => {
@@ -26,6 +34,7 @@ describe("static files", () => {
     expect(fileResponse(dir, "/assets")).toBeUndefined();
     expect(fileResponse(dir, "/../" + dir.split("/").pop() + "/index.html")).toBeUndefined();
     expect(fileResponse(join(dir, "assets"), "/../index.html")).toBeUndefined();
+    expect(fileResponse(dir, "/%E0%A4%A")).toBeUndefined();
   });
 });
 
@@ -131,6 +140,8 @@ describe("serve", () => {
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "200.html"), "<head></head>");
     writeFileSync(join(dir, "robots.txt"), "robots");
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "assets", "app.js"), "1");
 
     const config = {
       port: 0,
@@ -149,6 +160,8 @@ describe("serve", () => {
     expect(await invite.text()).toBe("200 <head><meta></head>");
     expect(invite.headers.get("content-type")).toContain("text/html");
     expect(await (await fetch(base + "/robots.txt")).text()).toBe("200 robots");
+    expect((await fetch(base + "/assets/app.js")).headers.get("cache-control")).toContain("immutable");
+    expect((await fetch(base + "/assets/gone.js")).headers.has("cache-control")).toBe(false);
 
     server.closeAllConnections();
     server.close();

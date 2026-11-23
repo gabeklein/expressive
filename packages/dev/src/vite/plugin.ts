@@ -269,6 +269,8 @@ export function expressive(): Plugin<Host> {
           throw error;
         }));
 
+      const shell = (url: string) => server.transformIndexHtml(url, readShell());
+
       server.middlewares.use(toNode(async request => {
         if (isStream(request)) return stream(request);
 
@@ -285,13 +287,10 @@ export function expressive(): Plugin<Host> {
 
         if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
 
-        const url = new URL(request.url);
-        const next = async () => {
-          const { publicDir } = server.config;
-          const html = async () => new Response(await server.transformIndexHtml(url.pathname + url.search, readShell()), { headers: { "content-type": "text/html" } });
-
-          return (publicDir && fileResponse(publicDir, url.pathname)) || html();
-        };
+        const { pathname, search } = new URL(request.url);
+        const { publicDir } = server.config;
+        const next = async () =>
+          (publicDir && fileResponse(publicDir, pathname)) || new Response(await shell(pathname + search), { headers: { "content-type": "text/html" } });
 
         return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx, next));
       }));
@@ -301,7 +300,7 @@ export function expressive(): Plugin<Host> {
           if (req.method !== "GET" || !req.headers.accept?.includes("text/html")) return next();
 
           try {
-            const html = await server.transformIndexHtml(req.originalUrl!, readShell());
+            const html = await shell(req.originalUrl!);
             res.setHeader("Content-Type", "text/html");
             res.end(html);
           } catch (error) {

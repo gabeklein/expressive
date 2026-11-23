@@ -959,6 +959,12 @@ describe("vite host", () => {
     expect(page.headers.get("content-type")).toBe("text/html");
     expect(await page.text()).toMatch(/\/@vite\/client[^]*<div id="root"><\/div>/);
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
+
+    const bare = await createServer({ root: server.config.root, configFile: false, logLevel: "silent", plugins: [expressive()], resolve: SOURCES, publicDir: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { watch: null } });
+    servers.push(bare);
+    await bare.listen(0);
+
+    expect(await (await fetch(new URL("/robots.txt", bare.resolvedUrls!.local[0]))).text()).toContain('<div id="root"></div>');
   });
 
   it("will refuse a seat or a pooled class under the fetch target, and bind nothing without bindings()", async () => {

@@ -32,7 +32,7 @@ export interface AppConfig {
    *
    * Runs in the request's scope: `Current` and `Cookies` work as in a call. `env` is the host's second argument - in dev under the `fetch` target, `bindings()` from `index.ts`; on Node, `{}`.
    * A body read here is gone for the static files after it - answer the request, or read a `clone()`.
-   * `next()` resolves what the request gets without `fetch`, to return or rewrite: on Node, the file, page or shell from `dist/client`, else 404; in dev, a `public/` file, else the shell as Vite transforms it; on the `fetch` target, 404 - static files are the host's there.
+   * `next()` resolves what the request gets without `fetch`, to return or rewrite - 404 on the `fetch` target. Return its body or cancel it.
    *
    * @example
    * config({
