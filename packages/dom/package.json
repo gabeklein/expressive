@@ -19,8 +19,6 @@
   "type": "module",
   "sideEffects": [
     "./src/*.ts",
-    "./src/core/adapter.ts",
-    "./src/core/placement.ts",
     "./dist/index.js",
     "./dist/jsx-runtime.js",
     "./dist/jsx-dev-runtime.js",
