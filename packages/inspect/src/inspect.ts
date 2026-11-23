@@ -1,6 +1,6 @@
 import { Context, Model, unbind } from '@expressive/mvc';
 import { listener, observer } from '@expressive/mvc/observable';
-import { isElement } from '@expressive/mvc/jsx-runtime';
+import { jsx, onElement } from '@expressive/mvc/jsx-runtime';
 
 import { journal, note, noteCall, noteCaught, noteDestroy, notePatch, type Frame, type Query } from './journal';
 import { entries, parsePath, project, serialize, walk, type Select } from './serialize';
@@ -157,13 +157,32 @@ function provided(state: Model): boolean {
   return false;
 }
 
+const ELEMENT = Symbol.for('@expressive/mvc.element');
+let rendered = false;
+let probing = false;
+let watching = false;
+
 function hosted(): boolean {
+  if (rendered) return true;
+
+  probing = true;
+
   try {
-    isElement(null);
-    return true;
-  } catch {
-    return false;
+    return !(jsx('i', {}) as { [ELEMENT]?: true } | null)?.[ELEMENT];
+  } finally {
+    probing = false;
   }
+}
+
+function watchElements() {
+  if (watching) return;
+
+  watching = true;
+
+  const previous = onElement((node) => {
+    if (!probing) rendered = true;
+    if (previous) previous(node);
+  });
 }
 
 /** A registered, unclaimed instance was garbage collected - it was abandoned. */
@@ -271,6 +290,8 @@ export class Instance {
  */
 export function attach(Type: typeof Model = Model): () => void {
   if (!unwatch) watchCopies();
+
+  watchElements();
 
   if (!hooks.has(Type)) {
     const observed = new Map<typeof Model, () => void>();
