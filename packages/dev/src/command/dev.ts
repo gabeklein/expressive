@@ -2,7 +2,7 @@ import { cmd, flag, opt } from "@expressive/cli";
 import { Model } from "@expressive/mvc";
 
 export default class Dev extends Model {
-  port = opt({ short: "p", type: "number", help: "port to listen on - over index.ts's port and Vite's" });
+  port = opt({ short: "p", type: "number", valid: n => Number.isInteger(n) && n >= 0 && n <= 65535, help: "port to listen on - over index.ts's port and Vite's" });
 
   inspect = flag({ default: true, help: "skip the /__inspect relay agents use to read and drive the page" });
 

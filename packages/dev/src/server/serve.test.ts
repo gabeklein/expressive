@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import { connect } from "node:net";
 import { Agent, request } from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,11 +14,23 @@ describe("static files", () => {
   writeFileSync(join(dir, "index.html"), "<html></html>");
   writeFileSync(join(dir, "assets", "app.js"), "1");
 
-  it("sends a file under the directory with its type; assets are immutable", async () => {
-    const res = fileResponse(dir, "/assets/app.js")!;
-    expect(res.headers.get("content-type")).toContain("javascript");
-    expect(res.headers.get("cache-control")).toContain("immutable");
-    expect(await res.text()).toBe("1");
+  it("sends a file under the directory with its type, opened on first read", async () => {
+    writeFileSync(join(dir, "late.txt"), "1");
+
+    const res = fileResponse(dir, "/late.txt")!;
+    await new Promise(done => setTimeout(done, 20));
+    unlinkSync(join(dir, "late.txt"));
+
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  it("will cancel a file's body whether or not it was read", async () => {
+    await fileResponse(dir, "/index.html")!.body!.cancel();
+
+    const reader = fileResponse(dir, "/index.html")!.body!.getReader();
+    await reader.read();
+    await reader.cancel();
   });
 
   it("will not serve a missing file, a directory, or a path outside the directory", () => {
@@ -26,6 +38,7 @@ describe("static files", () => {
     expect(fileResponse(dir, "/assets")).toBeUndefined();
     expect(fileResponse(dir, "/../" + dir.split("/").pop() + "/index.html")).toBeUndefined();
     expect(fileResponse(join(dir, "assets"), "/../index.html")).toBeUndefined();
+    expect(fileResponse(dir, "/%E0%A4%A")).toBeUndefined();
   });
 });
 
@@ -131,6 +144,8 @@ describe("serve", () => {
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "200.html"), "<head></head>");
     writeFileSync(join(dir, "robots.txt"), "robots");
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "assets", "app.js"), "1");
 
     const config = {
       port: 0,
@@ -149,6 +164,8 @@ describe("serve", () => {
     expect(await invite.text()).toBe("200 <head><meta></head>");
     expect(invite.headers.get("content-type")).toContain("text/html");
     expect(await (await fetch(base + "/robots.txt")).text()).toBe("200 robots");
+    expect((await fetch(base + "/assets/app.js")).headers.get("cache-control")).toContain("immutable");
+    expect((await fetch(base + "/assets/gone.js")).headers.has("cache-control")).toBe(false);
 
     server.closeAllConnections();
     server.close();

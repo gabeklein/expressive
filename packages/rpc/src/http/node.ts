@@ -8,9 +8,13 @@ interface NodeResponse {
   statusCode: number;
   setHeader(name: string, value: string | string[]): unknown;
   on(event: "close", listener: () => void): unknown;
+  once(event: "close" | "drain", listener: () => void): unknown;
   flushHeaders(): void;
   write(chunk: Uint8Array): unknown;
   end(chunk?: Uint8Array): unknown;
+  destroy(): unknown;
+  destroyed?: boolean;
+  stream?: { destroyed?: boolean };
 }
 
 export function toRequest(req: NodeRequest, res: NodeResponse): Request {
@@ -56,8 +60,23 @@ export async function send(res: NodeResponse, response: Response): Promise<void>
   res.flushHeaders();
 
   const reader = response.body.getReader();
+  let wake = () => {};
 
-  for (let read = await reader.read(); !read.done; read = await reader.read()) res.write(read.value);
+  const stop = () => {
+    wake();
+    reader.cancel().catch(() => {});
+  };
+
+  if (res.destroyed || res.stream?.destroyed) stop();
+  else res.once("close", stop);
+
+  try {
+    for (let read = await reader.read(); !read.done; read = await reader.read())
+      if (res.write(read.value) === false) await new Promise<void>(done => res.once("drain", (wake = done)));
+  } catch (error) {
+    res.destroy();
+    throw error;
+  }
 
   res.end();
 }

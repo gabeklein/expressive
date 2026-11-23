@@ -123,6 +123,7 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
+expressive dev --port <n>       listen on <n> - over index.ts's port and Vite's
 expressive dev build            dist/client and dist/server/index.js
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
@@ -136,7 +137,7 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 `config({ fetch(request, env, ctx) { ... } })` in `index.ts` answers after remote calls, before static files; return nothing to fall through. Runs in the request's scope - `Current`, `Cookies` work. On Node `env` is `{}`. In dev it also sees Vite's requests (`/@vite/client`, `/.expressive/*`) - match the paths it answers.
 
-`fetch`'s fourth argument `next()` resolves what the request gets without `fetch` - return or rewrite it (a page's `<head>` for link previews). Node: file, `<path>/index.html` or shell from `dist/client`, else 404. Dev: a `public/` file, else the shell Vite transforms - never Vite's modules. `fetch` target: 404 - get the page from the host's static files there, falling back to `next()` in dev.
+`fetch`'s fourth argument `next()` resolves what the request gets without `fetch` - return or rewrite it (a page's `<head>` for link previews); read, return or cancel its body. Node: file, `<path>/index.html` or shell from `dist/client`, else 404. Dev: a `public/` file, else the shell Vite transforms - never Vite's modules. `fetch` target: 404 - take the page from the host's assets, `?? next()` in dev, and drop `content-length` and `etag` when rewriting.
 
 ## Request scope
 

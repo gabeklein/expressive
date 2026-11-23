@@ -64,8 +64,8 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 ## Server
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
-`dist/server/index.js`, which serves `dist/client` - `public/` included, copied there only - and
-falls back to `index.html` for client routes.
+`dist/server/index.js`, which serves `dist/client` (with `public/`, copied only there) and falls back
+to `index.html` for client routes.
 It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch`,
 `around` and `target`.
 
@@ -88,22 +88,20 @@ also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only
 answers. On Node, `env` is `{}`.
 
 `next()`, its fourth argument, resolves what the request gets without `fetch` - to return as is or
-rewrite, such as a page's `<head>` for link previews:
+rewrite, such as a page's `<head>` for link previews. Read, return or cancel its body.
 
 - Node: the file, the page's `<path>/index.html` or the shell from `dist/client`, else 404.
 - Dev: a file from `public/`, else the shell as Vite transforms it - never Vite's modules, so return
   nothing for those.
-- The `fetch` target: 404. Static files are the host's there - fetch the page from them, falling
-  back to `next()` for dev.
+- The `fetch` target: 404 - static files are the host's there (below).
 
 ```ts
 export default config({
   async fetch(request, env, ctx, next) {
-    const { pathname } = new URL(request.url);
-    if (!pathname.startsWith("/invite/")) return;
+    if (!new URL(request.url).pathname.startsWith("/invite/")) return;
 
-    const page = await next(); // fetch target: the host's static shell, else next() in dev
-    const html = (await page.text()).replace("</head>", `<meta property="og:title" content="${await title(pathname)}"></head>`);
+    const page = await next();
+    const html = (await page.text()).replace("</head>", `<meta property="og:title" content="Join"></head>`);
 
     return new Response(html, page);
   },
@@ -188,6 +186,19 @@ and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_fi
 "!/assets/*"] }`. Without `run_worker_first`, a call posted to a path with a file (a root remote's,
 to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
 prerendered home page for client routes.
+
+To rewrite a page there, take the shell from the assets (`/200`, or `/` under `--no-html`), with
+`next()` for dev, and drop the length and validator a rewrite makes stale:
+
+```ts
+const page = await (env.ASSETS?.fetch(new URL("/200", request.url)) ?? next());
+const headers = new Headers(page.headers);
+
+headers.delete("content-length");
+headers.delete("etag");
+
+return new Response(rewrite(await page.text()), { status: page.status, headers });
+```
 
 A session per request on a D1 binding there, through `around`:
 
