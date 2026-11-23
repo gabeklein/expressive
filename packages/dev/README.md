@@ -88,7 +88,7 @@ also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only
 answers. On Node, `env` is `{}`.
 
 `next()`, its fourth argument, resolves what the request gets without `fetch` - to return as is or
-rewrite, such as a page's `<head>` for link previews. Return its body or cancel it.
+rewrite, such as a page's `<head>` for link previews. Read, return or cancel its body.
 
 - Node: the file, the page's `<path>/index.html` or the shell from `dist/client`, else 404.
 - Dev: a file from `public/`, else the shell as Vite transforms it - never Vite's modules, so return
@@ -187,8 +187,8 @@ and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_fi
 to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
 prerendered home page for client routes.
 
-To rewrite a page there, take it from the assets, with `next()` for dev, and drop the length and
-validator a rewrite makes stale:
+To rewrite a page there, take the shell from the assets (`/200`, or `/` under `--no-html`), with
+`next()` for dev, and drop the length and validator a rewrite makes stale:
 
 ```ts
 const page = await (env.ASSETS?.fetch(new URL("/200", request.url)) ?? next());
@@ -196,6 +196,8 @@ const headers = new Headers(page.headers);
 
 headers.delete("content-length");
 headers.delete("etag");
+
+return new Response(rewrite(await page.text()), { status: page.status, headers });
 ```
 
 A session per request on a D1 binding there, through `around`:

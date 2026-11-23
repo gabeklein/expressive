@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import { connect } from "node:net";
 import { Agent, request } from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,10 +15,13 @@ describe("static files", () => {
   writeFileSync(join(dir, "assets", "app.js"), "1");
 
   it("sends a file under the directory with its type, opened on first read", async () => {
-    const res = fileResponse(dir, "/assets/app.js")!;
-    expect(res.headers.get("content-type")).toContain("javascript");
-    expect(res.headers.has("cache-control")).toBe(false);
-    expect(await res.text()).toBe("1");
+    writeFileSync(join(dir, "late.txt"), "1");
+
+    const res = fileResponse(dir, "/late.txt")!;
+    unlinkSync(join(dir, "late.txt"));
+
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    await expect(res.text()).rejects.toThrow();
   });
 
   it("will cancel a file's body whether or not it was read", async () => {

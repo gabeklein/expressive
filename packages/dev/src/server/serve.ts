@@ -54,7 +54,9 @@ export function fileResponse(dir: string, pathname: string): Response | undefine
       if (done) controller.close();
       else controller.enqueue(value);
     },
-    cancel: () => void chunks?.return!(),
+    async cancel() {
+      await chunks?.return!();
+    },
   }, { highWaterMark: 0 });
 
   return new Response(body, { headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" } });
