@@ -1,8 +1,5 @@
-import { Component, Context, unbind } from '@expressive/mvc';
-import { watch } from '@expressive/mvc/observable';
-
-import { announce, authored, call, claim, componentProps, consume, dispose, enter, flatten, isBare, isThenable, kindOf, observe, own, placed, renderedAppearance, reserved, resolve, source, syncRoots, unmatched } from '@expressive/jsx';
-import type { Appearance, Collection, Declaration, RenderNode as Node, Rendered, Scope, Styles, VNode } from '@expressive/jsx';
+import { PORTAL, claim, complete, flatten, fragment, hostOf, isBare, isVNode, reconcileChildren, reserved, settled, syncRoots, unmatched, vnode } from '@expressive/jsx';
+import type { Declaration, Host, RenderNode as Node, Root, Styles } from '@expressive/jsx';
 
 import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './tags';
 
@@ -32,17 +29,6 @@ interface Options {
   markers?: boolean;
   /** Write each element's plain class rules into its `style` attribute, as email clients need. */
   inline?: boolean;
-}
-
-interface Pass {
-  contexts: Context[];
-  frames: { count: number }[];
-  head: string[];
-  markers: boolean;
-  signal?: AbortSignal;
-  sink: Styles;
-  inHead?: boolean;
-  selected?: string;
 }
 
 function kebab(key: string) {
@@ -102,17 +88,141 @@ function escape(value: string, attribute?: boolean) {
   return attribute ? output.replace(/"/g, '&quot;') : output;
 }
 
+class Markup {
+  parentNode: Markup | null = null;
+  childNodes: Markup[] = [];
+  props: Record<string, any> = {};
+  claimed?: ReturnType<typeof claim>;
+  svg?: boolean;
+
+  constructor(readonly nodeType: number, public nodeValue = '', readonly tag = '') {}
+
+  get nextSibling(): Markup | null {
+    const siblings = this.parentNode!.childNodes;
+    return siblings[siblings.indexOf(this) + 1] || null;
+  }
+
+  getRootNode(): Markup {
+    return this.parentNode ? this.parentNode.getRootNode() : this;
+  }
+
+  insertBefore<T extends Markup>(node: T, before: Markup | null): T {
+    const nodes = node.nodeType == 11 ? node.childNodes.slice() : [node];
+
+    for (const each of nodes) {
+      each.remove();
+      const index = before ? this.childNodes.indexOf(before) : -1;
+      this.childNodes.splice(index < 0 ? this.childNodes.length : index, 0, each);
+      each.parentNode = this;
+    }
+
+    return node;
+  }
+
+  appendChild<T extends Markup>(node: T) {
+    return this.insertBefore(node, null);
+  }
+
+  append(...nodes: Markup[]) {
+    for (const node of nodes) this.insertBefore(node, null);
+  }
+
+  remove() {
+    const parent = this.parentNode;
+
+    if (!parent) return;
+
+    parent.childNodes.splice(parent.childNodes.indexOf(this), 1);
+    this.parentNode = null;
+  }
+}
+
+const asNode = (markup: Markup) => markup as unknown as globalThis.Node;
+const asMarkup = (node: globalThis.Node) => node as unknown as Markup;
+
+function elementOf(node: Markup | null) {
+  while (node && node.nodeType != 1) node = node.parentNode;
+  return node;
+}
+
+function inSvg(parent: globalThis.Node) {
+  const element = elementOf(asMarkup(hostOf(parent)));
+  return !!element?.svg && element.tag != 'foreignObject';
+}
+
+function stringHost(sink: Styles): Host {
+  const discard = new Markup(11);
+  const host: Host = {
+    target: (container) => container as unknown as Document,
+    styles: () => sink,
+    text: (_, value) => asNode(new Markup(3, value)),
+    marker: (_, kind) => asNode(new Markup(8, kind)),
+    fragment: () => asNode(new Markup(11)) as DocumentFragment,
+    mount(fiber, value, parent, before, appearance) {
+      const tag = value.type as string;
+
+      if (!TAG.test(tag)) throw new TypeError(`Invalid element name "${tag}".`);
+
+      const element = new Markup(1, '', tag);
+
+      element.svg = tag == 'svg' || inSvg(parent);
+      fiber.start = fiber.end = parent.insertBefore(asNode(element), before);
+
+      return complete(fiber, () => host.patch(fiber, value, appearance));
+    },
+    patch(fiber, value, appearance) {
+      const element = asMarkup(fiber.start);
+      const { tag } = element;
+      const props = value.props as Record<string, any>;
+      const resolved = appearance?.context?.resolve(props, tag);
+
+      unmatched(value.source, props, [appearance?.context], appearance?.author, undefined, tag);
+
+      for (const key of Object.keys(props))
+        if (key[0] == '_') reserved(key);
+        else if (!SKIPPED.has(key) && !/^on/i.test(key) && typeof props[key] != 'function' && !ATTRIBUTE.test(key))
+          throw new TypeError(`Invalid attribute name "${key}".`);
+
+      element.claimed = claim(sink, appearance, resolved, props.className, props.style);
+      element.props = fiber.props = props;
+
+      if (!opaque(tag, props))
+        reconcileChildren(
+          fiber,
+          fiber.start,
+          null,
+          props.children,
+          fiber.context,
+          fiber.boundary,
+          element.claimed.context || appearance?.author
+            ? { author: appearance?.author, context: element.claimed.context, entries: [] }
+            : undefined
+        );
+    },
+    unmount() {},
+    hoist: (value) => isVNode(value) && value.type === PORTAL ? vnode(PORTAL, { into: discard }, value.key) : value
+  };
+
+  return host;
+}
+
+function opaque(tag: string, props: Record<string, any>) {
+  return 'dangerouslySetInnerHTML' in props
+    || props.innerHTML != null
+    || CONTENT.some((key) => props[key] != null)
+    || tag == 'textarea' && (props.value ?? props.defaultValue) != null
+    || RAW.has(tag);
+}
+
 /**
  * Render a node to markup and the style rules it emits, waiting on anything it suspends for.
  *
  * `new()` runs and is not awaited; effects and `ready` never do. Owned instances are destroyed once rendered.
  * A suspended render is awaited and retried in place; no fallback is drawn. Calls may run concurrently.
- * A `catch` boundary handles an error, then renders again; a retry that fails no further than the last rejects.
+ * A `catch` boundary handles an error, then renders again; a retry that gets no further than the last passes the error out, and one no boundary handles rejects.
  * A portal leaves only its marker; `<title>`, `<meta>` and `<link>` go to `head`, as `render()` hoists them.
  */
 async function renderToString(node: Node, options: Options = {}): Promise<Output> {
-  announce();
-
   const { inline, markers = true, signal } = options;
   const rules: string[] = [];
   const roots = new Map<object, string>();
@@ -125,234 +235,71 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
     root: (key, css) => roots.set(key, css),
     serialize: text
   };
-  const context = new Context(Context.root);
-  const pass: Pass = { contexts: [context], frames: [], head: [], markers, signal, sink };
+  const host = stringHost(sink);
+  const container = fragment({ host } as Root);
+
+  signal?.throwIfAborted();
+
+  const unmount = await settled(node, container, host, signal);
 
   try {
-    signal?.throwIfAborted();
-
-    const html = await range(pass, 'fragment', walk(node, pass, context));
-
     if (rules.length || roots.size) syncRoots(sink);
 
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
+    const pass: Pass = { sink, markers, head: [] };
+    const html = serialize(asMarkup(container), pass);
 
     return { html, css, head: pass.head.join('') };
-  } catch (thrown) {
-    throw thrown instanceof Failure ? thrown.error : thrown;
   } finally {
-    for (const context of pass.contexts.reverse()) context.pop();
+    unmount();
   }
 }
 
-async function range(pass: Pass, kind: string, inner: Promise<string>) {
-  return pass.markers ? `<!--${kind}-->${await inner}<!--/${kind}-->` : inner;
+interface Pass {
+  sink: Styles;
+  markers: boolean;
+  head: string[];
+  inHead?: boolean;
+  selected?: string;
 }
 
-function marker(pass: Pass) {
+function serialize(node: Markup, pass: Pass): string {
+  switch (node.nodeType) {
+    case 3:
+      return escape(node.nodeValue);
+    case 8:
+      return pass.markers ? `<!--${node.nodeValue}-->` : '';
+    case 1:
+      return hoisted(node, pass);
+    default:
+      return node.childNodes.map((child) => serialize(child, pass)).join('');
+  }
+}
+
+function hoisted(node: Markup, pass: Pass) {
+  if (!isHoisted(node.tag, node.props) || node.svg || pass.inHead) return element(node, pass);
+
+  const markup = element(node, pass);
+
+  if (node.tag == 'title') pass.head.unshift(markup);
+  else pass.head.push(markup);
+
   return pass.markers ? '<!--portal-->' : '';
 }
 
-async function walk(value: Node, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean): Promise<string> {
-  if (Array.isArray(value)) {
-    let output = '';
-
-    for (const each of value) output += await walk(each, pass, context, appearance, svg);
-
-    return output;
-  }
-
-  if (value === null || value === undefined || typeof value == 'boolean') return '';
-
-  const by = appearance?.author as Rendered | undefined;
-
-  value = source(value);
-  appearance = authored(value, appearance);
-
-  switch (kindOf(value, by)) {
-    case 'text':
-      return escape(String(value));
-    case 'component':
-      return range(pass, 'component', component(value as Component, pass, context, placed(appearance), svg));
-    case 'collection':
-      return range(pass, 'collection', collection(value as Collection, pass, context, appearance, svg));
-    case 'fragment':
-      return range(pass, 'fragment', walk((value as VNode).props.children, pass, context, appearance, svg));
-    case 'portal':
-      return marker(pass);
-    case 'element': {
-      const node = value as VNode;
-
-      if (!isHoisted(node.type, node.props) || svg || pass.inHead) return element(node, pass, context, appearance, svg);
-
-      const markup = await element(node, pass, context, appearance, svg);
-
-      if (node.type == 'title') pass.head.unshift(markup);
-      else pass.head.push(markup);
-
-      return marker(pass);
-    }
-    case 'owned':
-      return range(pass, 'component', owned(value as VNode, pass, context, appearance, svg));
-    default:
-      return range(pass, 'function', fn(value as VNode, pass, context, appearance, svg));
-  }
-}
-
-class Failure {
-  constructor(readonly error: unknown, readonly index: number) {}
-}
-
-async function attempt<T>(pass: Pass, run: () => T): Promise<T> {
-  const frame = pass.frames[pass.frames.length - 1];
-  const index = frame ? frame.count++ : 0;
-  let spins = 0;
-
-  while (true)
-    try {
-      return run();
-    } catch (thrown) {
-      if (!isThenable(thrown)) throw new Failure(thrown, index);
-      await settle(thrown, pass.signal);
-      if (pass.signal && ++spins % 64 == 0) await settle(new Promise((resolve) => setTimeout(resolve)), pass.signal);
-    }
-}
-
-function settle<T>(work: T | PromiseLike<T>, signal?: AbortSignal) {
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal!.reason);
-
-    Promise.resolve(work)
-      .then(resolve, reject)
-      .finally(() => signal?.removeEventListener('abort', abort));
-
-    if (signal?.aborted) abort();
-    else signal?.addEventListener('abort', abort, { once: true });
-  });
-}
-
-function scoped(context: Context, fiber: Rendered, render: () => Node) {
-  const scope = { active: true, context, subscriptions: [] } as unknown as Scope;
-
-  try {
-    return consume(fiber, () => enter(scope, render));
-  } finally {
-    dispose(scope);
-  }
-}
-
-async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
-  const resolved = componentProps(value.type, value.props, appearance);
-  const type = value.type as Function;
-  const fiber = {
-    kind: 'function',
-    type: value.type,
-    props: observe(resolved.props),
-    appearance: resolved.appearance,
-    dev: value.source
-  } as Rendered;
-
-  const output = await attempt(pass, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
-
-  return walk(output, pass, context, renderedAppearance(fiber), svg);
-}
-
-async function owned(value: VNode, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
-  const resolved = componentProps(value.type, value.props, appearance);
-  const Type = value.type as new (props: unknown) => Component;
-  const props = observe(resolved.props);
-  const instance = own(Type, props, new Promise(() => {}));
-
-  return component(instance, pass, context, resolved.appearance, svg, props, value.source);
-}
-
-async function component(instance: Component, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean, props?: Record<string, any>, dev?: object): Promise<string> {
-  const child = context.push(instance, props ? () => instance.set(null) : undefined);
-  const placement = (props || {}) as Pick<Component, 'catch'>;
-  const handler = placement.catch || instance.catch;
-  const fiber = {
-    kind: 'component',
-    type: instance.constructor,
-    props: props || instance.props,
-    instance,
-    appearance,
-    dev
-  } as Rendered;
-  let reached = -1;
-
-  pass.contexts.push(child);
-
-  if (handler && pass.frames.length) pass.frames[pass.frames.length - 1].count++;
-
-  while (true) {
-    let proxy = instance;
-    const release = watch(instance, (current) => { proxy = current; });
-    const head = pass.head.slice();
-
-    const frame = { count: 0 };
-
-    if (handler) pass.frames.push(frame);
-
-    try {
-      const output = await attempt(pass, () => scoped(child, fiber, () => unbind(proxy.render).call(proxy, fiber.props)));
-      return await walk(output, pass, child, renderedAppearance(fiber), svg);
-    } catch (thrown) {
-      if (!handler) throw thrown;
-
-      const { error, index } = thrown instanceof Failure ? thrown : new Failure(thrown, frame.count);
-
-      if (pass.signal?.aborted || index <= reached) throw error;
-
-      reached = index;
-      pass.head.splice(0, Infinity, ...head);
-      await settle(handler.call(instance, error instanceof Error ? error : new Error(String(error)), instance), pass.signal);
-    } finally {
-      if (handler) pass.frames.pop();
-      release();
-    }
-  }
-}
-
-async function collection(value: Parameters<typeof watch>[0], pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
-  let proxy = value;
-  const release = watch(value, (current) => { proxy = current; });
-
-  try {
-    const output = await attempt(pass, () => (proxy as unknown as { render(): Node }).render());
-    return walk(output, pass, context, appearance, svg);
-  } finally {
-    release();
-  }
-}
-
-async function element(value: VNode, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean) {
-  const tag = value.type as string;
-  const props = value.props as Record<string, any>;
-  const inSvg = tag == 'svg' || !!svg;
-  const { sink } = pass;
+function element(node: Markup, pass: Pass) {
+  const { tag, props, svg } = node;
+  const { sink, selected } = pass;
+  const claimed = node.claimed!;
   let attributes = '';
-
-  if (!TAG.test(tag)) throw new TypeError(`Invalid element name "${tag}".`);
-
-  const resolved = appearance?.context?.resolve(props, tag);
-
-  unmatched(value.source, props, [appearance?.context], appearance?.author, undefined, tag);
-
-  const claimed = claim(sink, appearance, resolved, props.className, props.style);
 
   for (const key of Object.keys(props)) {
     const next = props[key];
 
-    if (key[0] == '_') {
-      reserved(key);
-      continue;
-    }
-
-    if (SKIPPED.has(key) || /^on/i.test(key) || typeof next == 'function') continue;
+    if (key[0] == '_' || SKIPPED.has(key) || /^on/i.test(key) || typeof next == 'function') continue;
     if (key == 'value' || key == 'checked' || key == 'selected') continue;
-    if (!ATTRIBUTE.test(key)) throw new TypeError(`Invalid attribute name "${key}".`);
 
-    attributes += attribute(ALIASES[key] || (inSvg ? key : key.toLowerCase()), key, next);
+    attributes += attribute(ALIASES[key] || (svg ? key : key.toLowerCase()), key, next);
   }
 
   if (claimed.className) attributes += ` class="${escape(claimed.className, true)}"`;
@@ -366,11 +313,11 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   if (tag != 'textarea' && tag != 'select') attributes += attribute('value', 'value', entry);
   attributes += attribute('checked', 'checked', checked);
-  attributes += attribute('selected', 'selected', props.selected ?? (tag == 'option' && pass.selected === String(props.value ?? childrenText(props.children)) || undefined));
+  attributes += attribute('selected', 'selected', props.selected ?? (tag == 'option' && selected === String(props.value ?? childrenText(props.children)) || undefined));
 
   const open = `<${tag}${attributes}>`;
 
-  if (VOID.has(tag) && !inSvg) return open;
+  if (VOID.has(tag) && !svg) return open;
 
   const content = CONTENT.find((key) => props[key] != null);
   let inner: string;
@@ -381,27 +328,16 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
   else if (tag == 'textarea' && entry != null) inner = escape(String(entry));
   else if (RAW.has(tag)) inner = raw(tag, childrenText(props.children));
   else {
-    const { inHead, selected } = pass;
+    const { inHead } = pass;
 
     if (tag == 'select' && entry != null) pass.selected = String(entry);
     if (tag == 'head') pass.inHead = true;
 
-    try {
-      inner = await walk(
-        props.children,
-        pass,
-        context,
-        claimed.context || appearance?.author
-          ? { author: appearance?.author, context: claimed.context, entries: [] }
-          : undefined,
-        inSvg && tag != 'foreignObject'
-      );
-    } finally {
-      Object.assign(pass, { inHead, selected });
-    }
+    inner = node.childNodes.map((child) => serialize(child, pass)).join('');
+    Object.assign(pass, { inHead, selected });
   }
 
-  if (tag == 'title' && !inSvg) inner = inner.replace(/<!--[^>]*-->/g, '');
+  if (tag == 'title' && !svg) inner = inner.replace(/<!--[^>]*-->/g, '');
   if ((tag == 'textarea' || tag == 'pre' || tag == 'listing') && inner[0] == '\n') inner = '\n' + inner;
 
   return `${open}${inner}</${tag}>`;
