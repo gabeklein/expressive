@@ -3477,6 +3477,69 @@ describe('new method', () => {
     expect(log).toEqual(['child sees arg', 'parent new']);
   });
 
+  it('will start a child an arg assigns after later args', () => {
+    const seen = vi.fn();
+
+    class Child extends Model {
+      parent = get(Parent);
+
+      protected new() {
+        seen(this.parent.value);
+      }
+    }
+
+    class Parent extends Model {
+      value = 'default';
+      child?: Child = undefined;
+    }
+
+    Parent.new({ child: new Child() }, { value: 'later' });
+
+    expect(seen).toBeCalledWith('later');
+  });
+
+  it('will destroy started siblings if a field child throws on start', () => {
+    const destroyed = vi.fn();
+
+    class Started extends Model {
+      protected new() {
+        return destroyed;
+      }
+    }
+
+    class Broken extends Model {
+      protected new() {
+        throw new Error('abort');
+      }
+    }
+
+    class Parent extends Model {
+      started = new Started();
+      broken = new Broken();
+    }
+
+    expect(() => Parent.new()).toThrow('abort');
+    expect(destroyed).toBeCalledTimes(1);
+  });
+
+  it('will keep field children when an arg activates another that throws', () => {
+    class Other extends Model {}
+    class Child extends Model {}
+    class Parent extends Model {
+      child = new Child();
+    }
+
+    const other = new Other(() => {
+      throw new Error('abort');
+    });
+
+    const parent = Parent.new(() => {
+      expect(() => event(other)).toThrow('abort');
+    });
+
+    expect(parent.child.get(null)).toBe(false);
+  });
+
   it('will not start a field child destroyed by an arg', () => {
     const didCreate = vi.fn();
 
@@ -4594,9 +4657,14 @@ describe('on setup / ready stages (static)', () => {
   });
 
   it('will rethrow if an init callback destroys the instance then throws', () => {
+    const didCreate = vi.fn();
     let self!: Test;
 
-    class Child extends Model {}
+    class Child extends Model {
+      protected new() {
+        didCreate();
+      }
+    }
 
     class Test extends Model {
       child = new Child();
@@ -4612,6 +4680,7 @@ describe('on setup / ready stages (static)', () => {
     expect(create).toThrow('abort');
     expect(self.get(null)).toBe(true);
     expect(self.child.get(null)).toBe(true);
+    expect(didCreate).not.toBeCalled();
   });
 
   it('will destroy the instance if a setup handler throws', async () => {

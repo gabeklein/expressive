@@ -2,7 +2,7 @@ import { join } from './context';
 import { element } from './element';
 import { listener } from './observable';
 import { set } from './field/set';
-import { Model, adopt, parent, plain, trailing } from './model';
+import { Model, adopt, plain, stray, trailing } from './model';
 
 import type { Host } from './jsx-runtime';
 
@@ -149,7 +149,7 @@ class Component<P = unknown> extends Model {
   fallback: Component.Node = set(null);
 
   /**
-   * Construct from props - assigned to fields before `is`, then `new()`.
+   * Construct from props - assigned to fields before `is`, then child Models start, then `new()`.
    *
    * `rest` are Model arguments - a context places the instance there. A leading function in place of
    * props runs as a Model init callback. Two instances built from one props object are twins - the
@@ -160,6 +160,7 @@ class Component<P = unknown> extends Model {
 
     const seen = {} as Record<string, undefined>;
     const twin = PENDING.get(props);
+    const stale = twin && trailing(twin);
     const provider = new.target === Component && 'for' in props;
 
     if (typeof props == 'object') merge(props);
@@ -176,10 +177,7 @@ class Component<P = unknown> extends Model {
         const other = twin || PENDING.get(props)!;
 
         if (other !== this) {
-          for (const orphan of trailing(other)) {
-            if (parent(orphan) === this) break;
-            orphan.set(null);
-          }
+          (stale || trailing(other)).filter(stray).forEach((orphan) => orphan.set(null));
           other.set(null);
         }
 

@@ -276,7 +276,7 @@ abstract class Model {
   }
 
   /**
-   * Lifecycle hook - runs once at activation, after fields, child Models and constructor args.
+   * Lifecycle hook - runs once at activation, after fields, constructor args and child Models.
    *
    * `this` is the instance. Return a cleanup to run on destroy. Async: `ready` handlers and effects wait
    * for it; a rejection reports to `catch` as `setup` and destroys the instance. Runs wherever the
@@ -746,7 +746,7 @@ function init(state: Model, args: Model.Args, create?: Model.Init) {
     try {
       activate(state, args, create, before, after);
     } catch (error) {
-      const built = rest.filter((item) => PENDING.has(item)).concat(trailing(mark));
+      const built = rest.concat(trailing(mark)).filter(stray);
 
       ACTIVE.delete(state);
       CAUSE.set(state, error);
@@ -1088,6 +1088,11 @@ function trailing(state: object) {
   return rest;
 }
 
+/** Whether a Model is still pending and not a child waiting on its parent's activation. */
+function stray(item: Model) {
+  return PENDING.has(item) && !ACTIVE.has(PARENT.get(item)!);
+}
+
 /**
  * Report Models adopted by a parent - those already held, then each one
  * claimed later. Returns a callback to stop watching.
@@ -1298,4 +1303,4 @@ function parent(child: object, value?: Model | null) {
 }
 
 export type { Got, Handler, Keyed };
-export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
+export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, stray, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
