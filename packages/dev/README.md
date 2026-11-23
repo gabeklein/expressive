@@ -411,6 +411,7 @@ calls can still carry the previous identity's data until the page reloads.
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
+expressive dev --port <n>       listen on <n> - over index.ts's port and Vite's
 expressive dev build            dist/client (static app) and dist/server/index.js (node service, or fetch handler)
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
