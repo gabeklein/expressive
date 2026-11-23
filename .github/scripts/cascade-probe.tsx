@@ -1,6 +1,7 @@
 /** @jsxImportSource @expressive/dom */
 import { Component } from '@expressive/mvc';
-import { Css, Portal, render } from '@expressive/dom';
+import { Css, Portal, hydrate, render } from '@expressive/dom';
+import { renderToString } from '@expressive/dom/server';
 
 const style = Css.use();
 
@@ -273,5 +274,21 @@ const framed = iframe.contentDocument!.body.appendChild(iframe.contentDocument!.
 render(<Outer />, framed);
 
 check('shadow root in an iframe styled', iframe.contentWindow!.getComputedStyle(framed.querySelector('b')!).color, 'rgb(4, 4, 4)');
+
+const Served = style(Object.assign(() => <p>served</p>, { displayName: 'Shared' }), { marginTop: '9px' });
+const Client = style(Object.assign(() => <b>client</b>, { displayName: 'Shared' }), { color: 'rgb(8, 8, 8)' });
+const page = await renderToString(<Served />);
+document.head.appendChild(document.createElement('style')).textContent = page.css;
+
+const client = document.body.appendChild(document.createElement('div'));
+render(<Client />, client);
+
+const served = document.body.appendChild(document.createElement('main'));
+served.innerHTML = page.html;
+
+check('server rule styles markup before hydration', getComputedStyle(served.querySelector('p')!).marginTop, '9px');
+hydrate(<Served />, served);
+check('server rule stays off a client class of the same name', getComputedStyle(client.querySelector('b')!).marginTop, '0px');
+check('hydrated element keeps its rules', getComputedStyle(served.querySelector('p')!).marginTop, '9px');
 
 report();
