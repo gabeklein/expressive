@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Component, unbind } from '@expressive/mvc';
-import { typeOf } from '@expressive/mvc/jsx-runtime';
+import { typeOf } from '@expressive/jsx/jsx-runtime';
 
 import { act, browserRouter, getByText, location, mockPromise, render, renderAct } from '../test.setup';
 import { Route } from './route';

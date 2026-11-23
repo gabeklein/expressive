@@ -4,7 +4,7 @@
     "useDefineForClassFields": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "@expressive/mvc",
+    "jsxImportSource": "@expressive/jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "esnext",
     "moduleResolution": "bundler",

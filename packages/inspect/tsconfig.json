@@ -13,6 +13,7 @@
     "types": ["node"],
     "paths": {
       "@expressive/mvc/*": ["../mvc/src/*"],
+      "@expressive/jsx/*": ["../jsx/src/*"],
       "@expressive/*": ["../*/src"]
     }
   },
