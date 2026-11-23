@@ -2,7 +2,7 @@ import { join } from './context';
 import { element } from './element';
 import { listener } from './observable';
 import { set } from './field/set';
-import { Model, adopt, plain, trailing } from './model';
+import { Model, adopt, parent, plain, trailing } from './model';
 
 import type { Host } from './jsx-runtime';
 
@@ -176,7 +176,10 @@ class Component<P = unknown> extends Model {
         const other = twin || PENDING.get(props)!;
 
         if (other !== this) {
-          trailing(other).forEach((orphan) => orphan.set(null));
+          for (const orphan of trailing(other)) {
+            if (parent(orphan) === this) break;
+            orphan.set(null);
+          }
           other.set(null);
         }
 

@@ -56,7 +56,7 @@ const CHILDREN = new WeakMap<Model, Set<(child: Model) => void>>();
 const OWNS = new WeakMap<Model, Set<Model>>();
 
 /** Instances mid-activation. */
-const ACTIVE = new WeakMap<Model, { waits: Promise<unknown>[]; held: boolean; children: (() => void)[]; queue: unknown[] }>();
+const ACTIVE = new WeakMap<Model, { waits: Promise<unknown>[]; held: boolean; children: (() => void)[]; queue: unknown[]; adopted?: Model[] }>();
 const OWNED = new WeakMap<Model, Set<(child: Model) => void>>();
 
 type Got<C extends { get(...args: any[]): any }> = ReturnType<C['get']> extends infer R
@@ -717,7 +717,7 @@ function callback<T extends Model>(
  * Apply state arguments, run callbacks and observe properties.
  * Accumulate and handle cleanup events.
  **/
-function init(state: Model, ...args: Model.Args) {
+function init(state: Model, args: Model.Args, create?: Model.Init) {
   const T = state.constructor as Model.Extends;
 
   if (T === Model) throw new Error('Cannot create base Model.');
@@ -744,7 +744,7 @@ function init(state: Model, ...args: Model.Args) {
     PENDING.add(mark);
 
     try {
-      activate(state, args, before, after);
+      activate(state, args, create, before, after);
     } catch (error) {
       const built = rest.filter((item) => PENDING.has(item)).concat(trailing(mark));
 
@@ -824,18 +824,25 @@ function defer(state: Model, fn: () => Promise<unknown> | void) {
 function activate(
   state: Model,
   args: Model.Args,
+  create: Model.Init | undefined,
   before: Set<Model.Init>,
   after: Set<NonNullable<Model.On['ready']>>
 ) {
   const waits: Promise<unknown>[] = [];
   const children: (() => void)[] = [];
-  const queue: unknown[] = [...before, observe, ...args];
-  const active = { waits, children, held: false, queue };
+  const adopted: Model[] = [];
+  const queue: unknown[] = [...before, observe, ...args, start, create];
+  const active = { waits, children, held: false, queue, adopted: adopted as Model[] | undefined };
 
   function observe() {
     if (waits.length) active.held = true;
 
     manage(state);
+  }
+
+  function start() {
+    active.adopted = undefined;
+    adopted.forEach((child) => observer(child) !== null && event(child));
   }
 
   function settle() {
@@ -1239,7 +1246,10 @@ function adopt(state: Model, key: unknown, value: unknown) {
       cleanup = join(state, value);
     }
 
-    event(value);
+    const adopted = ACTIVE.get(state)?.adopted;
+
+    if (adopted) adopted.push(value);
+    else event(value);
 
     CHILDREN.get(state)?.forEach((cb) => cb(value));
   };
