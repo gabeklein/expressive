@@ -1,6 +1,6 @@
-import { syncRoots } from '../style/root';
 import { documentOf } from '../style/protocol';
 import type { StyleTarget } from '../style/protocol';
+import { syncRoots } from '../style/root';
 
 let current: StyleTarget | undefined;
 

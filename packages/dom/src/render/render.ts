@@ -9,8 +9,8 @@ import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
 import { consume, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
-import { targetOf, within } from './target';
 import { documentOf } from '../style/protocol';
+import { targetOf, within } from './target';
 
 const roots = new WeakMap<Container, () => void>();
 const focusing: Element[] = [];

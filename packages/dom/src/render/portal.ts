@@ -10,8 +10,8 @@ import { adopt, adopted, aside, isComment, reserve } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
-import { activeDocument, isShadowRoot, targetOf, within } from './target';
 import { documentOf } from '../style/protocol';
+import { activeDocument, isShadowRoot, targetOf, within } from './target';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const marker = adopt(parent, before, () => activeDocument().createComment('portal'), (node) => isComment(node, 'portal'));
@@ -82,7 +82,7 @@ function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
   if (host.closest?.('head') || isShadowRoot(host.getRootNode())) return value;
   if (host.namespaceURI == SVG && host.localName != 'foreignObject') return value;
 
-  return vnode(PORTAL, { into: parent.ownerDocument!.head, children: value, [LEAD]: value.type == 'title' }, value.key);
+  return vnode(PORTAL, { into: activeDocument().head, children: value, [LEAD]: value.type == 'title' }, value.key);
 }
 
 function target(into: unknown, parent: globalThis.Node): Container {
@@ -91,7 +91,7 @@ function target(into: unknown, parent: globalThis.Node): Container {
   const root = parent.getRootNode();
   const found = [...activeDocument().querySelectorAll(into)];
 
-  if (root instanceof DocumentFragment) found.push(...root.querySelectorAll(into));
+  if (root.nodeType == 11) found.push(...(root as DocumentFragment).querySelectorAll(into));
 
   if (found.length != 1)
     throw new Error(`Portal target "${into}" ${found.length ? 'is ambiguous' : 'was not found'}.`);

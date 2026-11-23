@@ -24,8 +24,8 @@ const restoring = new WeakSet<Document | ShadowRoot>();
 
 function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const tag = value.type as string;
-  const host = hostOf(parent);
-  const namespace = tag == 'svg' || host instanceof SVGElement && host.localName != 'foreignObject' ? SVG : undefined;
+  const host = hostOf(parent) as Element;
+  const namespace = tag == 'svg' || host.namespaceURI == SVG && host.localName != 'foreignObject' ? SVG : undefined;
   const element = adopt(
     parent,
     before,

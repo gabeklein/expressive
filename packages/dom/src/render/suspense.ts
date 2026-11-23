@@ -8,6 +8,7 @@ import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
 import { release, schedule, transition } from '../core/scheduler';
+import { documentOf } from '../style/protocol';
 import { activeDocument, within } from './target';
 
 const dirty = new Set<Boundary>();
@@ -82,22 +83,20 @@ function settle() {
 }
 
 function hide(owner: Fiber, boundary: Boundary) {
-  within(owner.target!, () => {
-    const stash = fragment(activeDocument());
+  const stash = fragment(documentOf(owner.target!));
 
-    for (const child of owner.children) move(child, stash, null);
+  for (const child of owner.children) move(child, stash, null);
 
-    owner.portals = portals(owner, []).map((portal) => {
-      const content = fragment(activeDocument());
-      moveRange(portal.portalStart!, portal.portalEnd!, content);
-      return [portal, content];
-    });
-
-    stashes.set(stash, owner);
-
-    owner.stash = stash;
-    owner.placeholder = range('fragment', owner.end.parentNode!, owner.end, owner.childContext!);
+  owner.portals = portals(owner, []).map((portal) => {
+    const content = fragment(documentOf(portal.target!));
+    moveRange(portal.portalStart!, portal.portalEnd!, content);
+    return [portal, content];
   });
+
+  stashes.set(stash, owner);
+
+  owner.stash = stash;
+  owner.placeholder = within(owner.target!, () => range('fragment', owner.end.parentNode!, owner.end, owner.childContext!));
   draw(owner, boundary);
 }
 
