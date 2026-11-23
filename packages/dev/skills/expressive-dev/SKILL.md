@@ -123,6 +123,7 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
+expressive dev --port <n>       listen on <n> - over index.ts's port and Vite's
 expressive dev build            dist/client and dist/server/index.js
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages

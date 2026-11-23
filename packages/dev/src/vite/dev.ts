@@ -19,8 +19,11 @@ export async function runDev(root = process.cwd(), { inspect: relay = true, port
     root,
     configFile: viteConfigFile(root),
     plugins: relay ? [host, inspect()] : [host],
+    server: port === undefined ? undefined : { port },
   });
 
-  await server.listen(port ?? (await host.api!.config()).port);
+  const configured = (await host.api!.config()).port;
+
+  await server.listen(port ?? configured);
   server.printUrls();
 }
