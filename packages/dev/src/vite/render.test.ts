@@ -58,8 +58,9 @@ describe("launch", { timeout: 30_000 }, () => {
 
     const about = (await renderer.render("/about"))!;
 
-    expect(about).toMatchObject({ path: "/about", css: ".Layout{color: teal;}", head: "<title>Site</title>" });
-    expect(about.html).toMatch(/<main class="Layout">.*<h2>about<\/h2>.*<\/main>/);
+    expect(about).toMatchObject({ path: "/about", head: "<title>Site</title>" });
+    expect(about.css).toMatch(/^\.Layout-\w+\{color: teal;\}$/);
+    expect(about.html).toMatch(/<main class="Layout-\w+">.*<h2>about<\/h2>.*<\/main>/);
     expect(about.html).not.toContain("<h1>");
 
     renderer.close();
