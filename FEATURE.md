@@ -11,7 +11,8 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 ## Decided
 
 - **/jsx ships the runtime.** Users set `jsxImportSource: @expressive/jsx`. Moving dom users off `@expressive/dom` is a breaking change (`minor` pre-1.0); `dom/jsx-runtime` stays as a re-export for a release.
-- **mvc is the shared host-seam layer, not the runtime.** It keeps only what peer copies must share: the default element and its brand, `onElement`, `resolver`, `methodOf`, and the style store.
+- **mvc is the shared host-seam layer, not the runtime, and knows as little about JSX as possible.** It keeps only what hosts must share: the default element and its brand, `onElement`, `resolver` and `methodOf`.
+- **No style store in mvc.** Style registration stays inside /jsx's style engine. A duplicate /jsx is an edge case that /jsx reports loudly at load, not one it makes interoperate.
 - **/jsx is a regular dependency of hosts, never a peer.**
 - **A render root is `{ host, container, target? }`.** A `Host` creates text, markers and fragments and mounts/patches/unmounts intrinsics. Its nodes keep a DOM-shaped structural contract.
   - `dom` is the full host.
@@ -31,9 +32,8 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 
 ## Before release
 
-- **The mvc style store**, with sign-off on its two host-side functions: `style()` from any copy appends to one list in mvc, and each host drains it at `render`. It must land with the extraction or before it, or a library's styles are lost to a second /jsx copy.
-- **Extraction step 1:** move the renderer, style engine and `renderToString` into `@expressive/jsx` along the #801–#803 seams. dom must stay identical, gated by its suite plus `cascade-probe` and `hot-probe`.
-- **Public API sign-off**, as one proposal:
+- **Extraction step 1:** add duplicate-copy detection, and move the renderer, style engine and `renderToString` into `@expressive/jsx` along the #801–#803 seams. dom must stay identical, gated by its suite plus `cascade-probe` and `hot-probe`.
+- **Public API**, iterated once the first extraction exists:
   - /jsx's exports: root `style`/`Css`, plus the renderer and style-engine subpaths;
   - the `Host` type;
   - `render(node, el, options)`, with options as partial `Host` overrides over limp.
@@ -45,4 +45,4 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
   - revisit `methodOf`/`onElement` once the runtime entry is mandatory.
 - **npm trusted publishing** for `@expressive/jsx`, set before its first release.
 
-Tracking: board items "/jsx: extract the base host", "dom: root-owned host contract", "mvc: host-side style store", "Reevaluate host-contract stopgaps".
+Tracking: board items "/jsx: extract the base host", "dom: root-owned host contract", "Reevaluate host-contract stopgaps".
