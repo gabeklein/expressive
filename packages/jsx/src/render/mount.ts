@@ -1,6 +1,6 @@
 import { Context } from '@expressive/mvc';
 import type { Component } from '@expressive/mvc';
-import { Fragment } from '@expressive/mvc/jsx-runtime';
+import { Fragment } from '../jsx-runtime';
 
 import { kindOf } from '../node/kind';
 import type { Collection } from '../node/kind';

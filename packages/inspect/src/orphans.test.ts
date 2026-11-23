@@ -1,5 +1,5 @@
 import { Component, Context, Model } from '@expressive/mvc';
-import { host } from '@expressive/mvc/jsx-runtime';
+import { host } from '@expressive/jsx/jsx-runtime';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { flushMicrotasks, mockPromise } from '../test.setup';

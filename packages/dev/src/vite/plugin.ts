@@ -35,7 +35,9 @@ export interface Host {
 const DEPS = [
   "@expressive/mvc",
   "@expressive/mvc/hot",
-  "@expressive/mvc/jsx-runtime",
+  "@expressive/jsx",
+  "@expressive/jsx/jsx-runtime",
+  "@expressive/jsx/jsx-dev-runtime",
   "@expressive/dom",
   "@expressive/dom/jsx-runtime",
   "@expressive/dom/jsx-dev-runtime",
@@ -57,7 +59,7 @@ const boot = (app: string, dotenv: boolean) =>
     .filter(Boolean)
     .join("\n") + "\n";
 
-const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/env", "@expressive/dev"];
+const SHARED = ["@expressive/mvc", "@expressive/jsx", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/env", "@expressive/dev"];
 
 /**
  * The app host as a Vite plugin, for a hand-written Vite config.

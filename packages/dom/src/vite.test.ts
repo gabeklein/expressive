@@ -56,8 +56,8 @@ it('will apply during serve only, after other transforms', () => {
 
 describe('prebundle', () => {
   const dirs: string[] = [];
-  const ALL = { '@expressive/mvc': ['', 'hot'], '@expressive/dom': ['jsx-runtime', 'jsx-dev-runtime'] };
-  const IDS = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
+  const ALL = { '@expressive/mvc': ['', 'hot'], '@expressive/jsx': ['jsx-runtime', 'jsx-dev-runtime'], '@expressive/dom': ['jsx-runtime', 'jsx-dev-runtime'] };
+  const IDS = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/jsx/jsx-runtime', '@expressive/jsx/jsx-dev-runtime', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
 
   function project(packages: Record<string, string[]>, linked?: boolean) {
     const root = mkdtempSync(join(tmpdir(), 'expressive-vite-'));
@@ -191,6 +191,12 @@ describe('components', () => {
 
     expect(code).toContain(`import { hot as __refresh } from '@expressive/dom/jsx-dev-runtime';`);
     expect(code).toContain('__refresh("/src/app.js", { App, Card, Row, Page });');
+  });
+
+  it('will register components of a module on the portable runtime', async () => {
+    const code = await inject('import { jsx } from "@expressive/jsx/jsx-runtime";\nfunction Card() {}');
+
+    expect(code).toContain('__refresh("/src/app.js", { Card });');
   });
 
   it('will not register other functions', async () => {

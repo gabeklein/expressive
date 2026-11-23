@@ -1,5 +1,5 @@
-import { Fragment as FRAGMENT, jsx, onElement } from '@expressive/mvc/jsx-runtime';
-import type { Element as Created } from '@expressive/mvc/jsx-runtime';
+import { Fragment as FRAGMENT, jsx, onElement } from '../jsx-runtime';
+import type { Element as Created } from '../jsx-runtime';
 import type { has, map } from '@expressive/mvc';
 import type { JSX as Runtime } from '../jsx-runtime';
 
@@ -76,7 +76,6 @@ type JsxElement = Runtime.Element;
 type JsxElementType = Runtime.ElementType;
 type JsxElementClass = Runtime.ElementClass;
 type JsxAttributesProperty = Runtime.ElementAttributesProperty;
-type JsxManaged<C, P> = Runtime.LibraryManagedAttributes<C, P>;
 type JsxChildrenAttribute = Runtime.ElementChildrenAttribute;
 type JsxIntrinsicAttributes = Runtime.IntrinsicAttributes;
 type JsxIntrinsicElements = Runtime.IntrinsicElements;
@@ -87,7 +86,6 @@ declare namespace createElement {
     type ElementType = JsxElementType;
     interface ElementClass extends JsxElementClass {}
     interface ElementAttributesProperty extends JsxAttributesProperty {}
-    type LibraryManagedAttributes<C, P> = JsxManaged<C, P>;
     interface ElementChildrenAttribute extends JsxChildrenAttribute {}
     interface IntrinsicAttributes extends JsxIntrinsicAttributes {}
     type IntrinsicElements = JsxIntrinsicElements;

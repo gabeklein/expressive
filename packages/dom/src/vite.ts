@@ -6,10 +6,10 @@ type Node = { type: string; [key: string]: any };
 
 const SOURCE = /\.[cm]?[jt]sx?$/;
 const INSTALLED = /[\\/]node_modules[\\/]/;
-const RUNTIMES = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
+const RUNTIMES = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/jsx/jsx-runtime', '@expressive/jsx/jsx-dev-runtime', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
 
 const COMPONENT = /^[A-Z]/;
-const RENDERER = /^@expressive\/dom(\/|$)/;
+const RENDERER = /^@expressive\/(dom|jsx)(\/|$)/;
 const FUNCTION = ['ArrowFunctionExpression', 'FunctionExpression'];
 
 /**

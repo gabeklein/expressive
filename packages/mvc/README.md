@@ -122,14 +122,14 @@ off();                                                // stop listening
 
 ## Framework-agnostic components
 
-`@expressive/mvc` ships its own JSX runtime, so you can author components - including reusable libraries - against the core and let any host render them:
+Author components - including reusable libraries - against the host-neutral runtime in `@expressive/jsx`, and let any host render them:
 
 ```jsonc
 // tsconfig.json
 {
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "@expressive/mvc"
+    "jsxImportSource": "@expressive/jsx"
   }
 }
 ```

@@ -1,146 +1,215 @@
-import { Fragment, jsx, jsxs } from '@expressive/mvc/jsx-runtime';
-import type { Component, Model } from '@expressive/mvc';
-import type { JSX as Base } from '@expressive/mvc/jsx-runtime';
+import type { Component } from '@expressive/mvc';
+import type { Host } from '@expressive/mvc/jsx-runtime';
 
-import type { Node, VNode } from './node/vnode';
-import type { Attributes as Loaded, Module } from './node/loader';
-
-type Words =
-  | 'AnimationCancel' | 'AnimationEnd' | 'AnimationIteration' | 'AnimationStart'
-  | 'AuxClick' | 'BeforeInput' | 'BeforeMatch' | 'BeforeToggle' | 'CanPlay' | 'CanPlayThrough'
-  | 'CompositionEnd' | 'CompositionStart' | 'CompositionUpdate'
-  | 'ContextLost' | 'ContextMenu' | 'ContextRestored' | 'CueChange' | 'DblClick'
-  | 'DragEnd' | 'DragEnter' | 'DragLeave' | 'DragOver' | 'DragStart' | 'DurationChange'
-  | 'FocusIn' | 'FocusOut' | 'FormData' | 'GotPointerCapture' | 'KeyDown' | 'KeyPress' | 'KeyUp'
-  | 'LoadedData' | 'LoadedMetadata' | 'LoadStart' | 'LostPointerCapture'
-  | 'MouseDown' | 'MouseEnter' | 'MouseLeave' | 'MouseMove' | 'MouseOut' | 'MouseOver' | 'MouseUp'
-  | 'PointerCancel' | 'PointerDown' | 'PointerEnter' | 'PointerLeave' | 'PointerMove'
-  | 'PointerOut' | 'PointerOver' | 'PointerRawUpdate' | 'PointerUp'
-  | 'RateChange' | 'ScrollEnd' | 'SecurityPolicyViolation' | 'SelectionChange' | 'SelectStart'
-  | 'SlotChange' | 'TimeUpdate' | 'TouchCancel' | 'TouchEnd' | 'TouchMove' | 'TouchStart'
-  | 'TransitionCancel' | 'TransitionEnd' | 'TransitionRun' | 'TransitionStart' | 'VolumeChange';
-
-type Cased = { [W in Words as Lowercase<W>]: W };
-type EventName<K> = K extends keyof Cased ? Cased[K] : Capitalize<K & string>;
-
-type EventAttributes<T extends Element> = {
-  [K in keyof GlobalEventHandlersEventMap as `on${EventName<K>}`]?:
-    (event: GlobalEventHandlersEventMap[K] & { currentTarget: T }) => unknown;
-} & {
-  [K in keyof GlobalEventHandlersEventMap as `on${EventName<K>}Capture`]?:
-    (event: GlobalEventHandlersEventMap[K] & { currentTarget: T }) => unknown;
-};
-
-type Declarations = Partial<Record<keyof CSSStyleDeclaration, string | number | null>> & {
-  [property: `--${string}`]: string | number | null | undefined;
-};
-type Style = string | Declarations | false | null | undefined | readonly Style[];
-
-type SVGAttributes = {
-  [K in
-    | 'clipPathUnits' | 'cx' | 'cy' | 'd' | 'dx' | 'dy' | 'fill' | 'filter' | 'fx' | 'fy'
-    | 'gradientTransform' | 'gradientUnits' | 'height' | 'href' | 'in' | 'in2' | 'mask'
-    | 'markerHeight' | 'markerUnits' | 'markerWidth' | 'maskUnits' | 'offset' | 'opacity'
-    | 'orient' | 'pathLength' | 'patternUnits' | 'points' | 'preserveAspectRatio' | 'r'
-    | 'refX' | 'refY' | 'result' | 'rotate' | 'rx' | 'ry' | 'stdDeviation' | 'stroke'
-    | 'textLength' | 'transform' | 'type' | 'values' | 'version' | 'viewBox' | 'width'
-    | 'x' | 'x1' | 'x2' | 'xmlns' | 'y' | 'y1' | 'y2']?: string | number;
-};
-
-type Attributes<T extends Element> = EventAttributes<T> & {
-  [K in keyof T as K extends 'children' | 'className' | 'style'
-    ? never
-    : T[K] extends Function
-      ? never
-      : K]?: T[K] | string | number | boolean;
-} & {
-  children?: Node;
-  className?: string;
-  autoFocus?: boolean;
-  onDoubleClick?: (event: MouseEvent & { currentTarget: T }) => unknown;
-  dangerouslySetInnerHTML?: { __html: string };
-  itemProp?: string;
-  itemScope?: boolean;
-  itemType?: string;
-  itemID?: string;
-  itemRef?: string;
-  key?: string | number | null;
-  ref?: ((node: T | null) => unknown) | { current: T | null };
-  style?: Style;
-  [attribute: `_${string}`]: unknown;
-  [attribute: `data-${string}`]: unknown;
-  [attribute: `aria-${string}`]: unknown;
-};
-
-type Intrinsics = {
-  [K in keyof HTMLElementTagNameMap]: Attributes<HTMLElementTagNameMap[K]>
-    & (K extends 'meta' ? { charSet?: string; property?: string } : {});
-} & {
-  [K in keyof SVGElementTagNameMap]: Attributes<SVGElementTagNameMap[K]> & SVGAttributes;
-};
-
-declare module '@expressive/mvc/jsx-runtime' {
-  interface Host {
-    node: Node;
-    intrinsics: Intrinsics;
-    element: () => PromiseLike<Module>;
-    elementClass: Model & { render(props?: any): Component.Node };
-  }
+/**
+ * Host runtime an adapter (e.g. `@expressive/react`) registers to replace the default {@link Element}.
+ *
+ * One host per realm - copies of this package and separately bundled apps share it. A second registration with a different `jsx` throws.
+ * Without one, element creation and introspection use the default element.
+ * Members are ambient host capabilities callable outside render; hook-shaped ones live with the adapter.
+ */
+export interface HostRuntime {
+  childrenOf(children: unknown): Component.Node[];
+  isElement(node: unknown): boolean;
+  jsx(type: unknown, props: object, key?: unknown): Component.Node;
+  jsxDEV?(type: unknown, props: object, key?: unknown, isStatic?: boolean, source?: object, self?: unknown): Component.Node;
+  jsxs(type: unknown, props: object, key?: unknown): Component.Node;
+  propsOf(node: unknown): Record<string, unknown>;
+  typeOf(node: unknown): unknown;
+  Fragment: unknown;
 }
 
-declare module '@expressive/mvc' {
-  namespace Model {
-    /** JSX attributes of a Model with no `props` member: its settable fields, `is`, a boundary, and what `render` accepts. */
-    type Props<T extends Model> =
-      & Component.ModelProps<T>
-      & {
-        is?: (instance: T) => void;
-        /** Shown while this element's content is suspended or recovering. `false` opts out. */
-        fallback?: Reserved<T, 'fallback', Component.Node | false>;
-        /** Called when this element's content throws. A returned promise retries once settled. */
-        catch?: Reserved<T, 'catch', (error: Error, instance: T) => Promise<void> | void>;
-      }
-      & Component.RenderProps<T extends { render: infer R } ? R : never>;
-
-    /** Boundary attribute type, narrowed by a member of the same name so a mismatch fails at the element. */
-    type Reserved<T, K extends string, V> = K extends keyof T ? T[K] & V : V;
-  }
+/**
+ * Element the JSX entries create when no host is registered.
+ *
+ * `source` is set only by `jsxDEV` - the compiler's location, or `{}` without one - so it marks a dev element.
+ */
+export interface Element<P = any> {
+  readonly type: unknown;
+  readonly props: P;
+  readonly key?: string | number | null;
+  readonly source?: object;
 }
 
-declare module '@expressive/mvc/jsx-runtime' {
-  namespace JSX {
-    interface IntrinsicAttributes {
-      style?: Style;
-      [attribute: `_${string}`]: unknown;
-    }
-  }
+/**
+ * Agnostic Fragment sentinel. The runtime entries translate it to the host's
+ * Fragment on element creation; `typeOf` translates back, so identity checks
+ * against this value hold for fragments from either pragma.
+ */
+export const Fragment = Symbol.for('@expressive/mvc.Fragment');
+
+const ELEMENT = Symbol.for('@expressive/mvc.element');
+
+interface Registry {
+  host: HostRuntime;
+  registered?: HostRuntime;
+  created?: (element: Element) => void;
 }
 
-export { Fragment, jsx, jsxs };
-export type { VNode as JSXElement };
+const REGISTRY = Symbol.for('@expressive/jsx.registry');
+let local: Registry | undefined;
+
+function registry(): Registry {
+  if (local) return local;
+
+  local = (globalThis as any)[REGISTRY] ||= { host: { ...DEFAULT } };
+
+  for (const key in DEFAULT)
+    if (!(key in local!.host)) (local!.host as any)[key] = (DEFAULT as any)[key];
+
+  return local!;
+}
+
+/**
+ * Host-side: call `hook` with each default element as it is created. Returns the previous hook.
+ *
+ * A host chains by calling the previous hook from its own.
+ */
+export function onElement(hook: (element: Element) => void) {
+  const state = registry();
+  const previous = state.created;
+
+  state.created = hook;
+  return previous;
+}
+
+const UNKNOWN = {};
+
+function element(type: unknown, props: object, key?: unknown, source?: object): Element {
+  const node = { [ELEMENT]: true, type, props: props || {}, key: key as Element['key'] } as { -readonly [K in keyof Element]: Element[K] };
+
+  const { created } = registry();
+
+  if (source) node.source = source;
+  if (created) created(node);
+
+  return node;
+}
+
+function isDefault(node: unknown): node is Element {
+  return !!node && typeof node == 'object' && (node as any)[ELEMENT] === true;
+}
+
+function flatten(children: unknown) {
+  const output: Component.Node[] = [];
+
+  function add(child: unknown) {
+    if (Array.isArray(child)) child.forEach(add);
+    else if (child != null && typeof child != 'boolean') output.push(child as Component.Node);
+  }
+
+  add(children);
+  return output;
+}
+
+const DEFAULT = {
+  childrenOf: flatten,
+  isElement: isDefault,
+  jsx: element,
+  jsxs: element,
+  jsxDEV: (type, props, key, _isStatic, source) => element(type, props, key, source || UNKNOWN),
+  propsOf: (node) => isDefault(node) ? node.props : {},
+  typeOf: (node) => isDefault(node) ? node.type : undefined,
+  Fragment
+} as HostRuntime;
+
+/**
+ * Register the host runtime, shared by every copy of this package.
+ *
+ * A runtime with the registered `jsx` is the same host - re-registering picks up its members (e.g. an optional dev seam).
+ * A runtime with another `jsx` throws. A runtime without `jsxDEV` gets its `jsx`/`jsxs` for dev builds.
+ */
+export function host(runtime: HostRuntime) {
+  const state = registry();
+
+  if (state.registered && state.registered.jsx !== runtime.jsx)
+    throw new Error(
+      'A different JSX host is already registered for @expressive/jsx. ' +
+      'Only one host adapter may be active per build.'
+    );
+
+  state.registered = runtime;
+  Object.assign(state.host, runtime, { jsxDEV: runtime.jsxDEV });
+}
+
+/** Translate the agnostic Fragment sentinel to the host's Fragment. */
+function hostType(type: unknown): unknown {
+  return type === Fragment ? registry().host.Fragment : type;
+}
+
+export function jsx(type: unknown, props: object, key?: unknown): Component.Node {
+  return registry().host.jsx(hostType(type), props, key);
+}
+
+export function jsxs(type: unknown, props: object, key?: unknown): Component.Node {
+  return registry().host.jsxs(hostType(type), props, key);
+}
+
+/** Dev-transpiled element creation. A host without a `jsxDEV` of its own falls
+ * back to its production entries. */
+export function jsxDEV(
+  type: unknown,
+  props: object,
+  key?: unknown,
+  isStatic?: boolean,
+  source?: object,
+  self?: unknown
+): Component.Node {
+  const { host } = registry();
+
+  return host.jsxDEV
+    ? host.jsxDEV(hostType(type), props, key, isStatic, source, self)
+    : isStatic
+      ? jsxs(type, props, key)
+      : jsx(type, props, key);
+}
+
+/** Flatten `children` to an array of nodes, per the host's semantics. */
+export function childrenOf(children: unknown): Component.Node[] {
+  return registry().host.childrenOf(children);
+}
+
+/** Is `node` a host element? */
+export function isElement(node: unknown): boolean {
+  return registry().host.isElement(node);
+}
+
+/** Element type of `node`; host Fragments surface as the agnostic `Fragment`. */
+export function typeOf(node: unknown): unknown {
+  const { host } = registry();
+  const type = host.typeOf(node);
+
+  return type === host.Fragment ? Fragment : type;
+}
+
+/** Props carried by element `node`. */
+export function propsOf(node: unknown): Record<string, unknown> {
+  return registry().host.propsOf(node);
+}
+
+
 export declare namespace JSX {
-  type Element = Base.Element;
+  type Element = Component.Node;
   type ElementType =
     | keyof IntrinsicElements
     | ((props: any) => Component.Node)
-    | (() => PromiseLike<Module>)
-    | (abstract new (...args: any[]) => ElementClass);
-  interface ElementClass extends Model { render(props?: any): Component.Node }
+    | (new (...args: any[]) => Host extends { elementClass: infer I } ? I : ElementClass)
+    | (Host extends { element: infer T } ? T : never);
   /**
-   * Empty, so a class element's attributes resolve from its instance type and
-   * {@link LibraryManagedAttributes} picks `props` when declared, else derives
-   * them from the Model.
+   * Class instance contract when no host declares `elementClass`. Gates on the
+   * `render` contract alone - requiring full
+   * `Component` assignability trips contravariance on `props` members (e.g.
+   * the `is` callback narrows per subclass), rejecting every subclass.
    */
-  interface ElementAttributesProperty {}
-  type LibraryManagedAttributes<C, P> =
-    C extends abstract new (...args: any[]) => infer I
-      ? P extends { props: infer Q } ? Q
-      : I extends Model ? Model.Props<I>
-      : P
-      : C extends () => PromiseLike<Module<infer T>>
-      ? Loaded<T>
-      : P;
-  interface ElementChildrenAttribute extends Base.ElementChildrenAttribute {}
-  interface IntrinsicAttributes extends Base.IntrinsicAttributes {}
-  type IntrinsicElements = Base.IntrinsicElements;
+  interface ElementClass { render(props?: any): Component.Node }
+  interface ElementAttributesProperty { props: {} }
+  interface ElementChildrenAttribute { children: {} }
+  interface IntrinsicAttributes { key?: string | number | null }
+  /**
+   * Host tag manifest, via the {@link Host} seam. Resolves to `{}` until an
+   * adapter augments `Host` with `intrinsics` - agnostic code is
+   * components-only by design, since it cannot know what tags a host renders.
+   */
+  type IntrinsicElements =
+    Host extends { intrinsics: infer T extends object } ? T : {};
 }
