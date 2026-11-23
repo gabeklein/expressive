@@ -118,6 +118,44 @@ describe("node response", () => {
   });
 });
 
+describe("node response backpressure", () => {
+  it("will wait for drain when a write is refused, and cancel the body when the response closes", async () => {
+    const res = outgoing();
+    const cancel = vi.fn();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({ pull: controller => void (pulls++, controller.enqueue(new Uint8Array(1))), cancel }, { highWaterMark: 0 });
+
+    res.write.mockReturnValue(false);
+    const sent = send(res, new Response(body));
+
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(1));
+    await new Promise(done => setTimeout(done, 10));
+    expect(res.write).toHaveBeenCalledTimes(1);
+
+    res.emit("drain");
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(2));
+
+    res.emit("close");
+    await sent;
+
+    expect(cancel).toHaveBeenCalled();
+    expect(pulls).toBeLessThan(5);
+  });
+
+  it("will swallow a body that fails to cancel", async () => {
+    const res = outgoing();
+    const body = new ReadableStream<Uint8Array>({ pull: controller => controller.enqueue(new Uint8Array(1)), cancel: () => { throw new Error("gone"); } }, { highWaterMark: 0 });
+
+    res.write.mockReturnValue(false);
+    const sent = send(res, new Response(body));
+
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalled());
+    res.emit("close");
+
+    await expect(sent).resolves.toBeUndefined();
+  });
+});
+
 describe("node handler", () => {
   const settled = () => new Promise(done => setTimeout(done, 0));
 

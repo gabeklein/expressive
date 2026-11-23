@@ -8,6 +8,7 @@ interface NodeResponse {
   statusCode: number;
   setHeader(name: string, value: string | string[]): unknown;
   on(event: "close", listener: () => void): unknown;
+  once(event: "close" | "drain", listener: () => void): unknown;
   flushHeaders(): void;
   write(chunk: Uint8Array): unknown;
   end(chunk?: Uint8Array): unknown;
@@ -56,8 +57,15 @@ export async function send(res: NodeResponse, response: Response): Promise<void>
   res.flushHeaders();
 
   const reader = response.body.getReader();
+  let wake = () => {};
 
-  for (let read = await reader.read(); !read.done; read = await reader.read()) res.write(read.value);
+  res.once("close", () => {
+    wake();
+    reader.cancel().catch(() => {});
+  });
+
+  for (let read = await reader.read(); !read.done; read = await reader.read())
+    if (res.write(read.value) === false) await new Promise<void>(done => res.once("drain", (wake = done)));
 
   res.end();
 }
