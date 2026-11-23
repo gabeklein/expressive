@@ -17,7 +17,7 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 - **Handlers take no parameters.** `serve`, `api/` routes and gates read the request from `Current.get()`, so nothing needs a hand-typed `(request: Request, …)`.
 - **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
 - **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces `ctx.waitUntil`, an `after()` helper and a generator protocol. A returned value or `Response` still works.
-- **`default` in `api/` is unconditional:** a gate when it calls `next`, a catch-all when it doesn't. No remainder export (`ANY`, `ELSE`).
+- **`api/` gates are rpc's function gates.** A folder `index.ts`'s `default` runs before everything below it and refuses by throwing or by a failed `new()` of a Model it activates; those Models are in context below. Elsewhere `default` is a catch-all. No remainder export (`ANY`, `ELSE`).
 - **An object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
 
@@ -86,7 +86,7 @@ class Current {
   json<T>(check: (value: unknown) => T): Promise<T>;
   /** The request body as a string. */
   text(): Promise<string>;
-  /** What the layer below answers. Calling it throws where nothing is below; reading it never does. */
+  /** What `serve`'s handler wraps. Calling it anywhere else throws; reading it never does. */
   get next(): () => Promise<Response>;
 
   /** Decide this layer's reply. Resolves once the reply is handed to the host; code after it is after-work. */
@@ -131,11 +131,11 @@ Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `lis
 
 ### The request on `Current`
 
-Every forwarded request runs in one request scope, so `Current`, `Cookies` and `get(Model)` work in `serve`, gates and routes as they do in calls. Each layer (`serve`, each gate, the verb) runs in a nested scope, so `next` and `params` are that layer's. Destructuring captures them when read.
+Every forwarded request runs in one request scope, so `Current`, `Cookies` and `get(Model)` work in `serve`, gates and routes as they do in calls. Each layer (`serve`, then the route) runs in a nested scope, so `next` and `params` are that layer's. `api/` gates run between them, in the route's scope. Destructuring captures them when read.
 
 **A layer's reply is decided** by its first of:
 - **`send(...)`.** The function keeps running.
-- **Returning.** A `Response` as is; any other value as a body by the rule below, status 200. `undefined` passes through what `next()` answered when it was called. Otherwise `undefined` is 204 from a verb or catch-all, and an error from `serve` or a gate ("`serve` returned nothing - return `next()`"), so a forgotten `return next()` can't blank the app.
+- **Returning.** A `Response` as is; any other value as a body by the rule below, status 200. `undefined` passes through what `next()` answered when it was called. Otherwise `undefined` is 204 from a verb or catch-all, and an error from `serve` ("`serve` returned nothing - return `next()`"), so a forgotten `return next()` can't blank the app.
 - **Throwing.** On a call request, a throw replies as a call's error would, so a gate can throw `Unauthorized` and keep its class. Elsewhere an `HttpError` answers its status with a JSON `{ message }` (`Redirect` sets `Location`), and anything else is a 500 whose message shows in dev only, logged (today Node answers a bare 400).
 
 `next()` resolves with the lower layer's reply once that is decided, not when its function finishes. A lower layer's throw resolves `next()` with its error reply rather than rejecting, as a call's error does today, so `db.session(next)` sees the same thing from a failed call and a failed route (open question 9). A second `next()` throws.
@@ -213,24 +213,35 @@ A root `api/` folder sits beside `app/` and is served under a fixed `/api` prefi
 
 **Exports:**
 - **`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`** answer that method on the module's own path. HEAD falls to GET, the host cancels the body, and `Allow` lists HEAD wherever GET is exported.
-- **`default`** runs for every method, before the module's verbs. In a folder's `index.ts`, it also runs before every path under the folder, matched or not, as `app/`'s `Layout` wraps its folder. A refused caller then gets the same answer for a route that exists and one that doesn't.
-  - Calling `next` makes it a gate: `next()` continues to the next gate, then the verb.
-  - Answering without `next` makes it a catch-all.
-- A module that exports neither fails the build and the dev server.
+- **`default` in a folder's `index.ts` is the folder's gate**, as rpc's function gates are (`@expressive/rpc`'s "Function gates"), run on the same code path. It runs before every route in the folder and below, its own verbs included, root first, and for unmatched paths there too, so a refused caller gets the same answer for a route that exists and one that doesn't.
+  - It refuses by throwing (an `HttpError` answers its status) or by activating a Model whose `new()` fails, with that Model's error.
+  - Every Model it activates is the request's own: found by `X.get()` in inner gates and routes, waited on until ready, destroyed when the request ends (after-work included).
+  - It returns nothing; finishing is passing. Headers and cookies it sets join the reply.
+  - A class `default` fails the build: a function that activates the Model covers it, per request.
+- **`default` in any other module is a catch-all**: it answers every method on its path. Beside verbs it fails the build.
+- **Any other runtime export fails the build**, so `export const Get` or a stray helper is caught rather than ignored. Type exports are fine. `api/index.ts`'s are reserved (open question 5).
+- A module with neither verbs nor a catch-all fails the build and the dev server, except a folder `index.ts` with only a gate.
 
-The chain for `/api/dev/mail`: `serve` → `api/index.ts`'s default → `api/dev/index.ts`'s default → `api/dev/mail.ts`'s default → its verb. Gates see the full match's `params`. Past the gates: a path no module matches is a 404, a module with no verbs is a 404, and a module whose verbs don't include the method is a 405 with `Allow`.
+The chain for `/api/account/me`: `serve` → `api/index.ts`'s gate → `api/account/index.ts`'s gate → `api/account/me.ts`'s verb or catch-all. Gates see the full match's `params`. Past the gates: a path no module matches is a 404, a module with no handler for its own path is a 404, and a module whose verbs don't include the method is a 405 with `Allow`.
 
 ```ts
 // api/dev/index.ts - gates /api/dev and everything under it
 export default () => {
-  const { env, next, send } = Current.get();
-  return env.DEV_LOGIN === "1" ? next() : send(404);
+  if (Current.get().env.DEV_LOGIN !== "1") throw new NotFound();
 };
+
+// api/account/index.ts - Session's async new() verifies the cookie, throwing Unauthorized to refuse
+export default () => {
+  Session.new();
+};
+
+// api/account/me.ts - finds the gate's instance
+export const GET = () => Session.get().user;
 
 // api/photo/[id].ts
 export const GET = () => photo(Current.get().params.id);
 
-// api/auth/[...].ts - a catch-all: never calls next
+// api/auth/[...].ts - a catch-all
 export default () => {
   const { env, request } = Current.get();
   return auth(env).handler(request);
@@ -245,13 +256,10 @@ export async function POST() {
 }
 ```
 
-**A gate that hasn't reached its routes warns in dev.** Once per module, when a `default` that never read `next` answers while verbs or child routes sit behind it: "`api/dev/index.ts` hasn't reached its routes". Reading `next`, not `fn.length` (which wrappers, default and rest parameters misreport), is the signal, so destructuring it at the top, as above, keeps a gate that refuses first quiet.
-
-Why gates by folder: a gate belongs to the routes it covers, so the gate and the matched path can't disagree (`/api/DEV/mail` against a string compare in `serve`), and moving a folder moves its gate.
+Why gates by folder: a gate belongs to the routes it covers, so the gate and the matched path can't disagree (`/api/DEV/mail` against a string compare in `serve`), and moving a folder moves its gate. Sharing rpc's gate model gives calls, sidecars and HTTP routes one rule for access and one for what a route finds in context.
 
 **Other rules:**
 
-- Gates (`route(Session, …)`) on remote calls are unaffected. `api/` gates are plain functions.
 - Matching is exact and case-sensitive, on raw segments of the path `serve` sees; params are decoded after the match. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`.
 - `api/` is server-only. A client module importing from it fails the build, as it would for another folder's sidecar.
 - When a root `api/` exists, `app/api/`, `app/api.tsx`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
@@ -422,8 +430,8 @@ Each has a recommendation; sign-off on these unblocks PR 1.
 3. **Sending a Model instance.** Recommend throwing ("send its values") until Models have a defined JSON form.
 4. **Migration.** Recommend the clean break.
 5. **`api/` was already assigned.** `FEATURE.md`'s agreed shape has dev hosting rpc's call folder, `api/` by default: stubs on the client, no dynamic segments, one invocation path with sidecars (lines 22, 83, 185, and 302's "dev does not host an rpc `api/` folder yet"). HTTP routes at `api/` reverse that.
-   - Recommend taking `api/` for HTTP routes, as chosen. If dev ever hosts an rpc call folder, it takes another name (for example `rpc/`).
-   - The cost: a client import fails from dev's `api/` but is a stub from rpc's `api/`. Both READMEs say which is which.
+   - Recommend taking `api/` for HTTP routes, as chosen.
+   - A direction to align with, undecided: `api/index.ts` alone may export call modules, which become public calls - the file route sets the URL, the exports set exposure - so one folder carries both lanes, and a client import of `api/index.ts` is a stub while a route file still fails. Its extra exports are reserved for that and fail the build until then.
    - `FEATURE.md` lines 22, 83, 185 and 302 get updated, along with 62 (the OAuth `api/` slice, now this) and 288 (REST verbs on a `Route` default). Line 233's "rpc folder, beyond calls" (REST verbs, the reply pipeline, OpenAPI) concerns rpc's external-client lane and stays.
 6. **A test reset.** Recommend none for now: one `index.ts` evaluation per test file. Per-test resets would need an exported `reset()`, which is new surface.
 7. **`bindings` as a path.** `bindings: "./db/bindings.ts"`, a module only dev imports, needs no AST strip, no literal rule and no tree-shaking, at the cost of checking the module's default export only by its own `satisfies`. Recommend keeping the function (typed at the call) with the strict build rule; the path is the fallback if the transform turns out brittle.
@@ -433,11 +441,11 @@ Each has a recommendation; sign-off on these unblocks PR 1.
 
 ## PR split
 
-Each PR lands on the trunk with its own tests, a changeset where it is user-facing (`minor`), its README and skill section, and `hot-probe.ts` cases where it touches hot reload. In code, the layer, gate and scope of this note take names distinct from `context.ts`'s `Layer`, `gate()` and `scope()`.
+Each PR lands on the trunk with its own tests, a changeset where it is user-facing (`minor`), its README and skill section, and `hot-probe.ts` cases where it touches hot reload. In code, the layer and scope of this note take names distinct from `context.ts`'s `Layer` and `scope()`; `api/` gates reuse its `gate()`.
 
 1. **rpc: the request on `Current`.** One scope per request, nested layers, `params`/`json()`/`text()`/`next`/`send` and static `send`, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`/`handler()`.
 2. **dev: registry and composition.** `config`/`serve`/`host` with `host`'s default `fetch`, `App`, the registry rules, `/server`'s `app` and `listen`, generated entries importing `index.ts`, the `next()` order for calls and streams over today's page serving, dev's skip list and fall-through, 101 passthrough, migration errors. Updates the `FEATURE.md` lines in open question 5. Hot-probe: an `index.ts` edit resets the registry without a double-call throw. Gaps left on the trunk: the fetch target has no page fallback until PR 3, and its bundle carries `bindings`' imports until PR 4.
 3. **dev: pages over `assets`.** The one shell rule on every host and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
 4. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports nor `node:fs`.
-5. **dev: `api/` routes.** Scan and strict matcher, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler and naming errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit.
-6. **dev: `api/` gates.** `default` as a gate, folder `index.ts` gates over matched and unmatched paths, the dead-gate warning.
+5. **dev: `api/` routes.** Scan and strict matcher, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit.
+6. **dev: `api/` gates.** A folder `index.ts`'s `default` on rpc's function-gate path, over matched and unmatched paths, its Models in context until the request ends, and the class-default error.
