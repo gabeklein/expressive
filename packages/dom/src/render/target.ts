@@ -1,4 +1,5 @@
 import { syncRoots } from '../style/root';
+import { documentOf } from '../style/protocol';
 import type { StyleTarget } from '../style/protocol';
 
 let current: StyleTarget | undefined;
@@ -30,4 +31,8 @@ function activeTarget() {
   return current;
 }
 
-export { activeTarget, isShadowRoot, targetOf, within };
+function activeDocument() {
+  return documentOf(current!);
+}
+
+export { activeDocument, activeTarget, isShadowRoot, targetOf, within };

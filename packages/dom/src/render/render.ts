@@ -10,6 +10,7 @@ import { reconcile } from './reconcile';
 import { consume, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
 import { targetOf, within } from './target';
+import { documentOf } from '../style/protocol';
 
 const roots = new WeakMap<Container, () => void>();
 const focusing: Element[] = [];
@@ -45,12 +46,10 @@ function hydrate(node: RenderNode, container: Container): () => void {
 
 function mountRoot(node: RenderNode, container: Container): () => void {
   const context = new Context(Context.root);
-  const fiber = range('fragment', container, null, context);
-
-  fiber.target = targetOf(container);
+  const fiber = within(targetOf(container), () => range('fragment', container, null, context));
 
   try {
-    within(fiber.target, () => pass(() => reconcile(fiber, node, context, undefined, undefined)));
+    within(fiber.target!, () => pass(() => reconcile(fiber, node, context, undefined, undefined)));
   } catch (error) {
     unmountFiber(fiber);
     context.pop();
@@ -98,7 +97,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   passiveRender ||= passive;
 
   if (passive && !depth && empty && !fiber.stash && !fiber.dehydrated)
-    fiber.staging ||= fragment();
+    fiber.staging ||= fragment(documentOf(fiber.target!));
 
   const dehydrated = fiber.dehydrated;
   fiber.dehydrated = undefined;

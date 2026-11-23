@@ -1,6 +1,6 @@
 import { Context } from '@expressive/mvc';
 
-import { isHoisted } from '../node/props';
+import { SVG, isHoisted } from '../node/tags';
 import { isVNode, PORTAL, vnode } from '../node/vnode';
 import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
@@ -10,13 +10,15 @@ import { adopt, adopted, aside, isComment, reserve } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
-import { isShadowRoot, targetOf, within } from './target';
+import { activeDocument, isShadowRoot, targetOf, within } from './target';
+import { documentOf } from '../style/protocol';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  const marker = adopt(parent, before, () => document.createComment('portal'), (node) => isComment(node, 'portal'));
+  const marker = adopt(parent, before, () => activeDocument().createComment('portal'), (node) => isComment(node, 'portal'));
   const container = target(value.props.into, parent);
-  const portalStart = document.createComment('portal-root');
-  const portalEnd = document.createComment('/portal-root');
+  const root = targetOf(container);
+  const portalStart = documentOf(root).createComment('portal-root');
+  const portalEnd = documentOf(root).createComment('/portal-root');
 
   if (value.props[LEAD]) container.prepend(portalStart, portalEnd);
   else container.append(portalStart, portalEnd);
@@ -37,7 +39,7 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
     portalContainer: container,
     portalStart,
     portalEnd,
-    target: targetOf(container)
+    target: root
   };
 
   complete(output, () => {
@@ -70,7 +72,6 @@ function retire(twin: Element, element: Element) {
   element.addEventListener('error', remove, { once: true });
 }
 
-const SVG = 'http://www.w3.org/2000/svg';
 const LEAD = Symbol('lead');
 
 function hoist(value: RenderNode, parent: globalThis.Node): RenderNode {
@@ -88,7 +89,7 @@ function target(into: unknown, parent: globalThis.Node): Container {
   if (typeof into != 'string') return into as Container;
 
   const root = parent.getRootNode();
-  const found = [...document.querySelectorAll(into)];
+  const found = [...activeDocument().querySelectorAll(into)];
 
   if (root instanceof DocumentFragment) found.push(...root.querySelectorAll(into));
 
@@ -118,7 +119,7 @@ function patchPortal(fiber: Fiber, value: VNode, context: Context, appearance?: 
   fiber.props = value.props;
 
   if (moved) {
-    const content = document.createDocumentFragment();
+    const content = documentOf(fiber.target!).createDocumentFragment();
 
     moveRange(fiber.portalStart!, fiber.portalEnd!, content);
     place(fiber, content);

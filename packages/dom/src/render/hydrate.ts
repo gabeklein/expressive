@@ -1,3 +1,5 @@
+import { activeDocument } from './target';
+
 interface Claiming {
   root: globalThis.Node;
   to: globalThis.Node | null;
@@ -78,7 +80,7 @@ function reserve(start: globalThis.Node, end: globalThis.Node) {
 }
 
 function adoptText(parent: globalThis.Node, before: globalThis.Node | null, value: string) {
-  return adopt(parent, before, () => document.createTextNode(value), (node) => {
+  return adopt(parent, before, () => activeDocument().createTextNode(value), (node) => {
     if (node.nodeType != 3 || !value) return false;
 
     const text = node as Text;
@@ -90,14 +92,14 @@ function adoptText(parent: globalThis.Node, before: globalThis.Node | null, valu
 }
 
 function adoptRange(parent: globalThis.Node, before: globalThis.Node | null, kind: string) {
-  const start = adopt(parent, before, () => document.createComment(kind), (node) => isComment(node, kind));
+  const start = adopt(parent, before, () => activeDocument().createComment(kind), (node) => isComment(node, kind));
 
   if (!adopted(start))
-    return [start, place(parent, start, document.createComment(`/${kind}`))];
+    return [start, place(parent, start, activeDocument().createComment(`/${kind}`))];
 
   const end = closer(start, kind);
 
-  if (!end) return [start, place(parent, start, document.createComment(`/${kind}`))];
+  if (!end) return [start, place(parent, start, activeDocument().createComment(`/${kind}`))];
 
   state!.claimed.add(end);
   return [start, end];

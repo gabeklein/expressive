@@ -69,7 +69,7 @@ function isSink(target: Target): target is Sink {
   return 'insert' in target;
 }
 
-function documentOf(target: StyleTarget): Document {
+function documentOf(target: globalThis.Node): Document {
   return target.nodeType == 9 ? target as Document : target.ownerDocument!;
 }
 
