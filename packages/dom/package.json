@@ -55,7 +55,7 @@
     "test": "bun run typecheck && bun run coverage"
   },
   "dependencies": {
-    "@expressive/jsx": "workspace:^"
+    "@expressive/jsx": "^0.0.0"
   },
   "peerDependencies": {
     "@expressive/mvc": "^0.97.1",

@@ -14,7 +14,7 @@
   },
   "files": [
     "dist",
-    "skills"
+    "README.md"
   ],
   "type": "module",
   "sideEffects": false,

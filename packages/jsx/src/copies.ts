@@ -1,13 +1,17 @@
 const COPIES = Symbol.for('@expressive/jsx');
+const HERE = import.meta.url.split('?')[0];
 let announced = false;
 
 function announce() {
   if (announced) return;
 
-  const copies = ((globalThis as { [COPIES]?: unknown[] })[COPIES] ||= []);
+  const copies = ((globalThis as { [COPIES]?: string[] })[COPIES] ||= []);
 
   announced = true;
-  copies.push(announce);
+
+  if (copies.includes(HERE)) return;
+
+  copies.push(HERE);
 
   if (copies.length == 2)
     console.error(

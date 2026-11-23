@@ -90,7 +90,7 @@
       "name": "@expressive/dom",
       "version": "0.13.3",
       "dependencies": {
-        "@expressive/jsx": "workspace:^",
+        "@expressive/jsx": "^0.0.0",
       },
       "devDependencies": {
         "@expressive/mvc": "workspace:^",

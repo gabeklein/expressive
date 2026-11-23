@@ -12,6 +12,7 @@ Monorepo: bun workspaces + changesets. Install, scripts, and builds run under bu
 
 ```
 packages/mvc    - Core primitives (@expressive/mvc)
+packages/jsx    - Base JSX host: renderer, style engine, runtime, renderToString (@expressive/jsx)
 packages/react  - React adapter (@expressive/react; /compat for preact)
 packages/router - Router built on Component (@expressive/router)
 packages/inspect - In-page inspector for agents and devtools (@expressive/inspect)
@@ -142,7 +143,7 @@ A green `tsc --noEmit` + `bun run build` says nothing about whether a browser-fa
 
 ### Releasing
 
-- `@expressive/mvc`, `@expressive/react`, `@expressive/router`, `@expressive/inspect`, `@expressive/dom`, `@expressive/steps`, `@expressive/rpc`, `@expressive/cli`, `@expressive/env`, and `@expressive/dev` are published.
+- `@expressive/mvc`, `@expressive/jsx`, `@expressive/react`, `@expressive/router`, `@expressive/inspect`, `@expressive/dom`, `@expressive/steps`, `@expressive/rpc`, `@expressive/cli`, `@expressive/env`, and `@expressive/dev` are published.
 - Merged changesets accumulate on `main`; CI maintains a "Version Packages" PR (`changeset version`). Merging that PR triggers `changeset publish` from CI. No local publishing.
 
 ## Guardrails

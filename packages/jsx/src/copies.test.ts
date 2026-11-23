@@ -3,24 +3,31 @@ import { describe, expect, it, vi } from 'vitest';
 import { mockError } from '../test.setup';
 
 const error = mockError();
+const COPIES = Symbol.for('@expressive/jsx');
+
+async function fresh() {
+  vi.resetModules();
+  return vi.importActual<typeof import('./copies')>('./copies');
+}
 
 describe('copies', () => {
-  it('will report a second copy once', async () => {
-    vi.resetModules();
-    delete (globalThis as Record<symbol, unknown>)[Symbol.for('@expressive/jsx')];
+  it('will not report the same module evaluated again', async () => {
+    delete (globalThis as Record<symbol, unknown>)[COPIES];
 
-    const first = await vi.importActual<typeof import('./copies')>('./copies');
+    (await fresh()).announce();
+    (await fresh()).announce();
 
-    first.announce();
-    first.announce();
     expect(error).not.toHaveBeenCalled();
+  });
 
-    vi.resetModules();
+  it('will report a second copy once', async () => {
+    (globalThis as Record<symbol, unknown>)[COPIES] = ['file:///elsewhere/jsx/dist/index.js'];
 
-    const second = await vi.importActual<typeof import('./copies')>('./copies');
+    const copy = await fresh();
 
-    second.announce();
-    second.announce();
+    copy.announce();
+    copy.announce();
+
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0][0]).toContain('@expressive/jsx is loaded more than once');
   });

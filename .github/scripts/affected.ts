@@ -27,6 +27,9 @@ for (const dir of dirs) {
   uses.set(dir, mentions(names.join(' ')));
 }
 
+// jsx's suite renders through dom until its tests move onto limp - drop with the doubled vitest includes.
+uses.get('jsx')?.add('dom');
+
 const changed = execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...${head}`], { encoding: 'utf8' })
   .split('\n')
   .filter(Boolean);
