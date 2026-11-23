@@ -291,4 +291,27 @@ hydrate(<Served />, served);
 check('server rule stays off a client class of the same name', getComputedStyle(client.querySelector('b')!).marginTop, '0px');
 check('hydrated element keeps its rules', getComputedStyle(served.querySelector('p')!).marginTop, '9px');
 
+let waiting = false;
+
+function Post(props: { children?: any }) {
+  if (waiting) throw new Promise(() => {});
+  return props.children;
+}
+
+function Feed() {
+  return <section><Post><i>kept</i></Post></section>;
+}
+
+style(Feed, { ':not(.never)': { _i: { color: 'rgb(9, 9, 9)' } } });
+
+const feed = await renderToString(<Feed />);
+document.head.appendChild(document.createElement('style')).textContent = feed.css;
+
+const kept = document.body.appendChild(document.createElement('main'));
+kept.innerHTML = feed.html;
+waiting = true;
+hydrate(<Feed />, kept);
+
+check('kept subtree under a hydrated scope stays styled', getComputedStyle(kept.querySelector('i')!).color, 'rgb(9, 9, 9)');
+
 report();

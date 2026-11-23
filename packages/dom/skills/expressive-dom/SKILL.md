@@ -360,7 +360,7 @@ Put `css` in a `<style>` in the document head. Calls are independent and can run
 - Portals leave a `<!--portal-->` marker and event handlers render nothing. `value`, `checked` and `selected` become attributes - a `<select>`'s `value` marks its options; textarea `value` becomes its text.
 - Attribute and tag names that would break markup throw, and closing tags inside `<script>` and `<style>` text are escaped.
 - A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's.
-- Class names carry a hash of their rule (`Card-1au4xe2`) - the same on every render, distinct from the client's and from other renders on one page.
+- Class names end in a hash of their rule (`Card-1au4xe2`) - stable for a rule, never a client's name. A scope anchor (`Card-group`) keeps its plain name.
 
 `hydrate(node, container)` mounts over that markup instead of replacing it: nodes are adopted in place, and the returned unmount works like `render()`'s.
 

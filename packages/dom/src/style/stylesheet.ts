@@ -310,7 +310,7 @@ function emit(block: Block, depth: number, target: Target): string {
     ...block.group ? ['group'] : []
   ].join('-');
   const readable = label.replace(/[^\w-]+/g, '_').replace(/_*(-)_*|_+$/g, '$1') || 'c';
-  const base = isSink(target) ? `${readable}-${hash(block.group ? label : key)}` : readable;
+  const base = isSink(target) && !block.group ? `${readable}-${hash(key)}` : readable;
   let name = base;
 
   for (let index = 2; sheet.names.has(name) && sheet.names.get(name) !== key; index++)

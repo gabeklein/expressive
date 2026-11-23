@@ -398,7 +398,6 @@ describe('hydrate', () => {
     const server = [...sheet.sheet!.cssRules] as CSSStyleRule[];
 
     expect(server.some((rule) => other.matches(rule.selectorText))).toBe(false);
-    expect(card.className).not.toBe(other.className);
 
     sheet.remove();
   });

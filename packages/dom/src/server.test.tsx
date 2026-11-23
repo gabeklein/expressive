@@ -20,10 +20,11 @@ async function serve(node: any, signal?: AbortSignal) {
   }
 }
 
-function unhashed(text: string) {
-  return text
-    .replace(/class="([^"]*)"/g, (_, names: string) => `class="${names.replace(/-[0-9a-z]+(?=\s|$)/g, '')}"`)
-    .replace(/(\.[\w-]+)-[0-9a-z]+(?=[{:\s).,])/g, '$1');
+function unhashed(html: string, css = '') {
+  const names = new Set(html.match(/(?<=class="[^"]*)[^\s"]+-[0-9a-z]{1,7}(?=[\s"])/g));
+  const strip = (text: string) => text.replace(/[\w-]+/g, (token) => names.has(token) ? token.slice(0, token.lastIndexOf('-')) : token);
+
+  return [strip(html), strip(css)];
 }
 
 async function parity(node: () => any) {
@@ -36,7 +37,7 @@ async function parity(node: () => any) {
 
   const { html } = await serve(node());
 
-  expect(unhashed(html)).toBe(expected);
+  expect(unhashed(html)[0]).toBe(expected);
   return html;
 }
 
@@ -180,14 +181,14 @@ describe('renderToString', () => {
 
     expect(html).toMatch(/class="Card_div-\w+ Card_active-\w+ Card-\w+"/);
     expect((await serve(<Card _active>card</Card>)).css).toBe(css);
-    expect(unhashed(css)).toBe([
+    expect(unhashed(html, css)[1]).toBe([
       '.Card{color: blue;}',
       '.Card_active{font-weight: 700;}',
       '.Card_div{padding: 4px;}'
     ].join('\n'));
   });
 
-  it('will name rules the same on every render, scopes included', async () => {
+  it('will name rules the same on every render, scope groups unhashed', async () => {
     function List() {
       return <ul><li>a</li></ul>;
     }
@@ -198,7 +199,7 @@ describe('renderToString', () => {
     const second = await serve(<List />);
 
     expect(second).toEqual(first);
-    expect(first.css).toMatch(/^:where\(\.List-group-\w+:hover\) \.List_li-List_hover-\w+\{color: red;\}$/);
+    expect(first.css).toMatch(/^:where\(\.List-group:hover\) \.List_li-List_hover-\w+\{color: red;\}$/);
   });
 
   it('will size numbers by property and include root variables', async () => {
@@ -216,8 +217,11 @@ describe('renderToString', () => {
 
     const { css, html } = await serve(<Box />);
 
-    expect(unhashed(html)).toBe('<!--fragment--><!--function--><div class="Box">box</div><!--/function--><!--/fragment-->');
-    expect(unhashed(css)).toBe(
+    const [plain, rules] = unhashed(html, css);
+
+    expect(html).toMatch(/class="Box-\w+"/);
+    expect(plain).toBe('<!--fragment--><!--function--><div class="Box">box</div><!--/function--><!--/fragment-->');
+    expect(rules).toBe(
       '.Box{margin-top: 4px; line-height: 1.5; opacity: 0; -webkit-line-clamp: 2; -webkit-box-flex: 1; reading-order: 2; flex: 1; --depth: 2; float: left; color: var(--tone);}\n' +
       ':where(:root){--tone: red;}'
     );
@@ -347,7 +351,7 @@ describe('renderToString', () => {
 
     const { css, html } = await renderToString(<Page />, { inline: true, markers: false });
 
-    expect(unhashed(html)).toBe(
+    expect(unhashed(html)[0]).toBe(
       '<div class="Card_active Card_active-hover Page_card-d1 Card Card-media_min-width_1px" style="padding: 4px; color: green; font-weight: 700; margin-top: 2px;">' +
       'page<span>plain</span></div>'
     );
