@@ -930,3 +930,32 @@ describe('get parity', () => {
     release();
   });
 });
+
+describe('subcomponent', () => {
+  it('will track an owner whose method was read before dom loaded', async () => {
+    vi.resetModules();
+
+    const { Model } = await vi.importActual<typeof import('@expressive/mvc')>('@expressive/mvc');
+
+    class App extends Model {
+      title = 'one';
+
+      Header() {
+        return this.title;
+      }
+    }
+
+    const app = App.new();
+    const { Header } = app;
+
+    const { render } = await vi.importActual<typeof import('../index')>('../index');
+    const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
+    const root = document.createElement('main');
+
+    render(jsx(Header, {}), root);
+    expect(root.textContent).toBe('one');
+
+    app.title = 'two';
+    await vi.waitFor(() => expect(root.textContent).toBe('two'));
+  });
+});
