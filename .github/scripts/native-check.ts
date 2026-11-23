@@ -19,13 +19,14 @@ const PINS = {
   'react-native': '0.86.2'
 };
 
-const PACKAGES = ['mvc', 'react', 'router', 'inspect'];
+const PACKAGES = ['mvc', 'jsx', 'react', 'router', 'inspect'];
 
 const SUBPATHS = [
   '@expressive/mvc',
   '@expressive/mvc/jsx-runtime',
   '@expressive/mvc/observable',
   '@expressive/mvc/hot',
+  '@expressive/jsx/jsx-runtime',
   '@expressive/react',
   '@expressive/react/adapter',
   '@expressive/router',

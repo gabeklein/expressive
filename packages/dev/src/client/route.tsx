@@ -1,4 +1,4 @@
-/** @jsxImportSource @expressive/mvc */
+/** @jsxImportSource @expressive/jsx */
 
 import { set, type Component } from "@expressive/mvc";
 import { Route as Base } from "@expressive/router";

@@ -71,6 +71,7 @@
         "@expressive/dom": "^0.13.4",
         "@expressive/env": "^0.2.0",
         "@expressive/inspect": "^0.6.7",
+        "@expressive/jsx": "^0.0.0",
         "@expressive/router": "^0.10.7",
         "@expressive/rpc": "^0.5.1",
         "es-module-lexer": "^1.6.0",
@@ -132,6 +133,9 @@
     "packages/inspect": {
       "name": "@expressive/inspect",
       "version": "0.6.7",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "tsdown": "^0.20.1",
@@ -168,6 +172,9 @@
     "packages/react": {
       "name": "@expressive/react",
       "version": "0.95.0",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "^0.97.0",
         "@testing-library/preact": "^3.2.3",
@@ -198,6 +205,9 @@
     "packages/router": {
       "name": "@expressive/router",
       "version": "0.10.7",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/dom": "workspace:^",
         "@expressive/mvc": "^0.97.0",

@@ -51,7 +51,7 @@ describe('authoring', () => {
   it('will keep an element hook installed before the first render', async () => {
     vi.resetModules();
 
-    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const runtime = await vi.importActual<typeof import('@expressive/jsx/jsx-runtime')>('@expressive/jsx/jsx-runtime');
     const hook = vi.fn();
 
     runtime.onElement(hook);

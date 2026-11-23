@@ -1,5 +1,5 @@
 import { Component, has, map, Model } from '@expressive/mvc';
-import { Fragment, isElement } from '@expressive/mvc/jsx-runtime';
+import { Fragment, isElement } from '../jsx-runtime';
 
 import { isVNode, PORTAL } from './vnode';
 import type { Node, VNode } from './vnode';

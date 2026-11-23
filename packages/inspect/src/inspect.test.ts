@@ -546,7 +546,7 @@ describe('host', () => {
     vi.resetModules();
 
     const mvc = await vi.importActual<typeof import('@expressive/mvc')>('@expressive/mvc');
-    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const runtime = await vi.importActual<typeof import('@expressive/jsx/jsx-runtime')>('@expressive/jsx/jsx-runtime');
     const inspect = await vi.importActual<typeof import('./index')>('./index');
     const hook = vi.fn();
 

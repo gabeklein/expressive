@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, onTestFinished } from 'vitest';
 
 import { Component, has, Model } from '@expressive/mvc';
 import { render } from '@expressive/dom';
@@ -93,11 +93,18 @@ describe('mount', () => {
   it('will name an element from another registered host', async () => {
     vi.resetModules();
 
-    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const runtime = await vi.importActual<typeof import('@expressive/jsx/jsx-runtime')>('@expressive/jsx/jsx-runtime');
     const { render } = await vi.importActual<typeof import('@expressive/dom')>('@expressive/dom');
     const foreign = { host: true } as never;
     const Page = () => foreign;
     const page = runtime.jsx(Page, {});
+    const shared = (globalThis as any)[Symbol.for('@expressive/jsx.registry')];
+    const saved = { ...shared.host };
+
+    onTestFinished(() => {
+      Object.assign(shared.host, saved);
+      shared.registered = undefined;
+    });
 
     runtime.host({
       jsx: () => foreign,

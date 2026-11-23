@@ -4,7 +4,7 @@ import { Component } from '@expressive/mvc';
 import { mockWarn, place } from '../../test.setup';
 import { style } from '@expressive/dom';
 import { renderToString } from '@expressive/dom/server';
-import { jsx } from '@expressive/mvc/jsx-runtime';
+import { jsx } from '@expressive/jsx/jsx-runtime';
 
 const warn = mockWarn();
 

@@ -1,13 +1,7 @@
-import type { JSX } from '../jsx-runtime';
 import type { ComponentType, Node } from './vnode';
 import { vnode } from './vnode';
 
 type Module<T extends ComponentType = ComponentType> = T | { default: T };
-
-type Attributes<T> = [T] extends [never] ? {}
-  : T extends abstract new (...args: any[]) => infer I
-  ? JSX.LibraryManagedAttributes<T, I>
-  : T extends (props: infer P) => any ? P : never;
 
 interface Load {
   pending: PromiseLike<void>;
@@ -51,4 +45,4 @@ function resolve(type: Function, props: object, run: () => unknown): Node {
 }
 
 export { resolve };
-export type { Attributes, Module };
+export type { Module };
