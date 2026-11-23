@@ -2,7 +2,7 @@ import { afterEach, vi } from 'vitest';
 import type { Component, Model } from '@expressive/mvc';
 
 import { mockPromise } from '../mvc/test.setup';
-import { render } from './src/render';
+import { render } from './src/host';
 import { createElement as vnode } from '@expressive/jsx';
 
 afterEach(() => {

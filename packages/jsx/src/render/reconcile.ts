@@ -12,7 +12,7 @@ import type { Boundary, Fiber } from './fiber';
 import { same } from '../core/hot';
 import { mount, patchFragment, patchText, unmountFiber } from './mount';
 import { patchPortal } from './portal';
-import { activeRoot } from './target';
+import { activeRoot } from './host';
 import { authored } from '../core/appearance';
 import { gather } from './suspense';
 

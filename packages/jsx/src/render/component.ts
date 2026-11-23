@@ -16,7 +16,22 @@ import { attempt, passiveRender } from './render';
 import { claim as dequeue, schedule, settle as absorb, transition } from '../core/scheduler';
 import { consume, observe } from '../core/appearance';
 import { isThenable } from '../node/kind';
-import { own } from '../core/placement';
+
+
+const PLACED = new WeakMap<Component, Promise<void>>();
+let installed = false;
+
+function own(Type: new (props: unknown) => Component, props: unknown, placed: Promise<void>) {
+  if (!installed) {
+    Component.on({ setup: (self) => PLACED.get(self) });
+    installed = true;
+  }
+
+  const instance = new Type(props);
+
+  PLACED.set(instance, placed);
+  return instance;
+}
 
 function mountFunction(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const fiber = range('function', parent, before, context);
@@ -189,4 +204,4 @@ function unmountComponent(fiber: Fiber) {
 }
 
 
-export { mountComponent, mountFunction, mountOwnedComponent, patchComponent, patchFunction, unmountComponent };
+export { mountComponent, mountFunction, mountOwnedComponent, own, patchComponent, patchFunction, unmountComponent };

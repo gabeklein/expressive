@@ -3,7 +3,7 @@ import { Context } from '@expressive/mvc';
 import type { Node as RenderNode } from '../node/vnode';
 import { attach, batched, fragment } from './commits';
 import { range } from './fiber';
-import { resume } from './hydrate';
+import { resume } from './host';
 import type { Container, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
@@ -11,7 +11,7 @@ import { consume, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
 import { rootOf } from './host';
 import type { Host } from './host';
-import { within } from './target';
+import { within } from './host';
 import { announce } from '../copies';
 
 const roots = new WeakMap<Container, () => void>();

@@ -1,7 +1,7 @@
 import { afterPass, afterFlush, claim, complete, hostOf, inserted, reconcileChildren, reserved, unmatched, unmountFiber } from '@expressive/jsx';
-import { activeDocument } from '../document';
+import { activeDocument } from '../host';
 import { adopt, adopted, touch } from '../hydrate';
-import { applyClaim } from '../style/declarations';
+import { applyClaim } from '../style';
 import { ALIASES, SVG, isEvent, isStringified } from '../tags';
 import type { Appearance, Fiber, VNode } from '@expressive/jsx';
 

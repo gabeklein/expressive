@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { serialize } from './declarations';
+import { serialize } from './style';
 
 describe('serialize', () => {
   it('will keep a var() shorthand beside its longhand', () => {

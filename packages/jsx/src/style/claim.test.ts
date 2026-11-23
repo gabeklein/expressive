@@ -4,7 +4,7 @@ import { createStyleScope, resolveAppearance } from './appearance';
 import { claim, componentProps } from './claim';
 import type { AppearanceContext } from './protocol';
 import { style } from './stylesheet';
-import { stylesOf } from '@expressive/dom/style/facility';
+import { stylesOf } from '@expressive/dom/style';
 
 style(function Emitting() {}, {});
 

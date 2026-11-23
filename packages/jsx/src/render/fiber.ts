@@ -3,8 +3,8 @@ import { Component, Context } from '@expressive/mvc';
 import type { Key, Node as RenderNode } from '../node/vnode';
 import type { Appearance, Claim } from '../style/claim';
 import type { Scope } from '../core/adapter';
-import { hydrationOf } from './hydrate';
-import { activeRoot } from './target';
+import { hydrationOf } from './host';
+import { activeRoot } from './host';
 import type { Root } from './host';
 
 type Container = Element | DocumentFragment;

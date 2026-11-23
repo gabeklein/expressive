@@ -1,14 +1,14 @@
 import { isThenable } from '../node/kind';
 import { attach, fragment } from './commits';
 import { move, moveRange, range } from './fiber';
-import { hydrationOf } from './hydrate';
+import { hydrationOf } from './host';
 import type { Boundary, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
 import { release, schedule, transition } from '../core/scheduler';
-import { activeRoot, within } from './target';
+import { activeRoot, within } from './host';
 
 const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();

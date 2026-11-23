@@ -9,7 +9,7 @@ import { hydrate, mountRoot } from './render';
 import { LEAD } from './portal';
 import { PORTAL, vnode } from '../node/vnode';
 import { limp } from './host';
-import type { Hydration } from './hydrate';
+import type { Hydration } from './host';
 import type { Host } from './host';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';

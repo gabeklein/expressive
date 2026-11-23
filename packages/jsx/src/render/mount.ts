@@ -13,11 +13,11 @@ import { mountComponent, mountFunction, mountOwnedComponent, unmountComponent } 
 import { range, removeRange } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { untrack } from '../core/hot';
-import { hydrationOf } from './hydrate';
+import { hydrationOf } from './host';
 import { mountPortal, unmountPortal } from './portal';
 import { reconcile } from './reconcile';
 import { rendering } from './render';
-import { activeRoot } from './target';
+import { activeRoot } from './host';
 import { hold, unwait } from './suspense';
 
 function complete<T extends Fiber>(fiber: T, work: () => void): T {

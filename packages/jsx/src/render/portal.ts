@@ -5,12 +5,12 @@ import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
-import { hydrationOf, isComment, marker } from './hydrate';
+import { hydrationOf, isComment, marker } from './host';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 import { rootOf } from './host';
 import type { Host } from './host';
-import { activeRoot, within } from './target';
+import { activeRoot, within } from './host';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const hydration = hydrationOf();
