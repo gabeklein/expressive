@@ -37,6 +37,8 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 ## Before release
 
 - **Move users to `jsxImportSource: @expressive/jsx`.** dom's Vite plugin (`RUNTIMES`, `RENDERER`) and dev's plugin (`DEPS`, `SHARED`, `optimizeDeps`) know only `@expressive/dom`'s runtime ids today, so they need /jsx's added.
+  - /jsx owns `Fragment`, and its `jsx()` translates it to a registered host's `Fragment` (React's). mvc's `jsx-runtime` shrinks to the host seam: the default element, `host()`, `onElement`, `resolver`, `methodOf`.
+  - Router depends on /jsx for element creation and introspection (`childrenOf`, `isElement`, `typeOf`, `propsOf`, `Fragment`) instead of mvc's runtime. /jsx's runtime entry must stay tiny for React apps, so check the "router: everything" and React size shapes. Router's compatibility contract is unchanged.
 - **Refactor the moved tests** onto limp and custom hosts. Then drop the doubled vitest includes in jsx and dom and the temporary jsx→dom edge in `affected.ts`.
 - **A /jsx skill** (`packages/jsx/skills/`) once its public shape settles.
 - **Public API**, iterated once the first extraction exists:
