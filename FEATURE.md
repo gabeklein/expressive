@@ -29,10 +29,13 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #801 one tag table; nodes from the root's document (fixes iframes).
 - #802 one `Styles` facility for document, shadow root and server sink.
 - #803 render through a `Host` (dom, limp, custom-host tests).
+- #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
 
 ## Before release
 
-- **Extraction step 1:** add duplicate-copy detection, and move the renderer, style engine and `renderToString` into `@expressive/jsx` along the #801–#803 seams. dom must stay identical, gated by its suite plus `cascade-probe` and `hot-probe`.
+- **Move users to `jsxImportSource: @expressive/jsx`.** dom's Vite plugin (`RUNTIMES`, `RENDERER`) and dev's plugin (`DEPS`, `SHARED`, `optimizeDeps`) know only `@expressive/dom`'s runtime ids today, so they need /jsx's added.
+- **Refactor the moved tests** onto limp and custom hosts. Then drop the doubled vitest includes in jsx and dom and the temporary jsx→dom edge in `affected.ts`.
+- **A /jsx skill** (`packages/jsx/skills/`) once its public shape settles.
 - **Public API**, iterated once the first extraction exists:
   - /jsx's exports: root `style`/`Css`, plus the renderer and style-engine subpaths;
   - the `Host` type;
