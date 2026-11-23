@@ -111,7 +111,7 @@ function flatten(children: unknown) {
   return output;
 }
 
-const DEFAULT: Required<HostRuntime> = {
+const DEFAULT = {
   childrenOf: flatten,
   isElement: isDefault,
   jsx: element,
@@ -120,7 +120,7 @@ const DEFAULT: Required<HostRuntime> = {
   propsOf: (node) => isDefault(node) ? node.props : {},
   typeOf: (node) => isDefault(node) ? node.type : undefined,
   Fragment
-};
+} as Required<HostRuntime>;
 
 const HOST: HostRuntime = { ...DEFAULT };
 
