@@ -1,5 +1,15 @@
 # @expressive/dom
 
+## 0.13.4
+
+### Patch Changes
+
+- [#785](https://github.com/gabeklein/expressive/pull/785) [`5c8e600`](https://github.com/gabeklein/expressive/commit/5c8e600b096550afafda77240dc037fbd2ceb88f) Styles reach a tree rendered into a shadow root, and a portal into one, through an adopted stylesheet - instead of landing in the document head where they could not apply. Controlled inputs inside a shadow root restore their value.
+
+- [#795](https://github.com/gabeklein/expressive/pull/795) [`01bb54e`](https://github.com/gabeklein/expressive/commit/01bb54e41d6eedcbd769d4a30dc0ed93f7c6a5a5) `renderToString` class names now end in a hash of their rule (`Card-1au4xe2`) rather than the plain label, so a server rule can no longer style a client element of the same name. Hydration moves elements to the client's names. Selectors written against server-rendered class names need updating.
+
+- [#787](https://github.com/gabeklein/expressive/pull/787) [`c14891a`](https://github.com/gabeklein/expressive/commit/c14891a4eb16467f0f5b75ffe3e5622677b32863) Client and server agree on which properties take a bare number - one table generated from Chrome replaces the client's DOM probe and the server's shorter list. Server output for properties the old list missed, like `readingOrder`, and for dashed vendor keys, no longer gains `px`. A `Css` pack keeps numbers bare on custom properties, on the server too.
+
 ## 0.13.3
 
 ### Patch Changes

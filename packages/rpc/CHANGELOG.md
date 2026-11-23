@@ -1,5 +1,11 @@
 # @expressive/rpc
 
+## 0.5.1
+
+### Patch Changes
+
+- [#796](https://github.com/gabeklein/expressive/pull/796) [`0d6873a`](https://github.com/gabeklein/expressive/commit/0d6873a44c9e8e2bf3acf3f18fe97035c96e60f7) `send` waits for the response to drain before writing more, and cancels the body when the connection closes - a slow or gone client no longer buffers a whole streamed reply. A body that fails mid-stream aborts the response instead of ending it.
+
 ## 0.5.0
 
 ### Minor Changes

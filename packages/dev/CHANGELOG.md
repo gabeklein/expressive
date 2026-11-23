@@ -1,5 +1,32 @@
 # @expressive/dev
 
+## 0.5.0
+
+### Minor Changes
+
+- [#759](https://github.com/gabeklein/expressive/pull/759) [`98cae4b`](https://github.com/gabeklein/expressive/commit/98cae4b03ae79d9d3da9b5835ab8c1bd198ce733) `.env` built in: `env` re-exported from `@expressive/dev` (prefixed keys in the browser), the same files fill `process.env` in dev, during `dev build` and at the built server's boot (`registerEnv` from `@expressive/dev/server` for scripts), Vite's mode follows `NODE_ENV`, and `expressive env` joins the command. `--no-env` on `expressive dev` and `dev build` skips filling `process.env`; `env` still reads the files. The built server's `dist/server/index.js` is now a boot file that defaults `NODE_ENV` to `production` and imports the app from `dist/server/app.js`.
+
+- [#794](https://github.com/gabeklein/expressive/pull/794) [`c32f25f`](https://github.com/gabeklein/expressive/commit/c32f25f0ca27f58897f2a5b0eaf457fa09c81b49) The app's `fetch` gets `next()` as a fourth argument, resolving what the request gets without it - to return or rewrite. On Node it is the file, page or shell from `dist/client`, else 404; in dev, a `public/` file, else the shell as Vite transforms it; on the `fetch` target, 404, since static files are the host's there.
+
+- [#792](https://github.com/gabeklein/expressive/pull/792) [`52e5bb8`](https://github.com/gabeklein/expressive/commit/52e5bb87b042bb40429c1d5388bba77308ffeda8) `expressive dev --port <n>` sets the dev server's port, over `index.ts`'s `port` and Vite's default.
+
+- [#789](https://github.com/gabeklein/expressive/pull/789) [`6a9bf78`](https://github.com/gabeklein/expressive/commit/6a9bf7850d4af0087a38ef92c91abdd2db5738df) Route modules may export `label`, a string literal set as the generated Route's `label` for breadcrumbs, and the root `index.tsx` may export `Router`, a subclass of dev's `Router` mounted in its place.
+
+### Patch Changes
+
+- [#796](https://github.com/gabeklein/expressive/pull/796) [`0d6873a`](https://github.com/gabeklein/expressive/commit/0d6873a44c9e8e2bf3acf3f18fe97035c96e60f7) The Node server serves `.xml` and `.webmanifest` with their types, and a malformed path falls through to the shell instead of failing the request.
+
+- [#790](https://github.com/gabeklein/expressive/pull/790) [`93e1dcb`](https://github.com/gabeklein/expressive/commit/93e1dcb6b76be66f34b6461afa76563ce4bd9fd0) `expressive dev` reloads the route tree when an edit changes it - an export added to or removed from a route module - not only when a file under `app/` is added or removed.
+
+- [#793](https://github.com/gabeklein/expressive/pull/793) [`ab9838c`](https://github.com/gabeklein/expressive/commit/ab9838c3fadec5fafef6a4b01fd54291a88126fd) The server build no longer copies `public/` into `dist/server` - it is served from `dist/client`, where the client build puts it. Server code reading a public file resolves it from `../client/`.
+
+- [#767](https://github.com/gabeklein/expressive/pull/767) [`7d7714b`](https://github.com/gabeklein/expressive/commit/7d7714bd6fb2e55a0c552ede262ac4c8b60142fc) `expressive` finds installed `@expressive/*` commands instead of a hard-coded list - help no longer lists packages that are not installed, and running one is an unknown command rather than an install hint.
+- Updated dependencies [[`7d7714b`](https://github.com/gabeklein/expressive/commit/7d7714bd6fb2e55a0c552ede262ac4c8b60142fc), [`5c8e600`](https://github.com/gabeklein/expressive/commit/5c8e600b096550afafda77240dc037fbd2ceb88f), [`01bb54e`](https://github.com/gabeklein/expressive/commit/01bb54e41d6eedcbd769d4a30dc0ed93f7c6a5a5), [`c14891a`](https://github.com/gabeklein/expressive/commit/c14891a4eb16467f0f5b75ffe3e5622677b32863), [`92dcc2d`](https://github.com/gabeklein/expressive/commit/92dcc2d68a5751d9b344f044c11bab09a01d9bda), [`7d7714b`](https://github.com/gabeklein/expressive/commit/7d7714bd6fb2e55a0c552ede262ac4c8b60142fc), [`0d6873a`](https://github.com/gabeklein/expressive/commit/0d6873a44c9e8e2bf3acf3f18fe97035c96e60f7)]:
+  - @expressive/cli@0.3.0
+  - @expressive/dom@0.13.4
+  - @expressive/env@0.2.0
+  - @expressive/rpc@0.5.1
+
 ## 0.4.0
 
 ### Minor Changes
