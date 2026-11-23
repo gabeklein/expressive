@@ -37,9 +37,10 @@ function reconcileChildren(owner: Fiber, parent: globalThis.Node, before: global
     if (child.key !== null && child.key !== undefined) keyed.set(child.key, child);
     else if (!slotted.has(child.slot!)) slotted.set(child.slot!, child);
 
+  const { host } = activeRoot();
+
   try {
     for (const [each, slot] of values) {
-      const { host } = activeRoot();
       const value = host.hoist ? host.hoist(source(each), parent) : source(each);
 
       current = slot;

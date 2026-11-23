@@ -6,16 +6,17 @@ import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
-import { adopt, adopted, aside, isComment, reserve } from './hydrate';
+import { adopt, adopted, aside, isComment, marker, reserve } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
-import { activeDocument, activeRoot, isShadowRoot, targetOf, within } from './target';
+import { activeDocument, activeRoot, isShadowRoot, within } from './target';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  const marker = adopt(parent, before, () => activeRoot().host.marker(activeRoot(), 'portal'), (node) => isComment(node, 'portal'));
+  const anchor = adopt(parent, before, () => marker('portal'), (node) => isComment(node, 'portal'));
   const container = target(value.props.into, parent);
-  const root = { host: activeRoot().host, container, target: targetOf(container) };
+  const { host } = activeRoot();
+  const root = { host, container, target: host.target?.(container) };
   const portalStart = root.host.marker(root, 'portal-root');
   const portalEnd = root.host.marker(root, '/portal-root');
 
@@ -32,8 +33,8 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
     context,
     boundary,
     appearance,
-    start: marker,
-    end: marker,
+    start: anchor,
+    end: anchor,
     children: [],
     portalContainer: container,
     portalStart,
@@ -45,7 +46,7 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
     aside(() => reconcilePortal(output, value.props.children, context, boundary, appearance));
   });
 
-  if (LEAD in value.props) replace(output, adopted(marker));
+  if (LEAD in value.props) replace(output, adopted(anchor));
 
   return output;
 }

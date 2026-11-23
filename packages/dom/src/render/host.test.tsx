@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component } from '@expressive/mvc';
 
+import { Portal } from '../index';
+
 import { flushMicrotasks, mockPromise } from '../../test.setup';
 import { mountRoot } from './render';
 import { limp } from './host';
@@ -53,6 +55,33 @@ describe('limp host', () => {
     expect(root.childNodes.length).toBe(0);
   });
 
+  it('will skip props it cannot write as attributes and portal by selector', () => {
+    const root = document.createElement('main');
+    const modal = document.createElement('aside');
+
+    modal.id = 'limp-modal';
+    document.body.append(root, modal);
+
+    const release = mountRoot(
+      <>
+        <i ref={() => {}} style={{ color: 'red' }} onClick={'nope' as never} title="kept" />
+        <Portal into="#limp-modal"><u>away</u></Portal>
+      </>,
+      root,
+      limp
+    );
+
+    const i = root.querySelector('i')!;
+
+    expect(i.getAttributeNames()).toEqual(['title']);
+    expect(modal.innerHTML).toBe('<!--portal-root--><u>away</u><!--/portal-root-->');
+    expect(document.head.querySelector('style[data-expressive]')).toBeNull();
+
+    release();
+    root.remove();
+    modal.remove();
+  });
+
   it('will suspend into a fallback and show text', async () => {
     const loading = mockPromise<void>();
     let waiting = true;
@@ -95,6 +124,11 @@ class Item {
   }
 
   insertBefore(node: Item, before: Item | null) {
+    if (node.nodeType == 11) {
+      for (const child of [...node.childNodes]) this.insertBefore(child, before);
+      return node;
+    }
+
     node.remove();
     node.parentNode = this;
     this.childNodes.splice(before ? this.childNodes.indexOf(before) : this.childNodes.length, 0, node);
@@ -143,7 +177,7 @@ const tree: Host = {
     fiber.props = value.props;
     reconcileChildren(fiber, fiber.start, null, value.props.children, fiber.context, fiber.boundary);
   },
-  unmount() {}
+  unmount: vi.fn()
 };
 
 describe('custom host', () => {
@@ -167,7 +201,35 @@ describe('custom host', () => {
     await flushMicrotasks();
     expect(String(root)).toBe('<root><ul><li>b</li><li>c</li></ul></root>');
 
+    expect(tree.unmount).toHaveBeenCalledTimes(1);
+
     release();
     expect(String(root)).toBe('<root></root>');
+    expect(tree.unmount).toHaveBeenCalledTimes(4);
+  });
+
+  it('will hide and reveal through its own fragments', async () => {
+    const loading = mockPromise<void>();
+    let waiting = true;
+
+    function Slow() {
+      if (waiting) throw loading;
+      return <b>done</b>;
+    }
+
+    class Box extends Component {
+      fallback = <i>wait</i>;
+    }
+
+    const root = new Item(1, null, 'root');
+
+    mountRoot(<Box><p>kept</p><Slow /></Box>, root as never, tree);
+    expect(String(root)).toBe('<root><i>wait</i></root>');
+
+    waiting = false;
+    loading.resolve();
+    await loading;
+    await flushMicrotasks();
+    expect(String(root)).toBe('<root><p>kept</p><b>done</b></root>');
   });
 });

@@ -49,7 +49,7 @@ function mount(value: RenderNode, parent: globalThis.Node, before: globalThis.No
     case 'element': {
       const root = activeRoot();
       const { key, type } = value as VNode;
-      const fiber: Fiber = { kind: 'element', key, type, props: {}, context, boundary, root, start: parent, end: parent, children: [], events: new Map() };
+      const fiber: Fiber = { kind: 'element', key, type, props: {}, context, boundary, root, start: parent, end: parent, children: [] };
 
       return root.host.mount(fiber, value as VNode, parent, before, appearance);
     }

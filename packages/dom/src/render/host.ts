@@ -20,7 +20,8 @@ interface Root {
 /**
  * What a render needs from its platform.
  *
- * Nodes are tree-shaped like DOM nodes: the reconciler walks `parentNode`/`nextSibling` and moves them with `insertBefore`, `appendChild` and `remove`.
+ * Nodes are shaped like DOM nodes. The core walks `parentNode`/`nextSibling`, calls `getRootNode()`, writes a text node's `nodeValue`, and moves nodes with `insertBefore`, `appendChild`, `prepend`, `append` and `remove`.
+ * Inserting a fragment moves its children, not the fragment.
  */
 interface Host {
   /** Style target for a container - hosts without styles omit it. */
@@ -28,9 +29,15 @@ interface Host {
   text(root: Root, value: string): globalThis.Node;
   marker(root: Root, kind: string): globalThis.Node;
   fragment(root: Root): DocumentFragment;
-  /** Mount an intrinsic element - a string type - into `fiber`, setting its `start` and `end`. */
+  /**
+   * Mount an intrinsic element - a string type - into `fiber`.
+   *
+   * Insert its node at `parent` before `before`, set `start` and `end` to it, then set props and reconcile `value.props.children` inside `complete()`, so a suspended mount can be parked.
+   */
   mount(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null, appearance?: Appearance): Fiber;
+  /** Update props and reconcile children, as `mount` does. */
   patch(fiber: Fiber, value: VNode, appearance?: Appearance): void;
+  /** Release what `mount` attached - the core removes the node. */
   unmount(fiber: Fiber): void;
   /** Redirect a child before it mounts, as dom sends `<title>` to the head. */
   hoist?(value: RenderNode, parent: globalThis.Node): RenderNode;
@@ -55,10 +62,10 @@ const limp: Host = {
   text: (root, value) => ownerOf(root).createTextNode(value),
   marker: (root, kind) => ownerOf(root).createComment(kind),
   fragment: (root) => ownerOf(root).createDocumentFragment(),
-  mount(fiber, value, parent, before, appearance) {
+  mount(fiber, value, parent, before) {
     fiber.start = fiber.end = parent.insertBefore(ownerOf(fiber.root!).createElement(value.type as string), before);
 
-    return complete(fiber, () => limp.patch(fiber, value, appearance));
+    return complete(fiber, () => limp.patch(fiber, value));
   },
   patch(fiber, value) {
     const element = fiber.start as Element;
@@ -71,10 +78,10 @@ const limp: Host = {
       if (isEvent(key)) {
         const name = key.slice(2).toLowerCase();
 
-        if (previous[key]) element.removeEventListener(name, previous[key]);
-        if (next[key]) element.addEventListener(name, next[key]);
+        if (typeof previous[key] == 'function') element.removeEventListener(name, previous[key]);
+        if (typeof next[key] == 'function') element.addEventListener(name, next[key]);
       }
-      else if (next[key] == null || next[key] === false) element.removeAttribute(key);
+      else if (next[key] == null || next[key] === false || typeof next[key] == 'object' || typeof next[key] == 'function') element.removeAttribute(key);
       else element.setAttribute(key, next[key] === true ? '' : String(next[key]));
     }
 
@@ -83,7 +90,7 @@ const limp: Host = {
   },
   unmount(fiber) {
     for (const key of Object.keys(fiber.props!))
-      if (isEvent(key)) (fiber.start as Element).removeEventListener(key.slice(2).toLowerCase(), fiber.props![key]);
+      if (isEvent(key) && typeof fiber.props![key] == 'function') (fiber.start as Element).removeEventListener(key.slice(2).toLowerCase(), fiber.props![key]);
   }
 };
 
