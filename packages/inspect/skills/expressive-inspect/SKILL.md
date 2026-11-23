@@ -54,7 +54,7 @@ Ownership is mvc's (`get(Model)`): an instance constructed into a field, `has` p
 
 ## Orphans
 
-Under a host - a registered adapter, or once any mvc default element exists (`@expressive/dom`) - an activated instance is **claimed** once a host places it - it was held at activation and became ready - by a claimed owner or holder, or by being held in the root context. One settled but unclaimed - a render React threw away, a StrictMode twin, a `Model.new()` nobody placed - is an orphan; so are its children. Orphans stay out of `models()`, `tree()`, `instances()`, `roots()`; label lookups resolve mainline first. `orphans()` lists them; `health()` counts them plus unclaimed instances the collector already reaped. Without a host every instance is mainline.
+A host is a registered adapter, or any mvc default element having been created after `attach()` (`@expressive/dom`). Under one, an activated instance is **claimed** once a host places it - it was held at activation and became ready - by a claimed owner or holder, or by being held in the root context. One settled but unclaimed - a render React threw away, a StrictMode twin, a `Model.new()` nobody placed - is an orphan; so are its children. Orphans stay out of `models()`, `tree()`, `instances()`, `roots()`; label lookups resolve mainline first. `orphans()` lists them; `health()` counts them plus unclaimed instances the collector already reaped. Without a host every instance is mainline.
 
 ```ts
 inspect.health().orphans            // 54 - a suspended first render left a full tree behind

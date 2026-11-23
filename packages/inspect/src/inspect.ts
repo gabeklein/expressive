@@ -168,7 +168,7 @@ function hosted(): boolean {
   probing = true;
 
   try {
-    return !(jsx('i', {}) as { [ELEMENT]?: true } | null)?.[ELEMENT];
+    return rendered = !(jsx('i', {}) as { [ELEMENT]?: true } | null)?.[ELEMENT];
   } finally {
     probing = false;
   }
