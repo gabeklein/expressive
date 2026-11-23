@@ -110,6 +110,10 @@ class Reader {
     return this.scan(true);
   }
 
+  rest() {
+    return this.argv.slice(this.at);
+  }
+
   proceed(name: string) {
     const level = this.levels.at(-1)!;
 
