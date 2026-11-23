@@ -3,10 +3,9 @@ import { act, render, screen } from '@testing-library/preact';
 import { StrictMode, Suspense } from 'preact/compat';
 import { expect, it, describe, vi } from 'vitest';
 
-import { flushMicrotasks, mockPromise } from '../test.setup';
-import { Model } from '@expressive/mvc';
+import { flushMicrotasks, mockPromise } from '../../test.compat.setup';
+import { Component, Model, pending } from '@expressive/mvc';
 import '.';
-import { Component, pending } from '@expressive/mvc';
 
 describe('Component', () => {
   it('will expose a base render for class detection', () => {
@@ -22,16 +21,19 @@ describe('Component', () => {
     ).toBeUndefined();
   });
 
-  it('will throw rendering existing instance', () => {
-    class Control extends Component {}
+  it('will render existing instance as child', () => {
+    class Control extends Component {
+      render() {
+        return <span>hello</span>;
+      }
+    }
 
     const instance = Control.new({});
-    const message =
-      'Component instances cannot be rendered directly with @expressive/preact.';
+    const screen = render(<div>{instance}</div>);
 
-    expect(() => render(<>{instance}</>)).toThrow(message);
-    expect(() => render(<>{[instance]}</>)).toThrow(message);
+    expect(screen.container.innerHTML).toBe('<div><span>hello</span></div>');
 
+    act(() => void screen.unmount());
     instance.set(null);
   });
 

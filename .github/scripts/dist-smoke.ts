@@ -55,6 +55,8 @@ try {
           ...tarballs,
           react: '^19',
           'react-dom': '^19',
+          preact: '^10',
+          'preact-render-to-string': '^6',
           'happy-dom': ROOT.devDependencies['happy-dom'],
           typescript: ROOT.devDependencies.typescript
         },
@@ -69,7 +71,7 @@ try {
 
   cpSync(resolve('.github/scripts/dist-smoke'), fixture, { recursive: true });
 
-  for (const name of PACKAGES)
+  for (const name of [...PACKAGES, 'compat'])
     process.stdout.write(run(['node', `probes/${name}.mjs`], fixture));
 
   const consumer = join(fixture, 'consumer');

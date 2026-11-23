@@ -11,8 +11,34 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.affected.outputs.packages }}
+      any: ${{ steps.affected.outputs.any }}
+      e2e: ${{ steps.affected.outputs.e2e }}
+      hot: ${{ steps.affected.outputs.hot }}
+      dev: ${{ steps.affected.outputs.dev }}
+      rpc: ${{ steps.affected.outputs.rpc }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Affected packages
+        id: affected
+        env:
+          BASE: ${{ github.base_ref }}
+        run: bun .github/scripts/affected.ts "origin/$BASE"
+
+  verify:
+    needs: changes
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
@@ -22,11 +48,16 @@ jobs:
 
       - name: Typecheck
         id: typecheck
-        run: bun run typecheck
+        if: needs.changes.outputs.any != 'false'
+        env:
+          PACKAGES: ${{ needs.changes.outputs.packages }}
+        run: bun run ${PACKAGES:---filter=./packages/*} typecheck
 
       - name: Tests
-        if: success() || steps.typecheck.outcome == 'failure'
-        run: bun run coverage
+        if: needs.changes.outputs.any != 'false' && (success() || steps.typecheck.outcome == 'failure')
+        env:
+          PACKAGES: ${{ needs.changes.outputs.packages }}
+        run: bun run ${PACKAGES:---filter=./packages/*} coverage
 
       - run: bun run build
 
@@ -47,8 +78,12 @@ jobs:
         run: bunx changeset status --since "origin/$BASE"
 
   size:
-    if: github.base_ref == 'main' || github.event.pull_request.stack != null
+    needs: changes
+    if: >-
+      !cancelled() && needs.changes.outputs.any != 'false' &&
+      (github.base_ref == 'main' || github.event.pull_request.stack != null)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
@@ -70,11 +105,15 @@ jobs:
         run: bun .github/scripts/bundle-size.ts --base "$RUNNER_TEMP/base.json" --gate
 
   dist-smoke:
+    needs: changes
     if: >-
-      github.event.pull_request.stack == null && github.base_ref == 'main' ||
-      github.event.pull_request.stack != null &&
-      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      !cancelled() && needs.changes.outputs.any != 'false' && (
+        github.event.pull_request.stack == null && github.base_ref == 'main' ||
+        github.event.pull_request.stack != null &&
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -97,39 +136,23 @@ jobs:
         run: bun .github/scripts/dist-smoke.ts
 
   e2e:
+    needs: changes
     if: >-
-      github.event.pull_request.stack == null && github.base_ref == 'main' ||
-      github.event.pull_request.stack != null &&
-      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      !cancelled() && needs.changes.outputs.e2e != 'false' && (
+        github.event.pull_request.stack == null && github.base_ref == 'main' ||
+        github.event.pull_request.stack != null &&
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
       - uses: ./.github/actions/setup
 
-      - name: Playwright version
-        id: playwright
-        working-directory: examples
-        run: echo "version=$(bunx playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Chromium
-        id: browsers
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-
-      - name: Install Chromium
-        if: steps.browsers.outputs.cache-hit != 'true'
-        working-directory: examples
-        run: bunx playwright install --with-deps chromium
-
-      - name: Install Chromium system dependencies
-        if: steps.browsers.outputs.cache-hit == 'true'
-        working-directory: examples
-        run: bunx playwright install-deps chromium
-
       - name: Specs on React and dom
+        env:
+          CHROME: /usr/bin/google-chrome
         working-directory: examples
         run: bun run e2e
 
@@ -141,7 +164,10 @@ jobs:
           retention-days: 7
 
   dev:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.dev != 'false' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -154,29 +180,9 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Playwright version
-        id: playwright
-        working-directory: packages/dev
-        run: echo "version=$(bunx playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Chromium
-        id: browsers
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-
-      - name: Install Chromium
-        if: steps.browsers.outputs.cache-hit != 'true'
-        working-directory: packages/dev
-        run: bunx playwright install --with-deps chromium
-
-      - name: Install Chromium system dependencies
-        if: steps.browsers.outputs.cache-hit == 'true'
-        working-directory: packages/dev
-        run: bunx playwright install-deps chromium
-
       - name: Example specs on the dev and built servers
+        env:
+          CHROME: /usr/bin/google-chrome
         working-directory: packages/dev
         run: bun run example:e2e
 
@@ -188,7 +194,10 @@ jobs:
           retention-days: 7
 
   rpc:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.rpc != 'false' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -201,29 +210,9 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Playwright version
-        id: playwright
-        working-directory: packages/rpc/example
-        run: echo "version=$(bunx playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Chromium
-        id: browsers
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-
-      - name: Install Chromium
-        if: steps.browsers.outputs.cache-hit != 'true'
-        working-directory: packages/rpc/example
-        run: bunx playwright install --with-deps chromium
-
-      - name: Install Chromium system dependencies
-        if: steps.browsers.outputs.cache-hit == 'true'
-        working-directory: packages/rpc/example
-        run: bunx playwright install-deps chromium
-
       - name: Example specs on vite dev, Node and wrangler dev
+        env:
+          CHROME: /usr/bin/google-chrome
         working-directory: packages/rpc
         run: bun run example:e2e
 
@@ -235,11 +224,15 @@ jobs:
           retention-days: 7
 
   hot:
+    needs: changes
     if: >-
-      github.event.pull_request.stack == null && github.base_ref == 'main' ||
-      github.event.pull_request.stack != null &&
-      github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      !cancelled() && needs.changes.outputs.hot != 'false' && (
+        github.event.pull_request.stack == null && github.base_ref == 'main' ||
+        github.event.pull_request.stack != null &&
+        github.event.pull_request.stack.position == github.event.pull_request.stack.size
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 

@@ -49,14 +49,14 @@ declare namespace ref {
 
   /** A ref-object per enumerable field of `T`. */
   type Proxy<T extends Model> = { [P in Model.Field<T>]-?: Object<T[P]> } & {
-    /** Omits this from exports. */
-    get: null;
+    /** Omits this from exports - throws `false`. */
+    get(): never;
   };
 
   /** A mapped value per enumerable field of `T`. */
   type CustomProxy<T extends Model, R> = { [P in Model.Field<T>]-?: R } & {
-    /** Omits this from exports. */
-    get: null;
+    /** Omits this from exports - throws `false`. */
+    get(): never;
   };
 }
 
@@ -132,6 +132,10 @@ function ref<T extends Model>(
   return property(arg, arg2 as boolean | undefined);
 }
 
+function omit(): never {
+  throw false;
+}
+
 function defaultMap(this: Model, key: string) {
   const source = this as any as Record<string, any>;
   const set = (x: any) => (source[key] = x);
@@ -150,7 +154,7 @@ function defaultMap(this: Model, key: string) {
 
 function proxy(target: Model, map: ref.Map<any, any> = defaultMap) {
   return def((_key, _subject) => {
-    const value = defineProperty({} as Record<string, any>, 'get', { value: null });
+    const value = defineProperty({} as Record<string, any>, 'get', { value: omit });
     const source = target as any as Record<string, any>;
 
     listener(target, () => {

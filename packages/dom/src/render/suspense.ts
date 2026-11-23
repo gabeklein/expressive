@@ -1,5 +1,5 @@
 import { isThenable } from '../node/kind';
-import { fragment } from './commits';
+import { attach, fragment } from './commits';
 import { move, moveRange, range } from './fiber';
 import { keep } from './hydrate';
 import type { Boundary, Fiber } from './fiber';
@@ -8,6 +8,7 @@ import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
 import { release, schedule, transition } from '../core/scheduler';
+import { within } from './target';
 
 const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();
@@ -81,12 +82,12 @@ function settle() {
 }
 
 function hide(owner: Fiber, boundary: Boundary) {
-  const stash = document.createDocumentFragment();
+  const stash = fragment();
 
   for (const child of owner.children) move(child, stash, null);
 
   owner.portals = portals(owner, []).map((portal) => {
-    const content = document.createDocumentFragment();
+    const content = fragment();
     moveRange(portal.portalStart!, portal.portalEnd!, content);
     return [portal, content];
   });
@@ -95,19 +96,24 @@ function hide(owner: Fiber, boundary: Boundary) {
 
   owner.stash = stash;
   owner.placeholder = range('fragment', owner.end.parentNode!, owner.end, owner.childContext!);
+  owner.placeholder.target = owner.target;
   draw(owner, boundary);
 }
 
 function draw(owner: Fiber, boundary: Boundary) {
-  reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent);
+  within(owner.target!, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
 }
 
 function reveal(owner: Fiber) {
   unmountFiber(owner.placeholder!);
   owner.end.parentNode!.insertBefore(owner.stash!, owner.end);
+  attach(owner.stash!);
 
   for (const [portal, content] of owner.portals!)
-    if (!portal.dead) place(portal, content);
+    if (!portal.dead) {
+      place(portal, content);
+      attach(content);
+    }
 
   owner.portals = undefined;
   owner.placeholder = undefined;

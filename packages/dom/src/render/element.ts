@@ -10,16 +10,18 @@ import { inserted } from './commits';
 import type { Boundary, Fiber } from './fiber';
 import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
-import { focusing } from './render';
+import { depth, focus, focusing } from './render';
 import { afterFlush } from '../core/scheduler';
 import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
+import { activeTarget } from './target';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
-const restoring = new WeakSet<Document>();
+const attached = new WeakMap<Fiber, unknown>();
+const restoring = new WeakSet<Document | ShadowRoot>();
 
 function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const tag = value.type as string;
@@ -52,12 +54,15 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     if (tag != 'textarea' && !CONTENT.some((key) => key in value.props)) touch(element);
   }
 
-  complete(fiber, () => {
+  if (!adopting && (value.props.autofocus || value.props.autoFocus))
+    inserted(fiber, () => {
+      focusing.push(element);
+      if (!depth) focus();
+    });
+
+  return complete(fiber, () => {
     patchProps(fiber, value.props, appearance, adopting);
   });
-
-  if (!adopting && (value.props.autofocus || value.props.autoFocus)) focusing.push(element);
-  return fiber;
 }
 
 function attributeOf(key: string) {
@@ -106,11 +111,10 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(element.ownerDocument, appearance, resolved, next.className, next.style);
+  const claimed = claim(activeTarget()!, appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;
-  fiber.props = next;
   fiber.appearance = appearance;
 
   if (!raw) {
@@ -138,24 +142,30 @@ function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appear
   }
 
   if (CONTROLS.some((key) => next[key] != null)) {
-    const document = element.ownerDocument;
+    const root = activeTarget()!;
 
     controlled.set(element, fiber);
 
-    if (!restoring.has(document)) {
-      restoring.add(document);
-      document.addEventListener('input', restoreTarget);
-      document.addEventListener('change', restoreTarget);
+    if (!restoring.has(root)) {
+      restoring.add(root);
+      root.addEventListener('input', restoreTarget);
+      root.addEventListener('change', restoreTarget);
     }
   }
+
+  fiber.props = next;
 
   if (previous.ref !== next.ref) patchProp(fiber, element, 'ref', previous.ref, next.ref);
 }
 
 function patchProp(fiber: Fiber, element: Element, key: string, previous: any, next: any) {
   if (key == 'ref') {
-    applyRef(previous, null);
-    inserted(fiber, () => applyRef(next, element));
+    detachRef(fiber);
+    inserted(fiber, () => {
+      if (fiber.props!.ref !== next) return;
+      attached.set(fiber, next);
+      applyRef(next, element);
+    });
     return;
   }
 
@@ -255,8 +265,13 @@ function applyRef(ref: unknown, value: Element | null) {
   else if (ref && typeof ref == 'object' && 'current' in ref) (ref as { current: Element | null }).current = value;
 }
 
+function detachRef(fiber: Fiber) {
+  applyRef(attached.get(fiber), null);
+  attached.delete(fiber);
+}
+
 function unmountElement(fiber: Fiber) {
-  applyRef(fiber.props?.ref, null);
+  detachRef(fiber);
   for (const [id, listener] of fiber.events!) {
     const [name, capture] = id.split(':');
     (fiber.start as Element).removeEventListener(name, listener, capture === 'true');

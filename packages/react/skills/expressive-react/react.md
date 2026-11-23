@@ -115,6 +115,23 @@ Works with no configuration - the adapter imports only `react` and `react/jsx-ru
 - **`BrowserRouter` is the browser binding** - it reads `window.location`, undefined in React Native. Use `Router`, whose path and history are in memory.
 - **`Link` and `NavLinks` render DOM elements** (`<a>`, `<ul>`) with no native host yet. Drive navigation from `Router` directly and render your own `Pressable`.
 
+## Preact
+
+`@expressive/react/compat` is the host for a Preact app - import it once from the entry module in place of `@expressive/react`. It imports only `preact`, so aliasing `react` to `preact/compat` is needed only for other React libraries. Keep `jsxImportSource: "preact"` - JSX types and the `ref` prop arrive with the import.
+
+```ts
+import '@expressive/react/compat';
+```
+
+One adapter per build - importing the root `@expressive/react` as well throws. Gaps against React:
+
+- Return an instance or collection inside an element (`<>{items}</>`), not bare.
+- A ref object passed as `ref` stays empty - pass `is` or a callback ref.
+- No transitions - updates from `pending()` work render as ordinary updates.
+- No pre-commit revision validation - preact does not yield mid-render.
+- `fallback` on `<Component for>` does not take over from an outer `Suspense`.
+- `@expressive/react/vite` is unverified under Preact - pair it with prefresh.
+
 ## Hot reload (Vite)
 
 ```ts
@@ -277,7 +294,7 @@ Do not alias `is` merely because something will be written - writes never need t
 
 ## Internals: Runtime
 
-Each adapter injects framework hooks into a shared `Runtime` object, so the same core logic works across React and Preact:
+Each adapter injects framework hooks into a shared `Runtime` object, so the same core logic works across React and Preact (`/compat`):
 
 ```ts
 Object.assign(Runtime, {

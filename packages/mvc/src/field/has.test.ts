@@ -1,4 +1,4 @@
-import { vi, describe, it, expect } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { Context } from '../context';
 import { Model } from '../model';
 import { fires } from '../../test.setup';
@@ -133,6 +133,14 @@ describe('get', () => {
     const list = reactive([inner]);
 
     expect(list.get()).toEqual(['unwrapped']);
+  });
+
+  it('will omit a nested value whose get throws false', () => {
+    const inner = { get(): never { throw false; } };
+    const list = reactive([inner]);
+
+    expect(list.get()).toEqual([]);
+    expectTypeOf(list.get()).toEqualTypeOf<never[]>();
   });
 
   it('will not unwrap a nested value whose get takes a key', () => {

@@ -59,6 +59,8 @@ Events are native `addEventListener` listeners (`onClick`, `onKeyDown`, `onClick
 
 Classes use React's `className` - the DOM property name. The attribute spelling `class` is not accepted, and is ignored through untyped spreads. A string in `style` is a class token, not CSS declaration text. Treat arrays and objects as immutable render values—replace them when their contents change.
 
+Rules land in the root a tree mounts into, resolved at mount - the document head, or an adopted sheet on a shadow root (`render()` container or `Portal` target). Variable defaults go to the document and inherit into shadow roots.
+
 ### Component appearance rules
 
 Register immutable maps with `style(Component, map)`. A `_name` entry is a **rule** - a static block. Bare keys are declarations, or **macro** calls where the pack owns the name.
@@ -215,7 +217,7 @@ import { Css } from '@expressive/dom';
 export const style = Css.use();
 ```
 
-A number gets `px` only where the CSSOM rejects a bare one - probed once per property, so `zIndex: 3`, `lineHeight: 1.5` and `fontWeight: 700` stay unitless while `paddingTop: 5` and `marginBlockEnd: 2` do not. Every entry of a sequence is sized, so `margin: [1, 2]` is `1px 2px`. Write other units as strings (`'0.85rem'`). `transitionDuration`, `transitionDelay`, `animationDuration` and `animationDelay` are macros taking numbers as milliseconds, `0` included - an array joins with commas. `transition` takes an object keyed by property - `{ opacity: 200, transform: { duration: 300, easing: 'ease-out', delay: 50 } }` is `opacity 200ms, transform 300ms ease-out 50ms`; a string passes through, and a layer replaces the object whole. `rotate` and `offsetRotate` take degrees. A property where px is wrong gets a macro with its own unit, never a bare number. Maps accept a number only for a property where one is valid CSS - `color: 5` is a type error. Strings only where a number's role is ambiguous: `animation` (a time or a count), `font` (a weight or a size), `counterReset` (the count would get px). `flex` and `columns` take one number, not a sequence - write `flex: '1 1 200px'`. happy-dom accepts bare numbers browsers reject, so unit behavior is verified by the cascade probe, not unit tests. `size` sets width and height; for an axis use the logical properties - `marginInline`, `paddingBlock`.
+A number gets `px` unless its property takes a bare one - a table generated from Chrome, shared by client and server - so `zIndex: 3`, `lineHeight: 1.5` and `fontWeight: 700` stay unitless while `paddingTop: 5` and `marginBlockEnd: 2` do not. A custom property (`'--cols': 3`) keeps its number bare. Every entry of a sequence is sized, so `margin: [1, 2]` is `1px 2px`. Write other units as strings (`'0.85rem'`). `transitionDuration`, `transitionDelay`, `animationDuration` and `animationDelay` are macros taking numbers as milliseconds, `0` included - an array joins with commas. `transition` takes an object keyed by property - `{ opacity: 200, transform: { duration: 300, easing: 'ease-out', delay: 50 } }` is `opacity 200ms, transform 300ms ease-out 50ms`; a string passes through, and a layer replaces the object whole. `rotate` and `offsetRotate` take degrees. A property where px is wrong gets a macro with its own unit, never a bare number. Maps accept a number only for a property where one is valid CSS - `color: 5` is a type error. Strings only where a number's role is ambiguous: `animation` (a time or a count), `font` (a weight or a size), `counterReset` (the count would get px). `flex` and `columns` take one number, not a sequence - write `flex: '1 1 200px'`. `size` sets width and height; for an axis use the logical properties - `marginInline`, `paddingBlock`.
 
 Without the pack the terminal never guesses: a rule needs `padding: '8px'`, and a bare number reaches CSS unchanged - so a map for a pack with no `default` accepts numbers only where a bare one is valid, plus `0`.
 
@@ -357,14 +359,15 @@ Put `css` in a `<style>` in the document head. Calls are independent and can run
 - `inline: true` writes each element's plain class rules into its `style`, in cascade order before its own inline style - for email. Inlined declarations outrank the states and media queries left in `css`. States, media queries and descendant scopes stay in `css` only, and `var()` references are not resolved.
 - Portals leave a `<!--portal-->` marker and event handlers render nothing. `value`, `checked` and `selected` become attributes - a `<select>`'s `value` marks its options; textarea `value` becomes its text.
 - Attribute and tag names that would break markup throw, and closing tags inside `<script>` and `<style>` text are escaped.
-- Numbers in `css` take `px` from a fixed table of unitless properties instead of the CSSOM. A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's while class names match.
+- A declaration that would end its rule early is dropped; others are not normalized - rule text can differ from the browser's.
+- Class names end in a hash of their rule (`Card-1au4xe2`) - stable for a rule, never a client's name. A scope anchor (`Card-group`) keeps its plain name.
 
 `hydrate(node, container)` mounts over that markup instead of replacing it: nodes are adopted in place, and the returned unmount works like `render()`'s.
 
 - Text the parser merged is split back; markup that differs is replaced where it differs, and leftover nodes and attributes are removed. Matching attributes are not rewritten and `autoFocus` does not refocus.
 - A subtree that suspends keeps its server markup - no fallback, no listeners - and is adopted once it renders. One the server did not render shows its fallback.
 - A head element replaces its identical server copy from `head` - a stylesheet link once the new one loads. Without `head` in the page, an identical shell element is replaced instead.
-- The page's rules come from `css` until the client emits its own - keep that `<style>`; their class names match.
+- The page's rules come from `css` until the client emits its own - keep that `<style>`. Hydrated elements take the client's class names; a suspended subtree keeps the server's until it renders.
 
 ## Hot reload (Vite)
 

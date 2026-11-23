@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import { connect } from "node:net";
 import { Agent, request } from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { sendFile, serve } from "./serve";
+import { fileResponse, serve } from "./serve";
 
 describe("static files", () => {
   const dir = mkdtempSync(join(tmpdir(), "client-"));
@@ -14,35 +14,31 @@ describe("static files", () => {
   writeFileSync(join(dir, "index.html"), "<html></html>");
   writeFileSync(join(dir, "assets", "app.js"), "1");
 
-  const response = () => {
-    const headers: Record<string, string> = {};
-    let ended = false;
-    const res = {
-      statusCode: 0,
-      setHeader: (k: string, v: string) => { headers[k] = v; },
-      end: () => { ended = true; },
-      on: () => res,
-      once: () => res,
-      emit: () => true,
-      write: () => true,
-      headers,
-      get ended() { return ended; },
-    };
-    return res;
-  };
+  it("sends a file under the directory with its type, opened on first read", async () => {
+    writeFileSync(join(dir, "late.txt"), "1");
 
-  it("sends a file under the directory with its type; assets are immutable", () => {
-    const res = response();
-    expect(sendFile(res as any, dir, "/assets/app.js")).toBe(true);
-    expect(res.headers["Content-Type"]).toContain("javascript");
-    expect(res.headers["Cache-Control"]).toContain("immutable");
+    const res = fileResponse(dir, "/late.txt")!;
+    await new Promise(done => setTimeout(done, 20));
+    unlinkSync(join(dir, "late.txt"));
+
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  it("will cancel a file's body whether or not it was read", async () => {
+    await fileResponse(dir, "/index.html")!.body!.cancel();
+
+    const reader = fileResponse(dir, "/index.html")!.body!.getReader();
+    await reader.read();
+    await reader.cancel();
   });
 
   it("will not serve a missing file, a directory, or a path outside the directory", () => {
-    expect(sendFile(response() as any, dir, "/nope.js")).toBe(false);
-    expect(sendFile(response() as any, dir, "/assets")).toBe(false);
-    expect(sendFile(response() as any, dir, "/../" + dir.split("/").pop() + "/index.html")).toBe(false);
-    expect(sendFile(response() as any, join(dir, "assets"), "/../index.html")).toBe(false);
+    expect(fileResponse(dir, "/nope.js")).toBeUndefined();
+    expect(fileResponse(dir, "/assets")).toBeUndefined();
+    expect(fileResponse(dir, "/../" + dir.split("/").pop() + "/index.html")).toBeUndefined();
+    expect(fileResponse(join(dir, "assets"), "/../index.html")).toBeUndefined();
+    expect(fileResponse(dir, "/%E0%A4%A")).toBeUndefined();
   });
 });
 
@@ -102,6 +98,131 @@ describe("serve", () => {
     expect(await text("/about")).toBe("about");
     expect(await text("/about/")).toBe("about");
     expect(await text("/blog/one")).toBe("shell");
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
+  it("will run the app's fetch in scope before files, falling through when it answers nothing", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { Current } = await import("@expressive/rpc");
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "index.html"), "home");
+
+    const config = {
+      port: 0,
+      async fetch(request: Request, env: object, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+        if (new URL(request.url).pathname !== "/hello") return;
+
+        ctx.waitUntil(Promise.reject(new Error("late")));
+        Current.get().setHeader("x-seen", "1");
+
+        return Response.json({ env, path: Current.get().url.pathname });
+      },
+    };
+
+    const server = serve({ config, client: dir });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const hello = await fetch(base + "/hello");
+
+    expect(await hello.json()).toEqual({ env: {}, path: "/hello" });
+    expect(hello.headers.get("x-seen")).toBe("1");
+    expect(await (await fetch(base + "/")).text()).toBe("home");
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil:", new Error("late")));
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
+  it("will give the app's fetch what it falls through to as next", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "200.html"), "<head></head>");
+    writeFileSync(join(dir, "robots.txt"), "robots");
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "assets", "app.js"), "1");
+
+    const config = {
+      port: 0,
+      async fetch(_request: Request, _env: object, _ctx: object, next: () => Promise<Response>) {
+        const page = await next();
+        return new Response(`${page.status} ${await page.text()}`.replace("</head>", "<meta></head>"), page);
+      },
+    };
+
+    const server = serve({ config, client: dir });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const invite = await fetch(base + "/invite/abc");
+
+    expect(await invite.text()).toBe("200 <head><meta></head>");
+    expect(invite.headers.get("content-type")).toContain("text/html");
+    expect(await (await fetch(base + "/robots.txt")).text()).toBe("200 robots");
+    expect((await fetch(base + "/assets/app.js")).headers.get("cache-control")).toContain("immutable");
+    expect((await fetch(base + "/assets/gone.js")).headers.has("cache-control")).toBe(false);
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
+  it("will run calls and the app's fetch inside around, and reply a rejection as the call's error", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { AsyncLocalStorage } = await import("node:async_hooks");
+    const store = new AsyncLocalStorage<string>();
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "index.html"), "home");
+
+    const seen: string[] = [];
+    const config = {
+      port: 0,
+      around<T>(next: () => Promise<T>, { request, env }: { request: Request; env: object }) {
+        seen.push(`${new URL(request.url).pathname} ${JSON.stringify(env)}`);
+        if (request.headers.has("x-fail")) return Promise.reject(new Error("no session"));
+        return store.run("inside", next);
+      },
+      async fetch(request: Request) {
+        if (new URL(request.url).pathname === "/hello") return Response.json(store.getStore());
+      },
+    };
+
+    const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
+    const server = serve({ config, client: dir, sidecars: [{ pattern: ["tally"], exports } as any] });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const post = (headers: Record<string, string> = {}) => fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where", ...headers }, body: "[]" });
+    const failed = await post({ "x-fail": "1" });
+
+    expect(await (await post()).json()).toMatchObject({ value: "inside" });
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ message: "Internal error." });
+    expect(await (await fetch(base + "/hello")).json()).toBe("inside");
+    expect(await (await fetch(base + "/")).text()).toBe("home");
+    expect(seen).toEqual(["/tally {}", "/tally {}", "/hello {}", "/ {}"]);
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
+  it("will skip around for files when the app has no fetch", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "index.html"), "home");
+
+    const around = vi.fn((next: () => Promise<unknown>) => next());
+    const server = serve({ config: { port: 0, around } as any, client: dir });
+    await new Promise(done => server.once("listening", done));
+
+    expect(await (await fetch(`http://localhost:${(server.address() as AddressInfo).port}/`)).text()).toBe("home");
+    expect(around).not.toHaveBeenCalled();
 
     server.closeAllConnections();
     server.close();

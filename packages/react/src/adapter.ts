@@ -3,3 +3,4 @@ import './component';
 
 export { Model } from '@expressive/mvc';
 export { Runtime } from './runtime';
+export { elementType } from './element';

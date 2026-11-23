@@ -1,9 +1,9 @@
 import * as appearance from './appearance';
-import { isSink, registerEmitter } from './protocol';
-import type { Block, Target } from './protocol';
+import { documentOf, isSink, registerEmitter, reopened } from './protocol';
+import type { Block, Sink, Target } from './protocol';
 import { serialize } from './declarations';
 import type { Declaration } from './declarations';
-import { attachRoots, setRoot } from './root';
+import { attachRoots, setRoot, syncRoots } from './root';
 import type { Numeric, Single, Unitless } from './numeric';
 
 type Member = Extract<keyof CSSStyleDeclaration, string>;
@@ -257,20 +257,32 @@ function open(target: Target): Sheet {
   if (isSink(target))
     return { ...state, live: () => true, insert: (rule, index) => target.insert(rule, index) };
 
-  const element = target.createElement('style');
+  if (target.nodeType != 9) {
+    const root = target as ShadowRoot;
+    const sheet = new (documentOf(root).defaultView!.CSSStyleSheet)();
+
+    root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+
+    return { ...state, live: () => root.adoptedStyleSheets.includes(sheet), insert: (rule, index) => sheet.insertRule(rule, index) };
+  }
+
+  const element = (target as Document).createElement('style');
   element.dataset.expressive = 'dom';
-  target.head.append(element);
+  (target as Document).head.append(element);
 
   return { ...state, live: () => !!element.sheet, insert: (rule, index) => element.sheet!.insertRule(rule, index) };
 }
 
-function emit(block: Block, depth: number, target: Target) {
+function emit(block: Block, depth: number, target: Target): string {
   let sheet = sheets.get(target);
 
   if (!sheet?.live()) {
+    reopened(target);
     sheets.set(target, sheet = open(target));
-    attachRoots(target);
+    if (isSink(target) || target.nodeType == 9) attachRoots(target as Document | Sink);
   }
+
+  if (!isSink(target)) syncRoots(target);
 
   if (block.group) depth = 0;
 
@@ -297,7 +309,8 @@ function emit(block: Block, depth: number, target: Target) {
     ...when.map((condition) => typeof condition == 'string' ? condition : condition.on.name + condition.state),
     ...block.group ? ['group'] : []
   ].join('-');
-  const base = label.replace(/[^\w-]+/g, '_').replace(/_*(-)_*|_+$/g, '$1') || 'c';
+  const readable = label.replace(/[^\w-]+/g, '_').replace(/_*(-)_*|_+$/g, '$1') || 'c';
+  const base = isSink(target) && !block.group ? `${readable}-${hash(key)}` : readable;
   let name = base;
 
   for (let index = 2; sheet.names.has(name) && sheet.names.get(name) !== key; index++)
@@ -321,6 +334,15 @@ function emit(block: Block, depth: number, target: Target) {
 
   byDepth.set(depth, name);
   return name;
+}
+
+function hash(text: string) {
+  let value = 0x811c9dc5;
+
+  for (let index = 0; index < text.length; index++)
+    value = Math.imul(value ^ text.charCodeAt(index), 0x01000193);
+
+  return (value >>> 0).toString(36);
 }
 
 export { Style, style };

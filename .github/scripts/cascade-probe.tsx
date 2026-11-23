@@ -1,6 +1,7 @@
 /** @jsxImportSource @expressive/dom */
 import { Component } from '@expressive/mvc';
-import { Css, render } from '@expressive/dom';
+import { Css, Portal, hydrate, render } from '@expressive/dom';
+import { renderToString } from '@expressive/dom/server';
 
 const style = Css.use();
 
@@ -129,9 +130,20 @@ function Panel() {
 theme(Swatch, ($) => ({ color: $.ink, paddingTop: $.gap, border: ['1px', 'solid', $.ink], outlineColor: $.probeTone }));
 theme(Panel, { $ink: 'rgb(32, 32, 32)' });
 
+function Typed() {
+  return <dfn>typed</dfn>;
+}
+
+style(Typed, {
+  '--face': 'monospace',
+  '--small': '9px',
+  font: '700 var(--small)/1 var(--face)',
+  fontSize: '13px'
+});
+
 const root = document.getElementById('app')!;
 
-render(<><Outer /><Inline /><Nested /><Units /><Readout /><Toggle /><Picker /><Tip /><Field /><Keys /><Swatch /><Panel /></>, root);
+render(<><Outer /><Inline /><Nested /><Units /><Readout /><Toggle /><Picker /><Tip /><Field /><Keys /><Swatch /><Panel /><Typed /></>, root);
 
 const leaf = root.querySelector('b')!;
 const inline = root.querySelector('i')!;
@@ -155,6 +167,17 @@ check('rotate in degrees', getComputedStyle(box).rotate, '45deg');
 check('durations in ms', getComputedStyle(box).animationDuration, '0.2s, 0s');
 check('transitions by property', `${getComputedStyle(box).transitionProperty} / ${getComputedStyle(box).transitionDuration} / ${getComputedStyle(box).transitionDelay}`, 'opacity, color / 0.3s, 0.05s / 0.1s, 0s');
 check('offset rotate in degrees', getComputedStyle(box).offsetRotate, '30deg');
+
+function Counted() {
+  return <var _count>count</var>;
+}
+
+style(Counted, { _count: { '--count': 4, zIndex: 'var(--count)' } });
+
+const counted = document.body.appendChild(document.createElement('div'));
+render(<Counted />, counted);
+
+check('custom property number stays bare', getComputedStyle(counted.querySelector('var')!).zIndex, '4');
 const [toggle, picked] = root.querySelectorAll('input');
 
 check('state beats base', getComputedStyle(toggle).color, 'rgb(11, 11, 11)');
@@ -163,6 +186,10 @@ check('callee state still applies under a door', getComputedStyle(picked).outlin
 check('matching media applies', getComputedStyle(toggle).letterSpacing, '2px');
 check('other media does not', getComputedStyle(toggle).wordSpacing, '0px');
 check('pseudo-element applies', getComputedStyle(root.querySelector('span[class*=Tip]')!, '::before').content, '"x"');
+
+const typed = getComputedStyle(root.querySelector('dfn')!);
+
+check('var() font shorthand keeps parts beside a longhand', `${typed.fontFamily} ${typed.fontWeight} ${typed.fontSize}`, 'monospace 700 13px');
 
 const hint = root.querySelector('label b')!;
 
@@ -201,5 +228,90 @@ render(<><Late /><Field /></>, second);
 check('stylesheet recreated', getComputedStyle(second.querySelector('u')!).color, 'rgb(5, 5, 5)');
 second.querySelector('input')!.focus();
 check('group anchor recreated', getComputedStyle(second.querySelector('label b')!).color, 'rgb(14, 14, 14)');
+
+const host = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+render(<><Outer /><Swatch /></>, host);
+
+check('shadow root styled', getComputedStyle(host.querySelector('b')!).color, 'rgb(4, 4, 4)');
+check('shadow root reads pack variables', getComputedStyle(host.querySelector('s')!).color, 'rgb(30, 30, 30)');
+
+const away = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+
+function Ported() {
+  return <Portal into={away}><q _ported>ported</q></Portal>;
+}
+
+style(Ported, { _ported: { color: 'rgb(7, 7, 7)' } });
+render(<Ported />, document.body.appendChild(document.createElement('div')));
+
+check('portal into shadow root styled', getComputedStyle(away.querySelector('q')!).color, 'rgb(7, 7, 7)');
+
+const detached = document.createElement('div').attachShadow({ mode: 'open' });
+render(<Outer />, detached);
+document.body.append(detached.host);
+
+check('detached shadow host styled once attached', getComputedStyle(detached.querySelector('b')!).color, 'rgb(4, 4, 4)');
+
+host.host.remove();
+document.body.append(host.host);
+render(<><Outer /><Late /></>, host);
+
+check('moved shadow host keeps its rules', getComputedStyle(host.querySelector('b')!).color, 'rgb(4, 4, 4)');
+check('moved shadow host takes new rules', getComputedStyle(host.querySelector('u')!).color, 'rgb(5, 5, 5)');
+
+const form = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+render(<input value="fixed" onInput={() => {}} />, form);
+
+const field = form.querySelector('input')!;
+field.value = 'typed';
+field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+await new Promise((resolve) => setTimeout(resolve, 20));
+
+check('controlled input restores in a shadow root', field.value, 'fixed');
+
+const iframe = document.body.appendChild(document.createElement('iframe'));
+const framed = iframe.contentDocument!.body.appendChild(iframe.contentDocument!.createElement('div')).attachShadow({ mode: 'open' });
+render(<Outer />, framed);
+
+check('shadow root in an iframe styled', iframe.contentWindow!.getComputedStyle(framed.querySelector('b')!).color, 'rgb(4, 4, 4)');
+
+const Served = style(Object.assign(() => <p>served</p>, { displayName: 'Shared' }), { marginTop: '9px' });
+const Client = style(Object.assign(() => <b>client</b>, { displayName: 'Shared' }), { color: 'rgb(8, 8, 8)' });
+const page = await renderToString(<Served />);
+document.head.appendChild(document.createElement('style')).textContent = page.css;
+
+const client = document.body.appendChild(document.createElement('div'));
+render(<Client />, client);
+
+const served = document.body.appendChild(document.createElement('main'));
+served.innerHTML = page.html;
+
+check('server rule styles markup before hydration', getComputedStyle(served.querySelector('p')!).marginTop, '9px');
+hydrate(<Served />, served);
+check('server rule stays off a client class of the same name', getComputedStyle(client.querySelector('b')!).marginTop, '0px');
+check('hydrated element keeps its rules', getComputedStyle(served.querySelector('p')!).marginTop, '9px');
+
+let waiting = false;
+
+function Post(props: { children?: any }) {
+  if (waiting) throw new Promise(() => {});
+  return props.children;
+}
+
+function Feed() {
+  return <section><Post><i>kept</i></Post></section>;
+}
+
+style(Feed, { ':not(.never)': { _i: { color: 'rgb(9, 9, 9)' } } });
+
+const feed = await renderToString(<Feed />);
+document.head.appendChild(document.createElement('style')).textContent = feed.css;
+
+const kept = document.body.appendChild(document.createElement('main'));
+kept.innerHTML = feed.html;
+waiting = true;
+hydrate(<Feed />, kept);
+
+check('kept subtree under a hydrated scope stays styled', getComputedStyle(kept.querySelector('i')!).color, 'rgb(9, 9, 9)');
 
 report();

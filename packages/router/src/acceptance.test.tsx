@@ -1,19 +1,17 @@
-import { act, render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import '@expressive/react';
 import { Component } from '@expressive/mvc';
 
-import { location, browserRouter } from '../test.setup';
+import { act, browserRouter, location, render } from '../test.setup';
 import { Route } from './route';
 import { Router } from './router';
 
 const router = browserRouter();
 
-const RootLayout = (props: { children?: React.ReactNode }) => (
+const RootLayout = (props: { children?: Component.Node }) => (
   <div data-root>{props.children}</div>
 );
 const HomePage = () => <h1>home</h1>;
-const BlogLayout = (props: { children?: React.ReactNode }) => (
+const BlogLayout = (props: { children?: Component.Node }) => (
   <section data-blog>{props.children}</section>
 );
 const BlogIndex = () => <p>blog-index</p>;

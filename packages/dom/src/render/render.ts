@@ -9,6 +9,7 @@ import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
 import { consume, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
+import { targetOf, within } from './target';
 
 const roots = new WeakMap<Container, () => void>();
 const focusing: Element[] = [];
@@ -46,8 +47,10 @@ function mountRoot(node: RenderNode, container: Container): () => void {
   const context = new Context(Context.root);
   const fiber = range('fragment', container, null, context);
 
+  fiber.target = targetOf(container);
+
   try {
-    pass(() => reconcile(fiber, node, context, undefined, undefined));
+    within(fiber.target, () => pass(() => reconcile(fiber, node, context, undefined, undefined)));
   } catch (error) {
     unmountFiber(fiber);
     context.pop();
@@ -100,7 +103,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   const dehydrated = fiber.dehydrated;
   fiber.dehydrated = undefined;
 
-  const run = () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update());
+  const run = () => within(fiber.target!, () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update()));
   const update = () => {
     const parent = rendering;
     rendering = fiber.type ? fiber : parent;
@@ -132,4 +135,4 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   }
 }
 
-export { attempt, depth, focusing, hydrate, pass, passiveRender, render, rendering };
+export { attempt, depth, focus, focusing, hydrate, pass, passiveRender, render, rendering };

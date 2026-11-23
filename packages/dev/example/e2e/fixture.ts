@@ -15,6 +15,7 @@ export const test = base.extend<{ open: (path: string) => Promise<void> }>({
     await use(async path => {
       await page.goto(path);
       await page.locator("#root h1").first().waitFor();
+      await page.locator("#root:not([data-prerender])").waitFor({ state: "attached" });
     });
 
     expect(errors, "page errors and console.error").toEqual([]);

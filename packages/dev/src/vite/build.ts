@@ -51,6 +51,7 @@ export function serverBuild(root: string, options: BuildOptions = {}): InlineCon
       write,
       ssr: "/.expressive/server.ts",
       outDir: "dist/server",
+      copyPublicDir: false,
       rollupOptions: { output: { entryFileNames: "app.js" } },
     },
   };

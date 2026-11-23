@@ -3,6 +3,7 @@ import { def } from './def';
 import { element } from '../element';
 import { event, listener, touch } from '../observable';
 import { Model, parent } from '../model';
+import { exported, OMIT } from '../store';
 
 const SHAPE = Symbol('shape');
 const KEYED = (_key: unknown, value: unknown) => value;
@@ -130,7 +131,7 @@ class Managed<K, V> extends Map<K, V> {
   /**
    * Shallow snapshot of the entries - untracked.
    *
-   * A value whose `get` declares no parameters exports through it, as Model snapshots do.
+   * A value whose `get` declares no parameters exports through it and one that throws `false` is left out, as in Model snapshots.
    */
   get(): ReadonlyMap<K, Model.Export<V>>;
 
@@ -139,19 +140,15 @@ class Managed<K, V> extends Map<K, V> {
   get(...args: [key?: K]): unknown {
     const target = source(this);
 
-    return args.length
-      ? touch(this, args[0], super.get.call(target, args[0] as K))
-      : new Map(
-        Array.from(MAP.entries.call(target), ([key, value]) => [
-          key,
-          value &&
-          (typeof value == 'object' || typeof value == 'function') &&
-          typeof value.get == 'function' &&
-          !value.get.length
-            ? value.get()
-            : value
-        ])
-      );
+    if (args.length)
+      return touch(this, args[0], super.get.call(target, args[0] as K));
+
+    const snapshot = new Map();
+
+    for (let [key, value] of MAP.entries.call(target))
+      if ((value = exported(value)) !== OMIT) snapshot.set(key, value);
+
+    return snapshot;
   }
 
   /** Whether `key` is present - tracks that key only. */

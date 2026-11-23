@@ -30,6 +30,6 @@ export function suite(dom?: boolean) {
 
 export default defineConfig({
   test: {
-    projects: ['packages/*']
+    projects: ['packages/*', 'packages/react/vitest.compat.config.ts']
   }
 });

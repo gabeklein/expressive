@@ -1,4 +1,4 @@
-import { isSink } from './protocol';
+import { documentOf, isSink } from './protocol';
 import type { Target } from './protocol';
 
 type Declaration = Record<string, unknown>;
@@ -22,9 +22,13 @@ function applyDeclarations(style: CSSStyleDeclaration, declarations: Declaration
 function serialize(target: Target, declarations: Declaration) {
   if (isSink(target)) return target.serialize(declarations);
 
-  const value = target.createElement('div').style;
-  applyDeclarations(value, declarations);
-  return value.cssText;
+  const value = documentOf(target).createElement('div').style;
+
+  return Object.keys(declarations).map((key) => {
+    value.cssText = '';
+    applyDeclarations(value, { [key]: declarations[key] });
+    return value.cssText;
+  }).filter(Boolean).join(' ');
 }
 
 export { applyDeclarations, serialize };

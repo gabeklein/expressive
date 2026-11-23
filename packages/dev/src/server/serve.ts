@@ -1,11 +1,11 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 
-import { isCall, send, toRequest } from "@expressive/rpc/http";
-import { dispatch, verify, type Seat } from "@expressive/rpc/protocol";
+import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
+import { dispatch, failure, verify, type Seat } from "@expressive/rpc/protocol";
 
-import type { AppConfig } from "./config";
+import { wrap, type AppConfig, type Ctx } from "./config";
 import { install } from "./install";
 import { isStream, stream } from "./stream";
 import { twins, type Endpoint } from "./twin";
@@ -27,20 +27,39 @@ const MIME: Record<string, string> = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
   ".wasm": "application/wasm",
 };
 
-export function sendFile(res: ServerResponse, dir: string, pathname: string): boolean {
-  const file = join(dir, normalize(decodeURIComponent(pathname)));
+/** A file under `dir` as a response, typed by extension - opened on first read. */
+export function fileResponse(dir: string, pathname: string): Response | undefined {
+  const root = resolve(dir);
+  let file: string;
 
-  if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) return false;
+  try {
+    file = join(root, normalize(decodeURIComponent(pathname)));
+  } catch {
+    return;
+  }
 
-  res.statusCode = 200;
-  res.setHeader("Content-Type", MIME[extname(file)] ?? "application/octet-stream");
-  if (pathname.startsWith("/assets/")) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-  createReadStream(file).pipe(res);
+  if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) return;
 
-  return true;
+  let chunks: AsyncIterator<Uint8Array> | undefined;
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await (chunks ??= createReadStream(file)[Symbol.asyncIterator]()).next();
+
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    async cancel() {
+      await chunks?.return!();
+    },
+  }, { highWaterMark: 0 });
+
+  return new Response(body, { headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" } });
 }
 
 export interface ServeOptions {
@@ -53,13 +72,18 @@ export interface ServeOptions {
 /**
  * Production server for a built app - the generated server entry calls it, booted by `dist/server/index.js`.
  *
- * Answers calls and twin streams, serves `client` - a page's `<path>/index.html`, else the `200.html` or `index.html` shell, and caches `/assets/` immutably.
+ * Answers calls and twin streams, then the app's own `fetch`, then serves `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - and caches `/assets/` immutably.
+ * That last step is what `fetch`'s `next` resolves.
  * Listens only after every sidecar's error classes verify.
  */
 export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
   install();
 
   const seated = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
+  const app = scoped(config);
+  const ctx: Ctx = {
+    waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)),
+  };
   const seatAt = async (pattern: string[]) => seated.get(pattern.join("/"));
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
@@ -70,16 +94,24 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const request = toRequest(req, res);
 
-    if (isCall(request)) return send(res, await dispatch(request, () => sidecars, false, seatAt, twins));
+    const scope = { request, env: {}, ctx };
+
+    if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, seatAt, twins)).catch(error => failure(error, sidecars, false)));
     if (isStream(request)) return send(res, stream(request));
 
     const { pathname } = new URL(request.url);
+    const next = async () => {
+      const asset = fileResponse(client, pathname);
+      if (asset && pathname.startsWith("/assets/")) asset.headers.set("cache-control", "public, max-age=31536000, immutable");
 
-    if (sendFile(res, client, pathname) || sendFile(res, client, join(pathname, "index.html"))) return;
-    if (sendFile(res, client, "/200.html") || sendFile(res, client, "/index.html")) return;
+      const found = asset ?? fileResponse(client, join(pathname, "index.html")) ?? fileResponse(client, "/200.html") ?? fileResponse(client, "/index.html");
 
-    res.statusCode = 404;
-    res.end("Not found");
+      return found ?? new Response("Not found", { status: 404 });
+    };
+
+    const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, scope.env, ctx, next)));
+
+    return send(res, response ?? (await next()));
   }
 
   const port = config.port ?? 3000;

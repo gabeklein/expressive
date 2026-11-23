@@ -1,4 +1,4 @@
-import { vi, describe, it, expect } from 'vitest';
+import { vi, describe, it, expect, expectTypeOf } from 'vitest';
 import { Context } from '../context';
 import { Model } from '../model';
 import { fires } from '../../test.setup';
@@ -129,6 +129,14 @@ describe('map', () => {
     const items = managed([['a', inner]]);
 
     expect(items.get().get('a')).toBe('unwrapped');
+  });
+
+  it('will omit a nested value whose get throws false', () => {
+    const inner = { get(): never { throw false; } };
+    const items = managed<string, unknown>([['a', inner], ['b', 1]]);
+
+    expect(Array.from(items.get())).toEqual([['b', 1]]);
+    expectTypeOf(managed([['a', inner]]).get()).toEqualTypeOf<ReadonlyMap<string, never>>();
   });
 
   it('will not unwrap a nested value whose get takes a key', () => {

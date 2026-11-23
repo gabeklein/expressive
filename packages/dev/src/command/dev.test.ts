@@ -18,18 +18,29 @@ beforeEach(() => {
 
 it("will run the dev server", async () => {
   expect(await dev([], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, env: true });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: undefined, env: true });
   expect(runBuild).not.toHaveBeenCalled();
 });
 
 it("will run without the relay for --no-inspect", async () => {
   expect(await dev(["--no-inspect"], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false, env: true });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false, port: undefined, env: true });
+});
+
+it("will pass --port to the dev server", async () => {
+  expect(await dev(["-p", "5180"], out)).toBe(0);
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: 5180, env: true });
+});
+
+it("will refuse a port out of range", async () => {
+  expect(await dev(["--port", "-1"], out)).not.toBe(0);
+  expect(await dev(["--port", "70000"], out)).not.toBe(0);
+  expect(runDev).not.toHaveBeenCalled();
 });
 
 it("will skip .env files for --no-env", async () => {
   expect(await dev(["--no-env"], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, env: false });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: undefined, env: false });
 
   expect(await dev(["build", "--no-env"], out, "expressive dev")).toBe(0);
   expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, html: true, env: false });

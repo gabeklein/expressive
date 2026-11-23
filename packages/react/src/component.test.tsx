@@ -41,6 +41,7 @@ reactOnly.it('will transition Component dispatch', async () => {
 
   class Control extends Component {
     value = 'a';
+    fallback = (<i>loading</i>);
 
     render() {
       if (this.value === 'b') throw gate;
@@ -49,39 +50,25 @@ reactOnly.it('will transition Component dispatch', async () => {
   }
 
   let instance!: Control;
-  let setLocal!: React.Dispatch<React.SetStateAction<string>>;
+  let settled = false;
 
-  function View() {
-    const [local, update] = React.useState('a');
-    setLocal = update;
-
-    return <>{local}<Control is={(current) => void (instance = current)} /></>;
-  }
-
-  const view = render(
-    <Suspense fallback={<i>loading</i>}>
-      <View />
-    </Suspense>
-  );
+  const view = render(<Control is={(current) => void (instance = current)} />);
 
   await act(async () => {
-    pending(() => {
-      setLocal('b');
-      instance.value = 'b';
-    });
+    pending(() => { instance.value = 'b'; }).then(() => (settled = true));
     await Promise.resolve();
   });
 
-  // Local state updates urgently - pending() scopes to mvc-driven updates - while
-  // the Component holds its own content rather than suspending to fallback.
   expect(view.container.querySelector('i')).toBeNull();
-  expect(view.container.textContent).toBe('ba');
+  expect(view.container.textContent).toBe('a');
+  expect(settled).toBe(false);
 
   instance.value = 'c';
   gate.resolve();
   await act(async () => {});
 
-  expect(view.container.textContent).toBe('bc');
+  expect(view.container.textContent).toBe('c');
+  expect(settled).toBe(true);
 });
 
 reactOnly.it('will not commit mixed revisions across repeated placement', async () => {
@@ -651,6 +638,74 @@ describe('suspense', () => {
     await act(async () => ready.resolve());
 
     expect(element).toHaveText('Hello World');
+  });
+});
+
+describe('lazy child', () => {
+  type Module = { default: () => React.ReactNode };
+
+  it('will suspend into fallback, then resolve in place', async () => {
+    const module = mockPromise<Module>();
+    const Page = React.lazy(() => module);
+    const created = vi.fn();
+    let host!: Host;
+
+    class Host extends Component {
+      fallback = (<span>loading</span>);
+      marker = 'initial';
+    }
+
+    const element = render(
+      <Host is={(x) => { created(); host = x; }}>
+        <Page />
+      </Host>
+    );
+
+    expect(element).toHaveText('loading');
+    host.marker = 'kept';
+
+    await act(async () => {
+      module.resolve({ default: () => <span>page</span> });
+      await module;
+    });
+
+    expect(element).toHaveText('page');
+    expect(element).not.toHaveText('loading');
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(host.marker).toBe('kept');
+  });
+
+  reactOnly.it('will hold current content while a pending swap to a lazy child loads', async () => {
+    const module = mockPromise<Module>();
+    const Page = React.lazy(() => module);
+    let host!: Host;
+
+    class Host extends Component {
+      fallback = (<span>loading</span>);
+      page = 'home';
+
+      render() {
+        return this.page == 'home' ? <span>home</span> : <Page />;
+      }
+    }
+
+    const element = render(<Host is={(x) => void (host = x)} />);
+
+    expect(element).toHaveText('home');
+
+    await act(async () => {
+      pending(() => { host.page = 'lazy'; });
+    });
+
+    expect(element).toHaveText('home');
+    expect(element).not.toHaveText('loading');
+
+    await act(async () => {
+      module.resolve({ default: () => <span>page</span> });
+      await module;
+    });
+
+    expect(element).toHaveText('page');
   });
 });
 

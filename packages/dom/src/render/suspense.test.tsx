@@ -512,6 +512,47 @@ describe('suspense and recovery', () => {
     await until(() => expect(root.textContent).toBe('Blazy'));
   });
 
+  it('will attach refs and autofocus of content rendered behind a fallback once it shows', async () => {
+    const loaded = mockPromise<string>();
+    const ref = vi.fn((node: Element | null) => node?.isConnected);
+
+    class Page extends Component {
+      value = set(() => loaded);
+
+      render() {
+        return <div ref={ref}><input autofocus />{this.value}</div>;
+      }
+    }
+
+    class Nav extends Model {
+      page = 'home';
+    }
+
+    function Swap() {
+      return Nav.get().page == 'next' ? <Page /> : <p>home</p>;
+    }
+
+    class App extends Component {
+      nav = new Nav();
+      fallback = <i>loading</i>;
+
+      render() {
+        return <Swap />;
+      }
+    }
+
+    const [app, root] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+
+    app.nav.page = 'next';
+    await flushMicrotasks();
+    loaded.resolve('ready');
+    await until(() => expect(root.textContent).toBe('ready'));
+
+    expect(ref).toHaveBeenCalledTimes(1);
+    expect(ref).toHaveReturnedWith(true);
+    expect(document.activeElement).toBe(root.querySelector('input'));
+  });
+
   it('will mount staged transition content once it is in the document', async () => {
     const seen: string[] = [];
     const connected = () => !!document.querySelector('#chart');
@@ -839,6 +880,71 @@ describe('suspense and recovery', () => {
     outer.mode.stage = 2;
     await flushMicrotasks();
     expect(root.textContent).toBe('inner');
+  });
+
+  describe('refs of suspended content', () => {
+    it('will attach only the latest ref given while hidden', async () => {
+      const [Lazy, loaded] = lazy();
+      const first = vi.fn();
+      const second = vi.fn();
+
+      class Slot extends Model {
+        ref?: (node: Element | null) => void = undefined;
+      }
+
+      function Target() {
+        const { ref } = Slot.get();
+        return ref ? <section ref={ref} /> : null;
+      }
+
+      class App extends Component {
+        slot = new Slot();
+        fallback = <i>loading</i>;
+
+        render() {
+          return <><Target /><Lazy /></>;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      app.slot.ref = first;
+      await flushMicrotasks();
+      app.slot.ref = second;
+      await flushMicrotasks();
+      loaded.resolve(() => <span>ready</span>);
+      await flushMicrotasks();
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(second).toHaveBeenCalledWith(root.querySelector('section'));
+    });
+
+    it('will attach a ref in portal content added while hidden', async () => {
+      const [Lazy, loaded] = lazy();
+      const target = document.body.appendChild(document.createElement('aside'));
+      const ref = { current: null as HTMLElement | null };
+
+      class App extends Component {
+        fallback = <i>loading</i>;
+        extra = false;
+
+        render() {
+          return <><Portal into={target}><b>modal</b>{this.extra && <u ref={ref} />}</Portal><Lazy /></>;
+        }
+      }
+
+      const [app] = mount(App);
+
+      app.extra = true;
+      await flushMicrotasks();
+      expect(ref.current).toBe(null);
+
+      loaded.resolve(() => <span>ready</span>);
+      await flushMicrotasks();
+      expect(ref.current).toBe(target.querySelector('u'));
+      expect(ref.current!.isConnected).toBe(true);
+    });
   });
 
   it('will hide portal content while its boundary shows a fallback', async () => {

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsxImportSource": "preact",
+    "types": ["preact", "node"],
+    "paths": {
+      "@expressive/mvc/*": ["../mvc/src/*"],
+      "@expressive/react/adapter": ["./src/adapter"],
+      "@expressive/*": ["../*/src"]
+    },
+    "tsBuildInfoFile": "./tsconfig.compat.tsbuildinfo"
+  },
+  "include": ["src/compat", "test.compat.setup.ts"],
+  "exclude": ["node_modules", "dist"]
+}

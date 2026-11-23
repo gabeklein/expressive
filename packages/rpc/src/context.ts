@@ -356,6 +356,20 @@ interface Outgoing {
 
 const outgoing = new WeakMap<Request, Outgoing>();
 
+/**
+ * Bindings the host hands a server's `fetch` as `env`, as `Current.env` returns them.
+ *
+ * Extend it to type them: `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`.
+ */
+export interface Env {}
+
+const bound = new WeakMap<Request, Env>();
+
+/** Give the calls on `request` the bindings `Current.env` reads. */
+export function bind(request: Request, env: Env): void {
+  bound.set(request, env);
+}
+
 /** The request of the call in progress, if any. */
 export function active(): Request | undefined {
   return store.getStore()?.request;
@@ -405,6 +419,14 @@ export class Current extends Model {
     return parseCookies(this.request.headers.get("cookie") ?? undefined);
   }
   set cookies(_: Record<string, string>) {
+    readOnly();
+  }
+
+  /** Bindings of the request in progress - the `env` its host passed, or a dev host's stand-ins. Empty where the host passes none. */
+  get env(): Env {
+    return bound.get(this.request) ?? {};
+  }
+  set env(_: Env) {
     readOnly();
   }
 

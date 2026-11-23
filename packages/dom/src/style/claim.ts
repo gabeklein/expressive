@@ -1,5 +1,5 @@
 import { applyDeclarations } from './declarations';
-import { appearanceToken, createAppearanceToken, emitClass, reserved } from './protocol';
+import { appearanceToken, createAppearanceToken, emitClass, reserved, sheetGeneration } from './protocol';
 import type { AppearanceContext, Block, ResolvedAppearance, Target } from './protocol';
 
 type Style = string | Record<string, unknown> | false | null | undefined | readonly Style[];
@@ -43,6 +43,8 @@ interface Ticket {
 }
 
 const tickets = new WeakMap<object, Ticket>();
+const claims = new WeakMap<object, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
+const EMPTY: Claimed = { className: '', declarations: {}, plain: [] };
 
 function componentProps(
   type: unknown,
@@ -91,8 +93,43 @@ function claim(
   className: unknown,
   value: Style
 ): Claimed {
-  const collected: Collected = { classes: [], declarations: {}, tokens: [] };
   const entries = appearance?.entries || [];
+  const context = resolved?.context || appearance?.context;
+  const forwarded = entries.length || className || value;
+
+  if (forwarded) return compose(target, resolved, entries, className, value, context);
+  if (!resolved) return { ...EMPTY, context };
+
+  return reuse(target, resolved, context);
+}
+
+function reuse(target: Target, resolved: ResolvedAppearance, context: AppearanceContext | undefined) {
+  let byTarget = claims.get(target);
+  if (!byTarget) claims.set(target, (byTarget = new WeakMap()));
+
+  let known = byTarget.get(resolved);
+  const first = resolved.blocks?.[0];
+
+  // Reopens a removed stylesheet, so the generation below is current.
+  if (known && first) emitClass(first, 0, target);
+
+  if (!known || known.generation !== sheetGeneration(target)) {
+    const fresh = compose(target, resolved, [], undefined, undefined, context);
+    byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration(target) }));
+  }
+
+  return known;
+}
+
+function compose(
+  target: Target,
+  resolved: ResolvedAppearance | undefined,
+  entries: Forwarded[],
+  className: unknown,
+  value: Style,
+  context: AppearanceContext | undefined
+): Claimed {
+  const collected: Collected = { classes: [], declarations: {}, tokens: [] };
 
   if (resolved) collect(createAppearanceToken(resolved), collected, 0);
   appendClasses(collected.classes, className);
@@ -113,7 +150,7 @@ function claim(
 
   return {
     className: [...new Set(collected.classes)].join(' '),
-    context: resolved?.context || appearance?.context,
+    context,
     declarations: collected.declarations,
     plain
   };
@@ -122,7 +159,7 @@ function claim(
 function flatten({ declarations, plain }: Claimed) {
   return Object.assign(
     {},
-    ...plain
+    ...[...plain]
       .sort(([a, x], [b, y]) => a - b || x.ordinal - y.ordinal)
       .map(([, block]) => block.declarations),
     declarations

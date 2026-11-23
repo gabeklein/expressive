@@ -1,6 +1,6 @@
 {
   "name": "@expressive/env",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Typed .env for Expressive: read keys as env.NAME on the server and, behind a prefix, in the client.",
   "keywords": [
     "expressive",
@@ -59,10 +59,10 @@
     "test": "bun run typecheck && bun run coverage"
   },
   "dependencies": {
-    "@expressive/cli": "^0.2.0"
+    "@expressive/cli": "^0.2.3"
   },
   "peerDependencies": {
-    "@expressive/mvc": "^0.94.5",
+    "@expressive/mvc": "^0.97.1",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component } from '@expressive/mvc';
+import { Component, Model, pending, set } from '@expressive/mvc';
 import { render } from '../index';
-import { flushMicrotasks, mount, place } from '../../test.setup';
+import { flushMicrotasks, mockPromise, mount, place, until } from '../../test.setup';
 
 if (false) {
   // @ts-expect-error @expressive/dom uses className, not the class attribute name.
@@ -341,6 +341,66 @@ describe('element', () => {
     expect(document.activeElement).not.toBe(input);
   });
 
+  describe('around a child which suspends in a transition', () => {
+    function setup(content: (child: Component.Node) => Component.Node) {
+      const loaded = mockPromise<string>();
+
+      class Loads extends Component {
+        value = set(() => loaded);
+
+        render() {
+          return <b>{this.value}</b>;
+        }
+      }
+
+      class Nav extends Model {
+        page = 'home';
+      }
+
+      function Page() {
+        return Nav.get().page == 'next' ? content(<Loads />) : <p>home</p>;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+        fallback = <i>loading</i>;
+
+        render() {
+          return <Page />;
+        }
+      }
+
+      const [app, root] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+
+      pending(() => (app.nav.page = 'next'));
+
+      return { loaded, root };
+    }
+
+    it('will attach a ref once the element is on the page', async () => {
+      const ref = vi.fn((node: Element | null) => node?.isConnected);
+      const { loaded, root } = setup((child) => <div ref={ref}>{child}</div>);
+
+      await flushMicrotasks();
+      loaded.resolve('ready');
+      await until(() => expect(root.textContent).toBe('ready'));
+
+      expect(ref).toHaveBeenCalledTimes(1);
+      expect(ref).toHaveBeenCalledWith(root.querySelector('div'));
+      expect(ref).toHaveReturnedWith(true);
+    });
+
+    it('will focus an autofocus element once it is on the page', async () => {
+      const { loaded, root } = setup((child) => <div><input autofocus />{child}</div>);
+
+      await flushMicrotasks();
+      loaded.resolve('ready');
+      await until(() => expect(root.textContent).toBe('ready'));
+
+      expect(document.activeElement).toBe(root.querySelector('input'));
+    });
+  });
+
   it('will restore a controlled value when a write is rejected', async () => {
     class Name extends Component {
       name = 'abc';
@@ -370,6 +430,20 @@ describe('element', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await flushMicrotasks();
     expect(input.value).toBe('ab');
+  });
+
+  it('will restore a controlled value inside a shadow root', async () => {
+    const shadow = document.body.appendChild(document.createElement('div')).attachShadow({ mode: 'open' });
+
+    render(<input value="fixed" onInput={() => {}} />, shadow);
+
+    const input = shadow.querySelector('input')!;
+
+    input.value = 'typed';
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    await flushMicrotasks();
+
+    expect(input.value).toBe('fixed');
   });
 
   it('will not touch a controlled value the handler accepted', async () => {

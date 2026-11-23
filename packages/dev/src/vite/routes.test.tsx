@@ -71,8 +71,8 @@ describe("app/ routing (codegen)", () => {
 
     const { paths, sources } = await staticPaths(appDir, scanExports);
 
-    expect(paths.sort()).toEqual(["/", "/about", "/docs", "/docs/guide/setup", "/docs/intro", "/paths"]);
-    expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx"]);
+    expect(paths.sort()).toEqual(["/", "/about", "/docs", "/docs/guide/setup", "/docs/intro", "/paths", "/shop", "/shop/cart", "/tally", "/tally/sub"]);
+    expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx", "tally/[id].tsx"]);
   });
 
 
@@ -348,6 +348,40 @@ describe("app/ routing (codegen)", () => {
 
   it("will not route a leaf without a page", async () => {
     expect(await generate({ "index.tsx": PAGE, "go/index.tsx": ENTER })).not.toContain('to="go"');
+  });
+
+  it("will mount the root's Router export in place of dev's", async () => {
+    const out = await generate({ "index.tsx": "export class Router {}", "(a).tsx": PAGE, "_/index.tsx": `${PAGE}\nexport class Router {}` });
+    expect(out).toContain('import { NotFound, Route } from "@expressive/dev";');
+    expect(out).toContain('import { Router } from "../app/index.tsx";');
+    expect(out).toContain('import { Page as Root } from "../app/_/index.tsx";');
+    expect(out).toContain("<Router {...props}>");
+  });
+
+  it("will label a route by its module's label", async () => {
+    const out = await generate({
+      "index.tsx": `${PAGE}\nexport const label = "Home";`,
+      "me/index.tsx": `${PAGE}\nexport const label = 'Me';`,
+      "me/(edit).tsx": PAGE,
+      "(new).tsx": `${PAGE}\nexport const label = "New \\"one\\"";`,
+      "you/index.tsx": `${PAGE}\nconst named = "You"; export { named as label };`,
+    });
+    expect(out).toContain('<Route label={"Home"} NotFound={NotFound}>');
+    expect(out).toContain('<Route to="me" label={"Me"}>');
+    expect(out).toContain('<Route to="new" label={"New \\"one\\""} as={New} />');
+    expect(out).toContain('<Route to="edit" as={MeEdit} />');
+    expect(out).toContain('<Route to="you" label={"You"} as={You} />');
+  });
+
+  it("will throw if a label is not a string literal", async () => {
+    for (const label of [
+      "export const label = name;",
+      "export const { label } = names;",
+      "let label = 'A'; label = 'B'; export { label };",
+      "// export const label = 'Old';\nexport const label = name;",
+    ])
+      await expect(generate({ "index.tsx": `${PAGE}\n${label}` }))
+        .rejects.toThrow(/not a string literal/);
   });
 
   it("module always exports a default App component, host-neutral", async () => {

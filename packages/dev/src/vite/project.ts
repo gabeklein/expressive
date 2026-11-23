@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { shapeOf, type Exposure } from "./remote";
+import { shapeOf, type Exposed, type Exposure } from "./remote";
 import type { Remote } from "./routes";
 
 export interface Project {
@@ -83,16 +83,29 @@ for (const node of document.querySelectorAll("[${PRERENDERED}]"))
 
 export function prerenderEntry(appImport: string, sources: string[]): string {
   const imports = sources.map((source, index) => `import { paths as p${index} } from ${JSON.stringify(source)};\n`).join("");
-  const lists = sources.map((_, index) => `p${index}()`).join(", ");
+  const lists = sources.map((_, index) => `p${index}`).join(", ");
 
   return `\
 import { renderToString } from "@expressive/dom/server";
 import { Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
+import { scope } from "./call.ts";
 import App from ${JSON.stringify(appImport)};
 ${imports}
 export async function paths() {
-  return (await Promise.all([${lists}])).flat();
+  const found = [];
+
+  for (const list of [${lists}]) {
+    const mark = { called: false };
+
+    try {
+      found.push(...[await scope.run(mark, list)].flat());
+    } catch (error) {
+      if (!mark.called) throw error;
+    }
+  }
+
+  return found;
 }
 
 export default async function page(path) {
@@ -100,10 +113,14 @@ export default async function page(path) {
   const stop = Router.on({ setup(self) { router = self; } });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
+  const mark = { called: false, abort };
 
   try {
-    const output = await renderToString(jsx(App, { path }), { signal: abort.signal });
-    return { ...output, path: router ? router.path : path };
+    const output = await scope.run(mark, () => renderToString(jsx(App, { path }), { signal: abort.signal }));
+    return mark.called ? null : { ...output, path: router ? router.path : path };
+  } catch (error) {
+    if (mark.called) return null;
+    throw error;
   } finally {
     clearTimeout(timer);
     stop();
@@ -111,6 +128,61 @@ export default async function page(path) {
 }
 `;
 }
+
+export const PRERENDER_CALL = `\
+import { Model, def } from "@expressive/mvc";
+import { define } from "@expressive/rpc";
+
+export { define };
+
+const { AsyncLocalStorage } = process.getBuiltinModule("node:async_hooks");
+
+export const scope = new AsyncLocalStorage();
+
+function halt() {
+  const error = new Error("Remote calls do not run at build.");
+  const mark = scope.getStore();
+
+  if (mark) {
+    mark.called = true;
+    mark.abort?.abort(error);
+  }
+
+  return error;
+}
+
+export function call() {
+  if (scope.getStore()?.abort) return halt(), new Promise(() => {});
+
+  const refused = Promise.reject(halt());
+
+  refused.catch(() => {});
+
+  return refused;
+}
+
+export function twin(_at, methods, fields, name) {
+  const Twin = {
+    [name]: class extends Model {
+      constructor(...args) {
+        super(...args);
+
+        for (const field of fields) this[field] = def(() => ({ get() { throw halt(); } }));
+      }
+
+      get(...args) {
+        if (!args.length || typeof args[0] == "string") throw halt();
+
+        return super.get(...args);
+      }
+    },
+  }[name];
+
+  for (const method of Object.keys(methods)) Object.defineProperty(Twin.prototype, method, { configurable: true, writable: true, value: call });
+
+  return Twin;
+}
+`;
 
 export function ensureBootstrap(html: string): string {
   let out = html;
@@ -155,6 +227,29 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
     "  sidecars: [", ...entries, "  ],",
     "  seats: [", ...seats.map(seat => `    { pattern: ${JSON.stringify(seat.pattern)}, Type: ${alias(seat.file)}.default },`), "  ],",
     "});",
+    "",
+  ].join("\n");
+}
+
+export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
+  const configSpec = JSON.stringify(importRel(from, project.configPath!));
+  const files = [...exposure.modules.keys()];
+  const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
+  const ids = (group: Exposed[], names: (remote: Exposed) => string[], id: (remote: Exposed, name: string) => string) =>
+    Object.fromEntries(group.flatMap(remote => names(remote).map(name => [id(remote, name), ref(remote, name)])));
+  const manifest = exposure.byPattern().map(group => ({
+    pattern: group[0].pattern,
+    calls: ids(group, remote => remote.calls, (remote, name) => exposure.callId(remote, name)),
+    classes: ids(group, remote => remote.errors.map(error => error.name), (remote, name) => exposure.classId(remote, name)),
+  }));
+
+  return [
+    `import { fetchHandler } from "@expressive/dev/fetch";`,
+    `import config from ${configSpec};`,
+    ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
+    `export { ${named.join(", ")} } from ${configSpec};`,
+    "",
+    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
     "",
   ].join("\n");
 }

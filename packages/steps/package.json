@@ -1,6 +1,6 @@
 {
   "name": "@expressive/steps",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Runnable Models: every method a step, fields the data between them - with rollback, waits and an awaitable result.",
   "keywords": [
     "expressive",
@@ -51,6 +51,6 @@
     "tsdown": "^0.20.1"
   },
   "peerDependencies": {
-    "@expressive/mvc": "^0.96.0"
+    "@expressive/mvc": "^0.97.1"
   }
 }

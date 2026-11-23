@@ -1,5 +1,17 @@
 # @expressive/mvc
 
+## 0.97.1
+
+### Patch Changes
+
+- [#768](https://github.com/gabeklein/expressive/pull/768) [`1116f78`](https://github.com/gabeklein/expressive/commit/1116f784670ca1e94628884904ab99f11315d261) `Model.Values` no longer fails with "circularly references itself" on classes that reference each other and inherit a getter returning a mapped type over `this`, such as an ORM entity's `columns`. A regression in 0.97.0.
+
+## 0.97.0
+
+### Minor Changes
+
+- [#762](https://github.com/gabeklein/expressive/pull/762) [`340759c`](https://github.com/gabeklein/expressive/commit/340759c8fa3a4b2b6b759e9082f8a731ee338ac2) A value is left out of `get()` snapshots when its `get()` throws `false` (`get(): never { throw false }`), replacing `get: null`, which is now ordinary data and exports as is. The opt-out is meant for instruction values with nothing to export. Any other throw from that `get()`, such as a suspense Promise or an `Error`, propagates. `Model.Export` gives `never` for a value whose `get()` returns `never`, so `Model.Values`, `Model.Partial` and `Model.Value` type such a field `never`. `ref(this)` and `ref(this, fn)` proxies move to the new form. `map()` and `has()` snapshots now leave such values out too, so a snapshot's indices or size can differ from the live collection's. A `get()` snapshot taken after an earlier one threw no longer returns stale nested values.
+
 ## 0.96.0
 
 ### Minor Changes

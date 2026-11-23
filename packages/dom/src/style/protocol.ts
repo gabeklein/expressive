@@ -31,18 +31,19 @@ interface Sink {
   insert(rule: string, index: number): void;
   root(key: object, css: string): void;
   serialize(declarations: Declaration): string;
-  unitless(property: string): boolean;
 }
 
-type Target = Document | Sink;
+type StyleTarget = Document | ShadowRoot;
+type Target = StyleTarget | Sink;
 
 type Emit = (block: Block, depth: number, target: Target) => string;
 
 const SUBCOMPONENT = /^_[A-Z]/;
 const registrations = new WeakMap<object, EnterAppearance>();
 const tokens = new WeakMap<object, ResolvedAppearance>();
+const minted = new WeakMap<ResolvedAppearance, {}>();
 let emitter: Emit | undefined;
-let active: Sink | undefined;
+const generations = new WeakMap<Target, number>();
 
 function registerAppearance(type: object, enter: EnterAppearance) {
   registrations.set(type, enter);
@@ -50,6 +51,14 @@ function registerAppearance(type: object, enter: EnterAppearance) {
 
 function registerEmitter(emit: Emit) {
   emitter = emit;
+}
+
+function reopened(target: Target) {
+  generations.set(target, sheetGeneration(target) + 1);
+}
+
+function sheetGeneration(target: Target) {
+  return generations.get(target) || 0;
 }
 
 function emitClass(block: Block, depth: number, target: Target) {
@@ -60,19 +69,8 @@ function isSink(target: Target): target is Sink {
   return 'insert' in target;
 }
 
-function serving<T>(sink: Sink, run: () => T): T {
-  const previous = active;
-  active = sink;
-
-  try {
-    return run();
-  } finally {
-    active = previous;
-  }
-}
-
-function sinking() {
-  return active;
+function documentOf(target: StyleTarget): Document {
+  return target.nodeType == 9 ? target as Document : target.ownerDocument!;
 }
 
 function enterAppearance(type: Function, key?: string, parent?: AppearanceContext) {
@@ -99,8 +97,11 @@ function reserved(key: string) {
 }
 
 function createAppearanceToken(appearance: ResolvedAppearance) {
-  const token = {};
+  let token = minted.get(appearance);
+  if (token) return token;
+  token = {};
   tokens.set(token, appearance);
+  minted.set(appearance, token);
   return token;
 }
 
@@ -110,16 +111,17 @@ function appearanceToken(value: unknown) {
 
 export {
   appearanceToken,
+  documentOf,
   isSink,
-  serving,
-  sinking,
   createAppearanceToken,
   emitClass,
   enterAppearance,
   registerAppearance,
   registerEmitter,
+  reopened,
   reserved,
+  sheetGeneration,
   SUBCOMPONENT
 };
 
-export type { AppearanceContext, Block, Condition, Declaration, ResolvedAppearance, Sink, Target };
+export type { AppearanceContext, Block, Condition, Declaration, ResolvedAppearance, Sink, StyleTarget, Target };

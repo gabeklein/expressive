@@ -8,7 +8,7 @@ on the dev server.
 
 ```
 app/                  file-based routes
-  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, default
+  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, label, Router, default
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the "/blog" page
   blog/[slug].tsx     /blog/:slug  param leaf
@@ -41,6 +41,18 @@ it - the current page holds until the next is ready (`Router.get().navigating` m
 for arriving cold, by link or refresh. A Component or a Model with its own `fallback` keeps its
 waits to itself.
 
+`label` names the route for breadcrumbs (`Route.get().parent.label`). It must be a `const` string
+literal (`export const label = "Blog"`) - the generated tree inlines it, so a lazy module's label is
+on hand before its chunk loads; anything else fails generation. A leaf labels itself, a folder's
+`index.tsx` its folder: the parent of its page, or, with no other routes inside, the one route it
+collapses to - its page's own `Route.get().label`. In dev, an edited label shows after a restart.
+
+The root `index.tsx` may export `Router`, a subclass of dev's `Router`, mounted in its place - to
+override `navigate()` for View Transitions, or add methods. Subclass dev's, not router's
+`BrowserRouter`: both `Router.get()` and the subclass's `get()` then find it, and prerendering
+records where it lands. Prerendering constructs it and runs `new()` without `window` - guard what
+touches it there.
+
 Each route module becomes its own chunk, loaded when the route is first entered - `default`
 included - unless it is the root or exports `Loading` or `Catch`, which must be on hand before
 anything below them can wait or fail.
@@ -52,8 +64,165 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 ## Server
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
-`dist/server/index.js`, which serves `dist/client` and falls back to `index.html` for client routes.
-It imports `config` from `@expressive/dev/server`: `port`, and `remote.opaque` (below).
+`dist/server/index.js`, which serves `dist/client` (with `public/`, copied only there) and falls back
+to `index.html` for client routes.
+It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch`,
+`around` and `target`.
+
+### App routes
+
+```ts
+// index.ts
+import { config } from "@expressive/dev/server";
+
+export default config({
+  async fetch(request) {
+    if (new URL(request.url).pathname === "/health") return new Response("ok");
+  },
+});
+```
+
+`fetch(request, env, ctx)` answers after remote calls and before static files; returning nothing
+falls through. It runs in the request's scope - `Current` and `Cookies` work as in a call. In dev it
+also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only the paths it
+answers. On Node, `env` is `{}`.
+
+`next()`, its fourth argument, resolves what the request gets without `fetch` - to return as is or
+rewrite, such as a page's `<head>` for link previews. Read, return or cancel its body.
+
+- Node: the file, the page's `<path>/index.html` or the shell from `dist/client`, else 404.
+- Dev: a file from `public/`, else the shell as Vite transforms it - never Vite's modules, so return
+  nothing for those.
+- The `fetch` target: 404 - static files are the host's there (below).
+
+```ts
+export default config({
+  async fetch(request, env, ctx, next) {
+    if (!new URL(request.url).pathname.startsWith("/invite/")) return;
+
+    const page = await next();
+    const html = (await page.text()).replace("</head>", `<meta property="og:title" content="Join"></head>`);
+
+    return new Response(html, page);
+  },
+});
+```
+
+### Request scope
+
+`around(next, scope)` wraps each remote call and the app's `fetch` on every host - Node, the
+`fetch` target and dev. Run `next` inside whatever the request needs, such as a database session,
+and resolve what it resolves. `scope` holds `request`, `env` and `ctx`. It runs around the call's
+scope, so read the request from `scope.request`, not `Current`.
+
+- With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes
+  on - in dev, Vite's too. Without one, only calls do. Twin streams skip it.
+- The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler.
+- The scope ends when `next` resolves: `ctx.waitUntil` work and a streamed body run after it.
+- A throw or rejection on a call replies as a call's error would - an error class a remote exports
+  keeps its status, anything else is a 500. On `fetch` it reaches the host, as a throw in `fetch` does.
+
+```ts
+import { config } from "@expressive/dev/server";
+import { db } from "./db";   // SQLiteConnection.new(types, "app.db")
+
+export default config({
+  around: next => db.session(next),
+});
+```
+
+With `@expressive/sql`, each request gets its own identity map. A session can also take the
+request's database as its second argument - see the fetch target below.
+
+### Deploying to a fetch host
+
+`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }` with
+every dependency bundled - for a host that calls a module's `fetch` rather than running a server. A
+request goes to remote calls, then the app's `fetch`, else 404. Static files are the host's: the
+app's `fetch` forwards to them.
+
+- `env` is the host's second `fetch` argument, and `Current.get().env` anywhere in the request.
+  Type it by extending rpc's `Env` - `declare module "@expressive/rpc" { interface Env { API_KEY:
+  string } }` - with `@expressive/rpc` a dependency of the app.
+- In dev, `export async function bindings()` in `index.ts` supplies `env`: once per server, again
+  after a throw. The build drops it - import what it needs inside it, so that goes too:
+  `export const bindings = async () => (await import("./dev-env")).env();`
+- The config's other members join the default export (a `scheduled` handler, say), and `index.ts`'s
+  named exports other than `bindings` are re-exported - listed ones only, not `export *`; export
+  types with `export type`.
+- `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
+  and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
+- Requests keep no state between them: a remote that default-exports a seat or exports a Model class
+  fails the dev server and the build. Remote functions only.
+- The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
+
+Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
+serves the shell for client routes, as the Node server does.
+
+```ts
+// index.ts
+import { config } from "@expressive/dev/server";
+
+declare module "@expressive/rpc" { interface Env { ASSETS?: Fetcher } }
+
+export default config({
+  target: "fetch",
+  async fetch(request, env) {
+    const found = await env.ASSETS?.fetch(request); // undefined in dev - Vite answers
+    if (found?.status !== 404 || request.method !== "GET") return found;
+
+    for (const shell of ["/200", "/"]) {
+      const page = await env.ASSETS!.fetch(new URL(shell, request.url));
+      if (page.ok) return page;
+    }
+
+    return found;
+  },
+});
+```
+
+`wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
+and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*",
+"!/assets/*"] }`. Without `run_worker_first`, a call posted to a path with a file (a root remote's,
+to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
+prerendered home page for client routes.
+
+To rewrite a page there, take the shell from the assets (`/200`, or `/` under `--no-html`), with
+`next()` for dev, and drop the length and validator a rewrite makes stale:
+
+```ts
+const page = await (env.ASSETS?.fetch(new URL("/200", request.url)) ?? next());
+const headers = new Headers(page.headers);
+
+headers.delete("content-length");
+headers.delete("etag");
+
+return new Response(rewrite(await page.text()), { status: page.status, headers });
+```
+
+A session per request on a D1 binding there, through `around`:
+
+```ts
+import { config } from "@expressive/dev/server";
+import { db } from "./db";   // SQLiteConnection.new(types) - no source
+import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
+import { sweep } from "./jobs";
+
+export async function bindings() {
+  const { sqlite } = await import("@expressive/sql");
+  return { DB: await sqlite("local.db", { migrations: "migrations" }) };
+}
+
+export default config({
+  target: "fetch",
+  around: (next, { env }) => db.session(next, d1(env.DB)),
+  scheduled: (event, env) => db.session(() => sweep(), d1(env.DB)),
+});
+```
+
+`d1` is app code: it wraps a D1 binding in sql's `Engine` (`all`, `get`, `run`, `exec`, `close`) and
+passes an `Engine` through, so dev's `sqlite()` file - migrated on first use - serves unchanged.
+`scheduled` is outside `around`, so it opens its own session.
 
 ### Sidecars
 
@@ -277,7 +446,8 @@ calls can still carry the previous identity's data until the page reloads.
 ```
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
-expressive dev build            dist/client (static app) and dist/server/index.js (node service)
+expressive dev --port <n>       listen on <n> - over index.ts's port and Vite's
+expressive dev build            dist/client (static app) and dist/server/index.js (node service, or fetch handler)
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
 expressive help [command]       commands, or one command's inputs
@@ -286,12 +456,13 @@ node dist/server/index.js       run the built service (port from index.ts, defau
 
 Nothing is written into the project. The shell, the client entry and the generated router module
 are virtual, addressed under `/.expressive/`. The router module regenerates when files appear or
-vanish under `app/`.
+vanish under `app/`, or an edit changes what it generates.
 
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
 adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
 Server-only API - `config`, `serve`, `Current` - is `@expressive/dev/server`; the generated server
-entry imports `serve` from there.
+entry imports `serve` from there. Under `target: "fetch"` it calls `@expressive/dev/fetch` instead - the
+generated entry's runtime, not an API to call by hand.
 
 ### Prerendering
 
@@ -317,12 +488,21 @@ export const paths = () => Object.keys(posts).map(file => `/blog/${file.split("/
 
 `paths()` is bundled with the client code, so it has no Node APIs - list from static imports,
 `import.meta.glob` or an absolute-URL `fetch`. Its paths are not checked against the routes: one
-under a skipped folder is still rendered, and one no route matches writes the 404 page.
+no route matches writes the 404 page.
 
-Every folder with a `remote.ts` or `remote/` folder is skipped, along with everything below it:
-those pages stay client-rendered, and the build never runs server code. A page that redirects,
-renders nothing, throws or takes over 30 seconds is skipped with a warning. Keep each `remote.ts`
-in the deepest folder that uses it: one at the root of `app/` leaves the whole app unrendered.
+A page that needs the server while it renders stays client-rendered, wherever its `remote.ts` or
+`remote/` sits, and the build never runs server code. In the build, remote stubs stop at the server:
+calling a remote function or a twin's method, or reading a twin's values, aborts that page's render
+and leaves that page to the browser, counted in the build's summary. So a `remote/` at the root of
+`app/`, shared by many screens, still lets `/privacy` and `/terms` prerender, while a dashboard that
+loads its data on render does not.
+
+- A call from `new()` counts; one from an event handler or effect never runs.
+- A seat is built without a pull. Pages under it render until one reads it, and an entry hook or
+  `Layout` that reads it, or calls the server, leaves every page below it to the browser.
+- A `paths()` that calls the server lists nothing.
+
+A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
 
 `new()` runs during the render and effects never do, so DOM listeners and browser-only reads
 belong in effects; `typeof window` tells the build apart, since `import.meta.env.SSR` is false

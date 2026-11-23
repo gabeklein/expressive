@@ -1,22 +1,17 @@
 import { command } from "@expressive/cli";
-import type { Model } from "@expressive/mvc";
 import { expect, it, vi } from "vitest";
 
-const main = vi.hoisted(() => vi.fn());
+const main = vi.hoisted(() => vi.fn((_meta: unknown, Type: unknown) => Type));
 
 vi.mock("@expressive/cli", async (actual) => ({ ...(await actual<object>()), main }));
 
-it("will export Env and run the expressive command as entry", async () => {
+it("will export Env as a member of the expressive command", async () => {
   const { default: Env } = await import("./cli");
-  const [[meta, Expressive]] = main.mock.calls as [[ImportMeta, Model.Type]];
   const out = { log: vi.fn(), error: vi.fn() };
 
   expect(Env).toBe((await import("./command")).default);
-  expect(meta.url).toMatch(/cli\.ts$/);
+  expect(main).toHaveBeenCalledWith(expect.objectContaining({ url: expect.stringMatching(/cli\.ts$/) }), Env, { as: "expressive" });
 
-  expect(await command(Expressive)(["env", "--help"], out)).toBe(0);
-  expect(out.log.mock.calls.pop()![0]).toMatch(/^Usage: expressive env \[options\] \[command\]\n\nSet up env.d.ts, then check/);
-
-  expect(await command(Expressive)([], out)).toBe(0);
-  expect(out.log.mock.calls[0][0]).toMatch(/\n {2}dev +Run the app[^\n]*\n {2}env +Set up env.d.ts[^\n]*\n {2}sql +Check or sync/);
+  expect(await command(Env)(["--help"], out, "expressive env")).toBe(0);
+  expect(out.log.mock.calls[0][0]).toMatch(/^Usage: expressive env \[options\] \[command\]\n\nSet up env.d.ts, then check/);
 });

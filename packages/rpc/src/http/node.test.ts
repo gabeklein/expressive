@@ -9,7 +9,7 @@ function incoming(method: string | undefined, url: string | undefined, headers: 
 }
 
 function outgoing() {
-  return Object.assign(new EventEmitter(), { statusCode: 0, setHeader: vi.fn(), flushHeaders: vi.fn(), write: vi.fn(), end: vi.fn() }) as any;
+  return Object.assign(new EventEmitter(), { statusCode: 0, setHeader: vi.fn(), flushHeaders: vi.fn(), write: vi.fn(), end: vi.fn(), destroy: vi.fn() }) as any;
 }
 
 describe("node request", () => {
@@ -115,6 +115,49 @@ describe("node response", () => {
 
     expect(Buffer.concat(res.write.mock.calls.map(([chunk]: [Uint8Array]) => chunk)).toString()).toBe('{"done":1}\n{"done":2}\n');
     expect(res.end).toHaveBeenCalled();
+  });
+});
+
+describe("node response backpressure", () => {
+  it("will wait for drain when a write is refused, and cancel the body when the response closes - even if cancel fails", async () => {
+    const res = outgoing();
+    const cancel = vi.fn(() => { throw new Error("gone"); });
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({ pull: controller => void (pulls++, controller.enqueue(new Uint8Array(1))), cancel }, { highWaterMark: 0 });
+
+    res.write.mockReturnValue(false);
+    const sent = send(res, new Response(body));
+
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(1));
+    await new Promise(done => setTimeout(done, 10));
+    expect(res.write).toHaveBeenCalledTimes(1);
+
+    res.emit("drain");
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(2));
+
+    res.emit("close");
+    await sent;
+
+    expect(cancel).toHaveBeenCalled();
+    expect(pulls).toBe(2);
+  });
+
+  it.each([{ destroyed: true }, { stream: { destroyed: true } }])("will cancel the body of a response already closed (%o)", async closed => {
+    const cancel = vi.fn();
+    const res = Object.assign(outgoing(), closed);
+
+    res.write.mockReturnValue(false);
+    await send(res, new Response(new ReadableStream({ pull: controller => controller.enqueue(new Uint8Array(1)), cancel })));
+
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("will destroy the response when its body fails", async () => {
+    const res = outgoing();
+    const body = new ReadableStream({ pull: () => Promise.reject(new Error("gone")) });
+
+    await expect(send(res, new Response(body))).rejects.toThrow("gone");
+    expect(res.destroy).toHaveBeenCalled();
   });
 });
 

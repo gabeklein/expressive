@@ -73,16 +73,16 @@ interface From<T extends Model = Model> extends Common, Omit<Only, 'from'> {
 interface Lazy<T extends Model = Model> extends Common, Omit<Only, 'lazy'> {
   /** Import of a module whose default export is the command's class. */
   lazy: () => Promise<{ default: Model.Type<T> }>;
-  /** Required - help lists the command without importing it. */
-  help: string;
+  /** Default: the class's static `help` - help imports the module to read it. */
+  help?: string;
 }
 
 /** A command from another package - its `bin` named after the root command. */
 interface Peer extends Common, Omit<Only, 'peer'> {
   /** Package name, resolved from the working directory. */
   peer: string;
-  /** Required - help lists the command without importing it. */
-  help: string;
+  /** Default: the class's static `help` - help imports the module to read it. */
+  help?: string;
 }
 
 /** A command run inline by its parent - no inputs of its own. */
@@ -199,6 +199,9 @@ function list<const C extends (Plural & Named & { split?: string })[]>(
  * Takes one of `from` (a class), `lazy` (an import of this package's module, default-exporting the
  * class) or `peer` (another package). The field holds the routed child, else `undefined`. `--` ends
  * routing. Exactly one of `from`, `lazy`, `peer` and `run` is allowed - more throws.
+ *
+ * Without `help`, listings use the class's own static `help`, importing a `lazy` or `peer` module to
+ * read it. Give `help` to keep a listing import-free.
  *
  * A `peer` is found from the working directory upward, else beside the running script. Its
  * `package.json` `bin` entry named after the root command is imported and its default export used.

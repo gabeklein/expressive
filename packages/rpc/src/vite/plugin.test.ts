@@ -247,6 +247,21 @@ describe("dev server", () => {
     expect(await post("/admin/stats", "stats", [], "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
   });
 
+  it("will give a call the dev bindings through Current", async () => {
+    const root = project({
+      "src/main.ts": `import { bound } from "../api/bound"; console.log(bound);`,
+      "api/bound.ts": `import { Current } from "@expressive/rpc"; export async function bound() { return (Current.get().env as any).NAME ?? null; }`,
+    });
+    const { server, post } = await listen(root, { plugins: [rpc({ env: () => ({ NAME: "dev" }) })] });
+    const bare = await listen(root);
+
+    await server.transformRequest("/api/bound.ts");
+    await bare.server.transformRequest("/api/bound.ts");
+
+    expect(await post("/bound", "bound", [], "a")).toEqual({ status: 200, body: { value: "dev" } });
+    expect(await bare.post("/bound", "bound", [], "a")).toEqual({ status: 200, body: { value: null } });
+  });
+
   it("will rebuild a thrown error as its id", async () => {
     const { server, post } = await listen(project());
 
@@ -367,6 +382,7 @@ const ENTRY = {
         const { pathname } = new URL(request.url);
 
         if (pathname === "/count") return Response.json({ count, name: env?.NAME ?? null });
+        if (pathname === "/env") return Response.json((Current.get().env as any).NAME ?? null);
         if (pathname === "/theme") {
           const was = Prefs.get().theme ?? null;
           Prefs.set({ theme: "light" });
@@ -452,6 +468,15 @@ describe("build", () => {
     expect(await post("/admin/stats", "stats", "a")).toMatchObject({ status: 403 });
     expect(await post("/admin/stats", "stats", "admin")).toEqual({ status: 200, body: { value: { total: 1 } } });
     expect(await (await server.fetch(new Request("http://localhost/"), { ASSETS })).text()).toBe("asset");
+  });
+
+  it("will give a call the Worker's env through Current", async () => {
+    const { post } = await build(project({
+      "src/main.ts": `import { bound } from "../api/bound"; console.log(bound);`,
+      "api/bound.ts": `import { Current } from "@expressive/rpc"; export async function bound() { return (Current.get().env as any).NAME; }`,
+    }), { opaque: false });
+
+    expect(await post("/bound", "bound", "a", { NAME: "prod" })).toEqual({ status: 200, body: { value: "prod" } });
   });
 
   it("will answer calls under a base, handing the rest to the Worker's assets", async () => {
@@ -555,6 +580,7 @@ describe("build", () => {
     expect(await (await server.fetch(new Request("http://localhost/count"))).json()).toEqual({ count: 1, name: null });
     expect((await server.fetch(new Request("http://localhost/"))).status).toBe(404);
     expect(await server.scheduled()).toBe("ran");
+    expect(await (await server.fetch(new Request("http://localhost/env"), { NAME: "prod" })).json()).toBe("prod");
 
     const theme: Response = await server.fetch(new Request("http://localhost/theme", { headers: { cookie: "theme=dark" } }));
 
@@ -647,6 +673,7 @@ describe("entry", () => {
     expect(await post("/tally", "tick", [], "a")).toEqual({ status: 200, body: { value: 1 } });
     expect(await post("/tally", "tick")).toMatchObject({ status: 401 });
     expect(await (await get(server, "/count")).json()).toEqual({ count: 1, name: "dev" });
+    expect(await (await get(server, "/env")).json()).toBe("dev");
     expect(await (await get(server, "/")).text()).toContain(`<script type="module"`);
   });
 

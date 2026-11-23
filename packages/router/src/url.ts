@@ -116,6 +116,10 @@ export function isExternal(to: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(to) || to.startsWith('//');
 }
 
+export function toUrl(url: string, base = '/'): URL {
+  return new URL(url, 'router://_' + base);
+}
+
 /**
  * Collapse `.`/`..` and stray slashes without touching browser globals, and
  * canonicalize the query so stored urls match the `url` getter byte-for-byte.
@@ -130,7 +134,7 @@ export function normalize(to: string): string {
  * This is what makes the history-dedup a sound string comparison.
  */
 export function canonicalize(url: string): string {
-  const { pathname, searchParams, hash } = new URL(url, 'x://_');
+  const { pathname, searchParams, hash } = toUrl(url);
   const search = searchOf(new Map(searchParams));
   return pathname + (search ? '?' + search : '') + hash;
 }

@@ -91,10 +91,60 @@ describe('values', () => {
     expect(store.values(data)).toEqual({ foo: 1, bar: 'baz' });
   });
 
-  it('will omit values whose get is null', () => {
-    const { data } = managed({ foo: 1, bar: { get: null }, baz: Object.create({ get: null }) });
+  it('will omit a value whose get method throws false', () => {
+    const bar = { get(): never { throw false; } };
+    const { data } = managed({ foo: 1, bar, baz: Object.create(bar) });
 
     expect(store.values(data)).toEqual({ foo: 1 });
+  });
+
+  it('will throw false from a get getter', () => {
+    const { data } = managed({ bar: { get get(): never { throw false; } } });
+
+    try {
+      store.values(data);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBe(false);
+    }
+  });
+
+  it('will omit a value whose get throws false from deeper', () => {
+    function read(): never {
+      throw false;
+    }
+
+    const { data } = managed({ foo: 1, bar: { get: () => read() } });
+
+    expect(store.values(data)).toEqual({ foo: 1 });
+  });
+
+  it('will throw a promise from get', () => {
+    const promise = Promise.resolve();
+    const { data } = managed({ bar: { get(): never { throw promise; } } });
+
+    let thrown;
+
+    try {
+      store.values(data);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(promise);
+  });
+
+  it('will throw an error from get', () => {
+    const { data } = managed({ bar: { get get(): never { throw new Error('nope'); } } });
+
+    expect(() => store.values(data)).toThrow('nope');
+  });
+
+  it('will export as is a value whose get is null', () => {
+    const bar = { get: null, id: 1 };
+    const { data } = managed({ bar });
+
+    expect(store.values(data)).toEqual({ bar });
   });
 
   it('will export as is a value whose get takes a parameter', () => {
@@ -111,8 +161,8 @@ describe('values', () => {
     expect(store.values(data)).toEqual({ bar: 'baz' });
   });
 
-  it('will omit a function whose get is null', () => {
-    const bar = Object.assign(() => {}, { get: null });
+  it('will omit a function whose get throws false', () => {
+    const bar = Object.assign(() => {}, { get(): never { throw false; } });
     const { data } = managed({ foo: 1, bar });
 
     expect(store.values(data)).toEqual({ foo: 1 });

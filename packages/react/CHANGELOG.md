@@ -1,5 +1,18 @@
 # @expressive/react
 
+## 0.95.0
+
+### Minor Changes
+
+- [#781](https://github.com/gabeklein/expressive/pull/781) [`d68b903`](https://github.com/gabeklein/expressive/commit/d68b903ae7f610d43a011c405d234ad1cecb6e29) Add `@expressive/react/compat`, the host for preact/compat apps - import it once from the entry module in place of `@expressive/react`. `react` and `preact` are now optional peers.
+
+## 0.94.8
+
+### Patch Changes
+
+- Updated dependencies [[`340759c`](https://github.com/gabeklein/expressive/commit/340759c8fa3a4b2b6b759e9082f8a731ee338ac2)]:
+  - @expressive/mvc@0.97.0
+
 ## 0.94.7
 
 ### Patch Changes

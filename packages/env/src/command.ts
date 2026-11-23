@@ -204,6 +204,8 @@ class Unset extends Model {
 }
 
 export default class Env extends Model {
+  static help = "Set up env.d.ts, then check, list and edit .env files without printing secrets.";
+
   mode = inMode();
 
   run() {

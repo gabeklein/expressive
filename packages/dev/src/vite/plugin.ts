@@ -2,17 +2,18 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type ViteDevServer } from "vite";
+import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
-import type { AppConfig } from "../server/config";
-import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_ENTRY, resolveProject, serverEntry, type Project } from "./project";
+import { wrap, type AppConfig, type Ctx } from "../server/config";
+import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
-import { generateRoutes, remoteEntries, remoteOf, staticPaths, type Remote } from "./routes";
-import { isCall, toNode } from "@expressive/rpc/http";
-import { dispatch, verify, type Seats } from "@expressive/rpc/protocol";
+import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
+import { isCall, scoped, toNode } from "@expressive/rpc/http";
+import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
+import { fileResponse } from "../server/serve";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
 import { twins, type Endpoint, type Exports, type Pooled } from "../server/twin";
@@ -82,6 +83,19 @@ export function host(dotenv: boolean): Plugin<Host> {
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
+  let prerendering = false;
+  let settings: AppConfig | undefined;
+  const scans = new Map<string, { source: string; scan: Scan }>();
+  const scanRoute: ExportScanner = async (source, path) => {
+    const hit = scans.get(path);
+    if (hit?.source === source) return hit.scan;
+
+    const scan = await scanExports(source, path);
+    scans.set(path, { source, scan });
+    return scan;
+  };
+  let routes: string | undefined;
+  const generate = () => generateRoutes(project.appDir!, generatedDir, scanRoute);
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -92,6 +106,16 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const remoteAt = (file: string) => (project.appDir ? remoteOf(project.appDir, file) : undefined);
 
+  const api: Host = {
+    async config() {
+      if (!runner) throw new Error("The dev server is not running.");
+      if (!project.configPath) return {};
+      return ((await runner.import(project.configPath)).default as AppConfig) ?? {};
+    },
+  };
+
+  const target = async () => (build ? settings!.target : (await api.config()).target);
+
   const readShell = () =>
     project.htmlPath ? ensureBootstrap(readFileSync(project.htmlPath, "utf8")) : SHELL;
 
@@ -99,18 +123,14 @@ export function host(dotenv: boolean): Plugin<Host> {
     name: "expressive",
     enforce: "pre",
 
-    api: {
-      async config() {
-        if (!runner) throw new Error("The dev server is not running.");
-        if (!project.configPath) return {};
-        return ((await runner.import(project.configPath)).default as AppConfig) ?? {};
-      },
-    },
+    api,
 
-    config(user, env) {
+    async config(user, env) {
       root = realpathSync(resolve(user.root ?? process.cwd()));
       project = resolveProject(root);
       build = env.command !== "build" ? undefined : env.isSsrBuild ? "server" : "client";
+      prerendering = user.build?.rollupOptions?.input === PRERENDER_ENTRY;
+      settings = build && (await buildConfig(project));
 
       const entries = project.appDir
         ? ["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*", "!app/**/remote.*", "!app/**/remote/**"]
@@ -123,7 +143,8 @@ export function host(dotenv: boolean): Plugin<Host> {
         optimizeDeps: { entries, include: DEPS },
         resolve: { alias: hosted() },
         environments: { ssr: { resolve: { external: SHARED } } },
-        build: env.isSsrBuild || user.build?.rollupOptions?.input === PRERENDER_ENTRY ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
+        build: env.isSsrBuild || prerendering ? undefined : { rollupOptions: { input: project.htmlPath ?? join(root, "index.html") } },
+        ...(build === "server" && settings!.target === "fetch" && FETCH),
       };
     },
 
@@ -140,7 +161,7 @@ export function host(dotenv: boolean): Plugin<Host> {
 
     async buildStart() {
       if (build === "client") {
-        const salt = (await buildConfig(project)).remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
+        const salt = settings!.remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
         builds.set(root, (exposure = new Exposure(salt)));
       }
 
@@ -193,6 +214,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         const { problems, ...scanned } = await scanRemote(remote, readFileSync(file, "utf8"), sources, remoteAt);
 
         if (problems.length) this.error(`${relative(root, file)}: ${problems.join(" ")}`);
+        if ((await target()) === "fetch") stateless(this, relative(root, file), scanned);
 
         const exposed = { ...remote, ...scanned };
         exposure.modules.set(file, exposed);
@@ -202,6 +224,8 @@ export function host(dotenv: boolean): Plugin<Host> {
 
       switch (id) {
         case callId:
+          if (prerendering) return PRERENDER_CALL;
+
           return [
             `import { Context, Model, def } from "@expressive/mvc";`,
             `import { Route } from "@expressive/dev";`,
@@ -211,9 +235,9 @@ export function host(dotenv: boolean): Plugin<Host> {
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
-          return generateRoutes(project.appDir!, generatedDir, scanExports);
+          return (routes = await generate());
         case serverId:
-          return serverEntry(project, generatedDir, exposure, seated(project));
+          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, seated(project));
         case prerenderId: {
           if (!project.appDir) return prerenderEntry(importRel(generatedDir, project.appPath!), []);
 
@@ -248,13 +272,47 @@ export function host(dotenv: boolean): Plugin<Host> {
     configureServer(server) {
       const host = (runner = createServerModuleRunner(server.environments.ssr));
       install();
-      watchRoutes(server, project, routesId);
+      watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
+      const ctx: Ctx = {
+        waitUntil: promise => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)),
+      };
+      let bound: Promise<object> | undefined;
+
+      const bindings = () =>
+        (bound ??= (async () => {
+          const { bindings: provide } = await host.import(project.configPath!);
+          return typeof provide == "function" ? provide() : {};
+        })().catch(error => {
+          bound = undefined;
+          throw error;
+        }));
+
+      const shell = (url: string) => server.transformIndexHtml(url, readShell());
 
       server.middlewares.use(toNode(async request => {
         if (isStream(request)) return stream(request);
-        if (isCall(request)) return dispatch(request, endpoints, true, seatsOf(host, project), twins);
+
+        const config = await api.config();
+        const call = isCall(request);
+
+        if (!call && !config.fetch) return;
+
+        const env = config.target === "fetch" ? await bindings() : {};
+
+        const scope = { request, env, ctx };
+
+        bind(request, env);
+
+        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
+
+        const { pathname, search } = new URL(request.url);
+        const { publicDir } = server.config;
+        const next = async () =>
+          (publicDir && fileResponse(publicDir, pathname)) || new Response(await shell(pathname + search), { headers: { "content-type": "text/html" } });
+
+        return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx, next));
       }));
 
       return () => {
@@ -262,7 +320,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           if (req.method !== "GET" || !req.headers.accept?.includes("text/html")) return next();
 
           try {
-            const html = await server.transformIndexHtml(req.originalUrl!, readShell());
+            const html = await shell(req.originalUrl!);
             res.setHeader("Content-Type", "text/html");
             res.end(html);
           } catch (error) {
@@ -274,22 +332,33 @@ export function host(dotenv: boolean): Plugin<Host> {
   };
 }
 
-function watchRoutes(server: ViteDevServer, project: Project, routesId: string) {
+function watchRoutes(server: ViteDevServer, project: Project, routesId: string, stale: () => Promise<boolean>) {
   const { appDir } = project;
   if (!appDir) return;
 
   server.watcher.add(appDir);
 
-  const changed = (file: string) => {
-    if (!file.startsWith(appDir)) return;
-
+  const reload = () => {
     const mod = server.moduleGraph.getModuleById(routesId);
     if (mod) server.moduleGraph.invalidateModule(mod);
     server.ws.send({ type: "full-reload" });
   };
 
-  server.watcher.on("add", changed);
-  server.watcher.on("unlink", changed);
+  const moved = (file: string) => {
+    if (file.startsWith(appDir)) reload();
+  };
+
+  const edited = async (file: string) => {
+    if (!file.startsWith(appDir)) return;
+
+    try {
+      if (await stale()) reload();
+    } catch {}
+  };
+
+  server.watcher.on("add", moved);
+  server.watcher.on("unlink", moved);
+  server.watcher.on("change", edited);
 }
 
 function hosted() {
@@ -358,6 +427,23 @@ function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Rem
       ...(remote.seat ? [`export default ${twinOf(exposure.definition(remote, remote.seat, false))};`] : []),
     ],
   });
+}
+
+const FETCH: UserConfig = {
+  environments: { ssr: { resolve: { noExternal: true } } },
+  build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
+};
+
+function stateless(context: { error(message: string): never }, file: string, { seat, pooled }: { seat?: unknown; pooled: { name: string }[] }) {
+  const why = "- the fetch target keeps no state between requests, so a remote there exports functions only.";
+
+  if (seat) context.error(`${file} default-exports a seat ${why}`);
+  if (pooled.length) context.error(`${file} exports Model ${pooled.map(twin => twin.name).join(", ")} ${why}`);
+}
+
+async function namedExports(project: Project): Promise<string[]> {
+  const { exports } = await scanExports(readFileSync(project.configPath!, "utf8"), project.configPath!);
+  return [...exports].filter(name => name !== "default" && name !== "bindings");
 }
 
 async function buildConfig(project: Project): Promise<AppConfig> {

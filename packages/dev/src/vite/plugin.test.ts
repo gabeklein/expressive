@@ -1,11 +1,11 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, createServer, createServerModuleRunner, optimizeDeps, resolveConfig, type InlineConfig, type ViteDevServer } from "vite";
-import { client, HttpError } from "@expressive/rpc";
+import { client, Current, HttpError } from "@expressive/rpc";
 
 import { clientBuild, serverBuild } from "./build";
 import { expressive } from "./plugin";
@@ -55,6 +55,7 @@ describe("vite host", () => {
       plugins: [host],
       resolve,
       optimizeDeps: { noDiscovery: true, include: [] },
+      server: { watch: null },
     });
     servers.push(server);
     return server;
@@ -211,6 +212,7 @@ describe("vite host", () => {
 
     return { alias: [{ find: /^@expressive\/mvc$/, replacement: shim }, ...(SOURCES!.alias as any[])] };
   }
+
   const SEAT = `
     ${HOST}
     export default class Tally extends Model {
@@ -713,7 +715,7 @@ describe("vite host", () => {
     const code = typeof entry == "string" ? entry : entry!.code;
 
     expect(code).toContain(`import App from "../app.tsx";`);
-    expect(code).toContain("await Promise.all([])");
+    expect(code).toContain("for (const list of [])");
   });
 
   it("will resolve the prerender entry's renderer from this package", async () => {
@@ -735,6 +737,15 @@ describe("vite host", () => {
     expect(await input("/x.ts")).toBe(join(realpathSync(root), "index.html"));
   });
 
+  it("will serve the prerender build a call module that stops at the server", async () => {
+    const root = project({ "app/index.tsx": PAGE });
+    const host = expressive();
+    await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [host], build: { rollupOptions: { input: "/.expressive/prerender.tsx" } } }, "build");
+    const load = host.load as (this: unknown, id: string, options?: object) => Promise<unknown>;
+
+    expect(await load.call({}, join(realpathSync(root), ".expressive/call.ts"))).toContain("Remote calls do not run at build.");
+  });
+
   it("will throw if config is read before the dev server runs", async () => {
     await expect(expressive().api!.config()).rejects.toThrow("The dev server is not running.");
   });
@@ -749,9 +760,9 @@ describe("vite host", () => {
     expect(await other.api!.config()).toEqual({});
   });
 
-  it("will resolve the working directory as the root by default", () => {
+  it("will resolve the working directory as the root by default", async () => {
     const host = expressive() as any;
-    expect(() => host.config({}, { command: "serve", mode: "development" })).toThrow("Missing app.tsx");
+    await expect(host.config({}, { command: "serve", mode: "development" })).rejects.toThrow("Missing app.tsx");
   });
 
   it("will serve a project's own index.html as the shell", async () => {
@@ -814,10 +825,182 @@ describe("vite host", () => {
     expect(sent).toEqual([{ type: "full-reload" }, { type: "full-reload" }]);
   });
 
+  it("will reload the page when an edit changes the route tree", async () => {
+    const root = realpathSync(project({
+      "app/index.tsx": PAGE,
+      "app/helper.ts": "export const x = 1;",
+    }));
+    const index = join(root, "app/index.tsx");
+    const server = await serve(root);
+    const sent: unknown[] = [];
+
+    server.ws.send = ((payload: { triggeredBy?: string }) =>
+      void (payload.triggeredBy || sent.push(payload))) as any;
+
+    const edit = async (file: string, source: string) => {
+      writeFileSync(file, source);
+      server.watcher.emit("change", file);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    };
+
+    await edit(index, `${PAGE}\nexport const early = 1;`);
+    await server.transformRequest("/.expressive/routes.tsx");
+    await edit(index, PAGE.replace("hi", "ho"));
+    await edit(index, `${PAGE}\nexport const paths = () => [];`);
+    await edit(index, "export function Page( {");
+    await edit(join(root, "app/helper.ts"), "export const x = 2;");
+    server.watcher.emit("change", join(root, "elsewhere.ts"));
+    expect(sent).toEqual([]);
+
+    writeFileSync(index, `${PAGE}\nexport function Layout({ children }) { return children }`);
+    server.watcher.emit("change", index);
+
+    await vi.waitFor(() => expect(sent).toEqual([{ type: "full-reload" }]));
+    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain("Layout as RootLayout");
+  });
+
   it("builds the node service for a single-file project", async () => {
     const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" });
 
     expect(server).toContain('from "@expressive/dev/server"');
+  });
+
+  const FETCH = {
+    "index.ts": `
+      export async function bindings() { return (await import("./local")).local(); }
+      export { Counter } from "./counter";
+      export default {
+        target: "fetch",
+        port: 8080,
+        remote: { opaque: false },
+        around(next: () => Promise<unknown>, { request, env }: { request: Request; env: any }) {
+          ((globalThis as any).around ??= []).push(\`\${new URL(request.url).pathname} \${env.NAME}\`);
+          return request.headers.has("x-fail") ? Promise.reject(new Error("no session")) : next();
+        },
+        async fetch(request: Request, env: any, ctx: any) {
+          ctx.waitUntil(Promise.reject(new Error("late")));
+          if (new URL(request.url).pathname === "/hello") return (await import("./hello")).hello(env);
+        },
+        cron(env: any) { return env.NAME; },
+      };
+    `,
+    "hello.ts": `
+      import { Current } from "@expressive/rpc";
+      export const hello = (env: any) => Response.json({ name: env.NAME, path: (globalThis.hostCurrent ?? Current).get().url.pathname });
+    `,
+    "counter.ts": "export class Counter {}",
+    "local.ts": `import { readFileSync } from "node:fs"; export const local = () => ({ NAME: typeof readFileSync == "function" ? "dev-only-binding" : "" });`,
+    "app/index.tsx": PAGE,
+    "app/shop/index.tsx": "import { price } from './remote'; export const Page = () => price",
+    "app/shop/remote.ts": "export async function price() { return 3; }",
+    "app/tally/index.tsx": "import { add, bound } from './remote'; export const Page = () => [add, bound]",
+    "app/tally/remote.ts": `${SIDECAR}
+      import { Current } from "@expressive/rpc";
+      export async function bound() { return ((globalThis.hostCurrent ?? Current).get().env as any).NAME; }
+    `,
+  };
+
+  const post = (path: string, name: string, body: string) =>
+    new Request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body });
+
+  it("builds the fetch entry: the app's config, remotes and named exports wired to fetchHandler, every dependency bundled", async () => {
+    const root = project(FETCH);
+    const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
+
+    await build(quiet(clientBuild(root)));
+    await build(quiet(serverBuild(root)));
+
+    const dir = join(root, "dist/server");
+    const code = readdirSync(dir, { recursive: true, encoding: "utf8" }).filter(file => /\.m?js$/.test(file)).map(file => readFileSync(join(dir, file), "utf8")).join("\n");
+    const { default: handler, ...named } = await import(join(dir, "index.js"));
+    const env = { NAME: "prod" };
+    const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => {}) };
+    const imports = [...code.matchAll(/from\s*"([^"]+)"|import\s*"([^"]+)"/g)].map(([, a, b]) => a ?? b).filter(spec => !spec.startsWith("./"));
+
+    expect(await (await handler.fetch(post("/tally", "add", "[2, 3]"), env, ctx)).json()).toEqual({ value: 5 });
+    expect(await (await handler.fetch(post("/shop", "price", "[]"), env, ctx)).json()).toEqual({ value: 3 });
+    expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
+    expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
+    expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod", path: "/hello" });
+    expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
+    expect(handler.cron(env)).toBe("prod");
+    expect(Object.keys(named)).toEqual(["Counter"]);
+    expect([...new Set(imports)].sort()).toEqual(["node:async_hooks", "node:crypto"]);
+    expect(code).not.toContain("dev-only-binding");
+    expect(code).not.toContain("createServer");
+  });
+
+  it("will run the app's fetch in dev with its bindings, after calls and before Vite", async () => {
+    (globalThis as any).hostCurrent = Current;
+    (globalThis as any).around = [];
+    const server = await serve(project(FETCH));
+    const error = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
+    await server.listen(0);
+    const at = (path: string) => new URL(path, server.resolvedUrls!.local[0]);
+
+    await server.transformRequest("/app/tally/remote.ts");
+
+    const bound = await fetch(at("/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": TAB, "x-expressive-call": "bound" }, body: "[]" });
+
+    const refused = await fetch(at("/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": TAB, "x-expressive-call": "bound", "x-fail": "1" }, body: "[]" });
+
+    expect(await bound.json()).toEqual({ value: "dev-only-binding", frame: {} });
+    expect([refused.status, (await refused.json()).message]).toEqual([500, "no session"]);
+    expect(await (await fetch(at("/hello"))).json()).toEqual({ name: "dev-only-binding", path: "/hello" });
+    expect(await (await fetch(at("/"), { headers: { accept: "text/html" } })).text()).toContain('<div id="root"></div>');
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
+    expect((globalThis as any).around.splice(0)).toEqual(["/tally dev-only-binding", "/tally dev-only-binding", "/hello dev-only-binding", "/ dev-only-binding"]);
+    delete (globalThis as any).hostCurrent;
+    delete (globalThis as any).around;
+  });
+
+  it("will retry dev bindings that failed, and give a Node app's fetch none", async () => {
+    const root = project({
+      "index.ts": `
+        let tries = 0;
+        export function bindings() { if (!tries++) throw new Error("not yet"); return { NAME: "dev" }; }
+        export default { target: "fetch", fetch: async (_: Request, env: any) => Response.json(env.NAME) };
+      `,
+      "app/index.tsx": PAGE,
+    });
+    const server = await serve(root);
+    await server.listen(0);
+    const at = new URL("/name", server.resolvedUrls!.local[0]);
+
+    expect((await fetch(at)).status).toBe(500);
+    expect(await (await fetch(at)).json()).toBe("dev");
+
+    const node = await serve(project({ "index.ts": `export default { fetch: async (_: Request, env: any) => Response.json(env) };`, "app/index.tsx": PAGE }));
+    await node.listen(0);
+
+    expect(await (await fetch(new URL("/name", node.resolvedUrls!.local[0]))).json()).toEqual({});
+  });
+
+  it("will give the app's fetch in dev a public file, else the transformed shell, as next", async () => {
+    const server = await serve(project({
+      "index.ts": `export default { fetch: async (request: Request, env: unknown, ctx: unknown, next: () => Promise<Response>) => new URL(request.url).pathname.startsWith("/@") ? undefined : next() };`,
+      "public/robots.txt": "robots",
+      "app/index.tsx": PAGE,
+    }));
+    await server.listen(0);
+    const at = (path: string) => new URL(path, server.resolvedUrls!.local[0]);
+
+    const page = await fetch(at("/invite/abc"));
+
+    expect(page.headers.get("content-type")).toBe("text/html");
+    expect(await page.text()).toMatch(/\/@vite\/client[^]*<div id="root"><\/div>/);
+    expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
+  });
+
+  it("will refuse a seat or a pooled class under the fetch target, and bind nothing without bindings()", async () => {
+    const index = `export default { target: "fetch", fetch: async (_: Request, env: any) => Response.json(env) };`;
+    const server = await serve(project({ "index.ts": index, "app/index.tsx": PAGE, "app/tally/remote.ts": SEAT, "app/shop/remote.ts": POOLED }));
+    await server.listen(0);
+
+    expect(await (await fetch(new URL("/env", server.resolvedUrls!.local[0]))).json()).toEqual({});
+
+    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts default-exports a seat - the fetch target keeps no state between requests");
+    await expect(server.transformRequest("/app/shop/remote.ts")).rejects.toThrow("app/shop/remote.ts exports Model Cart - the fetch target");
   });
 
   it("will salt ids when index.ts has no default", async () => {

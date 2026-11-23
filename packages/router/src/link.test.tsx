@@ -1,7 +1,6 @@
-import { act, fireEvent, render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { location, browserRouter } from '../test.setup';
+import { act, browserRouter, getByText, location, render } from '../test.setup';
 import { Link } from './link';
 import { Route } from './route';
 
@@ -63,7 +62,7 @@ function grab(props: Props) {
 async function click(a: HTMLAnchorElement, init: object = {}) {
   let result!: boolean;
   await act(async () => {
-    result = fireEvent.click(a, { button: 0, ...init });
+    result = a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ...init }));
   });
   return result;
 }
@@ -77,7 +76,7 @@ describe('Link', () => {
 
   it('will render an anchor when invoked without props', () => {
     const link = grab({ to: '/about' });
-    expect(Link.prototype.render.call(link)).toMatchObject({ type: 'a' });
+    expect(link.render()).toMatchObject({ type: 'a' });
   });
 
   it.each([
@@ -141,7 +140,9 @@ describe('Link', () => {
     ['will resolve relative `to` against nearest Route', '/posts/foo', '/posts/:id', './edit', '/posts/foo/edit'],
     ['will preserve query and fragment in a relative `to`', '/posts/foo', '/posts/:id', './edit?tab=history#form', '/posts/foo/edit?tab=history#form'],
     ['will resolve a fragment against the Route, keeping query', '/posts/foo?view=full#intro', '/posts/:id', '#details', '/posts/foo?view=full#details'],
-    ['will resolve a fragment against the root Route', '/?view=full', '/', '#details', '/?view=full#details']
+    ['will resolve a fragment against the root Route', '/?view=full', '/', '#details', '/?view=full#details'],
+    ['will resolve a parent `to` against nearest Route', '/posts/foo', '/posts/:id', '../bar', '/posts/bar'],
+    ['will collapse dot segments in a relative `to`', '/posts/foo', '/posts/:id', './a/../b/./c', '/posts/foo/b/c']
   ])('%s', async (_, at, route, to, href) => {
     location(at);
     const a = link({ to }, route);
@@ -149,6 +150,27 @@ describe('Link', () => {
 
     await click(a);
     expect(router.current.url).toBe(href);
+  });
+
+  it('will resolve unchanged where a one-letter scheme reads as a drive letter', () => {
+    class DriveURL extends URL {
+      constructor(url: string | URL, base?: string | URL) {
+        super(url, base);
+
+        const drive = /^([a-z]):/i.exec(String(base));
+
+        if (drive) this.pathname = `/${drive[1].toUpperCase()}:${this.pathname}`;
+      }
+    }
+
+    location('/posts/foo');
+    vi.stubGlobal('URL', DriveURL);
+
+    try {
+      expect(link({ to: '../bar?b=1#top' }, '/posts/:id').getAttribute('href')).toBe('/posts/bar?b=1#top');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it.each([
@@ -247,7 +269,7 @@ describe('Link.match / Link.active', () => {
 it('will accept spread Link.Props', () => {
   location('/');
   const props: Link.Props = { to: '/about', children: 'About' };
-  const { getByText } = render(
+  render(
     <Route>
       <Link {...props} />
     </Route>

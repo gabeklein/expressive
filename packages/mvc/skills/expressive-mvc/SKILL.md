@@ -12,9 +12,8 @@ A class-based state backbone - reactive MVC in plain classes, rendered by React 
 | Package              | Status    | Description                                                       |
 | -------------------- | --------- | ----------------------------------------------------------------- |
 | `@expressive/mvc`    | Published | Framework-agnostic core. Primary import for Model, Component, instructions. |
-| `@expressive/react`  | Published | React adapter. Supplies the host.                                 |
+| `@expressive/react`  | Published | React adapter. Supplies the host; `/compat` for preact/compat.     |
 | `@expressive/dom`    | Preview   | MVC-native client DOM renderer without a framework dependency.     |
-| `@expressive/preact` | Private   | Thin wrapper over React adapter via preact/hooks. Prerelease.     |
 | `@expressive/router` | Published | Host-agnostic, class-based router built on MVC.                   |
 | `@expressive/inspect` | Published | In-process inspector: registry, ownership tree, path queries, journal. |
 | `@expressive/rpc`    | Preview   | Typed server calls for a Vite client build - one folder of modules, stubs on the client. |

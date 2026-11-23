@@ -9,12 +9,14 @@ import { host as app } from "./plugin";
 export interface DevOptions {
   /** Serve inspect's `/__inspect` relay - default `true`. */
   inspect?: boolean;
+  /** Port to listen on - over `index.ts`'s `port` and Vite's. */
+  port?: number;
   /** Copy `.env` files into `process.env`, keys not already set - default `true`. `env` reads them either way. */
   env?: boolean;
 }
 
 /** `expressive dev` - a Vite dev server with the host plugin and, unless turned off, inspect's relay. */
-export async function runDev(root = process.cwd(), { inspect: relay = true, env: dotenv = true }: DevOptions = {}): Promise<void> {
+export async function runDev(root = process.cwd(), { inspect: relay = true, port, env: dotenv = true }: DevOptions = {}): Promise<void> {
   const host = app(dotenv);
 
   if (dotenv) register();
@@ -24,10 +26,11 @@ export async function runDev(root = process.cwd(), { inspect: relay = true, env:
     mode: nodeMode(),
     configFile: viteConfigFile(root),
     plugins: [host, env(), relay && inspect()],
+    server: port === undefined ? undefined : { port },
   });
 
-  const { port } = await host.api!.config();
+  const configured = (await host.api!.config()).port;
 
-  await server.listen(port);
+  await server.listen(port ?? configured);
   server.printUrls();
 }

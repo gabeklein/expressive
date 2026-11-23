@@ -2,8 +2,20 @@
 
 ## pr.yml (pull requests)
 
-Blocking: `bun run typecheck`, `bun run coverage`, `bun run build` and
-`dist-check.ts` (static invariants on the emitted dist - relative specifiers
+`changes` runs first - `affected.ts` diffs the PR against its base
+(`--no-renames`, so a move marks both sides) and names what the change can reach:
+packages touched under `packages/<x>/` plus their dependents through
+`package.json` deps, devDeps and peers. Markdown outside a package's `src/`,
+`website/`, `skills/`, `.changeset/` and root `*.md` reach nothing; any other
+file outside `packages/` and `examples/` - `bun.lock`, `vitest.config.ts`,
+tsconfig, `.github/**` - reaches every package. `e2e` and `hot` read their
+consumers (`examples/package.json` and `vite.config.ts`, `hot-probe.ts`) for
+`@expressive/*` names, so a new import is picked up without editing the script.
+Jobs gate on its outputs with `!= 'false'` under `!cancelled()`: if `changes`
+fails, everything runs - required checks never pass by skipping.
+
+Blocking: typecheck and coverage on the affected packages (skipped when none
+are), `bun run build` and `dist-check.ts` (static invariants on the emitted dist - relative specifiers
 resolve, side-effect imports are declared). Tests still run after a failed
 typecheck, so a type error doesn't hide test results. Steps backed by a script
 under `.github/scripts` invoke it directly; only workspace-wide commands are
@@ -14,21 +26,28 @@ a workspace version that falls outside a sibling's range cannot reach main.
 Non-blocking signal: `changeset status` (a preview of which packages would
 bump).
 
-Beside `verify`, one run per push also holds:
+Beside `verify`, one run per push also holds, each only when `changes` says
+the diff reaches it:
 
-- `dist-smoke` - `dist-smoke.ts` (see below) on Node 24, so a dist a consumer
+- `dist-smoke` - any package affected. `dist-smoke.ts` (see below) on Node 24, so a dist a consumer
   cannot load fails the PR that caused it rather than the release.
-- `e2e` - every example page's Playwright spec on React and dom.
+- `e2e` - `examples/` or a package it imports changed. Every example page's Playwright spec on React and dom.
 - `native` - calls `native.yml` for a PR labeled `react-native`.
-- `hot` - `hot-probe.ts`, the hot-reload gauntlet in Chrome on React and dom.
+- `hot` - a package `hot-probe.ts` imports changed. `hot-probe.ts`, the hot-reload gauntlet in Chrome on React and dom.
   Not yet a required check.
-- `size` - `bundle-size.ts`, run on the base branch and then the PR: the
+- `size` - any package affected. `bundle-size.ts`, run on the base branch and then the PR: the
   per-shape difference goes in the step summary, and `--gate` fails when a
   shape grows more than 5% in one change. Not a required check - intended
   growth is explained in the PR and merged. No budgets to re-set.
-- `dev` - `packages/dev`'s example specs against its dev server and its built
+- `dev` - `packages/dev` affected. Its example specs against its dev server and its built
   server. Runs for a PR into any branch, since dev's PRs target its trunk. Not
   a required check.
+- `rpc` - `packages/rpc` affected. Its example specs on vite dev, Node and
+  wrangler dev. Not a required check.
+
+Playwright jobs launch the runner image's Google Chrome through `CHROME`
+rather than a cached Playwright Chromium - no `install-deps` apt step. Every
+job has `timeout-minutes`, so a stall fails instead of running to the 6h default.
 
 `verify` and `e2e` are required checks, matched by job name - renaming either
 job needs the branch protection updated with it.
@@ -46,6 +65,18 @@ outside a stack, runs only `verify`: create stacks with `gh stack`.
 
 `verify` typechecks from scratch. Restored incremental build info re-checks
 only changed files, in an order that can surface type cycles a clean run does not.
+
+## preview.yml (manual)
+
+`publish` - `gh workflow run preview.yml --ref <branch>`. Builds the branch head
+and publishes every public package to [pkg.pr.new](https://pkg.pr.new), URLs
+pinned to the commit; the run summary lists them (`gh run view <id>`). Needs
+write access. Install `@expressive/mvc` from the same commit - it is a peer
+range, so npm's release would satisfy it otherwise. `dev` and `env` reference
+siblings through long-form URLs
+(`https://pkg.pr.new/gabeklein/expressive/@expressive/<pkg>@<sha>`); bun keys
+tarballs by URL, so add those siblings in that form or not at all, or each
+installs twice.
 
 ## major.yml (pull requests)
 

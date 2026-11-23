@@ -1,0 +1,34 @@
+name: Preview
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup
+
+      - run: bun run build
+
+      - name: Publish to pkg.pr.new
+        run: bunx pkg-pr-new@0.0.94 publish --no-template --json=preview.json './packages/*'
+
+      - name: Install URLs
+        run: |
+          {
+            echo "### ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}"
+            echo '```bash'
+            jq -r '"bun add " + ([.packages[].url] | join(" \\\n  "))' preview.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

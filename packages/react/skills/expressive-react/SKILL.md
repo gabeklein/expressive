@@ -9,6 +9,6 @@ description: React host for Expressive MVC (@expressive/react) - Component class
 
 - [refactor.md](refactor.md) - the refactor algorithm expanded: ownership triage, mechanical-setter and prop-drilling anti-patterns, single-consumer getters, dependency snapshots and conditional subscriptions, presence boundaries, restrained `is`, subcomponent overuse, extract-then-consolidate, review checklist
 - `expressive-mvc/style.md` - style profile: snapshot formatting, affirmative conditions, render fallthrough vs operational guards
-- [react.md](react.md) - Model.get() (optional lookup, presence boundaries, custom lookup), effects at commit, providing state, transparent writes, SSR, React Native, Vite hot reload
+- [react.md](react.md) - Model.get() (optional lookup, presence boundaries, custom lookup), effects at commit, providing state, transparent writes, SSR, React Native, Preact (`/compat`), Vite hot reload
 - `expressive-mvc/component.md` - Component class, props, children, extending a base, subcomponent extension points, Suspense, transitions, error boundaries
 - [patterns.md](patterns.md) - Recipes: forms, async, domain-row and form-chip pools, region controls, router bridge, host-agnostic domain model + view adapter, presence boundary, contextual children, debounce, async effects, awaiting a pending value, effects
