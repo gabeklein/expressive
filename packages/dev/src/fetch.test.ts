@@ -49,11 +49,12 @@ describe("fetchHandler", () => {
     expect(await response.json()).toMatchObject({ error: "Taken", message: "zero" });
   });
 
-  it("will run the app's fetch in the request's scope, else reply 404", async () => {
+  it("will run the app's fetch in the request's scope, else reply 404 - also its next", async () => {
     const ctx = { waitUntil: vi.fn() };
     const { fetch } = fetchHandler({
-      async fetch(request, env, ctx) {
+      async fetch(request, env, ctx, next) {
         ctx.waitUntil(Promise.resolve());
+        if (new URL(request.url).pathname === "/next") return next();
         if (new URL(request.url).pathname === "/hello") return Response.json({ env, path: Current.get().url.pathname });
       },
     }, [], []);
@@ -61,6 +62,7 @@ describe("fetchHandler", () => {
     expect(await json(fetch(new Request("http://localhost/hello"), { NAME: "prod" } as object, ctx))).toEqual({ env: { NAME: "prod" }, path: "/hello" });
     expect(ctx.waitUntil).toHaveBeenCalled();
     expect((await fetch(new Request("http://localhost/missing"), {}, ctx)).status).toBe(404);
+    expect((await fetch(new Request("http://localhost/next"), {}, ctx)).status).toBe(404);
   });
 
   it("will run calls and the app's fetch inside around", async () => {

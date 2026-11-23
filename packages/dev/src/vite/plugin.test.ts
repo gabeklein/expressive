@@ -945,6 +945,22 @@ describe("vite host", () => {
     expect(await (await fetch(new URL("/name", node.resolvedUrls!.local[0]))).json()).toEqual({});
   });
 
+  it("will give the app's fetch in dev a public file, else the transformed shell, as next", async () => {
+    const server = await serve(project({
+      "index.ts": `export default { fetch: async (request: Request, env: unknown, ctx: unknown, next: () => Promise<Response>) => new URL(request.url).pathname.startsWith("/@") ? undefined : next() };`,
+      "public/robots.txt": "robots",
+      "app/index.tsx": PAGE,
+    }));
+    await server.listen(0);
+    const at = (path: string) => new URL(path, server.resolvedUrls!.local[0]);
+
+    const page = await fetch(at("/invite/abc"));
+
+    expect(page.headers.get("content-type")).toBe("text/html");
+    expect(await page.text()).toMatch(/\/@vite\/client[^]*<div id="root"><\/div>/);
+    expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
+  });
+
   it("will refuse a seat or a pooled class under the fetch target, and bind nothing without bindings()", async () => {
     const index = `export default { target: "fetch", fetch: async (_: Request, env: any) => Response.json(env) };`;
     const server = await serve(project({ "index.ts": index, "app/index.tsx": PAGE, "app/tally/remote.ts": SEAT, "app/shop/remote.ts": POOLED }));

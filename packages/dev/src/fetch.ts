@@ -19,7 +19,7 @@ type Handlers<T> = Omit<T, "port" | "remote" | "target" | "fetch" | "around">;
 /**
  * The `target: "fetch"` server - the generated `dist/server/index.js` default-exports it.
  *
- * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env`.
+ * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env`. `config.fetch`'s `next` resolves that 404.
  * Calls and `config.fetch` each run inside `config.around`.
  * `env` defaults to `{}`; `ctx` to a stand-in whose `waitUntil` logs a rejection.
  * Members of `config` other than `port`, `remote`, `target`, `fetch` and `around` join the result.
@@ -49,12 +49,14 @@ export function fetchHandler<T extends AppConfig>(config: T, modules: Record<str
 
   const later: Ctx = { waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)) };
 
+  const missing = async () => new Response("Not found.", { status: 404 });
+
   const respond = async (request: Request, env: Env, ctx: Ctx): Promise<Response> => {
     const scope = { request, env, ctx };
 
     if (isCall(request)) return wrap(config, scope, () => dispatch(request, () => sidecars, false)).catch(error => failure(error, sidecars, false));
 
-    return (app.fetch && (await wrap(config, scope, async () => app.fetch!(request, env, ctx)))) ?? new Response("Not found.", { status: 404 });
+    return (app.fetch && (await wrap(config, scope, async () => app.fetch!(request, env, ctx, missing)))) ?? missing();
   };
 
   return {

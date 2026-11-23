@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { sendFile, serve } from "./serve";
+import { fileResponse, serve } from "./serve";
 
 describe("static files", () => {
   const dir = mkdtempSync(join(tmpdir(), "client-"));
@@ -14,35 +14,18 @@ describe("static files", () => {
   writeFileSync(join(dir, "index.html"), "<html></html>");
   writeFileSync(join(dir, "assets", "app.js"), "1");
 
-  const response = () => {
-    const headers: Record<string, string> = {};
-    let ended = false;
-    const res = {
-      statusCode: 0,
-      setHeader: (k: string, v: string) => { headers[k] = v; },
-      end: () => { ended = true; },
-      on: () => res,
-      once: () => res,
-      emit: () => true,
-      write: () => true,
-      headers,
-      get ended() { return ended; },
-    };
-    return res;
-  };
-
-  it("sends a file under the directory with its type; assets are immutable", () => {
-    const res = response();
-    expect(sendFile(res as any, dir, "/assets/app.js")).toBe(true);
-    expect(res.headers["Content-Type"]).toContain("javascript");
-    expect(res.headers["Cache-Control"]).toContain("immutable");
+  it("sends a file under the directory with its type; assets are immutable", async () => {
+    const res = fileResponse(dir, "/assets/app.js")!;
+    expect(res.headers.get("content-type")).toContain("javascript");
+    expect(res.headers.get("cache-control")).toContain("immutable");
+    expect(await res.text()).toBe("1");
   });
 
   it("will not serve a missing file, a directory, or a path outside the directory", () => {
-    expect(sendFile(response() as any, dir, "/nope.js")).toBe(false);
-    expect(sendFile(response() as any, dir, "/assets")).toBe(false);
-    expect(sendFile(response() as any, dir, "/../" + dir.split("/").pop() + "/index.html")).toBe(false);
-    expect(sendFile(response() as any, join(dir, "assets"), "/../index.html")).toBe(false);
+    expect(fileResponse(dir, "/nope.js")).toBeUndefined();
+    expect(fileResponse(dir, "/assets")).toBeUndefined();
+    expect(fileResponse(dir, "/../" + dir.split("/").pop() + "/index.html")).toBeUndefined();
+    expect(fileResponse(join(dir, "assets"), "/../index.html")).toBeUndefined();
   });
 });
 
@@ -137,6 +120,35 @@ describe("serve", () => {
     expect(hello.headers.get("x-seen")).toBe("1");
     expect(await (await fetch(base + "/")).text()).toBe("home");
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil:", new Error("late")));
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
+
+  it("will give the app's fetch what it falls through to as next", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    writeFileSync(join(dir, "200.html"), "<head></head>");
+    writeFileSync(join(dir, "robots.txt"), "robots");
+
+    const config = {
+      port: 0,
+      async fetch(_request: Request, _env: object, _ctx: object, next: () => Promise<Response>) {
+        const page = await next();
+        return new Response(`${page.status} ${await page.text()}`.replace("</head>", "<meta></head>"), page);
+      },
+    };
+
+    const server = serve({ config, client: dir });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const invite = await fetch(base + "/invite/abc");
+
+    expect(await invite.text()).toBe("200 <head><meta></head>");
+    expect(invite.headers.get("content-type")).toContain("text/html");
+    expect(await (await fetch(base + "/robots.txt")).text()).toBe("200 robots");
 
     server.closeAllConnections();
     server.close();
