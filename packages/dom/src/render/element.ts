@@ -61,7 +61,7 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     });
 
   return complete(fiber, () => {
-    patchProps(fiber, value.props, appearance, adopting);
+    patchProps(fiber, value, appearance, adopting);
   });
 }
 
@@ -85,13 +85,14 @@ function prune(element: Element, props: Record<string, any>) {
     if (name == 'style' || !expected.has(name.toLowerCase())) element.removeAttribute(name);
 }
 
-function patchProps(fiber: Fiber, next: Record<string, any>, appearance?: Appearance, adopting?: boolean) {
+function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adopting?: boolean) {
+  const next = value.props as Record<string, any>;
   const element = fiber.start as Element;
   const previous = fiber.props!;
   const raw = 'dangerouslySetInnerHTML' in next;
   const resolved = appearance?.context?.resolve(next, fiber.type as string);
 
-  unmatched(next, [appearance?.context], appearance?.author, undefined, fiber.type as string);
+  unmatched(value.source, next, [appearance?.context], appearance?.author, undefined, fiber.type as string);
 
   if (raw) {
     for (let index = fiber.children.length - 1; index >= 0; index--)

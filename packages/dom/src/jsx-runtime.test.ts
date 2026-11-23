@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   childrenOf,
   Fragment,
@@ -17,7 +17,7 @@ import { jsxDEV } from './jsx-dev-runtime';
 import { isVNode } from './node/vnode';
 
 describe('JSX runtime', () => {
-  it('will register DOM element mechanics', () => {
+  it('will create and read the default element', () => {
     const child = coreJsx('span', { children: 'one' });
     const node = coreJsxs(Fragment, { children: [child, 'two'] });
 
@@ -32,6 +32,19 @@ describe('JSX runtime', () => {
   it('will expose the development transform entry', () => {
     expect(isVNode(jsxDEV('div', {}, undefined, false, {}, null))).toBe(true);
     expect(isVNode(coreJsxDEV('div', {}, undefined, false))).toBe(true);
+  });
+});
+
+describe('import', () => {
+  it('will not register a host', async () => {
+    vi.resetModules();
+
+    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+
+    await vi.importActual('./index');
+    await vi.importActual('./jsx-runtime');
+
+    expect(() => runtime.host({ ...runtime, Fragment: null })).not.toThrow();
   });
 });
 

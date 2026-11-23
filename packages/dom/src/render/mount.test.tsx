@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { Component, has, Model } from '@expressive/mvc';
 import { render } from '../index';
@@ -81,21 +81,36 @@ describe('mount', () => {
     expect(() => render(<Unnamed />, root)).toThrow('Cannot render an anonymous function in Unnamed.');
   });
 
-  it('will name an element or portal made by another copy of the package', () => {
-    const foreign = { [Symbol('@expressive/dom.vnode')]: true, type: 'div', props: {} };
-    const Page = () => foreign as never;
-    const Nested = () => vnode(foreign as never, {});
+  it('will name a portal made by another copy of the package', () => {
     const Portal = () => vnode(Symbol('@expressive/dom.portal'), {});
     const root = document.createElement('main');
 
-    expect(() => render(<Page />, root)).toThrow(
-      'Cannot render an element from another copy of @expressive/dom in Page. Is the package loaded twice?'
-    );
-    expect(() => render(<Nested />, root)).toThrow(
-      'Cannot use an element from another copy of @expressive/dom as an element type in Nested. Is the package loaded twice?'
-    );
     expect(() => render(<Portal />, root)).toThrow(
       'Cannot use a portal from another copy of @expressive/dom as an element type in Portal. Is the package loaded twice?'
+    );
+  });
+
+  it('will name an element from another registered host', async () => {
+    vi.resetModules();
+
+    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const { render } = await vi.importActual<typeof import('../index')>('../index');
+    const foreign = { host: true } as never;
+    const Page = () => foreign;
+    const page = runtime.jsx(Page, {});
+
+    runtime.host({
+      jsx: () => foreign,
+      jsxs: () => foreign,
+      childrenOf: (children) => [children as never],
+      isElement: (node) => node === foreign,
+      propsOf: () => ({}),
+      typeOf: () => 'p',
+      Fragment: Symbol('host.Fragment')
+    });
+
+    expect(() => render(page, document.createElement('main'))).toThrow(
+      'Cannot render an element from another JSX host in Page. Is another host adapter, like @expressive/react, imported?'
     );
   });
 
