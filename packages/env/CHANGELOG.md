@@ -1,5 +1,19 @@
 # @expressive/env
 
+## 0.2.0
+
+### Minor Changes
+
+- [#758](https://github.com/gabeklein/expressive/pull/758) [`92dcc2d`](https://github.com/gabeklein/expressive/commit/92dcc2d68a5751d9b344f044c11bab09a01d9bda) `expressive env` alone writes `env.d.ts` and warns of unset keys without failing - a setup step for `prepare` scripts. The Vite plugin no longer creates `env.d.ts` on dev start (it refreshes one that exists), defers to an earlier `env()` in the same config, and drops from a bundle when nothing reads `env`.
+
+  `register()` copies the mode's `.env` files into `process.env` for dependencies that read it - call it before they load, or preload `@expressive/env/register` with `node --import`. Keys already set, and `NODE_ENV`, are left alone.
+
+### Patch Changes
+
+- [#767](https://github.com/gabeklein/expressive/pull/767) [`7d7714b`](https://github.com/gabeklein/expressive/commit/7d7714bd6fb2e55a0c552ede262ac4c8b60142fc) `expressive` finds installed `@expressive/*` commands instead of a hard-coded list - help no longer lists packages that are not installed, and running one is an unknown command rather than an install hint.
+- Updated dependencies [[`7d7714b`](https://github.com/gabeklein/expressive/commit/7d7714bd6fb2e55a0c552ede262ac4c8b60142fc)]:
+  - @expressive/cli@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes
