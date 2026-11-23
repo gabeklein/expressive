@@ -959,7 +959,6 @@ describe("vite host", () => {
     expect(page.headers.get("content-type")).toBe("text/html");
     expect(await page.text()).toMatch(/\/@vite\/client[^]*<div id="root"><\/div>/);
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
-
   });
 
   it("will refuse a seat or a pooled class under the fetch target, and bind nothing without bindings()", async () => {

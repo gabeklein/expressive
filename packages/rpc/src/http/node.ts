@@ -14,6 +14,7 @@ interface NodeResponse {
   end(chunk?: Uint8Array): unknown;
   destroy(): unknown;
   destroyed?: boolean;
+  stream?: { destroyed?: boolean };
 }
 
 export function toRequest(req: NodeRequest, res: NodeResponse): Request {
@@ -66,7 +67,7 @@ export async function send(res: NodeResponse, response: Response): Promise<void>
     reader.cancel().catch(() => {});
   };
 
-  if (res.destroyed) stop();
+  if (res.destroyed || res.stream?.destroyed) stop();
   else res.once("close", stop);
 
   try {

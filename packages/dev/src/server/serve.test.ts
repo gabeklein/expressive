@@ -18,6 +18,7 @@ describe("static files", () => {
     writeFileSync(join(dir, "late.txt"), "1");
 
     const res = fileResponse(dir, "/late.txt")!;
+    await new Promise(done => setTimeout(done, 20));
     unlinkSync(join(dir, "late.txt"));
 
     expect(res.headers.get("content-type")).toContain("text/plain");

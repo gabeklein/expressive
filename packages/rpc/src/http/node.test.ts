@@ -142,9 +142,9 @@ describe("node response backpressure", () => {
     expect(pulls).toBe(2);
   });
 
-  it("will cancel the body of a response already closed", async () => {
+  it.each([{ destroyed: true }, { stream: { destroyed: true } }])("will cancel the body of a response already closed (%o)", async closed => {
     const cancel = vi.fn();
-    const res = Object.assign(outgoing(), { destroyed: true });
+    const res = Object.assign(outgoing(), closed);
 
     res.write.mockReturnValue(false);
     await send(res, new Response(new ReadableStream({ pull: controller => controller.enqueue(new Uint8Array(1)), cancel })));
