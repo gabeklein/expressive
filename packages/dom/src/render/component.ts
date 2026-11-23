@@ -16,7 +16,7 @@ import { attempt, passiveRender } from './render';
 import { claim as dequeue, schedule, settle as absorb, transition } from '../core/scheduler';
 import { consume, observe } from '../core/appearance';
 import { isThenable } from '../node/kind';
-import { placing } from '../core/placement';
+import { own } from '../core/placement';
 
 function mountFunction(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const fiber = range('function', parent, before, context);
@@ -50,8 +50,8 @@ function mountOwnedComponent(
   const resolved = componentProps(value.type, value.props, appearance);
   const Type = value.type as new (props: unknown) => Component;
   const props = observe(resolved.props);
-  const instance = new Type(props);
-  const place = placing(instance);
+  let place!: () => void;
+  const instance = own(Type, props, new Promise<void>((resolve) => (place = resolve)));
 
   return mountComponent(instance, parent, before, context, boundary, resolved.appearance, true, value.key, props, place);
 }

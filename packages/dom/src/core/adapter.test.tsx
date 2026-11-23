@@ -4,7 +4,7 @@ import { Model, Component, Context } from '@expressive/mvc';
 import { render } from '../index';
 import * as hot from '@expressive/mvc/hot';
 import { observer } from '@expressive/mvc/observable';
-import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
+import { flushMicrotasks, mockPromise, mount, until } from '../../test.setup';
 
 describe('MVC adapter', () => {
   it('will update when a Model fetched via this.get changes', async () => {
@@ -928,5 +928,56 @@ describe('get parity', () => {
 
     remove();
     release();
+  });
+});
+
+describe('import', () => {
+  it('will install a resolver only once rendering', async () => {
+    vi.resetModules();
+
+    const { resolver } = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const sentinel: Parameters<typeof resolver>[0] = (_Type, compute) => compute(Context.root);
+
+    resolver(sentinel);
+
+    const { render } = await vi.importActual<typeof import('../index')>('../index');
+    const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
+
+    expect(resolver(sentinel)).toBe(sentinel);
+
+    const release = render(jsx(() => null, {}), document.createElement('main'));
+
+    expect(resolver(sentinel)).not.toBe(sentinel);
+    release();
+  });
+
+  it('will track an owner whose method was read before dom loaded', async () => {
+    vi.resetModules();
+
+    const { Model } = await vi.importActual<typeof import('@expressive/mvc')>('@expressive/mvc');
+
+    class App extends Model {
+      title = 'one';
+
+      Header() {
+        return this.title;
+      }
+    }
+
+    const app = App.new();
+    const { Header } = app;
+
+    const { render } = await vi.importActual<typeof import('../index')>('../index');
+    const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
+    const root = document.createElement('main');
+    const release = render(jsx(Header, {}), root);
+
+    expect(root.textContent).toBe('one');
+
+    app.title = 'two';
+    await until(() => expect(root.textContent).toBe('two'));
+
+    release();
+    app.set(null);
   });
 });

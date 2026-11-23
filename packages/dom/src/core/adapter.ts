@@ -1,6 +1,6 @@
 import { Context, Model, unbind } from '@expressive/mvc';
 import { watch } from '@expressive/mvc/observable';
-import { resolver } from '@expressive/mvc/jsx-runtime';
+import { methodOf, resolver } from '@expressive/mvc/jsx-runtime';
 
 import { schedule, transition, unschedule } from './scheduler';
 import type { Schedulable } from './scheduler';
@@ -14,6 +14,7 @@ interface Scope extends Schedulable {
 let current: Scope | undefined;
 let collecting: (() => void)[] | undefined;
 let memo: Map<object, object> | undefined;
+let normal: Parameters<typeof resolver>[0] | undefined;
 
 function enter<T>(scope: Scope, render: () => T): T {
   const parent = current;
@@ -21,6 +22,7 @@ function enter<T>(scope: Scope, render: () => T): T {
   const cached = memo;
   const next: (() => void)[] = [];
 
+  normal ||= resolver(resolve);
   current = scope;
   collecting = next;
   memo = new Map();
@@ -63,13 +65,13 @@ function tracked<T extends object>(target: T, required?: boolean): T {
   return proxy;
 }
 
-const normal = resolver((Type, compute) => {
-  if (!current) return normal(Type, compute);
+function resolve(Type: Model.Extends | undefined, compute: (context: Context) => unknown) {
+  if (!current) return normal!(Type, compute);
 
   const found = compute(Type ? cache(current.context) : current.context);
 
   return found instanceof Model ? cache(found) : found;
-});
+}
 
 function cache<T extends object>(target: T): T {
   let proxy = memo!.get(target);
@@ -79,25 +81,18 @@ function cache<T extends object>(target: T): T {
   return proxy as T;
 }
 
-const OWNERS = new WeakMap<Function, { owner: Model; key: string }>();
-
-Model.on({
-  method(key, fn, owner) {
-    if (/^[A-Z]/.test(key)) OWNERS.set(fn, { owner, key });
-  }
-});
-
 function call(type: Function, props: unknown) {
-  const sub = OWNERS.get(type);
+  const sub = owner(type);
 
   if (!sub) return type(props);
 
-  const { owner, key } = sub;
-  return unbind((owner as any)[key]).call(tracked(owner), props);
+  const { owner: self, key } = sub;
+  return unbind((self as any)[key]).call(tracked(self), props);
 }
 
-function owner(type: unknown) {
-  return typeof type == 'function' ? OWNERS.get(type) : undefined;
+function owner(type: unknown): { owner: Model; key: string } | undefined {
+  const sub = typeof type == 'function' ? methodOf(type) : undefined;
+  return sub && /^[A-Z]/.test(sub.key) ? sub : undefined;
 }
 
 export { call, dispose, enter, owner };
