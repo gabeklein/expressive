@@ -89,6 +89,9 @@
     "packages/dom": {
       "name": "@expressive/dom",
       "version": "0.13.4",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "workspace:^",
         "@types/node": "^25.2.0",
@@ -141,6 +144,18 @@
       "optionalPeers": [
         "vite",
       ],
+    },
+    "packages/jsx": {
+      "name": "@expressive/jsx",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@expressive/mvc": "workspace:^",
+        "@types/node": "^25.2.0",
+        "tsdown": "^0.20.1",
+      },
+      "peerDependencies": {
+        "@expressive/mvc": "^0.97.1",
+      },
     },
     "packages/mvc": {
       "name": "@expressive/mvc",
@@ -491,6 +506,8 @@
     "@expressive/examples": ["@expressive/examples@workspace:examples"],
 
     "@expressive/inspect": ["@expressive/inspect@workspace:packages/inspect"],
+
+    "@expressive/jsx": ["@expressive/jsx@workspace:packages/jsx"],
 
     "@expressive/mvc": ["@expressive/mvc@workspace:packages/mvc"],
 

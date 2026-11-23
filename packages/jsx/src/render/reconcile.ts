@@ -1,0 +1,132 @@
+import { Context } from '@expressive/mvc';
+
+import { isCollection, renderable, source } from '../node/kind';
+import { isVNode } from '../node/vnode';
+import type { Key, Node as RenderNode, VNode } from '../node/vnode';
+import type { Appearance } from '../style/claim';
+import { patchCollection } from './collection';
+import { attach } from './commits';
+import { patchComponent, patchFunction } from './component';
+import { move } from './fiber';
+import type { Boundary, Fiber } from './fiber';
+import { same } from '../core/hot';
+import { mount, patchFragment, patchText, unmountFiber } from './mount';
+import { patchPortal } from './portal';
+import { activeRoot } from './host';
+import { authored } from '../core/appearance';
+import { gather } from './suspense';
+
+function reconcile(fiber: Fiber, value: RenderNode, context: Context, boundary?: Boundary, appearance?: Appearance) {
+  const detached = fiber.stash || fiber.staging;
+
+  if (detached) reconcileChildren(fiber, detached, null, value, context, boundary, appearance);
+  else reconcileChildren(fiber, fiber.end.parentNode!, fiber.end, value, context, boundary, appearance);
+}
+
+function reconcileChildren(owner: Fiber, parent: globalThis.Node, before: globalThis.Node | null, value: RenderNode, context: Context, boundary?: Boundary, appearance?: Appearance) {
+  const values = slotsOf(value);
+  const old = owner.children;
+  const keyed = new Map<Key, Fiber>();
+  const slotted = new Map<string, Fiber>();
+  const used = new Set<Fiber>();
+  const next: Fiber[] = [];
+  let current = '';
+  let cursor = old.find((child) => child.start.parentNode === parent)?.start ?? before;
+
+  for (const child of old)
+    if (child.key !== null && child.key !== undefined) keyed.set(child.key, child);
+    else if (!slotted.has(child.slot!)) slotted.set(child.slot!, child);
+
+  const { host } = activeRoot();
+
+  try {
+    for (const [each, slot] of values) {
+      const value = host.hoist ? host.hoist(source(each), parent) : source(each);
+
+      current = slot;
+      const key = keyOf(value);
+      let child = key !== null && key !== undefined ? keyed.get(key) : slotted.get(slot);
+
+      if (child && used.has(child)) child = undefined;
+      if (child) used.add(child);
+
+      const fiber = patch(child, value, parent, cursor, context, boundary, authored(value, appearance));
+
+      if (fiber !== child) used.delete(child!);
+      if (fiber.end.parentNode === parent) cursor = fiber.end.nextSibling;
+      fiber.slot = slot;
+      next.push(fiber);
+    }
+  } catch (error) {
+    const done = next.length;
+
+    gather(error, next, old);
+
+    for (const fiber of next.slice(done)) fiber.slot = current;
+    owner.children = [...next, ...old.filter((child) => !child.dead && !next.includes(child))];
+    throw error;
+  }
+
+  for (const child of old)
+    if (!used.has(child)) unmountFiber(child);
+
+  let anchor = before;
+  for (let index = next.length - 1; index >= 0; index--) {
+    const child = next[index];
+    const root = child.start.getRootNode();
+
+    move(child, parent, anchor);
+    anchor = child.start;
+    if (child.start.getRootNode() !== root) attach(root);
+  }
+
+  owner.children = next;
+}
+
+function patch(old: Fiber | undefined, value: RenderNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance): Fiber {
+  if (!old || !compatible(old, value)) return mount(value, parent, old?.start || before, context, boundary, appearance);
+
+  if (old.ownBoundary) old.ownBoundary.parent = boundary;
+  old.boundary = old.ownBoundary || boundary;
+
+  if (old.kind == 'collection') patchCollection(old, appearance);
+  else if (old.kind == 'text') patchText(old, value);
+  else if (old.kind == 'element') old.root!.host.patch(old, value as VNode, appearance);
+  else if (old.kind == 'fragment') patchFragment(old, value as VNode, context, appearance);
+  else if (old.kind == 'function') patchFunction(old, value as VNode, appearance);
+  else if (old.kind == 'component') patchComponent(old, value, appearance);
+  else patchPortal(old, value as VNode, context, appearance);
+
+  return old;
+}
+
+function compatible(fiber: Fiber, value: RenderNode) {
+  if (fiber.kind == 'text') return ['string', 'number', 'bigint'].includes(typeof value);
+  if (renderable(value)) return fiber.kind == 'component' && fiber.instance === value;
+  if (isCollection(value))
+    return fiber.kind == 'collection' && fiber.source === value;
+  if (!isVNode(value)) return false;
+  if (fiber.key !== value.key || !same(fiber.type, value.type)) return false;
+  if (fiber.kind == 'portal') return fiber.props!.into === value.props.into;
+  return true;
+}
+
+
+function slotsOf(value: unknown) {
+  const output: [RenderNode, string][] = [];
+
+  function add(child: unknown, slot: string) {
+    if (Array.isArray(child)) child.forEach((each, index) => add(each, `${slot}/${index}`));
+    else if (child !== null && child !== undefined && typeof child != 'boolean') output.push([child as RenderNode, slot]);
+  }
+
+  add(value, '');
+  return output;
+}
+
+function keyOf(value: RenderNode): Key {
+  if (renderable(value)) return value.key;
+  return isVNode(value) ? value.key : undefined;
+}
+
+export { reconcile, reconcileChildren };

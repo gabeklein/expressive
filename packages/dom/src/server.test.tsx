@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Component, get, has, map, Model, set } from '@expressive/mvc';
 
-import { createElement, Css, Fragment, Portal, render, style } from './index';
+import { createElement, Css, Fragment, Portal, render, style } from '@expressive/dom';
 import { renderToString } from './server';
 import { flushMicrotasks, mockPromise, mount } from '../test.setup';
 

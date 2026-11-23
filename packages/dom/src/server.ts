@@ -1,24 +1,10 @@
 import { Component, Context, unbind } from '@expressive/mvc';
 import { watch } from '@expressive/mvc/observable';
 
-import { call, dispose, enter } from './core/adapter';
-import type { Scope } from './core/adapter';
-import { authored, consume, observe, renderedAppearance } from './core/appearance';
-import type { Rendered } from './core/appearance';
-import { own } from './core/placement';
-import { isThenable, kindOf, source } from './node/kind';
-import type { Collection } from './node/kind';
-import { resolve } from './node/loader';
-import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './node/tags';
-import type { Node, VNode } from './node/vnode';
-import { claim, componentProps, flatten, placed } from './style/claim';
-import type { Appearance } from './style/claim';
-import type { Declaration } from './style/declarations';
-import { unmatched } from './style/diagnose';
-import { reserved } from './style/protocol';
-import { isBare } from './style/numeric';
-import type { Styles } from './style/protocol';
-import { syncRoots } from './style/root';
+import { announce, authored, call, claim, componentProps, consume, dispose, enter, flatten, isBare, isThenable, kindOf, observe, own, placed, renderedAppearance, reserved, resolve, source, syncRoots, unmatched } from '@expressive/jsx';
+import type { Appearance, Collection, Declaration, RenderNode as Node, Rendered, Scope, Styles, VNode } from '@expressive/jsx';
+
+import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './tags';
 
 const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'defaultChecked', 'defaultValue', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
 const CONTENT = ['textContent', 'innerText'];
@@ -125,6 +111,8 @@ function escape(value: string, attribute?: boolean) {
  * A portal leaves only its marker; `<title>`, `<meta>` and `<link>` go to `head`, as `render()` hoists them.
  */
 async function renderToString(node: Node, options: Options = {}): Promise<Output> {
+  announce();
+
   const { inline, markers = true, signal } = options;
   const rules: string[] = [];
   const roots = new Map<object, string>();

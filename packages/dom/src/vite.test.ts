@@ -15,7 +15,7 @@ type Result = Promise<{ code: string; map: null } | undefined>;
 function transform(code: string, id = '/src/app.js', runtime: string | null = '/mvc/src/hot.js', ssr?: boolean): Result {
   const hook = expressive().transform as Function;
   const resolve = async (entry: string) =>
-    runtime && { id: entry.includes('/dom/') ? '/dom/src/jsx-dev-runtime.js' : runtime };
+    runtime && { id: entry.includes('/dom/') ? '/dom/src/jsx-dev-runtime.js' : entry.includes('/jsx/') ? '/jsx/src/jsx-dev-runtime.js' : runtime };
 
   return hook.call({ parse: parseAst, resolve }, code, id, ssr === undefined ? undefined : { ssr });
 }
@@ -116,6 +116,7 @@ describe('skip', () => {
     ['a non-script module', 'class A {}', '/src/app.css'],
     ['the mvc runtime itself', 'class A {}', '/mvc/src/model.js'],
     ['the dom runtime itself', 'export const App = () => null;', '/dom/src/lazy.js'],
+    ['the jsx runtime itself', 'export class Style {}', '/jsx/src/style/stylesheet.js'],
     ['a dependency', 'class A {}', '/node_modules/lib/index.js'],
     ['a module without classes or components', 'export const title = "no class";', undefined],
     ['a module mentioning class without declaring one', 'export const className = "a";', undefined]
@@ -136,7 +137,7 @@ it('will resolve the runtime once', async () => {
   await hook.call(context, 'class A {}', '/src/a.js');
   await hook.call(context, 'class B {}', '/src/b.js');
 
-  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(resolve).toHaveBeenCalledTimes(3);
 });
 
 it('will name a module by its path from the project root', async () => {
