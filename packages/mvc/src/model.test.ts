@@ -4,7 +4,7 @@ import { Context, resolver, within } from './context';
 import { get } from './field/get';
 import { ref } from './field/ref';
 import { set } from './field/set';
-import { Model } from './model';
+import { Model, methodOf } from './model';
 import { update } from './store';
 import { event, listener, watch } from './observable';
 
@@ -361,6 +361,20 @@ it('will destroy parent after child property cleared', () => {
 });
 
 describe('methods', () => {
+  it('will record the owner of a bound method', () => {
+    class Test extends Model {
+      Header() {
+        return null;
+      }
+    }
+
+    const test = Test.new();
+    const { Header } = test;
+
+    expect(methodOf(Header)).toEqual({ owner: test.is, key: 'Header' });
+    expect(methodOf(() => null)).toBeUndefined();
+  });
+
   it('will auto bind', async () => {
     class FooBar extends Model {
       method() {
