@@ -151,6 +151,7 @@ function inSvg(parent: globalThis.Node) {
 }
 
 function stringHost(sink: Styles): Host {
+  const discard = new Markup(11);
   const host: Host = {
     target: (container) => container as unknown as Document,
     styles: () => sink,
@@ -199,7 +200,7 @@ function stringHost(sink: Styles): Host {
         );
     },
     unmount() {},
-    hoist: (value) => isVNode(value) && value.type === PORTAL ? vnode(PORTAL, { into: new Markup(11) }, value.key) : value
+    hoist: (value) => isVNode(value) && value.type === PORTAL ? vnode(PORTAL, { into: discard }, value.key) : value
   };
 
   return host;

@@ -152,18 +152,18 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
     scope.holds = undefined;
 
     const waiting = fiber.root?.waiting;
-    let done!: () => void;
-    const entry = new Promise<void>((resolve) => done = resolve);
+    let done: (() => void) | undefined;
+    const entry = waiting && new Promise<void>((resolve) => done = resolve);
     const clear = () => {
-      waiting?.delete(entry);
-      done();
+      waiting?.delete(entry!);
+      done?.();
       fiber.suspended!.delete(clear);
       release(held);
       held = undefined;
     };
 
     (fiber.suspended ||= new Set()).add(clear);
-    waiting?.add(entry);
+    waiting?.add(entry!);
 
     const resume = (retry: () => void) => {
       fiber.suspended!.delete(clear);
@@ -171,8 +171,8 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
       if (held) (scope.holds ||= []).push(...held);
       held = undefined;
       if (waiting) setTimeout(() => {
-        waiting.delete(entry);
-        done();
+        waiting.delete(entry!);
+        done!();
         if (scope.active) retry();
       });
       else retry();
