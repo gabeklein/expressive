@@ -17,10 +17,7 @@
     "skills"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/jsx-runtime.js",
-    "./dist/jsx-dev-runtime.js"
-  ],
+  "sideEffects": false,
   "bin": {
     "expressive": "dist/cli.js"
   },
