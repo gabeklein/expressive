@@ -5,6 +5,7 @@ import { Component, set } from '@expressive/mvc';
 import { hydrate, Portal, render, style } from '../index';
 import { renderToString } from '../server';
 import { adoptRange, hydrating } from './hydrate';
+import { dom } from './host';
 import { within } from './target';
 import { flushMicrotasks, mockPromise } from '../../test.setup';
 
@@ -374,7 +375,7 @@ describe('hydrate', () => {
     root.innerHTML = '<!--component--><!--component--><!--/component-->';
 
     const [from, , to] = [...root.childNodes];
-    const [, end] = within(document, () => hydrating(root, () => adoptRange(root, to, 'component'), from, to));
+    const [, end] = within({ host: dom, container: root, target: document }, () => hydrating(root, () => adoptRange(root, to, 'component'), from, to));
 
     expect(end).not.toBe(to);
   });
