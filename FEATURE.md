@@ -10,7 +10,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 
 ## Decided
 
-- **/jsx ships the runtime.** Users set `jsxImportSource: @expressive/jsx`. Moving dom users off `@expressive/dom` is a breaking change (`minor` pre-1.0); `dom/jsx-runtime` stays as a re-export for a release.
+- **/jsx ships the runtime; hosts keep the import source.** /jsx owns `jsx`, `Fragment` and the host registry, typed host-neutral. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`), which re-exports the runtime with its element types. Portable code (router, component libraries) sets `@expressive/jsx`. /jsx is a vendor package, not app configuration.
 - **mvc is the shared host-seam layer, not the runtime, and knows as little about JSX as possible.** It keeps only what hosts must share: the default element and its brand, `onElement`, `resolver` and `methodOf`.
 - **No style store in mvc.** Style registration stays inside /jsx's style engine. A duplicate /jsx is an edge case that /jsx reports loudly at load, not one it makes interoperate.
 - **/jsx is a regular dependency of hosts, never a peer.**
@@ -37,12 +37,10 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #803 render through a `Host` (dom, limp, custom-host tests).
 - #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
 - #806 `renderToString` through the reconciler: jsx `settled()`, dom's string-tree host; the second walker is gone.
+- Runtime move: /jsx owns the JSX runtime and host registry; mvc's `jsx-runtime` keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.
 
 ## Before release
 
-- **Move users to `jsxImportSource: @expressive/jsx`.** dom's Vite plugin (`RUNTIMES`, `RENDERER`) and dev's plugin (`DEPS`, `SHARED`, `optimizeDeps`) know only `@expressive/dom`'s runtime ids today, so they need /jsx's added.
-  - /jsx owns `Fragment`, and its `jsx()` translates it to a registered host's `Fragment` (React's). mvc's `jsx-runtime` shrinks to the host seam: the default element, `host()`, `onElement`, `resolver`, `methodOf`.
-  - Router depends on /jsx for element creation and introspection (`childrenOf`, `isElement`, `typeOf`, `propsOf`, `Fragment`) instead of mvc's runtime. /jsx's runtime entry must stay tiny for React apps, so check the "router: everything" and React size shapes. Router's compatibility contract is unchanged.
 - **Refactor the moved tests** onto limp and custom hosts. Then drop the doubled vitest includes in jsx and dom and the temporary jsx→dom edge in `affected.ts`.
 - **A /jsx skill** (`packages/jsx/skills/`) once its public shape settles.
 - **Public API**, iterated once the first extraction exists:
