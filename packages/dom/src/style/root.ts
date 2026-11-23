@@ -25,8 +25,11 @@ function setRoot(key: object, roots: readonly Root[]) {
 }
 
 function attachRoots(styles: Styles) {
-  for (const [key, roots] of groups)
-    styles.root(key, roots.filter((root) => Object.keys(root.declarations).length).map((root) => rule(styles, root)).join('\n'));
+  for (const [key, roots] of groups) {
+    const declared = roots.filter((root) => Object.keys(root.declarations).length);
+
+    styles.root(key, declared.map((root) => rule(styles, root)).join('\n'));
+  }
 
   synced.set(styles, version);
 }

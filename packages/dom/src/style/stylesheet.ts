@@ -257,8 +257,7 @@ function emit(block: Block, depth: number, styles: Styles): string {
     sheets.set(styles, sheet = { emitted: new WeakMap(), names: new Map(), positions: [] });
     attachRoots(styles);
   }
-
-  syncRoots(styles);
+  else syncRoots(styles);
 
   if (block.group) depth = 0;
 

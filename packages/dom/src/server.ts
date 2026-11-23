@@ -18,7 +18,7 @@ import { unmatched } from './style/diagnose';
 import { reserved } from './style/protocol';
 import { isBare } from './style/numeric';
 import type { Styles } from './style/protocol';
-import { attachRoots } from './style/root';
+import { syncRoots } from './style/root';
 
 const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'defaultChecked', 'defaultValue', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
 const CONTENT = ['textContent', 'innerText'];
@@ -52,7 +52,6 @@ interface Pass {
   contexts: Context[];
   frames: { count: number }[];
   head: string[];
-  inline?: boolean;
   markers: boolean;
   signal?: AbortSignal;
   sink: Styles;
@@ -146,7 +145,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
 
     const html = await range(pass, 'fragment', walk(node, pass, context));
 
-    if (rules.length || roots.size) attachRoots(sink);
+    if (rules.length || roots.size) syncRoots(sink);
 
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
 

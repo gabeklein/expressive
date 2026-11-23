@@ -8,7 +8,12 @@ const roots = new WeakMap<Document, Map<object, HTMLStyleElement>>();
 function stylesOf(target: StyleTarget): Styles {
   let styles = known.get(target);
 
-  if (!styles) known.set(target, (styles = target.nodeType == 9 ? sheet(target as Document) : adopted(target as ShadowRoot)));
+  if (!styles) {
+    const isDocument = target.nodeType == 9;
+
+    styles = isDocument ? sheet(target as Document) : adopted(target as ShadowRoot);
+    known.set(target, styles);
+  }
 
   return styles;
 }
@@ -58,7 +63,7 @@ function root(document: Document, key: object, css: string) {
     elements.set(key, element);
   }
 
-  element.textContent = css;
+  if (element.textContent !== css) element.textContent = css;
 }
 
 export { stylesOf };

@@ -31,6 +31,7 @@ type EnterAppearance = (parent?: AppearanceContext, key?: string, defines?: bool
 interface Styles {
   /** Open a fresh sheet - on first use, and after `live()` turns false. */
   open(): void;
+  /** False once the opened sheet is gone. Not consulted before the first `open`. */
   live(): boolean;
   insert(rule: string, index: number): void;
   /** Write a pack's root rules (custom property defaults). */

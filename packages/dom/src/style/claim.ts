@@ -43,7 +43,7 @@ interface Ticket {
 }
 
 const tickets = new WeakMap<object, Ticket>();
-const claims = new WeakMap<object, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
+const claims = new WeakMap<Styles, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
 const EMPTY: Claimed = { className: '', declarations: {}, plain: [] };
 
 function componentProps(
@@ -104,10 +104,10 @@ function claim(
 }
 
 function reuse(styles: Styles, resolved: ResolvedAppearance, context: AppearanceContext | undefined) {
-  let byTarget = claims.get(styles);
-  if (!byTarget) claims.set(styles, (byTarget = new WeakMap()));
+  let byStyles = claims.get(styles);
+  if (!byStyles) claims.set(styles, (byStyles = new WeakMap()));
 
-  let known = byTarget.get(resolved);
+  let known = byStyles.get(resolved);
   const first = resolved.blocks?.[0];
 
   // Reopens a removed stylesheet, so the generation below is current.
@@ -115,7 +115,7 @@ function reuse(styles: Styles, resolved: ResolvedAppearance, context: Appearance
 
   if (!known || known.generation !== sheetGeneration(styles)) {
     const fresh = compose(styles, resolved, [], undefined, undefined, context);
-    byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration(styles) }));
+    byStyles.set(resolved, (known = { ...fresh, generation: sheetGeneration(styles) }));
   }
 
   return known;
