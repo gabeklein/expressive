@@ -17,6 +17,12 @@ it("will listen on the configured port", async () => {
   expect(server.printUrls).toHaveBeenCalled();
 });
 
+it("will listen on a given port over the configured one", async () => {
+  await runDev("/app", { port: 5180 });
+
+  expect(server.listen).toHaveBeenLastCalledWith(5180);
+});
+
 it("will serve the working directory by default", async () => {
   await runDev();
 

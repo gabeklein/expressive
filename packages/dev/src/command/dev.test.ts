@@ -18,13 +18,18 @@ beforeEach(() => {
 
 it("will run the dev server", async () => {
   expect(await dev([], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: undefined });
   expect(runBuild).not.toHaveBeenCalled();
 });
 
 it("will run without the relay for --no-inspect", async () => {
   expect(await dev(["--no-inspect"], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false, port: undefined });
+});
+
+it("will pass --port to the dev server", async () => {
+  expect(await dev(["--port", "5180"], out)).toBe(0);
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: 5180 });
 });
 
 it("will return 1 with the message of a failure", async () => {

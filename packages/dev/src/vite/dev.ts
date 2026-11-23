@@ -7,10 +7,12 @@ import { expressive } from "./plugin";
 export interface DevOptions {
   /** Serve inspect's `/__inspect` relay - default `true`. */
   inspect?: boolean;
+  /** Port to listen on - over `index.ts`'s `port` and Vite's. */
+  port?: number;
 }
 
 /** `expressive dev` - a Vite dev server with the host plugin and, unless turned off, inspect's relay. */
-export async function runDev(root = process.cwd(), { inspect: relay = true }: DevOptions = {}): Promise<void> {
+export async function runDev(root = process.cwd(), { inspect: relay = true, port }: DevOptions = {}): Promise<void> {
   const host = expressive();
 
   const server = await createServer({
@@ -19,8 +21,6 @@ export async function runDev(root = process.cwd(), { inspect: relay = true }: De
     plugins: relay ? [host, inspect()] : [host],
   });
 
-  const { port } = await host.api!.config();
-
-  await server.listen(port);
+  await server.listen(port ?? (await host.api!.config()).port);
   server.printUrls();
 }
