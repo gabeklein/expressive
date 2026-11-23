@@ -580,7 +580,7 @@ describe('cmd', () => {
       expect(lines).toEqual(['child destroyed', 'parent destroyed']);
     });
 
-    it('will not start field children when the build aborts', async () => {
+    it('will start field children only for a build that completes', async () => {
       let loads = 0;
 
       class Logger extends Model {

@@ -85,7 +85,7 @@ settle     release children → ready handlers → parked effects replay
 - `Context` - home context; the first one wins, ignored if already placed ([context.md](context.md#context-arguments))
 - `Promise` (returned by a callback) - a rejection is reported with kind `setup` ([Error Handling](#error-handling))
 
-> **Timing:** args (and assigned props, in adapters) apply during activation, *after* field initializers and `Model.on` setup. A trailing arg callback, an owned child's activation, `new()` and an `on({ ready })` handler see applied values - an arg that throws stops the instance before its children start. The JS constructor body and `on({ setup })` run *before* the merge and see only field defaults; don't read an applied prop there.
+> **Timing:** args (and assigned props, in adapters) apply during activation, *after* field initializers and `Model.on` setup. A trailing arg callback, a Model held in a field, `new()` and an `on({ ready })` handler see applied values - an arg that throws stops the instance before those children start. `map`/`has` members start when added. The JS constructor body and `on({ setup })` run *before* the merge and see only field defaults; don't read an applied prop there.
 
 ```ts
 const test = Test.new(
