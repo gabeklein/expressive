@@ -528,7 +528,7 @@ describe("vite host", () => {
     await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("only modules in app/tally/ and below may call it");
   });
 
-  async function buildBoth(files: Record<string, string>) {
+  async function buildBoth(files: Record<string, string>, options: { env?: boolean } = {}) {
     const root = project(files);
     const quiet = (config: InlineConfig) => {
       config.configFile = false;
@@ -539,10 +539,12 @@ describe("vite host", () => {
     };
     const code = (out: any) => (Array.isArray(out) ? out[0] : out).output.map((o: any) => o.code ?? "").join("\n");
 
-    const client = code(await build(quiet(clientBuild(root, { write: false }))));
-    const server = code(await build(quiet(serverBuild(root, { write: false }))));
+    const client = code(await build(quiet(clientBuild(root, { write: false, ...options }))));
+    const out: any = await build(quiet(serverBuild(root, { write: false, ...options })));
+    const server = code(out);
+    const boot = (Array.isArray(out) ? out[0] : out).output.find((o: any) => o.fileName === "index.js")?.code;
 
-    return { client, server };
+    return { client, server, boot };
   }
 
   it("builds the node service with the calls the client imports, by hashed ids", async () => {
@@ -609,6 +611,35 @@ describe("vite host", () => {
     expect(server).toMatch(/"\/blog\/:slug#Over": Over/);
     expect(server).toMatch(/"?add"?: add/);
     expect(client).toContain("/blog/:slug#Over");
+  });
+
+  it("will boot the node service in production mode with .env registered", async () => {
+    const { boot } = await buildBoth({ "app/index.tsx": PAGE });
+
+    expect(boot).toBe(`process.env.NODE_ENV ||= "production";\n(await import("@expressive/dev/server")).registerEnv();\nawait import("./app.js");\n`);
+  });
+
+  it("will boot without .env files for --no-env", async () => {
+    const { boot } = await buildBoth({ "app/index.tsx": PAGE }, { env: false });
+
+    expect(boot).toBe(`process.env.NODE_ENV ||= "production";\nawait import("./app.js");\n`);
+  });
+
+  it("will not add a boot file when the entry is already index.js", async () => {
+    const root = project({ "app/index.tsx": PAGE });
+    const config = (fn: typeof clientBuild) => {
+      const config = fn(root, { write: false });
+      config.configFile = false;
+      config.logLevel = "silent";
+      config.resolve = SOURCES;
+      config.build!.rollupOptions = { ...config.build!.rollupOptions, external: ["@expressive/dev", "@expressive/dev/server"], output: { entryFileNames: "index.js" } };
+      return config;
+    };
+
+    await build(config(clientBuild));
+    const out: any = await build(config(serverBuild));
+
+    expect((Array.isArray(out) ? out[0] : out).output.map((o: any) => o.fileName)).toEqual(["index.js"]);
   });
 
   it("will not build the node service before the client", async () => {

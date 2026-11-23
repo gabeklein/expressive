@@ -70,7 +70,7 @@ export interface ServeOptions {
 }
 
 /**
- * Production server for a built app - the generated `dist/server/index.js` calls it.
+ * Production server for a built app - the generated server entry calls it, booted by `dist/server/index.js`.
  *
  * Answers calls and twin streams, then the app's own `fetch`, then serves `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - and caches `/assets/` immutably.
  * That last step is what `fetch`'s `next` resolves.

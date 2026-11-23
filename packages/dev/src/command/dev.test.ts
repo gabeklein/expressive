@@ -18,24 +18,32 @@ beforeEach(() => {
 
 it("will run the dev server", async () => {
   expect(await dev([], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: undefined });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: undefined, env: true });
   expect(runBuild).not.toHaveBeenCalled();
 });
 
 it("will run without the relay for --no-inspect", async () => {
   expect(await dev(["--no-inspect"], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false, port: undefined });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: false, port: undefined, env: true });
 });
 
 it("will pass --port to the dev server", async () => {
   expect(await dev(["-p", "5180"], out)).toBe(0);
-  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: 5180 });
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: 5180, env: true });
 });
 
 it("will refuse a port out of range", async () => {
   expect(await dev(["--port", "-1"], out)).not.toBe(0);
   expect(await dev(["--port", "70000"], out)).not.toBe(0);
   expect(runDev).not.toHaveBeenCalled();
+});
+
+it("will skip .env files for --no-env", async () => {
+  expect(await dev(["--no-env"], out)).toBe(0);
+  expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: undefined, env: false });
+
+  expect(await dev(["build", "--no-env"], out, "expressive dev")).toBe(0);
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: false, html: true, env: false });
 });
 
 it("will return 1 with the message of a failure", async () => {
@@ -47,7 +55,7 @@ it("will return 1 with the message of a failure", async () => {
 
 it("will build as a subcommand", async () => {
   expect(await dev(["build", "--pretty"], out, "expressive dev")).toBe(0);
-  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, html: true });
+  expect(runBuild).toHaveBeenCalledWith(process.cwd(), { pretty: true, html: true, env: true });
   expect(runDev).not.toHaveBeenCalled();
 });
 

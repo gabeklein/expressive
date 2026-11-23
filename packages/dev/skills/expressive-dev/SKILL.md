@@ -30,6 +30,7 @@ app.tsx | src/app.tsx single root component instead of app/ (default export)
 index.ts              optional server entry: export default config({ port, fetch, around, target })
 index.html            optional shell (#root and the entry script injected if missing)
 vite.config.ts        optional, merged under the host's
+.env, .env.*          optional - see Environment
 ```
 
 Bare-named files under `app/` are support modules. Siblings match static before `:param` before `*`.
@@ -124,9 +125,12 @@ Known gaps: a param change remounts the page; the root seat cannot gate some cal
 expressive dev                  Vite dev server with HMR and inspect's /__inspect relay
 expressive dev --no-inspect     without the relay
 expressive dev --port <n>       listen on <n> - over index.ts's port and Vite's
+expressive dev --no-env         without copying .env into process.env
 expressive dev build            dist/client and dist/server/index.js
 expressive dev build --pretty   unminified client, stable filenames
 expressive dev build --no-html  without prerendered pages
+expressive dev build --no-env   same, for the build and the built server
+expressive env                  write env.d.ts, warn of unset keys - expressive-env
 expressive help [command]       commands, or one command's inputs
 node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
@@ -162,6 +166,7 @@ export default config({
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
 - Stateless: a remote that default-exports a seat or exports a Model class fails dev and the build. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.
+- No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 
 Cloudflare Workers with static assets, for example - `fetch` forwards to `ASSETS` and serves the shell for client routes:
 
@@ -190,6 +195,21 @@ export default config({
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 
 Session on a D1 binding there: `around: (next, { env }) => db.session(next, d1(env.DB))` - `d1` is app code wrapping a D1 binding in sql's `Engine` and passing an `Engine` through; `db` has no source; `scheduled` opens its own: `scheduled: (event, env) => db.session(() => sweep(), d1(env.DB))`. Dev: `bindings()` returns `{ DB: await sqlite("local.db", { migrations: "migrations" }) }` (`sqlite` from `@expressive/sql`, imported inside `bindings`).
+
+## Environment
+
+`.env` files are built in - `expressive-env/SKILL.md` covers files, modes, types and editing.
+
+```ts
+import { env } from "@expressive/dev";
+
+const db = connect(env.DATABASE_URL);
+```
+
+- `env` reads keys on the server; in the browser only `PUBLIC_` keys, read at build - any other throws. A custom prefix: `env({ prefix: "CLIENT" })` from `@expressive/env/vite` in `vite.config.ts`, which replaces the host's.
+- The same files fill `process.env` in dev, during `dev build` and at the built server's boot, for dependencies that read it - keys already set and `NODE_ENV` are left alone. `--no-env` skips this; `env` reads the files either way. Elsewhere - a script, a tool, a `--no-env` app opting back in - call `registerEnv()` from `@expressive/dev/server` first.
+- Mode is `NODE_ENV`, for client and server alike - `development` in dev, `production` for a build and a built server it is unset for. Files load from the working directory; a `vite.config.ts` `root` elsewhere splits the two sides.
+- Types: run `expressive env` (a `prepare` script fits) - dev does not create `env.d.ts`, only refreshes it on `.env` changes.
 
 ## Prerendering
 

@@ -7,3 +7,7 @@ export function viteConfigFile(root: string): string | false {
   const found = VITE_CONFIGS.map(name => join(root, name)).find(existsSync);
   return found ?? false;
 }
+
+export function nodeMode(): string | undefined {
+  return process.env.NODE_ENV || undefined;
+}

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServerModuleRunner, runnerImport, type Plugin, type UserConfig, type ViteDevServer } from "vite";
+import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
 import { wrap, type AppConfig, type Ctx } from "../server/config";
@@ -50,15 +50,27 @@ const HOSTED = ["@expressive/inspect/vite/client", "@expressive/inspect/install"
 
 const builds = new Map<string, Exposure>();
 
-const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/dev"];
+const BOOT = "index.js";
+
+const boot = (app: string, dotenv: boolean) =>
+  [`process.env.NODE_ENV ||= "production";`, dotenv && `(await import("@expressive/dev/server")).registerEnv();`, `await import(${JSON.stringify(`./${app}`)});`]
+    .filter(Boolean)
+    .join("\n") + "\n";
+
+const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@expressive/inspect", "@expressive/rpc", "@expressive/env", "@expressive/dev"];
 
 /**
  * The app host as a Vite plugin, for a hand-written Vite config.
  *
  * Serves the virtual shell, entry and route tree under `/.expressive/`, and builds sidecars and twins.
  * Add `inspect()` from `@expressive/inspect/vite` beside it for the dev relay.
+ * The built server's `index.js` copies `.env` files into `process.env` before the app loads.
  */
 export function expressive(): Plugin<Host> {
+  return host(true);
+}
+
+export function host(dotenv: boolean): Plugin<Host> {
   let root = process.cwd();
   let project: Project;
   let generatedDir: string;
@@ -244,6 +256,14 @@ export function expressive(): Plugin<Host> {
       if (problem) this.error(`${relative(root, path)} ${problem}`);
     },
 
+    generateBundle(_options, bundle) {
+      const entry = build === "server" && Object.values(bundle).find(chunk => (chunk as Rollup.OutputChunk).isEntry);
+
+      if (!entry || entry.fileName === BOOT) return;
+
+      this.emitFile({ type: "prebuilt-chunk", fileName: BOOT, code: boot(entry.fileName, dotenv) });
+    },
+
     transformIndexHtml: {
       order: "pre",
       handler: html => ensureBootstrap(html),
@@ -411,7 +431,7 @@ function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Rem
 
 const FETCH: UserConfig = {
   environments: { ssr: { resolve: { noExternal: true } } },
-  build: { rollupOptions: { preserveEntrySignatures: "strict" } },
+  build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
 
 function stateless(context: { error(message: string): never }, file: string, { seat, pooled }: { seat?: unknown; pooled: { name: string }[] }) {
