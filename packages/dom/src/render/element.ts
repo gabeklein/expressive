@@ -1,6 +1,6 @@
 import { Context } from '@expressive/mvc';
 
-import { ALIASES, isEvent, isStringified } from '../node/props';
+import { ALIASES, SVG, isEvent, isStringified } from '../node/tags';
 import type { VNode } from '../node/vnode';
 import { applyClaim, claim } from '../style/claim';
 import type { Appearance } from '../style/claim';
@@ -14,9 +14,8 @@ import { depth, focus, focusing } from './render';
 import { afterFlush } from '../core/scheduler';
 import { adopt, adopted, touch } from './hydrate';
 import { hostOf } from './suspense';
-import { activeTarget } from './target';
+import { activeDocument, activeTarget } from './target';
 
-const SVG = 'http://www.w3.org/2000/svg';
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
@@ -25,12 +24,12 @@ const restoring = new WeakSet<Document | ShadowRoot>();
 
 function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const tag = value.type as string;
-  const host = hostOf(parent);
-  const namespace = tag == 'svg' || host instanceof SVGElement && host.localName != 'foreignObject' ? SVG : undefined;
+  const host = hostOf(parent) as Element;
+  const namespace = tag == 'svg' || host.namespaceURI == SVG && host.localName != 'foreignObject' ? SVG : undefined;
   const element = adopt(
     parent,
     before,
-    () => namespace ? document.createElementNS(SVG, tag) : document.createElement(tag),
+    () => namespace ? activeDocument().createElementNS(SVG, tag) : activeDocument().createElement(tag),
     (node) => node.nodeType == 1 && (node as Element).localName == tag && ((node as Element).namespaceURI == SVG) == !!namespace
   );
   const fiber: Fiber = {

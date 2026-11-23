@@ -9,7 +9,7 @@ import { own } from './core/placement';
 import { isThenable, kindOf, source } from './node/kind';
 import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
-import { ALIASES, isHoisted, isStringified } from './node/props';
+import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './node/tags';
 import type { Node, VNode } from './node/vnode';
 import { claim, componentProps, flatten, placed } from './style/claim';
 import type { Appearance } from './style/claim';
@@ -21,12 +21,6 @@ import { isBare } from './style/numeric';
 import type { Sink } from './style/protocol';
 import { attachRoots } from './style/root';
 
-const VOID = new Set('area base br col embed hr img input link meta param source track wbr'.split(' '));
-const RAW = new Set(['script', 'style']);
-const BOOLEAN = new Set(
-  ('allowfullscreen async autofocus autoplay checked controls default defer disabled formnovalidate hidden inert ismap ' +
-  'itemscope loop multiple muted nomodule novalidate open playsinline readonly required reversed selected').split(' ')
-);
 const SKIPPED = new Set(['children', 'className', 'dangerouslySetInnerHTML', 'defaultChecked', 'defaultValue', 'innerHTML', 'innerText', 'key', 'ref', 'style', 'textContent']);
 const CONTENT = ['textContent', 'innerText'];
 const CLOSING: Record<string, RegExp> = { script: /<\/(script)/gi, style: /<\/(style)/gi };
