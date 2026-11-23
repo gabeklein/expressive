@@ -58,3 +58,8 @@ it("will minify and write by default", () => {
   expect(clientBuild("/app").build).toMatchObject({ minify: true, write: true });
   expect(serverBuild("/app").build).toMatchObject({ write: true });
 });
+
+it("will leave public/ to the client build", () => {
+  expect(clientBuild("/app").build?.copyPublicDir).toBeUndefined();
+  expect(serverBuild("/app").build).toMatchObject({ copyPublicDir: false });
+});

@@ -39,6 +39,7 @@ export function serverBuild(root: string, { write = true }: BuildOptions = {}): 
       write,
       ssr: "/.expressive/server.ts",
       outDir: "dist/server",
+      copyPublicDir: false,
       rollupOptions: { output: { entryFileNames: "index.js" } },
     },
   };
