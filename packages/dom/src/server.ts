@@ -1,5 +1,3 @@
-import './jsx-runtime';
-
 import { Component, Context, unbind } from '@expressive/mvc';
 import { watch } from '@expressive/mvc/observable';
 
