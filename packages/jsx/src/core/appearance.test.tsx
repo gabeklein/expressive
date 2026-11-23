@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { Component, has } from '@expressive/mvc';
-import { render, style } from '@expressive/dom';
-import { flushMicrotasks, mount, place } from '../../test.setup';
+import { style } from '../style/stylesheet';
+import { flushMicrotasks, mount, place, useHost, render } from '../../test.setup';
+import { dom } from '@expressive/dom/host';
+
+useHost(dom);
 
 describe('style prop', () => {
   it('will recursively compose classes and inline styles', async () => {

@@ -2,16 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component } from '@expressive/mvc';
 
-import { Portal } from '@expressive/dom';
+import { Portal } from '../node/vnode';
 
-import { flushMicrotasks, mockPromise } from '../../test.setup';
-import { hydrate, mountRoot } from './render';
+import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
+import { hydrate, mountRoot, render } from './render';
 import { LEAD } from './portal';
 import { PORTAL, vnode } from '../node/vnode';
-import { limp } from './host';
+import { isComment, limp } from './host';
 import type { Hydration } from './host';
 import type { Host } from './host';
 import { complete } from './mount';
+import { hostOf } from './suspense';
 import { reconcileChildren } from './reconcile';
 
 describe('limp host', () => {
@@ -106,6 +107,81 @@ describe('limp host', () => {
     release();
   });
 
+  it('will move portal content when it starts or stops leading, and remount for a new target', async () => {
+    const aside = document.createElement('aside');
+    const other = document.createElement('aside');
+
+    class Spot extends Component {
+      lead = false;
+      into: Element = aside;
+
+      render() {
+        return vnode(PORTAL, { into: this.into, children: <i>in</i>, ...(this.lead ? { [LEAD]: true } : {}) });
+      }
+    }
+
+    aside.append('tail');
+
+    const [spot] = mount(Spot);
+
+    expect(aside.textContent).toBe('tailin');
+
+    spot.lead = true;
+    await flushMicrotasks();
+    expect(aside.textContent).toBe('intail');
+
+    spot.into = other;
+    await flushMicrotasks();
+    expect(aside.textContent).toBe('tail');
+    expect(other.textContent).toBe('in');
+  });
+
+  it('will resolve the live parent of content mounted while its boundary is hidden, and restore its portals', async () => {
+    const aside = document.createElement('aside');
+    const parents: globalThis.Node[] = [];
+    const gate = mockPromise<void>();
+    let ready = false;
+
+    function Slow() {
+      if (!ready) throw gate.then(() => ready = true);
+      return 'slow';
+    }
+
+    class Shell extends Component {
+      fallback = 'wait';
+      extra = false;
+
+      render() {
+        return <>{this.extra && <b>x</b>}<Portal into={aside}><i>in</i></Portal><Slow /></>;
+      }
+    }
+
+    let shell!: Shell;
+    const root = document.createElement('main');
+    const hoist = (value: any, parent: globalThis.Node) => (parents.push(hostOf(parent)), value);
+
+    render(<Shell is={(self: Shell) => void (shell = self)} />, root, { ...limp, hoist });
+    expect(root.textContent).toBe('wait');
+    expect(aside.textContent).toBe('');
+
+    parents.length = 0;
+    shell.extra = true;
+    await flushMicrotasks();
+    expect(parents).toContain(root);
+
+    gate.resolve();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(root.textContent).toBe('xslow');
+    expect(aside.textContent).toBe('in');
+  });
+
+  it('will recognize a comment by its text', () => {
+    expect(isComment(document.createComment('portal'), 'portal')).toBe(true);
+    expect(isComment(document.createComment('other'), 'portal')).toBe(false);
+    expect(isComment(document.createTextNode('portal'), 'portal')).toBe(false);
+  });
+
   it('will ask the host to locate a string target, and tell it once a portal mounts', () => {
     const root = document.createElement('main');
     const aside = document.createElement('aside');
@@ -129,8 +205,8 @@ describe('limp host', () => {
     let waiting = true;
 
     const hydration: Hydration = {
-      adopt(parent, before, create) {
-        log.push('adopt');
+      adopt(parent, before, create, match) {
+        if (match(document.createComment('portal')) && !match(document.createComment('other'))) log.push('adopt');
         return parent.insertBefore(create(), before);
       },
       adopted: () => false,

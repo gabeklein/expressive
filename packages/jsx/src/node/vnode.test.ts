@@ -56,7 +56,9 @@ describe('authoring', () => {
 
     runtime.onElement(hook);
 
-    const { render } = await vi.importActual<typeof import('@expressive/dom')>('@expressive/dom');
+    const { render: renderWith } = await vi.importActual<typeof import('../render/render')>('../render/render');
+    const { limp } = await vi.importActual<typeof import('../render/host')>('../render/host');
+    const render = (node: any, root: Element) => renderWith(node, root, limp);
     const Page = () => runtime.jsx('p', {});
     const release = render(runtime.jsx(Page, {}), document.createElement('main'));
 

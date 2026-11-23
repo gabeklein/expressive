@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { schedule, transition, unschedule } from './scheduler';
+import { afterFlush, schedule, transition, unschedule } from './scheduler';
 import type { Schedulable } from './scheduler';
 import { mockError, mockPromise } from '../../test.setup';
 
@@ -256,4 +256,17 @@ it('will skip a batched scope claimed by an earlier update', async () => {
   await vi.runAllTimersAsync();
   expect(parent.update).toHaveBeenCalledOnce();
   expect(child.update).not.toHaveBeenCalled();
+});
+
+it('will run work after the next urgent flush, queueing one flush', async () => {
+  const order: string[] = [];
+  const scope: Schedulable = { update: () => void order.push('update') };
+
+  afterFlush(() => order.push('first'));
+  afterFlush(() => order.push('second'));
+  schedule(scope);
+
+  expect(order).toEqual([]);
+  await Promise.resolve();
+  expect(order).toEqual(['update', 'first', 'second']);
 });

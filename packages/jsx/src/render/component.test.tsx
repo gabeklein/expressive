@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Context, Model, has } from '@expressive/mvc';
-import { render } from '@expressive/dom';
-import { flushMicrotasks, mockPromise, mount, place } from '../../test.setup';
+import { flushMicrotasks, mockPromise, mount, place, render } from '../../test.setup';
 
 describe('component', () => {
   it('will run an effect from new() once inserted', async () => {

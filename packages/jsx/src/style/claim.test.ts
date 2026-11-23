@@ -1,12 +1,33 @@
 import { describe, expect, it } from 'vitest';
 
 import { createStyleScope, resolveAppearance } from './appearance';
-import { claim, componentProps } from './claim';
-import type { AppearanceContext } from './protocol';
+import { claim, componentProps, flatten } from './claim';
+import type { AppearanceContext, Styles } from './protocol';
 import { style } from './stylesheet';
-import { stylesOf } from '@expressive/dom/style';
+
+const sink: Styles = {
+  open() {},
+  live: () => true,
+  insert() {},
+  root() {},
+  serialize: () => ''
+};
+
+const stylesOf = (_target: unknown) => sink;
 
 style(function Emitting() {}, {});
+
+describe('flatten', () => {
+  it('will merge plain blocks by rank and order, then own declarations', () => {
+    const plain = [
+      [1, { declarations: { a: 1 }, ordinal: 0 }],
+      [0, { declarations: { a: 2, b: 1 }, ordinal: 1 }],
+      [0, { declarations: { b: 2 }, ordinal: 0 }]
+    ];
+
+    expect(flatten({ className: '', declarations: { color: 'red' }, plain } as any)).toEqual({ a: 1, b: 1, color: 'red' });
+  });
+});
 
 describe('claim reuse', () => {
   const scope = createStyleScope(undefined, { _on: { color: 'red' } })!;

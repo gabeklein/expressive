@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component } from '@expressive/mvc';
-import { render, Style } from '@expressive/dom';
+import { Style } from './stylesheet';
 import * as hot from '@expressive/mvc/hot';
-import { flushMicrotasks, mount } from '../../test.setup';
+import { flushMicrotasks, mount, useHost, render } from '../../test.setup';
+import { dom } from '@expressive/dom/host';
+
+useHost(dom);
 import { createAppearanceRoute, createStyleScope, resolveAppearance } from './appearance';
 import { applyDeclarations } from '@expressive/dom/style';
 

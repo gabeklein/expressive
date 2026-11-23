@@ -1,8 +1,12 @@
 import { join } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { render, useHost } from '../../test.setup';
+import { dom } from '@expressive/dom/host';
 
-import { createElement, render } from '@expressive/dom';
+useHost(dom);
+
+import { createElement } from '../node/vnode';
 
 import { Css } from './css';
 import type { style } from './stylesheet';

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { Component } from '@expressive/mvc';
-import { mockWarn, place } from '../../test.setup';
-import { style } from '@expressive/dom';
+import { mockWarn, place, useHost } from '../../test.setup';
+import { dom } from '@expressive/dom/host';
+
+useHost(dom);
+import { style } from './stylesheet';
 import { renderToString } from '@expressive/dom/server';
 import { jsx } from '@expressive/jsx/jsx-runtime';
 
