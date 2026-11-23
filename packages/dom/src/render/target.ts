@@ -1,3 +1,4 @@
+import { stylesOf } from '../style/facility';
 import { documentOf } from '../style/protocol';
 import type { StyleTarget } from '../style/protocol';
 import { syncRoots } from '../style/root';
@@ -18,7 +19,7 @@ function within<T>(target: StyleTarget, run: () => T): T {
   const previous = current;
   current = target;
 
-  syncRoots(target);
+  syncRoots(stylesOf(target));
 
   try {
     return run();

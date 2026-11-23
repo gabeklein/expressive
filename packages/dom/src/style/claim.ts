@@ -1,6 +1,6 @@
 import { applyDeclarations } from './declarations';
 import { appearanceToken, createAppearanceToken, emitClass, reserved, sheetGeneration } from './protocol';
-import type { AppearanceContext, Block, ResolvedAppearance, Target } from './protocol';
+import type { AppearanceContext, Block, ResolvedAppearance, Styles } from './protocol';
 
 type Style = string | Record<string, unknown> | false | null | undefined | readonly Style[];
 
@@ -43,7 +43,7 @@ interface Ticket {
 }
 
 const tickets = new WeakMap<object, Ticket>();
-const claims = new WeakMap<object, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
+const claims = new WeakMap<Styles, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
 const EMPTY: Claimed = { className: '', declarations: {}, plain: [] };
 
 function componentProps(
@@ -87,7 +87,7 @@ function door(value: Style) {
 }
 
 function claim(
-  target: Target,
+  styles: Styles,
   appearance: Appearance | undefined,
   resolved: ResolvedAppearance | undefined,
   className: unknown,
@@ -97,32 +97,32 @@ function claim(
   const context = resolved?.context || appearance?.context;
   const forwarded = entries.length || className || value;
 
-  if (forwarded) return compose(target, resolved, entries, className, value, context);
+  if (forwarded) return compose(styles, resolved, entries, className, value, context);
   if (!resolved) return { ...EMPTY, context };
 
-  return reuse(target, resolved, context);
+  return reuse(styles, resolved, context);
 }
 
-function reuse(target: Target, resolved: ResolvedAppearance, context: AppearanceContext | undefined) {
-  let byTarget = claims.get(target);
-  if (!byTarget) claims.set(target, (byTarget = new WeakMap()));
+function reuse(styles: Styles, resolved: ResolvedAppearance, context: AppearanceContext | undefined) {
+  let byStyles = claims.get(styles);
+  if (!byStyles) claims.set(styles, (byStyles = new WeakMap()));
 
-  let known = byTarget.get(resolved);
+  let known = byStyles.get(resolved);
   const first = resolved.blocks?.[0];
 
   // Reopens a removed stylesheet, so the generation below is current.
-  if (known && first) emitClass(first, 0, target);
+  if (known && first) emitClass(first, 0, styles);
 
-  if (!known || known.generation !== sheetGeneration(target)) {
-    const fresh = compose(target, resolved, [], undefined, undefined, context);
-    byTarget.set(resolved, (known = { ...fresh, generation: sheetGeneration(target) }));
+  if (!known || known.generation !== sheetGeneration(styles)) {
+    const fresh = compose(styles, resolved, [], undefined, undefined, context);
+    byStyles.set(resolved, (known = { ...fresh, generation: sheetGeneration(styles) }));
   }
 
   return known;
 }
 
 function compose(
-  target: Target,
+  styles: Styles,
   resolved: ResolvedAppearance | undefined,
   entries: Forwarded[],
   className: unknown,
@@ -142,7 +142,7 @@ function compose(
 
   for (const { appearance, doors } of collected.tokens) {
     for (const block of appearance.blocks || []) {
-      collected.classes.push(emitClass(block, doors, target));
+      collected.classes.push(emitClass(block, doors, styles));
       if (!block.group && !block.when?.length) plain.push([doors, block]);
     }
     if (appearance.classes) collected.classes.push(...appearance.classes);
