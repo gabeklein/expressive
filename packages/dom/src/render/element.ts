@@ -1,5 +1,3 @@
-import { Context } from '@expressive/mvc';
-
 import { ALIASES, SVG, isEvent, isStringified } from '../node/tags';
 import type { VNode } from '../node/vnode';
 import { applyClaim, claim } from '../style/claim';
@@ -8,7 +6,7 @@ import type { Appearance } from '../style/claim';
 import { unmatched } from '../style/diagnose';
 import { reserved } from '../style/protocol';
 import { inserted } from './commits';
-import type { Boundary, Fiber } from './fiber';
+import type { Fiber } from './fiber';
 import { complete, unmountFiber } from './mount';
 import { reconcileChildren } from './reconcile';
 import { depth, focus, focusing } from './render';
@@ -23,7 +21,7 @@ const controlled = new WeakMap<Element, Fiber>();
 const attached = new WeakMap<Fiber, unknown>();
 const restoring = new WeakSet<Document | ShadowRoot>();
 
-function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
+function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null, appearance?: Appearance) {
   const tag = value.type as string;
   const host = hostOf(parent) as Element;
   const namespace = tag == 'svg' || host.namespaceURI == SVG && host.localName != 'foreignObject' ? SVG : undefined;
@@ -33,18 +31,7 @@ function mountElement(value: VNode, parent: globalThis.Node, before: globalThis.
     () => namespace ? activeDocument().createElementNS(SVG, tag) : activeDocument().createElement(tag),
     (node) => node.nodeType == 1 && (node as Element).localName == tag && ((node as Element).namespaceURI == SVG) == !!namespace
   );
-  const fiber: Fiber = {
-    kind: 'element',
-    key: value.key,
-    type: tag,
-    props: {},
-    context,
-    boundary,
-    start: element,
-    end: element,
-    children: [],
-    events: new Map()
-  };
+  fiber.start = fiber.end = element;
 
   const adopting = adopted(element);
 

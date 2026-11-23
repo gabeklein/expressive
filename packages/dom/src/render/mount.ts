@@ -10,7 +10,6 @@ import type { Appearance } from '../style/claim';
 import { dispose } from '../core/adapter';
 import { mountCollection } from './collection';
 import { mountComponent, mountFunction, mountOwnedComponent, unmountComponent } from './component';
-import { mountElement, unmountElement } from './element';
 import { range, removeRange } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { untrack } from '../core/hot';
@@ -18,6 +17,7 @@ import { adoptText } from './hydrate';
 import { mountPortal, unmountPortal } from './portal';
 import { reconcile } from './reconcile';
 import { rendering } from './render';
+import { activeRoot } from './target';
 import { hold, unwait } from './suspense';
 
 function complete<T extends Fiber>(fiber: T, work: () => void): T {
@@ -46,8 +46,13 @@ function mount(value: RenderNode, parent: globalThis.Node, before: globalThis.No
       return mountFragment(value as VNode, parent, before, context, boundary, appearance);
     case 'portal':
       return mountPortal(value as VNode, parent, before, context, boundary, appearance);
-    case 'element':
-      return mountElement(value as VNode, parent, before, context, boundary, appearance);
+    case 'element': {
+      const root = activeRoot();
+      const { key, type } = value as VNode;
+      const fiber: Fiber = { kind: 'element', key, type, props: {}, context, boundary, root, start: parent, end: parent, children: [], events: new Map() };
+
+      return root.host.mount(fiber, value as VNode, parent, before, appearance);
+    }
     case 'owned':
       return mountOwnedComponent(value as VNode, parent, before, context, boundary, appearance);
     default:
@@ -92,7 +97,7 @@ function unmountFiber(fiber: Fiber) {
   if (fiber.scope) dispose(fiber.scope);
   fiber.release?.();
 
-  if (fiber.kind == 'element') unmountElement(fiber);
+  if (fiber.kind == 'element') fiber.root!.host.unmount(fiber);
   else if (fiber.kind == 'component') unmountComponent(fiber);
   else if (fiber.kind == 'portal') unmountPortal(fiber);
 

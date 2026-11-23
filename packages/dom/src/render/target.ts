@@ -2,8 +2,9 @@ import { stylesOf } from '../style/facility';
 import { documentOf } from '../style/protocol';
 import type { StyleTarget } from '../style/protocol';
 import { syncRoots } from '../style/root';
+import type { Root } from './host';
 
-let current: StyleTarget | undefined;
+let current: Root | undefined;
 
 function targetOf(container: globalThis.Node): StyleTarget {
   const root = container.getRootNode();
@@ -15,11 +16,11 @@ function isShadowRoot(node: globalThis.Node): node is ShadowRoot {
   return node.nodeType == 11 && 'host' in node;
 }
 
-function within<T>(target: StyleTarget, run: () => T): T {
+function within<T>(root: Root, run: () => T): T {
   const previous = current;
-  current = target;
+  current = root;
 
-  syncRoots(stylesOf(target));
+  if (root.target) syncRoots(stylesOf(root.target));
 
   try {
     return run();
@@ -28,12 +29,16 @@ function within<T>(target: StyleTarget, run: () => T): T {
   }
 }
 
+function activeRoot() {
+  return current!;
+}
+
 function activeTarget() {
-  return current;
+  return current?.target;
 }
 
 function activeDocument() {
-  return documentOf(current!);
+  return documentOf(current!.target!);
 }
 
-export { activeDocument, activeTarget, isShadowRoot, targetOf, within };
+export { activeDocument, activeRoot, activeTarget, isShadowRoot, targetOf, within };

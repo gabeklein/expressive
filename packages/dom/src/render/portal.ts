@@ -10,15 +10,14 @@ import { adopt, adopted, aside, isComment, reserve } from './hydrate';
 import { hostOf } from './suspense';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
-import { documentOf } from '../style/protocol';
-import { activeDocument, isShadowRoot, targetOf, within } from './target';
+import { activeDocument, activeRoot, isShadowRoot, targetOf, within } from './target';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  const marker = adopt(parent, before, () => activeDocument().createComment('portal'), (node) => isComment(node, 'portal'));
+  const marker = adopt(parent, before, () => activeRoot().host.marker(activeRoot(), 'portal'), (node) => isComment(node, 'portal'));
   const container = target(value.props.into, parent);
-  const root = targetOf(container);
-  const portalStart = documentOf(root).createComment('portal-root');
-  const portalEnd = documentOf(root).createComment('/portal-root');
+  const root = { host: activeRoot().host, container, target: targetOf(container) };
+  const portalStart = root.host.marker(root, 'portal-root');
+  const portalEnd = root.host.marker(root, '/portal-root');
 
   if (value.props[LEAD]) container.prepend(portalStart, portalEnd);
   else container.append(portalStart, portalEnd);
@@ -39,7 +38,7 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
     portalContainer: container,
     portalStart,
     portalEnd,
-    target: root
+    root
   };
 
   complete(output, () => {
@@ -100,7 +99,7 @@ function target(into: unknown, parent: globalThis.Node): Container {
 }
 
 function reconcilePortal(fiber: Fiber, value: RenderNode, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  within(fiber.target!, () => reconcileChildren(fiber, fiber.portalEnd!.parentNode!, fiber.portalEnd!, value, context, boundary, appearance));
+  within(fiber.root!, () => reconcileChildren(fiber, fiber.portalEnd!.parentNode!, fiber.portalEnd!, value, context, boundary, appearance));
 }
 
 function leads(props: object) {
@@ -119,7 +118,7 @@ function patchPortal(fiber: Fiber, value: VNode, context: Context, appearance?: 
   fiber.props = value.props;
 
   if (moved) {
-    const content = documentOf(fiber.target!).createDocumentFragment();
+    const content = fiber.root!.host.fragment(fiber.root!);
 
     moveRange(fiber.portalStart!, fiber.portalEnd!, content);
     place(fiber, content);
