@@ -20,6 +20,7 @@ it("will listen on the configured port", async () => {
 it("will listen on a given port over the configured one", async () => {
   await runDev("/app", { port: 5180 });
 
+  expect(createServer).toHaveBeenLastCalledWith(expect.objectContaining({ server: { port: 5180 } }));
   expect(server.listen).toHaveBeenLastCalledWith(5180);
 });
 

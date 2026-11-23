@@ -28,8 +28,14 @@ it("will run without the relay for --no-inspect", async () => {
 });
 
 it("will pass --port to the dev server", async () => {
-  expect(await dev(["--port", "5180"], out)).toBe(0);
+  expect(await dev(["-p", "5180"], out)).toBe(0);
   expect(runDev).toHaveBeenCalledWith(process.cwd(), { inspect: true, port: 5180 });
+});
+
+it("will refuse a port out of range", async () => {
+  expect(await dev(["--port", "-1"], out)).not.toBe(0);
+  expect(await dev(["--port", "70000"], out)).not.toBe(0);
+  expect(runDev).not.toHaveBeenCalled();
 });
 
 it("will return 1 with the message of a failure", async () => {
