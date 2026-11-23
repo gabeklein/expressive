@@ -100,7 +100,9 @@ function hide(owner: Fiber, boundary: Boundary) {
 }
 
 function draw(owner: Fiber, boundary: Boundary) {
-  within(owner.root!, () => reconcile(owner.placeholder!, boundary.fallback(), owner.childContext!, boundary.parent));
+  if (owner.root!.waiting) return;
+
+  within(owner.root!, () => reconcile(owner.placeholder!, boundary.fallback!(), owner.childContext!, boundary.parent));
 }
 
 function reveal(owner: Fiber) {
@@ -150,16 +152,18 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
     scope.holds = undefined;
 
     const waiting = fiber.root?.waiting;
-    const entry = waiting && thrown.then(() => {}, () => {});
+    let done!: () => void;
+    const entry = new Promise<void>((resolve) => done = resolve);
     const clear = () => {
-      waiting?.delete(entry!);
+      waiting?.delete(entry);
+      done();
       fiber.suspended!.delete(clear);
       release(held);
       held = undefined;
     };
 
     (fiber.suspended ||= new Set()).add(clear);
-    waiting?.add(entry!);
+    waiting?.add(entry);
 
     const resume = (retry: () => void) => {
       fiber.suspended!.delete(clear);
@@ -167,8 +171,9 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
       if (held) (scope.holds ||= []).push(...held);
       held = undefined;
       if (waiting) setTimeout(() => {
-        waiting.delete(entry!);
-        retry();
+        waiting.delete(entry);
+        done();
+        if (scope.active) retry();
       });
       else retry();
     };

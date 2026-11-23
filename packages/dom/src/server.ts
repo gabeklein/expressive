@@ -1,4 +1,4 @@
-import { LEAD, PORTAL, claim, complete, flatten, fragment, hostOf, isBare, isVNode, reconcileChildren, reserved, settled, syncRoots, unmatched, vnode } from '@expressive/jsx';
+import { PORTAL, claim, complete, flatten, fragment, hostOf, isBare, isVNode, reconcileChildren, reserved, settled, syncRoots, unmatched, vnode } from '@expressive/jsx';
 import type { Declaration, Host, RenderNode as Node, Root, Styles } from '@expressive/jsx';
 
 import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './tags';
@@ -94,7 +94,6 @@ class Markup {
   props: Record<string, any> = {};
   claimed?: ReturnType<typeof claim>;
   svg?: boolean;
-  head?: Markup;
 
   constructor(readonly nodeType: number, public nodeValue = '', readonly tag = '') {}
 
@@ -128,11 +127,6 @@ class Markup {
     for (const node of nodes) this.insertBefore(node, null);
   }
 
-  prepend(...nodes: Markup[]) {
-    const first = this.childNodes[0] || null;
-    for (const node of nodes) this.insertBefore(node, first);
-  }
-
   remove() {
     const parent = this.parentNode;
 
@@ -156,18 +150,7 @@ function inSvg(parent: globalThis.Node) {
   return !!element?.svg && element.tag != 'foreignObject';
 }
 
-function inHead(parent: globalThis.Node, head: Markup) {
-  const host = asMarkup(hostOf(parent));
-
-  if (host.getRootNode() === head) return true;
-
-  for (let node = elementOf(host); node; node = elementOf(node.parentNode))
-    if (node.tag == 'head') return true;
-
-  return false;
-}
-
-function stringHost(sink: Styles, head: Markup): Host {
+function stringHost(sink: Styles): Host {
   const host: Host = {
     target: (container) => container as unknown as Document,
     styles: () => sink,
@@ -216,12 +199,7 @@ function stringHost(sink: Styles, head: Markup): Host {
         );
     },
     unmount() {},
-    locate: () => asNode(new Markup(11)) as DocumentFragment,
-    hoist(value, parent) {
-      if (!isVNode(value) || !isHoisted(value.type, value.props) || inSvg(parent) || inHead(parent, head)) return value;
-
-      return vnode(PORTAL, { into: head, children: value, [LEAD]: value.type == 'title' }, value.key);
-    }
+    hoist: (value) => isVNode(value) && value.type === PORTAL ? vnode(PORTAL, { into: new Markup(11) }, value.key) : value
   };
 
   return host;
@@ -256,8 +234,7 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
     root: (key, css) => roots.set(key, css),
     serialize: text
   };
-  const head = new Markup(11);
-  const host = stringHost(sink, head);
+  const host = stringHost(sink);
   const container = fragment({ host } as Root);
 
   signal?.throwIfAborted();
@@ -268,29 +245,50 @@ async function renderToString(node: Node, options: Options = {}): Promise<Output
     if (rules.length || roots.size) syncRoots(sink);
 
     const css = [...rules, ...roots.values()].filter(Boolean).join('\n');
-    const html = serialize(asMarkup(container), sink, markers);
+    const pass: Pass = { sink, markers, head: [] };
+    const html = serialize(asMarkup(container), pass);
 
-    return { html, css, head: serialize(head, sink, false) };
+    return { html, css, head: pass.head.join('') };
   } finally {
     unmount();
   }
 }
 
-function serialize(node: Markup, sink: Styles, markers: boolean, selected?: string): string {
+interface Pass {
+  sink: Styles;
+  markers: boolean;
+  head: string[];
+  inHead?: boolean;
+  selected?: string;
+}
+
+function serialize(node: Markup, pass: Pass): string {
   switch (node.nodeType) {
     case 3:
       return escape(node.nodeValue);
     case 8:
-      return markers ? `<!--${node.nodeValue}-->` : '';
+      return pass.markers ? `<!--${node.nodeValue}-->` : '';
     case 1:
-      return element(node, sink, markers, selected);
+      return hoisted(node, pass);
     default:
-      return node.childNodes.map((child) => serialize(child, sink, markers, selected)).join('');
+      return node.childNodes.map((child) => serialize(child, pass)).join('');
   }
 }
 
-function element(node: Markup, sink: Styles, markers: boolean, selected?: string) {
+function hoisted(node: Markup, pass: Pass) {
+  if (!isHoisted(node.tag, node.props) || node.svg || pass.inHead) return element(node, pass);
+
+  const markup = element(node, pass);
+
+  if (node.tag == 'title') pass.head.unshift(markup);
+  else pass.head.push(markup);
+
+  return pass.markers ? '<!--portal-->' : '';
+}
+
+function element(node: Markup, pass: Pass) {
   const { tag, props, svg } = node;
+  const { sink, selected } = pass;
   const claimed = node.claimed!;
   let attributes = '';
 
@@ -329,8 +327,13 @@ function element(node: Markup, sink: Styles, markers: boolean, selected?: string
   else if (tag == 'textarea' && entry != null) inner = escape(String(entry));
   else if (RAW.has(tag)) inner = raw(tag, childrenText(props.children));
   else {
-    const within = tag == 'select' && entry != null ? String(entry) : selected;
-    inner = node.childNodes.map((child) => serialize(child, sink, markers, within)).join('');
+    const { inHead } = pass;
+
+    if (tag == 'select' && entry != null) pass.selected = String(entry);
+    if (tag == 'head') pass.inHead = true;
+
+    inner = node.childNodes.map((child) => serialize(child, pass)).join('');
+    Object.assign(pass, { inHead, selected });
   }
 
   if (tag == 'title' && !svg) inner = inner.replace(/<!--[^>]*-->/g, '');

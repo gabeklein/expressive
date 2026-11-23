@@ -13,7 +13,7 @@ type Kind = 'collection' | 'component' | 'element' | 'fragment' | 'function' | '
 
 interface Boundary {
   catch?: (error: Error) => Promise<void> | void;
-  fallback: () => RenderNode;
+  fallback?: () => RenderNode;
   owner?: Fiber;
   parent?: Boundary;
   waiting?: Set<Fiber>;

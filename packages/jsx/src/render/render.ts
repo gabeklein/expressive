@@ -76,7 +76,7 @@ function mountRoot(node: RenderNode, container: Container, host: Host, boundary?
 /**
  * Render into `container` and wait until nothing is suspended, resolving to the unmount.
  *
- * Suspended subtrees retry in place; a root without a boundary waits rather than throwing.
+ * Suspended subtrees retry in place and no fallback is drawn; a root without a boundary waits rather than throwing.
  * An error no `catch` boundary handles rejects. An aborted `signal` rejects with its reason.
  * Either way, what was built is unmounted before rejecting.
  */
@@ -84,12 +84,14 @@ async function settled(node: RenderNode, container: Container, host: Host, signa
   const waiting = new Set<PromiseLike<unknown>>();
   let failed: { error: unknown } | undefined;
   const boundary: Boundary = {
-    fallback: () => null,
     catch(error) {
       failed ||= { error };
+      return new Promise(() => {});
     }
   };
   const unmount = mountRoot(node, container, host, boundary, waiting);
+
+  signal?.addEventListener('abort', unmount, { once: true });
 
   try {
     while (true) {
@@ -103,6 +105,8 @@ async function settled(node: RenderNode, container: Container, host: Host, signa
   } catch (error) {
     unmount();
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', unmount);
   }
 }
 
