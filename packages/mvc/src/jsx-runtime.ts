@@ -86,8 +86,10 @@ export function onElement(hook: (element: Element) => void) {
   return previous;
 }
 
+const UNKNOWN = {};
+
 function element(type: unknown, props: object, key?: unknown, source?: object): Element {
-  const node = { [ELEMENT]: true, type, props: props || {}, key } as { -readonly [K in keyof Element]: Element[K] };
+  const node = { [ELEMENT]: true, type, props: props || {}, key: key as Element['key'] } as { -readonly [K in keyof Element]: Element[K] };
 
   if (source) node.source = source;
   if (created) created(node);
@@ -111,18 +113,16 @@ function flatten(children: unknown) {
   return output;
 }
 
-const DEFAULT = {
+const HOST = {
   childrenOf: flatten,
   isElement: isDefault,
   jsx: element,
   jsxs: element,
-  jsxDEV: (type, props, key, _isStatic, source) => element(type, props, key, source || {}),
+  jsxDEV: (type, props, key, _isStatic, source) => element(type, props, key, source || UNKNOWN),
   propsOf: (node) => isDefault(node) ? node.props : {},
   typeOf: (node) => isDefault(node) ? node.type : undefined,
   Fragment
-} as Required<HostRuntime>;
-
-const HOST: HostRuntime = { ...DEFAULT };
+} as HostRuntime;
 
 let registered: HostRuntime | undefined;
 

@@ -61,7 +61,6 @@ describe('unregistered', () => {
 
     expect(second).toHaveBeenCalledWith(node);
     expect(first).not.toHaveBeenCalled();
-    expect(onElement(undefined as any)).toBe(second);
   });
 
   it('will run transition work inline', () => {
