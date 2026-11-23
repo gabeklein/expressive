@@ -8,4 +8,15 @@
 "@expressive/dev": patch
 ---
 
-The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx-runtime`: `jsx`/`jsxs`/`jsxDEV`, `Fragment`, `host()`, `onElement`, `childrenOf`, `isElement`, `typeOf` and `propsOf`. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`; `@expressive/mvc/jsx-dev-runtime` is removed. `@expressive/mvc/jsx-runtime` keeps the `Host` manifest and the host seams (`resolver`, `methodOf`, `elements`). Apps on `@expressive/dom`, `@expressive/dev` or `@expressive/react` change nothing.
+The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx-runtime`. This covers:
+- `jsx`, `jsxs` and `jsxDEV`;
+- `Fragment`;
+- `host()` and `onElement`;
+- `childrenOf`, `isElement`, `typeOf` and `propsOf`;
+- the `JSX`, `Element` and `HostRuntime` types.
+
+`@expressive/mvc/jsx-runtime` keeps the `Host` manifest and the host seams `resolver`, `methodOf` and `elements`. `@expressive/mvc/jsx-dev-runtime` is removed. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`.
+
+Without a registered host, the runtime creates its own element instead of throwing "No JSX host is registered", and the introspection functions read it. `jsxDEV` marks the element with the compiler's `source`, and `onElement(hook)` reports each element as it is created.
+
+DOM element typing - intrinsics, events, `style`, and Model props through `LibraryManagedAttributes` - now comes from `@expressive/dom/jsx-runtime`. Apps on `@expressive/dom`, `@expressive/dev` or `@expressive/react` change nothing.

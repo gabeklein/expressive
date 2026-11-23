@@ -1,5 +1,5 @@
 import type { Component, Model } from '@expressive/mvc';
-import type { Module, RenderNode as Node, VNode } from '@expressive/jsx';
+import type { RenderNode as Node, VNode } from '@expressive/jsx';
 import type { JSX as Base } from '@expressive/jsx/jsx-runtime';
 
 type Words =
@@ -115,6 +115,9 @@ declare module '@expressive/jsx/jsx-runtime' {
 
 export { Fragment, jsx, jsxs } from '@expressive/jsx/jsx-runtime';
 export type { VNode as JSXElement };
+type Loadable = ((props: any) => Node) | (abstract new (...args: any[]) => object);
+type Module<T extends Loadable = Loadable> = T | { default: T };
+
 type Loaded<T> = [T] extends [never] ? {}
   : T extends abstract new (...args: any[]) => infer I
   ? JSX.LibraryManagedAttributes<T, I>
