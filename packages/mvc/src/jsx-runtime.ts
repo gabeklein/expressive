@@ -59,6 +59,9 @@ export { elements } from './element';
 export { resolver } from './context';
 export type { Renderable } from './element';
 
+/** Host-side: owner and key of a bound method - see `model.ts`. */
+export { methodOf } from './model';
+
 /** Default for seams only a registered host can provide. */
 function absent(): never {
   throw new Error(
