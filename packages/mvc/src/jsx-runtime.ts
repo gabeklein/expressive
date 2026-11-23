@@ -25,14 +25,11 @@ import type { Component } from './component';
 export interface Host { }
 
 /**
- * Host runtime, registered by an adapter (e.g. `@expressive/react`) as an
- * import side effect. One host per build - a second registration with a
- * different runtime throws.
+ * Host runtime an adapter (e.g. `@expressive/react`) registers to replace the default {@link Element}.
  *
- * Members are ambient host capabilities: plain functions the host uniquely
- * owns, callable outside render - element mechanics always, plus optional
- * extras that fall back sanely when absent. Hook-shaped (render-resident)
- * capabilities do not belong here; those live with the adapter.
+ * One host per build - a second registration with a different runtime throws.
+ * Without one, element creation and introspection use the default element.
+ * Members are ambient host capabilities callable outside render; hook-shaped ones live with the adapter.
  */
 export interface HostRuntime {
   childrenOf(children: unknown): Component.Node[];
@@ -43,6 +40,18 @@ export interface HostRuntime {
   propsOf(node: unknown): Record<string, unknown>;
   typeOf(node: unknown): unknown;
   Fragment: unknown;
+}
+
+/**
+ * Element the JSX entries create when no host is registered.
+ *
+ * `source` is set only by `jsxDEV` - the compiler's location, or `{}` without one - so it marks a dev element.
+ */
+export interface Element<P = any> {
+  readonly type: unknown;
+  readonly props: P;
+  readonly key?: string | number | null;
+  readonly source?: object;
 }
 
 /**
@@ -62,32 +71,65 @@ export type { Renderable } from './element';
 /** Host-side: owner and key of a bound method - see `model.ts`. */
 export { methodOf } from './model';
 
-/** Default for seams only a registered host can provide. */
-function absent(): never {
-  throw new Error(
-    'No JSX host is registered for @expressive/mvc. ' +
-    "Import a host adapter (e.g. '@expressive/react') before anything renders - " +
-    'typically as the first import of your application entry module.'
-  );
+const ELEMENT = Symbol.for('@expressive/mvc.element');
+
+let created: ((element: Element) => void) | undefined;
+
+/**
+ * Host-side: call `hook` with each default element as it is created. Returns the previous hook.
+ *
+ * A host chains by calling the previous hook from its own.
+ */
+export function onElement(hook: (element: Element) => void) {
+  const previous = created;
+  created = hook;
+  return previous;
 }
 
-const HOST: HostRuntime = {
-  childrenOf: absent,
-  isElement: absent,
-  jsx: absent,
-  jsxs: absent,
-  propsOf: absent,
-  typeOf: absent,
+const UNKNOWN = {};
+
+function element(type: unknown, props: object, key?: unknown, source?: object): Element {
+  const node = { [ELEMENT]: true, type, props: props || {}, key: key as Element['key'] } as { -readonly [K in keyof Element]: Element[K] };
+
+  if (source) node.source = source;
+  if (created) created(node);
+
+  return node;
+}
+
+function isDefault(node: unknown): node is Element {
+  return !!node && typeof node == 'object' && (node as any)[ELEMENT] === true;
+}
+
+function flatten(children: unknown) {
+  const output: Component.Node[] = [];
+
+  function add(child: unknown) {
+    if (Array.isArray(child)) child.forEach(add);
+    else if (child != null && typeof child != 'boolean') output.push(child as Component.Node);
+  }
+
+  add(children);
+  return output;
+}
+
+const HOST = {
+  childrenOf: flatten,
+  isElement: isDefault,
+  jsx: element,
+  jsxs: element,
+  jsxDEV: (type, props, key, _isStatic, source) => element(type, props, key, source || UNKNOWN),
+  propsOf: (node) => isDefault(node) ? node.props : {},
+  typeOf: (node) => isDefault(node) ? node.type : undefined,
   Fragment
-};
+} as HostRuntime;
 
 let registered: HostRuntime | undefined;
 
 /**
  * Register the host runtime. Idempotent for the same runtime - re-registering
- * picks up members added since (e.g. an optional dev seam). Element mechanics
- * the host leaves unset keep defaults that throw a setup-pointing error;
- * `jsxDEV` is routed around at the call site instead.
+ * picks up members added since (e.g. an optional dev seam). A runtime without
+ * `jsxDEV` gets its `jsx`/`jsxs` for dev builds.
  */
 export function host(runtime: HostRuntime) {
   if (registered && registered !== runtime)
@@ -97,7 +139,7 @@ export function host(runtime: HostRuntime) {
     );
 
   registered = runtime;
-  Object.assign(HOST, runtime);
+  Object.assign(HOST, runtime, { jsxDEV: runtime.jsxDEV });
 }
 
 /** Translate the agnostic Fragment sentinel to the host's Fragment. */
@@ -113,8 +155,8 @@ export function jsxs(type: unknown, props: object, key?: unknown): Component.Nod
   return HOST.jsxs(hostType(type), props, key);
 }
 
-/** Dev-transpiled element creation. Hosts without a `jsxDEV` of their own fall
- * back to the production entries (prod-only host under a dev build). */
+/** Dev-transpiled element creation. A host without a `jsxDEV` of its own falls
+ * back to its production entries. */
 export function jsxDEV(
   type: unknown,
   props: object,

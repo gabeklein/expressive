@@ -17,6 +17,7 @@ interface Rendered {
   instance?: object;
   appearance?: Appearance;
   consumed?: boolean;
+  dev?: object;
 }
 
 let rendering: object | undefined;
@@ -84,7 +85,7 @@ function renderedAppearance(fiber: Rendered): Appearance | undefined {
   if (instance)
     context = enterAppearance(unbind((instance as Component).render), undefined, context);
 
-  unmatched(fiber.props!, [fiber.appearance?.lexical, context], fiber.appearance?.author, instance);
+  unmatched(fiber.dev, fiber.props!, [fiber.appearance?.lexical, context], fiber.appearance?.author, instance);
 
   if (context?.base)
     entries.push({ hops: 0, style: context.base as Style });

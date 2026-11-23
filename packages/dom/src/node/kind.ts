@@ -1,7 +1,7 @@
 import { Component, has, map, Model } from '@expressive/mvc';
-import { Fragment } from '@expressive/mvc/jsx-runtime';
+import { Fragment, isElement } from '@expressive/mvc/jsx-runtime';
 
-import { isVNode, PORTAL, VNODE } from './vnode';
+import { isVNode, PORTAL } from './vnode';
 import type { Node, VNode } from './vnode';
 
 type Kind = 'text' | 'component' | 'collection' | 'fragment' | 'portal' | 'element' | 'owned' | 'function';
@@ -53,13 +53,13 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 }
 
 function unrenderable(value: unknown, by?: Author, asType?: boolean) {
-  const foreign = typeof value == 'symbol'
-    ? value.description == PORTAL.description
-    : !!value && typeof value == 'object' && !isVNode(value) && Object.getOwnPropertySymbols(value).some((key) => key.description == VNODE.description);
-  const what = foreign ? `${typeof value == 'symbol' ? 'a portal' : 'an element'} from another copy of @expressive/dom` : describe(value);
+  const foreign = typeof value == 'symbol' && value.description == PORTAL.description;
+  const hosted = !foreign && !isVNode(value) && isElement(value);
+  const what = foreign ? 'a portal from another copy of @expressive/dom' : hosted ? 'an element from another JSX host' : describe(value);
   const message = asType ? `Cannot use ${what} as an element type` : `Cannot render ${what}`;
+  const hint = foreign ? ' Is the package loaded twice?' : hosted ? ' Is another host adapter, like @expressive/react, imported?' : '';
 
-  return new TypeError(`${message}${within(by)}.${foreign ? ' Is the package loaded twice?' : ''}`);
+  return new TypeError(`${message}${within(by)}.${hint}`);
 }
 
 function describe(value: unknown) {

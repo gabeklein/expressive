@@ -1,8 +1,7 @@
-import { Fragment, host } from '@expressive/mvc/jsx-runtime';
+import { Fragment, jsx, jsxs } from '@expressive/mvc/jsx-runtime';
 import type { Component, Model } from '@expressive/mvc';
 import type { JSX as Base } from '@expressive/mvc/jsx-runtime';
 
-import { childrenOf, isVNode, vnode } from './node/vnode';
 import type { Node, VNode } from './node/vnode';
 import type { Attributes as Loaded, Module } from './node/loader';
 
@@ -116,23 +115,6 @@ declare module '@expressive/mvc/jsx-runtime' {
     }
   }
 }
-
-host({
-  jsx: vnode,
-  jsxs: vnode,
-  Fragment,
-  childrenOf,
-  isElement: isVNode,
-  typeOf(node: unknown) {
-    return isVNode(node) ? node.type : undefined;
-  },
-  propsOf(node: unknown) {
-    return isVNode(node) ? node.props : {};
-  }
-});
-
-const jsx = vnode;
-const jsxs = vnode;
 
 export { Fragment, jsx, jsxs };
 export type { VNode as JSXElement };

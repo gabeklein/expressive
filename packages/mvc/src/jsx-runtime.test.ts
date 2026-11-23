@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Model } from './model';
 
-import { childrenOf, Fragment, host, isElement, jsx, jsxs, propsOf, typeOf } from './jsx-runtime';
+import { childrenOf, Fragment, host, isElement, jsx, jsxs, onElement, propsOf, typeOf } from './jsx-runtime';
 import { pending } from './dispatch';
 import { jsxDEV, Fragment as devFragment } from './jsx-dev-runtime';
 import * as entry from './jsx-runtime';
@@ -27,13 +27,40 @@ const runtime = mockHost();
 
 describe('unregistered', () => {
   // must run before any host() call in this module
-  it('will throw on element creation and introspection', () => {
-    const noHost = /No JSX host/;
-    expect(() => jsx('div', {})).toThrow('No JSX host is registered for @expressive/mvc.');
-    expect(() => childrenOf([])).toThrow(noHost);
-    expect(() => isElement({})).toThrow(noHost);
-    expect(() => typeOf({})).toThrow(noHost);
-    expect(() => propsOf({})).toThrow(noHost);
+  it('will create and read a default element', () => {
+    const node = jsx('div', { a: 1 }, 'k');
+
+    expect(node).toMatchObject({ type: 'div', props: { a: 1 }, key: 'k' });
+    expect(isElement(node)).toBe(true);
+    expect(isElement({ type: 'div', props: {} })).toBe(false);
+    expect(typeOf(node)).toBe('div');
+    expect(typeOf('div')).toBeUndefined();
+    expect(propsOf(node)).toEqual({ a: 1 });
+    expect(propsOf(null)).toEqual({});
+    expect(propsOf(jsxs('ul', null as any))).toEqual({});
+    expect(typeOf(jsx(Fragment, {}))).toBe(Fragment);
+    expect(childrenOf([node, [null, 'x', false], undefined, 0])).toEqual([node, 'x', 0]);
+  });
+
+  it('will mark a dev element with its source', () => {
+    const source = { fileName: 'App.tsx', lineNumber: 1 };
+
+    expect((jsx('div', {}) as any).source).toBeUndefined();
+    expect((jsxDEV('div', {}, undefined, false, source) as any).source).toBe(source);
+    expect((jsxDEV('div', {}) as any).source).toEqual({});
+  });
+
+  it('will call the element hook, chaining the previous', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+
+    expect(onElement(first)).toBeUndefined();
+    expect(onElement(second)).toBe(first);
+
+    const node = jsx('div', {});
+
+    expect(second).toHaveBeenCalledWith(node);
+    expect(first).not.toHaveBeenCalled();
   });
 
   it('will run transition work inline', () => {
@@ -126,7 +153,7 @@ describe('jsx-runtime module', () => {
   it('will carry transform contract, host seams and render setup', () => {
     expect(Object.keys(entry).sort()).toEqual([
       'Fragment', 'childrenOf', 'elements', 'host', 'isElement',
-      'jsx', 'jsxDEV', 'jsxs', 'methodOf', 'propsOf', 'resolver', 'typeOf'
+      'jsx', 'jsxDEV', 'jsxs', 'methodOf', 'onElement', 'propsOf', 'resolver', 'typeOf'
     ]);
   });
 });

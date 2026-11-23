@@ -1,13 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { PORTAL, Portal, VNODE, childrenOf, createElement, isVNode, vnode } from './vnode';
+import { PORTAL, Portal, createElement, isVNode, vnode } from './vnode';
 
 describe('VNode', () => {
   it('will create and recognize nodes', () => {
     const node = vnode('p', { children: 'hello' }, 1);
 
-    expect(node).toEqual({
-      [VNODE]: true,
+    expect(node).toMatchObject({
       type: 'p',
       props: { children: 'hello' },
       key: 1
@@ -16,14 +15,6 @@ describe('VNode', () => {
     expect(isVNode({})).toBe(false);
     expect(isVNode(null)).toBe(false);
     expect(vnode('hr', null as never).props).toEqual({});
-  });
-
-  it('will flatten rendered children', () => {
-    expect(childrenOf([0, ['one', null, false], undefined, true, 2n])).toEqual([
-      0,
-      'one',
-      2n
-    ]);
   });
 
   it('will create a portal node from the Portal element type', () => {
@@ -53,5 +44,23 @@ describe('VNode', () => {
     it('will prefer child arguments over props.children', () => {
       expect(createElement('p', { children: 'old' }, 'new').props.children).toBe('new');
     });
+  });
+});
+
+describe('authoring', () => {
+  it('will keep an element hook installed before the first render', async () => {
+    vi.resetModules();
+
+    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const hook = vi.fn();
+
+    runtime.onElement(hook);
+
+    const { render } = await vi.importActual<typeof import('../index')>('../index');
+    const Page = () => runtime.jsx('p', {});
+    const release = render(runtime.jsx(Page, {}), document.createElement('main'));
+
+    expect(hook).toHaveBeenCalledTimes(2);
+    release();
   });
 });

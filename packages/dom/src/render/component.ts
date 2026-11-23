@@ -24,6 +24,7 @@ function mountFunction(value: VNode, parent: globalThis.Node, before: globalThis
   fiber.key = value.key;
   fiber.type = value.type;
   fiber.props = observe(resolved.props);
+  fiber.dev = value.source;
   fiber.boundary = boundary;
   fiber.appearance = resolved.appearance;
   fiber.scope = makeScope(context, (passive) => run(fiber, passive));
@@ -53,7 +54,7 @@ function mountOwnedComponent(
   let place!: () => void;
   const instance = own(Type, props, new Promise<void>((resolve) => (place = resolve)));
 
-  return mountComponent(instance, parent, before, context, boundary, resolved.appearance, true, value.key, props, place);
+  return mountComponent(instance, parent, before, context, boundary, resolved.appearance, true, value.key, props, place, value.source);
 }
 
 function mountComponent(
@@ -66,9 +67,11 @@ function mountComponent(
   owned = false,
   key?: Key,
   props: Record<string, any> = instance.props,
-  place?: () => void
+  place?: () => void,
+  dev?: object
 ) {
   const fiber = range('component', parent, before, context);
+  fiber.dev = dev;
   const childContext = context.push(instance, owned ? () => instance.set(null) : undefined);
   const element = (owned ? props : {}) as Placement;
   const { fallback } = instance;
@@ -155,6 +158,7 @@ function patchFunction(fiber: Fiber, value: VNode, appearance?: Appearance) {
   }
   fiber.appearance = resolved.appearance;
   fiber.props = observe(resolved.props);
+  fiber.dev = value.source;
   rerun(fiber, () => run(fiber, passiveRender));
 }
 
@@ -164,6 +168,7 @@ function patchComponent(fiber: Fiber, value: RenderNode, appearance?: Appearance
     : { appearance: placed(appearance), props: fiber.props! };
   fiber.appearance = resolved.appearance;
   const props = isVNode(value) ? observe(resolved.props) : resolved.props;
+  if (isVNode(value)) fiber.dev = value.source;
   if (isVNode(value) && props !== fiber.props) {
     const instance = fiber.instance!;
     if (passiveRender) fiber.applied = true;
