@@ -7,21 +7,17 @@ interface Author {
   type?: unknown;
 }
 
-let enabled = false;
 const said = new Set<string>();
 
-function develop() {
-  enabled = true;
-}
-
 function unmatched(
+  dev: object | undefined,
   props: Record<string, unknown>,
   contexts: (AppearanceContext | undefined)[],
   author: Author | undefined,
   target?: object,
   tag?: string
 ) {
-  if (!enabled) return;
+  if (!dev) return;
 
   const known = new Set<string>();
 
@@ -61,4 +57,4 @@ function distance(left: string, right: string) {
   return row[right.length];
 }
 
-export { develop, unmatched };
+export { unmatched };

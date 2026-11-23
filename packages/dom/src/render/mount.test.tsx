@@ -81,19 +81,10 @@ describe('mount', () => {
     expect(() => render(<Unnamed />, root)).toThrow('Cannot render an anonymous function in Unnamed.');
   });
 
-  it('will name an element or portal made by another copy of the package', () => {
-    const foreign = { [Symbol('@expressive/dom.vnode')]: true, type: 'div', props: {} };
-    const Page = () => foreign as never;
-    const Nested = () => vnode(foreign as never, {});
+  it('will name a portal made by another copy of the package', () => {
     const Portal = () => vnode(Symbol('@expressive/dom.portal'), {});
     const root = document.createElement('main');
 
-    expect(() => render(<Page />, root)).toThrow(
-      'Cannot render an element from another copy of @expressive/dom in Page. Is the package loaded twice?'
-    );
-    expect(() => render(<Nested />, root)).toThrow(
-      'Cannot use an element from another copy of @expressive/dom as an element type in Nested. Is the package loaded twice?'
-    );
     expect(() => render(<Portal />, root)).toThrow(
       'Cannot use a portal from another copy of @expressive/dom as an element type in Portal. Is the package loaded twice?'
     );

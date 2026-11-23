@@ -3,13 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { Component } from '@expressive/mvc';
 import { mockWarn, place } from '../../test.setup';
 import { style } from '../index';
-import { unmatched } from './diagnose';
+import { jsx } from '@expressive/mvc/jsx-runtime';
 
 const warn = mockWarn();
 
 describe('unmatched flags', () => {
-  it('will not warn outside the dev runtime', () => {
-    unmatched({ _quiet: true }, [], undefined);
+  it('will not warn for an element made outside the dev runtime', () => {
+    function Quiet() {
+      return jsx('section', { _quiett: true });
+    }
+
+    style(Quiet, { _quiet: { color: 'red' } });
+    place(<Quiet />);
 
     expect(warn).not.toHaveBeenCalled();
   });

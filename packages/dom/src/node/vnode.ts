@@ -1,11 +1,12 @@
-import { Fragment as FRAGMENT } from '@expressive/mvc/jsx-runtime';
+import { Fragment as FRAGMENT, isElement, jsx, onElement } from '@expressive/mvc/jsx-runtime';
+import type { Element as Created } from '@expressive/mvc/jsx-runtime';
 import type { has, map } from '@expressive/mvc';
 import type { JSX as Runtime } from '../jsx-runtime';
 
-const VNODE = Symbol('@expressive/dom.vnode');
 const PORTAL = Symbol('@expressive/dom.portal');
 const authors = new WeakMap<object, object>();
 let author: object | undefined;
+let stamping = false;
 
 type Key = string | number | null | undefined;
 type FunctionComponent<P = any> = (props: P) => Node;
@@ -28,27 +29,26 @@ type Node =
   | has.Pool<Node, any, any>
   | map.Managed<unknown, Node>;
 
-interface VNode<P = any> {
-  readonly [VNODE]: true;
+interface VNode<P = any> extends Created<P & { children?: Node }> {
   readonly type: string | symbol | ComponentType<P>;
-  readonly props: P & { children?: Node };
-  readonly key?: Key;
 }
 
 function vnode<P>(type: VNode<P>['type'], props: P, key?: unknown): VNode<P> {
-  const node: VNode<P> = {
-    [VNODE]: true,
-    type,
-    props: (props || {}) as VNode<P>['props'],
-    key: key as Key
-  };
-
-  if (author) authors.set(node, author);
-  return node;
+  return jsx(type, props as object, key) as VNode<P>;
 }
 
 function authoring<T>(fiber: object, run: () => T) {
   const previous = author;
+
+  if (!stamping) {
+    const next = onElement((node) => {
+      if (author) authors.set(node, author);
+      if (next) next(node);
+    });
+
+    stamping = true;
+  }
+
   author = fiber;
 
   try {
@@ -94,20 +94,7 @@ declare namespace createElement {
 }
 
 function isVNode(value: unknown): value is VNode {
-  return !!value && typeof value == 'object' && (value as VNode)[VNODE] === true;
-}
-
-function childrenOf(value: unknown): Node[] {
-  const output: Node[] = [];
-
-  function add(child: unknown) {
-    if (Array.isArray(child)) child.forEach(add);
-    else if (child !== null && child !== undefined && typeof child != 'boolean')
-      output.push(child as Node);
-  }
-
-  add(value);
-  return output;
+  return isElement(value);
 }
 
 /** Groups children without a wrapping element. */
@@ -120,11 +107,9 @@ const Fragment = FRAGMENT as unknown as (props: { children?: Node }) => Node;
 const Portal = PORTAL as unknown as (props: { into: Element | DocumentFragment | string; children?: Node }) => Node;
 
 export {
-  VNODE,
   PORTAL,
   authoring,
   authorOf,
-  childrenOf,
   createElement,
   Fragment,
   Portal,

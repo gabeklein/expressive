@@ -266,7 +266,8 @@ async function fn(value: VNode, pass: Pass, context: Context, appearance?: Appea
     kind: 'function',
     type: value.type,
     props: observe(resolved.props),
-    appearance: resolved.appearance
+    appearance: resolved.appearance,
+    dev: value.source
   } as Rendered;
 
   const output = await attempt(pass, () => scoped(context, fiber, () => resolve(type, fiber.props!, () => call(type, fiber.props))));
@@ -280,10 +281,10 @@ async function owned(value: VNode, pass: Pass, context: Context, appearance?: Ap
   const props = observe(resolved.props);
   const instance = own(Type, props, new Promise(() => {}));
 
-  return component(instance, pass, context, resolved.appearance, svg, props);
+  return component(instance, pass, context, resolved.appearance, svg, props, value.source);
 }
 
-async function component(instance: Component, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean, props?: Record<string, any>): Promise<string> {
+async function component(instance: Component, pass: Pass, context: Context, appearance?: Appearance, svg?: boolean, props?: Record<string, any>, dev?: object): Promise<string> {
   const child = context.push(instance, props ? () => instance.set(null) : undefined);
   const placement = (props || {}) as Pick<Component, 'catch'>;
   const handler = placement.catch || instance.catch;
@@ -292,7 +293,8 @@ async function component(instance: Component, pass: Pass, context: Context, appe
     type: instance.constructor,
     props: props || instance.props,
     instance,
-    appearance
+    appearance,
+    dev
   } as Rendered;
   let reached = -1;
 
@@ -352,7 +354,7 @@ async function element(value: VNode, pass: Pass, context: Context, appearance?: 
 
   const resolved = appearance?.context?.resolve(props, tag);
 
-  unmatched(props, [appearance?.context], appearance?.author, undefined, tag);
+  unmatched(value.source, props, [appearance?.context], appearance?.author, undefined, tag);
 
   const claimed = claim(sink, appearance, resolved, props.className, props.style);
 

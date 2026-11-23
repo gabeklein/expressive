@@ -1,4 +1,3 @@
-import './jsx-runtime';
 
 export { Css } from './style/css';
 export { Style, style } from './style/stylesheet';
