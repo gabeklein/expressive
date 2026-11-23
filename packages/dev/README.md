@@ -64,8 +64,8 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 ## Server
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
-`dist/server/index.js`, which serves `dist/client` - `public/` included, copied there only - and
-falls back to `index.html` for client routes.
+`dist/server/index.js`, which serves `dist/client` (with `public/`, copied only there) and falls back
+to `index.html` for client routes.
 It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch`,
 `around` and `target`.
 
