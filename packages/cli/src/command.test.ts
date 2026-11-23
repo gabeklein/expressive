@@ -580,7 +580,7 @@ describe('cmd', () => {
       expect(lines).toEqual(['child destroyed', 'parent destroyed']);
     });
 
-    it('will tear down field children when the build aborts', async () => {
+    it('will not start field children when the build aborts', async () => {
       let loads = 0;
 
       class Logger extends Model {
@@ -603,11 +603,7 @@ describe('cmd', () => {
       expect(await call(Test, 'late')).toBe(0);
       expect(loads).toBe(1);
       expect(lines).toEqual([
-        'logger new',
-        'logger destroyed',
         '! Unknown option --nope.\nUsage: test [options] <command>',
-        'logger new',
-        'logger destroyed',
         'logger new',
         'logger new',
         'logger destroyed',

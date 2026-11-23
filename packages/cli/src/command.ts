@@ -66,8 +66,9 @@ class Miss extends Error {
  *
  * Its `arg`, `args`, `flag`, `opt` and `list` fields are filled from argv before `new()`. A `sub`
  * named in argv is created in turn - every class on the routed path, outermost first, each filled
- * before any `new()` runs. Models held in plain fields activate earlier, before argv is read. Once
- * every class on the path is ready, the last one's `run()` is awaited, then the path is destroyed.
+ * before any `new()` runs. Models held in plain fields start once their class's level is parsed, before
+ * deeper levels and argv values. Once every class on the path is ready, the last one's `run()` is
+ * awaited, then the path is destroyed.
  *
  * A usage error prints to `out.error` and returns 2. `--help`, `-h`, `help` in place of a command, or a
  * group run alone prints help for the path and returns 0. `run` returning `undefined` or `true` gives 0, `false` 1, a number itself; anything else
