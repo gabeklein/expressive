@@ -1,12 +1,13 @@
-import { Fragment as FRAGMENT, isElement, jsx, onElement } from '@expressive/mvc/jsx-runtime';
+import { Fragment as FRAGMENT, jsx, onElement } from '@expressive/mvc/jsx-runtime';
 import type { Element as Created } from '@expressive/mvc/jsx-runtime';
 import type { has, map } from '@expressive/mvc';
 import type { JSX as Runtime } from '../jsx-runtime';
 
 const PORTAL = Symbol('@expressive/dom.portal');
+const ELEMENT = Symbol.for('@expressive/mvc.element');
 const authors = new WeakMap<object, object>();
 let author: object | undefined;
-let stamping = false;
+let hooked = false;
 
 type Key = string | number | null | undefined;
 type FunctionComponent<P = any> = (props: P) => Node;
@@ -40,13 +41,13 @@ function vnode<P>(type: VNode<P>['type'], props: P, key?: unknown): VNode<P> {
 function authoring<T>(fiber: object, run: () => T) {
   const previous = author;
 
-  if (!stamping) {
+  if (!hooked) {
     const next = onElement((node) => {
       if (author) authors.set(node, author);
       if (next) next(node);
     });
 
-    stamping = true;
+    hooked = true;
   }
 
   author = fiber;
@@ -94,7 +95,7 @@ declare namespace createElement {
 }
 
 function isVNode(value: unknown): value is VNode {
-  return isElement(value);
+  return !!value && typeof value == 'object' && (value as { [ELEMENT]?: true })[ELEMENT] === true;
 }
 
 /** Groups children without a wrapping element. */

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Component } from '@expressive/mvc';
 import { mockWarn, place } from '../../test.setup';
 import { style } from '../index';
+import { renderToString } from '../server';
 import { jsx } from '@expressive/mvc/jsx-runtime';
 
 const warn = mockWarn();
@@ -77,6 +78,31 @@ describe('unmatched flags', () => {
     place(<Toolbar />);
 
     expect(warn.mock.calls).toEqual([['"_primray" matches no rule in Toolbar. Did you mean "_primary"?']]);
+  });
+
+  it('will not warn for a component placed outside the dev runtime', async () => {
+    function Badge(props: object) {
+      return <i {...props} />;
+    }
+
+    function Header() {
+      return jsx('nav', { children: jsx(Badge, { _bigg: true }) });
+    }
+
+    function Footer() {
+      return <nav><Badge _smal /></nav>;
+    }
+
+    style(Badge, { _big: { color: 'blue' }, _small: { color: 'red' } });
+    style(Header, { color: 'gray' });
+    style(Footer, { color: 'gray' });
+
+    place(<Header />);
+    await renderToString(<Header />);
+    expect(warn).not.toHaveBeenCalled();
+
+    await renderToString(<Footer />);
+    expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Footer. Did you mean "_small"?']]);
   });
 
   it('will name a subcomponent', () => {

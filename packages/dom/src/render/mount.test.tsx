@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { Component, has, Model } from '@expressive/mvc';
 import { render } from '../index';
@@ -87,6 +87,30 @@ describe('mount', () => {
 
     expect(() => render(<Portal />, root)).toThrow(
       'Cannot use a portal from another copy of @expressive/dom as an element type in Portal. Is the package loaded twice?'
+    );
+  });
+
+  it('will name an element from another registered host', async () => {
+    vi.resetModules();
+
+    const runtime = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const { render } = await vi.importActual<typeof import('../index')>('../index');
+    const foreign = { host: true } as never;
+    const Page = () => foreign;
+    const page = runtime.jsx(Page, {});
+
+    runtime.host({
+      jsx: () => foreign,
+      jsxs: () => foreign,
+      childrenOf: (children) => [children as never],
+      isElement: (node) => node === foreign,
+      propsOf: () => ({}),
+      typeOf: () => 'p',
+      Fragment: Symbol('host.Fragment')
+    });
+
+    expect(() => render(page, document.createElement('main'))).toThrow(
+      'Cannot render an element from another JSX host in Page. Is another host adapter, like @expressive/react, imported?'
     );
   });
 
