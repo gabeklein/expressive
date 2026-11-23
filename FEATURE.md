@@ -36,6 +36,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #802 one `Styles` facility for document, shadow root and server sink.
 - #803 render through a `Host` (dom, limp, custom-host tests).
 - #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
+- #806 `renderToString` through the reconciler: jsx `settled()`, dom's string-tree host; the second walker is gone.
 
 ## Before release
 
