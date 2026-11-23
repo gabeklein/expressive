@@ -60,6 +60,7 @@ interface Fiber {
   claimed?: Claim;
   dehydrated?: boolean;
   target?: StyleTarget;
+  dev?: object;
 }
 
 function range(kind: Kind, parent: globalThis.Node, before: globalThis.Node | null, context: Context): Fiber {

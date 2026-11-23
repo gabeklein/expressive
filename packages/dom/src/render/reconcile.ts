@@ -89,7 +89,7 @@ function patch(old: Fiber | undefined, value: RenderNode, parent: globalThis.Nod
 
   if (old.kind == 'collection') patchCollection(old, appearance);
   else if (old.kind == 'text') patchText(old, value);
-  else if (old.kind == 'element') patchProps(old, (value as VNode).props, appearance);
+  else if (old.kind == 'element') patchProps(old, value as VNode, appearance);
   else if (old.kind == 'fragment') patchFragment(old, value as VNode, context, appearance);
   else if (old.kind == 'function') patchFunction(old, value as VNode, appearance);
   else if (old.kind == 'component') patchComponent(old, value, appearance);
