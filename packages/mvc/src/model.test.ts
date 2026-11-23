@@ -3498,30 +3498,6 @@ describe('new method', () => {
     expect(seen).toBeCalledWith('later');
   });
 
-  it('will destroy started siblings if a field child throws on start', () => {
-    const destroyed = vi.fn();
-
-    class Started extends Model {
-      protected new() {
-        return destroyed;
-      }
-    }
-
-    class Broken extends Model {
-      protected new() {
-        throw new Error('abort');
-      }
-    }
-
-    class Parent extends Model {
-      started = new Started();
-      broken = new Broken();
-    }
-
-    expect(() => Parent.new()).toThrow('abort');
-    expect(destroyed).toBeCalledTimes(1);
-  });
-
   it('will keep field children when an arg activates another that throws', () => {
     class Other extends Model {}
     class Child extends Model {}

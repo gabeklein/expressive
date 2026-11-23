@@ -175,6 +175,20 @@ describe('twin construction', () => {
     expect(warn).not.toBeCalled();
   });
 
+  it('will spare a Model built between twins and activated since', async () => {
+    const props = {};
+
+    new Foo(props);
+    const between = new Child();
+    const kept = new Foo(props);
+
+    event(between);
+    event(kept);
+    await flushMicrotasks();
+
+    expect(between.get(null)).toBe(false);
+  });
+
   it('will spare children of a parent activating the twin', async () => {
     const props = {};
     const first = new Foo(props);
