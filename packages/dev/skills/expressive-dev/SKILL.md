@@ -136,6 +136,8 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 `config({ fetch(request, env, ctx) { ... } })` in `index.ts` answers after remote calls, before static files; return nothing to fall through. Runs in the request's scope - `Current`, `Cookies` work. On Node `env` is `{}`. In dev it also sees Vite's requests (`/@vite/client`, `/.expressive/*`) - match the paths it answers.
 
+`fetch`'s fourth argument `next()` resolves what the request gets without `fetch` - return or rewrite it (a page's `<head>` for link previews). Node: file, `<path>/index.html` or shell from `dist/client`, else 404. Dev: a `public/` file, else the shell Vite transforms - never Vite's modules. `fetch` target: 404 - get the page from the host's static files there, falling back to `next()` in dev.
+
 ## Request scope
 
 `config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. With `config.fetch`, every non-call request runs inside it, including those `fetch` passes on (in dev, Vite's); without, only calls. Twin streams and the fetch target's other handlers (`scheduled`) skip it - wrap those in the handler. The scope ends when `next` resolves - `ctx.waitUntil` work and streamed bodies run after. A throw on a call replies as a call's error; on `fetch` it reaches the host.
@@ -151,7 +153,7 @@ export default config({
 
 ## Fetch target
 
-`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404 Static files are the host's - `config.fetch` forwards to them.
+`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }`, every dependency bundled, for a host that calls a module's `fetch`: remote calls, then `config.fetch`, else 404. Static files are the host's - `config.fetch` forwards to them.
 
 - `Current.get().env` - the host's second `fetch` argument. Type it: `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`, with `@expressive/rpc` a dependency of the app.
 - Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build - import what it needs inside it: `export const bindings = async () => (await import("./dev-env")).env();`.

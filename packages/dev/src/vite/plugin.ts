@@ -13,6 +13,7 @@ import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanne
 import { isCall, scoped, toNode } from "@expressive/rpc/http";
 import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
+import { fileResponse } from "../server/serve";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
 import { twins, type Endpoint, type Exports, type Pooled } from "../server/twin";
@@ -284,7 +285,15 @@ export function expressive(): Plugin<Host> {
 
         if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
 
-        return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx));
+        const url = new URL(request.url);
+        const next = async () => {
+          const { publicDir } = server.config;
+          const html = async () => new Response(await server.transformIndexHtml(url.pathname + url.search, readShell()), { headers: { "content-type": "text/html" } });
+
+          return (publicDir && fileResponse(publicDir, url.pathname)) || html();
+        };
+
+        return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx, next));
       }));
 
       return () => {

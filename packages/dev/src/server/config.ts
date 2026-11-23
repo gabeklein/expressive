@@ -32,8 +32,18 @@ export interface AppConfig {
    *
    * Runs in the request's scope: `Current` and `Cookies` work as in a call. `env` is the host's second argument - in dev under the `fetch` target, `bindings()` from `index.ts`; on Node, `{}`.
    * A body read here is gone for the static files after it - answer the request, or read a `clone()`.
+   * `next()` resolves what the request gets without `fetch`, to return or rewrite: on Node, the file, page or shell from `dist/client`, else 404; in dev, a `public/` file, else the shell as Vite transforms it; on the `fetch` target, 404 - static files are the host's there.
+   *
+   * @example
+   * config({
+   *   async fetch(request, env, ctx, next) {
+   *     if (!new URL(request.url).pathname.startsWith("/invite/")) return;
+   *     const page = await next();
+   *     return new Response((await page.text()).replace("</head>", `<meta property="og:title" content="Join"></head>`), page);
+   *   },
+   * });
    */
-  fetch?(request: Request, env: Env, ctx: Ctx): Response | undefined | Promise<Response | undefined>;
+  fetch?(request: Request, env: Env, ctx: Ctx, next: () => Promise<Response>): Response | undefined | Promise<Response | undefined>;
   /**
    * Wraps each remote call and the app's `fetch` - run `next` inside and resolve what it resolves.
    *

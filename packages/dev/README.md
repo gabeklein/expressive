@@ -86,6 +86,29 @@ falls through. It runs in the request's scope - `Current` and `Cookies` work as 
 also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only the paths it
 answers. On Node, `env` is `{}`.
 
+`next()`, its fourth argument, resolves what the request gets without `fetch` - to return as is or
+rewrite, such as a page's `<head>` for link previews:
+
+- Node: the file, the page's `<path>/index.html` or the shell from `dist/client`, else 404.
+- Dev: a file from `public/`, else the shell as Vite transforms it - never Vite's modules, so return
+  nothing for those.
+- The `fetch` target: 404. Static files are the host's there - fetch the page from them, falling
+  back to `next()` for dev.
+
+```ts
+export default config({
+  async fetch(request, env, ctx, next) {
+    const { pathname } = new URL(request.url);
+    if (!pathname.startsWith("/invite/")) return;
+
+    const page = await next(); // fetch target: the host's static shell, else next() in dev
+    const html = (await page.text()).replace("</head>", `<meta property="og:title" content="${await title(pathname)}"></head>`);
+
+    return new Response(html, page);
+  },
+});
+```
+
 ### Request scope
 
 `around(next, scope)` wraps each remote call and the app's `fetch` on every host - Node, the

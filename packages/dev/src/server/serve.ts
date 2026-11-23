@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
+import { Readable } from "node:stream";
 
 import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
 import { dispatch, failure, verify, type Seat } from "@expressive/rpc/protocol";
@@ -30,17 +31,16 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-export function sendFile(res: ServerResponse, dir: string, pathname: string): boolean {
+/** A file under `dir` as a response, typed by extension - `/assets/` cached immutably. */
+export function fileResponse(dir: string, pathname: string): Response | undefined {
   const file = join(dir, normalize(decodeURIComponent(pathname)));
 
-  if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) return false;
+  if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) return;
 
-  res.statusCode = 200;
-  res.setHeader("Content-Type", MIME[extname(file)] ?? "application/octet-stream");
-  if (pathname.startsWith("/assets/")) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-  createReadStream(file).pipe(res);
+  const headers = new Headers({ "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+  if (pathname.startsWith("/assets/")) headers.set("cache-control", "public, max-age=31536000, immutable");
 
-  return true;
+  return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers });
 }
 
 export interface ServeOptions {
@@ -53,7 +53,8 @@ export interface ServeOptions {
 /**
  * Production server for a built app - the generated `dist/server/index.js` calls it.
  *
- * Answers calls and twin streams, then the app's own `fetch`, then serves `client` - a page's `<path>/index.html`, else the `200.html` or `index.html` shell, and caches `/assets/` immutably.
+ * Answers calls and twin streams, then the app's own `fetch`, then serves `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - and caches `/assets/` immutably.
+ * That last step is what `fetch`'s `next` resolves.
  * Listens only after every sidecar's error classes verify.
  */
 export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
@@ -79,17 +80,14 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
     if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, seatAt, twins)).catch(error => failure(error, sidecars, false)));
     if (isStream(request)) return send(res, stream(request));
 
-    const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, scope.env, ctx)));
-
-    if (response) return send(res, response);
-
     const { pathname } = new URL(request.url);
+    const next = async () =>
+      [pathname, join(pathname, "index.html"), "/200.html", "/index.html"].reduce<Response | undefined>((found, path) => found ?? fileResponse(client, path), undefined) ??
+      new Response("Not found", { status: 404 });
 
-    if (sendFile(res, client, pathname) || sendFile(res, client, join(pathname, "index.html"))) return;
-    if (sendFile(res, client, "/200.html") || sendFile(res, client, "/index.html")) return;
+    const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, scope.env, ctx, next)));
 
-    res.statusCode = 404;
-    res.end("Not found");
+    return send(res, response ?? (await next()));
   }
 
   const port = config.port ?? 3000;
