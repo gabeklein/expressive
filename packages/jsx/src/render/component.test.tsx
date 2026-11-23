@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component, Context, Model, has } from '@expressive/mvc';
+import { Component, Context, has, Model } from '@expressive/mvc';
+
 import { flushMicrotasks, mockPromise, mount, place, render } from '../../test.setup';
 
 describe('component', () => {

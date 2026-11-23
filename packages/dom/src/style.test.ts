@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { Component } from '@expressive/mvc';
-import { Portal, Style, createElement, render, style } from './index';
+
+import { createElement, Portal, render, Style, style } from './index';
 import { serialize } from './style';
 import { place } from '../test.setup';
 

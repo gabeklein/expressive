@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Model, pending, set } from '@expressive/mvc';
-import { render, Portal } from '../index';
-import { flushMicrotasks, mockPromise, mount, place, until, lazy } from '../../test.setup';
+
+import { Portal, render } from '../index';
+import { flushMicrotasks, lazy, mockPromise, mount, place, until } from '../../test.setup';
 
 if (false) {
   // @ts-expect-error @expressive/dom uses className, not the class attribute name.

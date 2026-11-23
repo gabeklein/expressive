@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Component } from '@expressive/mvc';
+
 import { Portal } from '../node/vnode';
 import { flushMicrotasks, mount } from '../../test.setup';
 

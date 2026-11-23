@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { Component, has } from '@expressive/mvc';
-import { style } from '../style/stylesheet';
-import { flushMicrotasks, mount, place, useHost, render } from '../../test.setup';
 import { dom } from '@expressive/dom/host';
+import { Component, has } from '@expressive/mvc';
+
+import { style } from '../style/stylesheet';
+import { flushMicrotasks, mount, place, render, useHost } from '../../test.setup';
 
 useHost(dom);
 

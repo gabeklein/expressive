@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { Component } from '@expressive/mvc';
-import { mockWarn, place, useHost } from '../../test.setup';
 import { dom } from '@expressive/dom/host';
-
-useHost(dom);
-import { style } from './stylesheet';
 import { renderToString } from '@expressive/dom/server';
 import { jsx } from '@expressive/jsx/jsx-runtime';
+import { Component } from '@expressive/mvc';
+
+import { style } from './stylesheet';
+import { mockWarn, place, useHost } from '../../test.setup';
+
+useHost(dom);
 
 const warn = mockWarn();
 

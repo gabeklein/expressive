@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { PORTAL, Portal, createElement, isVNode, vnode } from './vnode';
+import { createElement, isVNode, PORTAL, Portal, vnode } from './vnode';
 
 describe('VNode', () => {
   it('will create and recognize nodes', () => {

@@ -1,9 +1,10 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 
-import { Model, Component, Context } from '@expressive/mvc';
+import { Component, Context, Model } from '@expressive/mvc';
 import * as hot from '@expressive/mvc/hot';
 import { observer } from '@expressive/mvc/observable';
-import { flushMicrotasks, mockPromise, mount, until, render } from '../../test.setup';
+
+import { flushMicrotasks, mockPromise, mount, render, until } from '../../test.setup';
 
 describe('MVC adapter', () => {
   it('will update when a Model fetched via this.get changes', async () => {

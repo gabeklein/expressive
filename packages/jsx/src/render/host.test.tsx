@@ -2,18 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component } from '@expressive/mvc';
 
-import { Portal } from '../node/vnode';
-
-import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
-import { hydrate, mountRoot, render } from './render';
-import { LEAD } from './portal';
-import { PORTAL, vnode } from '../node/vnode';
+import { PORTAL, Portal, vnode } from '../node/vnode';
 import { isComment, limp } from './host';
-import type { Hydration } from './host';
-import type { Host } from './host';
+import type { Host, Hydration } from './host';
 import { complete } from './mount';
-import { hostOf } from './suspense';
+import { LEAD } from './portal';
 import { reconcileChildren } from './reconcile';
+import { hydrate, mountRoot, render } from './render';
+import { hostOf } from './suspense';
+import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
 
 describe('limp host', () => {
   it('will render tags, text and components with attributes and handlers', async () => {

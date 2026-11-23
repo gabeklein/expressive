@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { renderToString } from './server';
 
 import { Component } from '@expressive/mvc';
-import { Portal, render, hydrate } from './index';
-import { flushMicrotasks, lazy, mockPromise, mount } from '../test.setup';
 
+import { hydrate, Portal, render } from './index';
+import { renderToString } from './server';
+import { flushMicrotasks, lazy, mockPromise, mount } from '../test.setup';
 
 describe('portal targets', () => {
   it('will resolve a selector target once and move when it changes', async () => {

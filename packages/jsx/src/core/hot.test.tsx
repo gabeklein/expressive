@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component, Model } from '@expressive/mvc';
-import { hot } from './hot';
-import { style } from '../style/stylesheet';
-import { flushMicrotasks, useHost, render } from '../../test.setup';
 import { dom } from '@expressive/dom/host';
+import { Component, Model } from '@expressive/mvc';
+
+import { style } from '../style/stylesheet';
+import { hot } from './hot';
+import { flushMicrotasks, render, useHost } from '../../test.setup';
 
 useHost(dom);
 

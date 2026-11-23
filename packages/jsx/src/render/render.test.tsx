@@ -4,9 +4,9 @@ import { Component, Model, set } from '@expressive/mvc';
 
 import { Portal } from '../node/vnode';
 import { fragment } from './commits';
-import { afterPass, mountRoot, settled } from './render';
 import { limp } from './host';
 import type { Root } from './host';
+import { afterPass, mountRoot, settled } from './render';
 import { flushMicrotasks, mockPromise, render } from '../../test.setup';
 
 describe('render', () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Model } from '@expressive/mvc';
+
 import { Fragment } from '../node/vnode';
 import { flushMicrotasks, mount } from '../../test.setup';
 

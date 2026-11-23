@@ -1,15 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, useHost } from '../../test.setup';
+import { describe, expect, it, vi } from 'vitest';
+
 import { dom } from '@expressive/dom/host';
-
-useHost(dom);
-
 import { Component } from '@expressive/mvc';
 
 import { createElement } from '../node/vnode';
-
 import { Css } from './css';
 import { Style, style } from './stylesheet';
+import { render, useHost } from '../../test.setup';
+
+useHost(dom);
 
 class Sides extends Style {
   readonly $wide = '@media (min-width: 600px)';

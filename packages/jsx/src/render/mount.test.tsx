@@ -1,8 +1,9 @@
-import { describe, expect, it, vi, onTestFinished } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { Component, has, Model } from '@expressive/mvc';
-import { render } from '../../test.setup';
+
 import { vnode } from '../node/vnode';
+import { render } from '../../test.setup';
 
 describe('mount', () => {
   it('will reject unsupported render values and element types', () => {
