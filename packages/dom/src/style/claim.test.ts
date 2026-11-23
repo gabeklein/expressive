@@ -4,6 +4,7 @@ import { createStyleScope, resolveAppearance } from './appearance';
 import { claim, componentProps } from './claim';
 import type { AppearanceContext } from './protocol';
 import { style } from './stylesheet';
+import { stylesOf } from './facility';
 
 style(function Emitting() {}, {});
 
@@ -13,17 +14,17 @@ describe('claim reuse', () => {
   const context = { resolve: () => resolved } as unknown as AppearanceContext;
 
   it('will reuse a claim with nothing forwarded', () => {
-    const first = claim(document, { entries: [], context }, resolved, undefined, undefined);
+    const first = claim(stylesOf(document), { entries: [], context }, resolved, undefined, undefined);
 
-    expect(claim(document, { entries: [], context }, resolved, undefined, undefined)).toBe(first);
+    expect(claim(stylesOf(document), { entries: [], context }, resolved, undefined, undefined)).toBe(first);
     expect(first.context).toBe(context);
   });
 
   it('will not reuse a claim carrying a className', () => {
-    const first = claim(document, { entries: [], context }, resolved, 'extra', undefined);
+    const first = claim(stylesOf(document), { entries: [], context }, resolved, 'extra', undefined);
 
     expect(first.className).toContain('extra');
-    expect(claim(document, { entries: [], context }, resolved, 'extra', undefined)).not.toBe(first);
+    expect(claim(stylesOf(document), { entries: [], context }, resolved, 'extra', undefined)).not.toBe(first);
   });
 
   it('will mint one token per resolved appearance', () => {
