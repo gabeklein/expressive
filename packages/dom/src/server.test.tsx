@@ -20,6 +20,12 @@ async function serve(node: any, signal?: AbortSignal) {
   }
 }
 
+function unhashed(text: string) {
+  return text
+    .replace(/class="([^"]*)"/g, (_, names: string) => `class="${names.replace(/-[0-9a-z]+(?=\s|$)/g, '')}"`)
+    .replace(/(\.[\w-]+)-[0-9a-z]+(?=[{:\s).,])/g, '$1');
+}
+
 async function parity(node: () => any) {
   const root = document.body.appendChild(document.createElement('main'));
   const unmount = render(node(), root);
@@ -30,7 +36,7 @@ async function parity(node: () => any) {
 
   const { html } = await serve(node());
 
-  expect(html).toBe(expected);
+  expect(unhashed(html)).toBe(expected);
   return html;
 }
 
@@ -172,12 +178,27 @@ describe('renderToString', () => {
     const html = await parity(() => <Card _active>card</Card>);
     const { css } = await serve(<Card _active>card</Card>);
 
-    expect(html).toContain('class="Card_div Card_active Card"');
-    expect(css).toBe([
+    expect(html).toMatch(/class="Card_div-\w+ Card_active-\w+ Card-\w+"/);
+    expect((await serve(<Card _active>card</Card>)).css).toBe(css);
+    expect(unhashed(css)).toBe([
       '.Card{color: blue;}',
       '.Card_active{font-weight: 700;}',
       '.Card_div{padding: 4px;}'
     ].join('\n'));
+  });
+
+  it('will name rules the same on every render, scopes included', async () => {
+    function List() {
+      return <ul><li>a</li></ul>;
+    }
+
+    style(List, { ':hover': { _li: { color: 'red' } } });
+
+    const first = await serve(<List />);
+    const second = await serve(<List />);
+
+    expect(second).toEqual(first);
+    expect(first.css).toMatch(/^:where\(\.List-group-\w+:hover\) \.List_li-List_hover-\w+\{color: red;\}$/);
   });
 
   it('will size numbers by property and include root variables', async () => {
@@ -195,8 +216,8 @@ describe('renderToString', () => {
 
     const { css, html } = await serve(<Box />);
 
-    expect(html).toBe('<!--fragment--><!--function--><div class="Box">box</div><!--/function--><!--/fragment-->');
-    expect(css).toBe(
+    expect(unhashed(html)).toBe('<!--fragment--><!--function--><div class="Box">box</div><!--/function--><!--/fragment-->');
+    expect(unhashed(css)).toBe(
       '.Box{margin-top: 4px; line-height: 1.5; opacity: 0; -webkit-line-clamp: 2; -webkit-box-flex: 1; reading-order: 2; flex: 1; --depth: 2; float: left; color: var(--tone);}\n' +
       ':where(:root){--tone: red;}'
     );
@@ -326,7 +347,7 @@ describe('renderToString', () => {
 
     const { css, html } = await renderToString(<Page />, { inline: true, markers: false });
 
-    expect(html).toBe(
+    expect(unhashed(html)).toBe(
       '<div class="Card_active Card_active-hover Page_card-d1 Card Card-media_min-width_1px" style="padding: 4px; color: green; font-weight: 700; margin-top: 2px;">' +
       'page<span>plain</span></div>'
     );

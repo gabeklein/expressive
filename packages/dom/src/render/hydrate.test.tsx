@@ -45,12 +45,14 @@ describe('hydrate', () => {
     style(Counter, { _h1: { color: 'red' } });
 
     const root = await served(() => <Counter />);
-    const before = root.innerHTML;
     const heading = root.querySelector('h1')!;
     const text = heading.firstChild!;
+
+    expect(heading.className).toMatch(/^Counter_h1-\w+$/);
+
     const unmount = hydrate(<Counter />, root);
 
-    expect(root.innerHTML).toBe(before);
+    expect(root.innerHTML).toBe(rendered(<Counter />));
     expect(root.querySelector('h1')).toBe(heading);
     expect(heading.firstChild).toBe(text);
     expect(heading.className).toBe('Counter_h1');
@@ -374,6 +376,31 @@ describe('hydrate', () => {
     const [, end] = hydrating(root, () => adoptRange(root, to, 'component'), from, to);
 
     expect(end).not.toBe(to);
+  });
+
+  it('will not apply server rules to a client class of the same name', async () => {
+    const Card = style(Object.assign(() => <p>card</p>, { displayName: 'Card' }), { marginTop: '3px' });
+    const Other = style(Object.assign(() => <b>other</b>, { displayName: 'Card' }), { color: 'blue' });
+    const { html, css } = await renderToString(<Card />);
+    const sheet = document.head.appendChild(document.createElement('style'));
+
+    sheet.textContent = css;
+
+    const early = document.body.appendChild(document.createElement('div'));
+    const root = document.body.appendChild(document.createElement('main'));
+
+    render(<Other />, early);
+    root.innerHTML = html;
+    hydrate(<Card />, root);
+
+    const other = early.querySelector('b')!;
+    const card = root.querySelector('p')!;
+    const server = [...sheet.sheet!.cssRules] as CSSStyleRule[];
+
+    expect(server.some((rule) => other.matches(rule.selectorText))).toBe(false);
+    expect(card.className).not.toBe(other.className);
+
+    sheet.remove();
   });
 
   it('will adopt inlined markup, keeping only its own inline style', async () => {

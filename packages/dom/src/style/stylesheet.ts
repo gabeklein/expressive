@@ -273,7 +273,7 @@ function open(target: Target): Sheet {
   return { ...state, live: () => !!element.sheet, insert: (rule, index) => element.sheet!.insertRule(rule, index) };
 }
 
-function emit(block: Block, depth: number, target: Target) {
+function emit(block: Block, depth: number, target: Target): string {
   let sheet = sheets.get(target);
 
   if (!sheet?.live()) {
@@ -309,7 +309,8 @@ function emit(block: Block, depth: number, target: Target) {
     ...when.map((condition) => typeof condition == 'string' ? condition : condition.on.name + condition.state),
     ...block.group ? ['group'] : []
   ].join('-');
-  const base = label.replace(/[^\w-]+/g, '_').replace(/_*(-)_*|_+$/g, '$1') || 'c';
+  const readable = label.replace(/[^\w-]+/g, '_').replace(/_*(-)_*|_+$/g, '$1') || 'c';
+  const base = isSink(target) ? `${readable}-${hash(block.group ? label : key)}` : readable;
   let name = base;
 
   for (let index = 2; sheet.names.has(name) && sheet.names.get(name) !== key; index++)
@@ -333,6 +334,15 @@ function emit(block: Block, depth: number, target: Target) {
 
   byDepth.set(depth, name);
   return name;
+}
+
+function hash(text: string) {
+  let value = 0x811c9dc5;
+
+  for (let index = 0; index < text.length; index++)
+    value = Math.imul(value ^ text.charCodeAt(index), 0x01000193);
+
+  return (value >>> 0).toString(36);
 }
 
 export { Style, style };
