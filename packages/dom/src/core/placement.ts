@@ -1,22 +1,18 @@
 import { Component } from '@expressive/mvc';
 
 const PLACED = new WeakMap<Component, Promise<void>>();
+let installed = false;
 
-Component.on({
-  setup(self) {
-    return PLACED.get(self);
+function own(Type: new (props: unknown) => Component, props: unknown, placed: Promise<void>) {
+  if (!installed) {
+    Component.on({ setup: (self) => PLACED.get(self) });
+    installed = true;
   }
-});
 
-function placing(instance: Component) {
-  let place!: () => void;
+  const instance = new Type(props);
 
-  PLACED.set(instance, new Promise<void>((resolve) => (place = resolve)));
-  return place;
+  PLACED.set(instance, placed);
+  return instance;
 }
 
-function unplaced(instance: Component) {
-  PLACED.set(instance, new Promise(() => {}));
-}
-
-export { placing, unplaced };
+export { own };

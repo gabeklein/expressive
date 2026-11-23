@@ -7,7 +7,7 @@ import { call, dispose, enter } from './core/adapter';
 import type { Scope } from './core/adapter';
 import { authored, consume, observe, renderedAppearance } from './core/appearance';
 import type { Rendered } from './core/appearance';
-import { unplaced } from './core/placement';
+import { own } from './core/placement';
 import { isThenable, kindOf, source } from './node/kind';
 import type { Collection } from './node/kind';
 import { resolve } from './node/loader';
@@ -278,9 +278,7 @@ async function owned(value: VNode, pass: Pass, context: Context, appearance?: Ap
   const resolved = componentProps(value.type, value.props, appearance);
   const Type = value.type as new (props: unknown) => Component;
   const props = observe(resolved.props);
-  const instance = new Type(props);
-
-  unplaced(instance);
+  const instance = own(Type, props, new Promise(() => {}));
 
   return component(instance, pass, context, resolved.appearance, svg, props);
 }
