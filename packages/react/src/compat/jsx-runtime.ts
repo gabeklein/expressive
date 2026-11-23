@@ -1,7 +1,7 @@
 import { isValidElement } from 'preact';
 import { Children } from 'preact/compat';
 import { Fragment, jsx, jsxs } from 'preact/jsx-runtime';
-import { host } from '@expressive/mvc/jsx-runtime';
+import { host } from '@expressive/jsx/jsx-runtime';
 
 import type { Component as PreactComponent, ComponentChildren, JSX as PreactJSX, RefObject } from 'preact';
 

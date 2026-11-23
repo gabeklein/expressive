@@ -86,6 +86,9 @@
     "tsdown": "^0.20.1",
     "vite": "^7.3.1"
   },
+  "dependencies": {
+    "@expressive/jsx": "^0.0.0"
+  },
   "peerDependencies": {
     "@expressive/mvc": "^0.97.0",
     "preact": "^10.5.0",
