@@ -1,82 +1,29 @@
+import type { Fiber } from './fiber';
 import { activeRoot } from './target';
 
-interface Claiming {
-  root: globalThis.Node;
-  to: globalThis.Node | null;
-  adopted: WeakSet<globalThis.Node>;
-  cursors: Map<globalThis.Node, globalThis.Node | null>;
-  claimed: WeakSet<globalThis.Node>;
-  touched: Set<globalThis.Node>;
-  kept: Map<globalThis.Node, globalThis.Node>;
-}
+type Node = globalThis.Node;
 
-let state: Claiming | undefined;
-
-function claiming(parent: globalThis.Node) {
-  return !!state && state.root.contains(parent);
-}
-
-function next(parent: globalThis.Node) {
-  const { claimed, cursors, root, to, touched } = state!;
-  const stop = parent === root ? to : null;
-  let node = cursors.has(parent) ? cursors.get(parent)! : parent.firstChild;
-
-  touched.add(parent);
-  if (node?.parentNode !== parent) return null;
-  while (node && node !== stop && claimed.has(node)) node = node.nextSibling;
-
-  return node === stop ? null : node;
-}
-
-function adopt<T extends globalThis.Node>(
-  parent: globalThis.Node,
-  before: globalThis.Node | null,
-  create: () => T,
-  match: (node: globalThis.Node) => boolean
-): T {
-  if (!claiming(parent)) {
-    const node = create();
-    parent.insertBefore(node, before);
-    return node;
-  }
-
-  const candidate = next(parent);
-
-  if (candidate && match(candidate)) {
-    state!.claimed.add(candidate);
-    state!.adopted.add(candidate);
-    state!.cursors.set(parent, candidate.nextSibling);
-    return candidate as T;
-  }
-
-  const node = create();
-  parent.insertBefore(node, candidate || before);
-  state!.claimed.add(node);
-  return node;
-}
-
-function adopted(node: globalThis.Node) {
-  return !!state?.adopted.has(node);
-}
-
-function touch(node: globalThis.Node) {
-  state!.touched.add(node);
-}
-
-function aside<T>(work: () => T): T {
-  const previous = state;
-
-  state = undefined;
-
-  try {
-    return work();
-  } finally {
-    state = previous;
-  }
-}
-
-function reserve(start: globalThis.Node, end: globalThis.Node) {
-  state?.kept.set(start, end);
+/**
+ * How a host adopts existing markup instead of creating nodes - dom's hydration.
+ *
+ * Without one, every node is created and inserted.
+ */
+interface Hydration {
+  /** Place a node at `parent` before `before` - an existing one `match` accepts, else `create()`. */
+  adopt<T extends Node>(parent: Node, before: Node | null, create: () => T, match: (node: Node) => boolean): T;
+  /** True for a node `adopt` took from existing markup. */
+  adopted(node: Node): boolean;
+  adoptText(parent: Node, before: Node | null, value: string): Node;
+  /** Place a range's start and end markers. */
+  adoptRange(parent: Node, before: Node | null, kind: string): Node[];
+  /** Run `work` creating nodes, not adopting them. */
+  aside<T>(work: () => T): T;
+  /** Run `work` adopting what is under `root`, between `from` and `to` when given. */
+  hydrating<T>(root: Node, work: () => T, from?: Node | null, to?: Node | null): T;
+  /** Keep a suspended range's existing markup until it renders. True if there was some. */
+  keep(start: Node, end: Node): boolean;
+  /** Leave a range alone when cleaning up unadopted nodes. */
+  reserve(start: Node, end: Node): void;
 }
 
 function text(value: string) {
@@ -89,101 +36,29 @@ function marker(kind: string) {
   return root.host.marker(root, kind);
 }
 
-function adoptText(parent: globalThis.Node, before: globalThis.Node | null, value: string) {
-  return adopt(parent, before, () => text(value), (node) => {
-    if (node.nodeType != 3 || !value) return false;
-
-    const text = node as Text;
-
-    if (text.data.length > value.length && text.data.startsWith(value)) text.splitText(value.length);
-
-    return text.data === value;
-  });
-}
-
-function adoptRange(parent: globalThis.Node, before: globalThis.Node | null, kind: string) {
-  const start = adopt(parent, before, () => marker(kind), (node) => isComment(node, kind));
-
-  if (!adopted(start))
-    return [start, place(parent, start, marker(`/${kind}`))];
-
-  const end = closer(start, kind);
-
-  if (!end) return [start, place(parent, start, marker(`/${kind}`))];
-
-  state!.claimed.add(end);
-  return [start, end];
-}
-
-function place(parent: globalThis.Node, after: globalThis.Node, node: globalThis.Node) {
-  parent.insertBefore(node, after.nextSibling);
-  state?.claimed.add(node);
-  return node;
-}
-
-function closer(start: globalThis.Node, kind: string) {
-  let depth = 0;
-
-  for (let node = start.nextSibling; node; node = node.nextSibling) {
-    if (node.nodeType != 8) continue;
-    if (state!.claimed.has(node)) return;
-
-    const { data } = node as Comment;
-
-    if (data == 'portal') continue;
-    if (data[0] != '/') depth++;
-    else if (depth) depth--;
-    else return data == `/${kind}` ? node : undefined;
-  }
-}
-
-function isComment(node: globalThis.Node, data: string) {
+function isComment(node: Node, data: string) {
   return node.nodeType == 8 && (node as Comment).data == data;
 }
 
-/** Leave a suspended range's server markup in place until it renders. */
-function keep(start: globalThis.Node, end: globalThis.Node) {
-  if (!adopted(start)) return false;
+const plain: Omit<Hydration, 'adopted' | 'hydrating'> = {
+  adopt: (parent, before, create) => parent.insertBefore(create(), before),
+  adoptText: (parent, before, value) => parent.insertBefore(text(value), before),
+  adoptRange(parent, before, kind) {
+    const start = parent.insertBefore(marker(kind), before);
+    return [start, parent.insertBefore(marker(`/${kind}`), before)];
+  },
+  aside: (work) => work(),
+  keep: () => false,
+  reserve() {}
+};
 
-  state!.kept.set(start, end);
-  state!.cursors.set(start.parentNode!, end.nextSibling);
-  return true;
+function hydrationOf() {
+  return activeRoot().host.hydration || plain;
 }
 
-/**
- * Run `work` claiming existing nodes under `root` instead of creating them, then remove what went unclaimed.
- *
- * `from` and `to` bound the cleanup of `root` itself to the nodes between them.
- */
-function hydrating<T>(root: globalThis.Node, work: () => T, from: globalThis.Node | null = null, to: globalThis.Node | null = null): T {
-  const previous = state;
-  const current: Claiming = (state = {
-    root,
-    to,
-    adopted: new WeakSet(from ? [from] : []),
-    cursors: new Map(from ? [[root, from.nextSibling]] : []),
-    claimed: new WeakSet(from && to ? [from, to] : []),
-    touched: new Set(from ? [root] : []),
-    kept: new Map()
-  });
-
-  try {
-    return work();
-  } finally {
-    state = previous;
-
-    for (const parent of current.touched) {
-      let node: globalThis.Node | null = parent !== root || !from ? parent.firstChild : current.kept.has(from) ? to : from.nextSibling;
-
-      while (node && !(parent === root && node === to)) {
-        const following: globalThis.Node | null = (current.kept.get(node) || node).nextSibling;
-
-        if (!current.claimed.has(node) && !current.kept.has(node)) (node as ChildNode).remove();
-        node = following;
-      }
-    }
-  }
+function resume<T>(fiber: Fiber, work: () => T): T {
+  return fiber.root!.host.hydration!.hydrating(fiber.end.parentNode!, work, fiber.start, fiber.end);
 }
 
-export {
-  marker, adopt, adopted, adoptRange, adoptText, aside, hydrating, isComment, keep, reserve, touch };
+export { hydrationOf, isComment, marker, resume, text };
+export type { Hydration };

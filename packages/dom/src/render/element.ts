@@ -1,4 +1,5 @@
-import { activeDocument, adopt, afterPass, adopted, afterFlush, claim, complete, hostOf, inserted, reconcileChildren, reserved, touch, unmatched, unmountFiber } from '@expressive/jsx';
+import { activeDocument, afterPass, afterFlush, claim, complete, hostOf, inserted, reconcileChildren, reserved, unmatched, unmountFiber } from '@expressive/jsx';
+import { adopt, adopted, touch } from '../hydrate';
 import { applyClaim } from '../style/declarations';
 import { ALIASES, SVG, isEvent, isStringified } from '../tags';
 import type { Appearance, Fiber, VNode } from '@expressive/jsx';

@@ -2,7 +2,8 @@ import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { documentOf } from '../style/protocol';
 import type { Styles, StyleTarget } from '../style/protocol';
-import type { Fiber } from './fiber';
+import type { Container, Fiber } from './fiber';
+import type { Hydration } from './hydrate';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 
@@ -38,6 +39,12 @@ interface Host {
   patch(fiber: Fiber, value: VNode, appearance?: Appearance): void;
   /** Release what `mount` attached - the core removes the node. */
   unmount(fiber: Fiber): void;
+  /** Adopt existing markup instead of creating nodes - dom's hydration. */
+  hydration?: Hydration;
+  /** Resolve a string `Portal` target - a selector, for dom. Without it, targets must be nodes. */
+  locate?(into: string, parent: globalThis.Node): Container;
+  /** Called once a portal mounts, `adopted` if its anchor came from existing markup. */
+  portaled?(fiber: Fiber, adopted: boolean): void;
   /** Redirect a child before it mounts, as dom sends `<title>` to the head. */
   hoist?(value: RenderNode, parent: globalThis.Node): RenderNode;
 }

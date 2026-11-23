@@ -3,7 +3,7 @@ import { Context } from '@expressive/mvc';
 import type { Node as RenderNode } from '../node/vnode';
 import { attach, batched, fragment } from './commits';
 import { range } from './fiber';
-import { hydrating } from './hydrate';
+import { resume } from './hydrate';
 import type { Container, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
@@ -28,9 +28,13 @@ function render(node: RenderNode, container: Container, host: Host): () => void 
 }
 
 function hydrate(node: RenderNode, container: Container, host: Host): () => void {
+  const { hydration } = host;
+
+  if (!hydration) return render(node, container, host);
+
   roots.get(container)?.();
 
-  return batched(() => hydrating(container, () => mountRoot(node, container, host)));
+  return batched(() => hydration.hydrating(container, () => mountRoot(node, container, host)));
 }
 
 function mountRoot(node: RenderNode, container: Container, host: Host): () => void {
@@ -95,7 +99,7 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   const dehydrated = fiber.dehydrated;
   fiber.dehydrated = undefined;
 
-  const run = () => within(fiber.root!, () => pass(() => dehydrated ? batched(() => hydrating(fiber.end.parentNode!, update, fiber.start, fiber.end)) : update()));
+  const run = () => within(fiber.root!, () => pass(() => dehydrated ? batched(() => resume(fiber, update)) : update()));
   const update = () => {
     const parent = rendering;
     rendering = fiber.type ? fiber : parent;

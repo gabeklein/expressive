@@ -5,23 +5,26 @@ import type { Node as RenderNode, VNode } from '../node/vnode';
 import type { Appearance } from '../style/claim';
 import { moveRange } from './fiber';
 import type { Boundary, Container, Fiber } from './fiber';
-import { adopt, adopted, aside, isComment, marker, reserve } from './hydrate';
+import { hydrationOf, isComment, marker } from './hydrate';
 import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 import { rootOf } from './host';
-import { activeDocument, activeRoot, within } from './target';
+import type { Host } from './host';
+import { activeRoot, within } from './target';
 
 function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
-  const anchor = adopt(parent, before, () => marker('portal'), (node) => isComment(node, 'portal'));
-  const container = target(value.props.into, parent);
-  const root = rootOf(activeRoot().host, container);
+  const hydration = hydrationOf();
+  const anchor = hydration.adopt(parent, before, () => marker('portal'), (node) => isComment(node, 'portal'));
+  const { host } = activeRoot();
+  const container = locate(host, value.props.into, parent);
+  const root = rootOf(host, container);
   const portalStart = root.host.marker(root, 'portal-root');
   const portalEnd = root.host.marker(root, '/portal-root');
 
   if (value.props[LEAD]) container.prepend(portalStart, portalEnd);
   else container.append(portalStart, portalEnd);
 
-  reserve(portalStart, portalEnd);
+  hydration.reserve(portalStart, portalEnd);
 
   const output: Fiber = {
     kind: 'portal',
@@ -41,50 +44,21 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
   };
 
   complete(output, () => {
-    aside(() => reconcilePortal(output, value.props.children, context, boundary, appearance));
+    hydration.aside(() => reconcilePortal(output, value.props.children, context, boundary, appearance));
   });
 
-  if (LEAD in value.props) replace(output, adopted(anchor));
+  host.portaled?.(output, !!host.hydration?.adopted(anchor));
 
   return output;
 }
 
-const hoisted = new WeakSet<globalThis.Node>();
-
-function replace(fiber: Fiber, adopting: boolean) {
-  const element = fiber.children[0].start as Element;
-
-  hoisted.add(element);
-
-  if (adopting)
-    for (const twin of fiber.portalContainer!.children)
-      if (!hoisted.has(twin) && twin.outerHTML == element.outerHTML) return retire(twin, element);
-}
-
-function retire(twin: Element, element: Element) {
-  if (!/\bstylesheet\b/i.test(String(element.getAttribute('rel')))) return twin.remove();
-
-  const remove = () => twin.remove();
-
-  element.addEventListener('load', remove, { once: true });
-  element.addEventListener('error', remove, { once: true });
-}
-
 const LEAD = Symbol('lead');
 
-
-function target(into: unknown, parent: globalThis.Node): Container {
+function locate(host: Host, into: unknown, parent: globalThis.Node): Container {
   if (typeof into != 'string') return into as Container;
+  if (host.locate) return host.locate(into, parent);
 
-  const root = parent.getRootNode();
-  const found = [...activeDocument().querySelectorAll(into)];
-
-  if (root.nodeType == 11) found.push(...(root as DocumentFragment).querySelectorAll(into));
-
-  if (found.length != 1)
-    throw new Error(`Portal target "${into}" ${found.length ? 'is ambiguous' : 'was not found'}.`);
-
-  return found[0];
+  throw new Error(`Portal target "${into}" needs a node - this host resolves no selectors.`);
 }
 
 function reconcilePortal(fiber: Fiber, value: RenderNode, context: Context, boundary?: Boundary, appearance?: Appearance) {

@@ -33,7 +33,7 @@ function activeRoot() {
 }
 
 function activeDocument() {
-  return documentOf(current!.target || current!.container);
+  return documentOf(current!.target!);
 }
 
 export { activeDocument, activeRoot, isShadowRoot, targetOf, within };

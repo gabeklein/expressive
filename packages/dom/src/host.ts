@@ -2,6 +2,8 @@ import { documentOf, targetOf } from '@expressive/jsx';
 import type { Host } from '@expressive/jsx';
 
 import { hoist } from './hoist';
+import { hydration } from './hydrate';
+import { locate, portaled } from './portal';
 import { mountElement, patchProps, unmountElement } from './render/element';
 import { stylesOf } from './style/facility';
 
@@ -14,7 +16,10 @@ const dom: Host = {
   mount: mountElement,
   patch: patchProps,
   unmount: unmountElement,
-  hoist
+  hoist,
+  hydration,
+  locate,
+  portaled
 };
 
 export { dom };

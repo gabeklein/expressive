@@ -5,7 +5,9 @@ import { Component } from '@expressive/mvc';
 import { Portal } from '@expressive/dom';
 
 import { flushMicrotasks, mockPromise } from '../../test.setup';
-import { mountRoot } from './render';
+import { hydrate, mountRoot } from './render';
+import { LEAD } from './portal';
+import { PORTAL, vnode } from '../node/vnode';
 import { limp } from './host';
 import type { Host } from './host';
 import { complete } from './mount';
@@ -55,7 +57,7 @@ describe('limp host', () => {
     expect(root.childNodes.length).toBe(0);
   });
 
-  it('will skip props it cannot write as attributes and portal by selector', () => {
+  it('will skip props it cannot write as attributes, and portal only into a node', () => {
     const root = document.createElement('main');
     const modal = document.createElement('aside');
 
@@ -65,7 +67,7 @@ describe('limp host', () => {
     const release = mountRoot(
       <>
         <i ref={() => {}} style={{ color: 'red' }} onClick={'nope' as never} title="kept" />
-        <Portal into="#limp-modal"><u>away</u></Portal>
+        <Portal into={modal}><u>away</u></Portal>
       </>,
       root,
       limp
@@ -78,8 +80,29 @@ describe('limp host', () => {
     expect(document.head.querySelector('style[data-expressive]')).toBeNull();
 
     release();
+
+    expect(() => mountRoot(<Portal into="#limp-modal">x</Portal>, root, limp)).toThrow(
+      'Portal target "#limp-modal" needs a node - this host resolves no selectors.'
+    );
+
     root.remove();
     modal.remove();
+  });
+
+  it('will render, not hydrate, without a hydration', () => {
+    const root = document.createElement('main');
+    const aside = document.createElement('aside');
+
+    root.innerHTML = '<p>stale</p>';
+
+    const release = hydrate(<>
+      <p>fresh</p>
+      {vnode(PORTAL, { into: aside, children: <i>first</i>, [LEAD]: true })}
+    </>, root, limp);
+
+    expect(root.textContent).toBe('fresh');
+    expect(aside.textContent).toBe('first');
+    release();
   });
 
   it('will suspend into a fallback and show text', async () => {

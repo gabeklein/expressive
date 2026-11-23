@@ -1,7 +1,7 @@
 import { isThenable } from '../node/kind';
 import { attach, fragment } from './commits';
 import { move, moveRange, range } from './fiber';
-import { keep } from './hydrate';
+import { hydrationOf } from './hydrate';
 import type { Boundary, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { place } from './portal';
@@ -132,7 +132,7 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
   const boundary = fiber.boundary;
 
   if (isThenable(thrown)) {
-    const kept = !fiber.children.length && keep(fiber.start, fiber.end);
+    const kept = !fiber.children.length && hydrationOf().keep(fiber.start, fiber.end);
 
     if (kept) fiber.dehydrated = true;
     else if (!boundary) throw thrown;

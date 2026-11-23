@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component, set } from '@expressive/mvc';
 
-import { hydrate, Portal, render, style } from '@expressive/dom';
-import { renderToString } from '@expressive/dom/server';
+import { within } from '@expressive/jsx';
+
+import { hydrate, Portal, render, style } from './index';
+import { renderToString } from './server';
 import { adoptRange, hydrating } from './hydrate';
-import { dom } from '@expressive/dom/host';
-import { within } from './target';
-import { flushMicrotasks, mockPromise } from '../../test.setup';
+import { dom } from './host';
+import { flushMicrotasks, mockPromise } from '../test.setup';
 
 async function served(node: () => any) {
   const { html } = await renderToString(node());
