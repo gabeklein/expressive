@@ -7,12 +7,12 @@ import type { Appearance } from '../style/claim';
 import { patchCollection } from './collection';
 import { attach } from './commits';
 import { patchComponent, patchFunction } from './component';
-import { patchProps } from './element';
 import { move } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { same } from '../core/hot';
 import { mount, patchFragment, patchText, unmountFiber } from './mount';
-import { hoist, patchPortal } from './portal';
+import { patchPortal } from './portal';
+import { activeRoot } from './target';
 import { authored } from '../core/appearance';
 import { gather } from './suspense';
 
@@ -37,9 +37,11 @@ function reconcileChildren(owner: Fiber, parent: globalThis.Node, before: global
     if (child.key !== null && child.key !== undefined) keyed.set(child.key, child);
     else if (!slotted.has(child.slot!)) slotted.set(child.slot!, child);
 
+  const { host } = activeRoot();
+
   try {
     for (const [each, slot] of values) {
-      const value = hoist(source(each), parent);
+      const value = host.hoist ? host.hoist(source(each), parent) : source(each);
 
       current = slot;
       const key = keyOf(value);
@@ -89,7 +91,7 @@ function patch(old: Fiber | undefined, value: RenderNode, parent: globalThis.Nod
 
   if (old.kind == 'collection') patchCollection(old, appearance);
   else if (old.kind == 'text') patchText(old, value);
-  else if (old.kind == 'element') patchProps(old, value as VNode, appearance);
+  else if (old.kind == 'element') old.root!.host.patch(old, value as VNode, appearance);
   else if (old.kind == 'fragment') patchFragment(old, value as VNode, context, appearance);
   else if (old.kind == 'function') patchFunction(old, value as VNode, appearance);
   else if (old.kind == 'component') patchComponent(old, value, appearance);
