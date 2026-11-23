@@ -71,6 +71,7 @@
         "@expressive/dom": "^0.13.2",
         "@expressive/env": "^0.1.0",
         "@expressive/inspect": "^0.6.7",
+        "@expressive/jsx": "^0.0.0",
         "@expressive/router": "^0.10.7",
         "@expressive/rpc": "^0.5.0",
         "es-module-lexer": "^1.6.0",
