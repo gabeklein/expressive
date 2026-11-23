@@ -4,7 +4,7 @@ import type { Node as RenderNode } from '../node/vnode';
 import { attach, batched, fragment } from './commits';
 import { range } from './fiber';
 import { resume } from './host';
-import type { Container, Fiber } from './fiber';
+import type { Boundary, Container, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
 import { consume, renderedAppearance } from '../core/appearance';
@@ -37,15 +37,23 @@ function hydrate(node: RenderNode, container: Container, host: Host): () => void
   return batched(() => hydration.hydrating(container, () => mountRoot(node, container, host)));
 }
 
-function mountRoot(node: RenderNode, container: Container, host: Host): () => void {
+function mountRoot(node: RenderNode, container: Container, host: Host, boundary?: Boundary, waiting?: Set<PromiseLike<unknown>>): () => void {
   announce();
 
   const context = new Context(Context.root);
   const root = rootOf(host, container);
   const fiber = within(root, () => range('fragment', container, null, context));
 
+  root.waiting = waiting;
+
+  if (boundary) {
+    boundary.owner = fiber;
+    fiber.boundary = fiber.ownBoundary = boundary;
+    fiber.childContext = context;
+  }
+
   try {
-    within(root, () => pass(() => reconcile(fiber, node, context, undefined, undefined)));
+    within(root, () => pass(() => reconcile(fiber, node, context, boundary, undefined)));
   } catch (error) {
     unmountFiber(fiber);
     context.pop();
@@ -63,6 +71,52 @@ function mountRoot(node: RenderNode, container: Container, host: Host): () => vo
 
   roots.set(container, unmount);
   return unmount;
+}
+
+/**
+ * Render into `container` and wait until nothing is suspended, resolving to the unmount.
+ *
+ * Suspended subtrees retry in place; a root without a boundary waits rather than throwing.
+ * An error no `catch` boundary handles rejects. An aborted `signal` rejects with its reason.
+ * Either way, what was built is unmounted before rejecting.
+ */
+async function settled(node: RenderNode, container: Container, host: Host, signal?: AbortSignal): Promise<() => void> {
+  const waiting = new Set<PromiseLike<unknown>>();
+  let failed: { error: unknown } | undefined;
+  const boundary: Boundary = {
+    fallback: () => null,
+    catch(error) {
+      failed ||= { error };
+    }
+  };
+  const unmount = mountRoot(node, container, host, boundary, waiting);
+
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      if (failed) throw failed.error;
+      if (!waiting.size) return unmount;
+
+      await until([...waiting], signal);
+      await new Promise((resolve) => setTimeout(resolve));
+    }
+  } catch (error) {
+    unmount();
+    throw error;
+  }
+}
+
+function until(work: PromiseLike<unknown>[], signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => reject(signal!.reason);
+    const done = () => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    };
+
+    for (const each of work) each.then(done, done);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 function pass<T>(work: () => T): T {
@@ -131,4 +185,4 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
   }
 }
 
-export { afterPass, attempt, depth, hydrate, mountRoot, pass, passiveRender, render, rendering };
+export { afterPass, attempt, depth, hydrate, mountRoot, pass, passiveRender, render, rendering, settled };

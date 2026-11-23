@@ -47,6 +47,8 @@ interface Fiber {
   suspended?: Set<() => void>;
   applied?: boolean;
   retried?: boolean;
+  handled?: Boundary;
+  reached?: number;
   portals?: [Fiber, DocumentFragment][];
   dead?: boolean;
   waitingOn?: Boundary;

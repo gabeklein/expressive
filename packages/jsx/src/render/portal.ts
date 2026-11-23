@@ -17,7 +17,7 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
   const anchor = hydration.adopt(parent, before, () => marker('portal'), (node) => isComment(node, 'portal'));
   const { host } = activeRoot();
   const container = locate(host, value.props.into, parent);
-  const root = rootOf(host, container);
+  const root = { ...rootOf(host, container), waiting: activeRoot().waiting };
   const portalStart = root.host.marker(root, 'portal-root');
   const portalEnd = root.host.marker(root, '/portal-root');
 

@@ -149,20 +149,28 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
 
     scope.holds = undefined;
 
+    const waiting = fiber.root?.waiting;
+    const entry = waiting && thrown.then(() => {}, () => {});
     const clear = () => {
+      waiting?.delete(entry!);
       fiber.suspended!.delete(clear);
       release(held);
       held = undefined;
     };
 
     (fiber.suspended ||= new Set()).add(clear);
+    waiting?.add(entry!);
 
     const resume = (retry: () => void) => {
       fiber.suspended!.delete(clear);
       if (!scope.active) return clear();
       if (held) (scope.holds ||= []).push(...held);
       held = undefined;
-      retry();
+      if (waiting) setTimeout(() => {
+        waiting.delete(entry!);
+        retry();
+      });
+      else retry();
     };
 
     thrown.then(
@@ -175,8 +183,21 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
   recover(fiber, thrown, fiber.boundary);
 }
 
+function descendants(fiber: Fiber): number {
+  return fiber.children.reduce((count, child) => count + 1 + descendants(child), 0);
+}
+
 function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) {
   const error = thrown instanceof Error ? thrown : new Error(String(thrown));
+
+  if (fiber.root?.waiting) {
+    const reached = descendants(fiber);
+
+    if (fiber.retried && reached <= fiber.reached!) boundary = fiber.handled!.parent;
+
+    fiber.reached = reached;
+    fiber.retried = undefined;
+  }
 
   while (boundary && !boundary.catch) boundary = boundary.parent;
 
@@ -189,11 +210,20 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) 
   wait(fiber, handler);
   fiber.recovering = token;
 
-  const caught = handler.catch!(error);
+  fiber.handled = handler;
+
+  const caught = Promise.resolve(handler.catch!(error));
+  const waiting = fiber.root?.waiting;
+  const done = () => waiting!.delete(caught);
+
+  if (waiting) {
+    waiting.add(caught);
+    caught.then(done, done);
+  }
 
   if (handler.owner!.placeholder && !handler.owner!.dead) draw(handler.owner!, handler);
 
-  Promise.resolve(caught).then(
+  caught.then(
     () => {
       if (fiber.recovering !== token) return;
       fiber.recovering = undefined;
