@@ -15,7 +15,7 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 ## Settled in review
 
 - **Handlers take no parameters.** `serve`, `api/` routes and gates read the request from `Current.get()`, so nothing needs a hand-typed `(request: Request, …)`.
-- **`Current` carries the request and the reply:** `params`, `body`, `json`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
+- **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
 - **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces `ctx.waitUntil`, an `after()` helper and a generator protocol. A returned value or `Response` still works.
 - **`default` in `api/` is unconditional:** a gate when it calls `next`, a catch-all when it doesn't. No remainder export (`ANY`, `ELSE`).
 - **An object sent or returned goes as JSON.**
@@ -80,10 +80,10 @@ export const app: App;
 class Current {
   /** The matched api route's params, decoded; a `[...]` segment under "*". `{}` elsewhere. */
   get params(): Record<string, string>;
-  /** The request body by content type: an object, FormData, a string or bytes. Read on first await. */
-  get body(): PromiseLike<unknown>;
-  /** The request body as JSON. Rejects with `BadRequest` on invalid JSON or another content type. Read on first await. */
-  get json(): PromiseLike<unknown>;
+  /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or another content type. */
+  json(): Promise<unknown>;
+  /** The request body as a string. */
+  text(): Promise<string>;
   /** What the layer below answers. Calling it throws where nothing is below; reading it never does. */
   get next(): () => Promise<Response>;
 
@@ -99,15 +99,15 @@ class Current {
 export function bind(request: Request, env: Env, ctx?: { waitUntil(promise: Promise<unknown>): void }): void;
 ```
 
-Each getter keeps a throwing setter, as `Current`'s do today, so mvc leaves them uncomputed (it skips a getter that has a setter) and `body`/`json` hand back their promise as is.
+The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves them uncomputed (it skips a getter that has a setter). `json` and `text` are methods, mirroring `Request`'s, and mvc binds them, so they destructure. Form data and bytes come from `request` itself (`await request.formData()`), which reads the same cache.
 
 `send`'s first argument: a number is a status, a `Response` is the whole reply, anything else is the body. A number as the body needs a status: `send(200, 42)`.
 
-`@expressive/rpc/protocol` (host plumbing, beside `within`) gains the layer seam dev composes with: run a handler with a given `next` and `params` in the request's scope, and resolve with its reply. Under rpc's own `scoped()` and `handler()`, the wrapped `fetch` is one such layer: `send`, `body` and `json` work, `params` is `{}`, and calling `next` throws.
+`@expressive/rpc/protocol` (host plumbing, beside `within`) gains the layer seam dev composes with: run a handler with a given `next` and `params` in the request's scope, and resolve with its reply. Under rpc's own `scoped()` and `handler()`, the wrapped `fetch` is one such layer: `send`, `json` and `text` work, `params` is `{}`, and calling `next` throws.
 
 New public surface for sign-off (AGENTS.md):
 - **dev `/server`:** `config`, `serve`, `host`, `app`, and the types `Settings`, `AppOptions`, `App`. `Current` is already re-exported there.
-- **rpc `Current`:** `params`, `body`, `json`, `next`, `send` and static `send`; `bind`'s `ctx`.
+- **rpc `Current`:** `params`, `json`, `text`, `next`, `send` and static `send`; `bind`'s `ctx`.
 
 Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `listen` (the Node listener the generated entry calls), `@expressive/dev/fetch`'s `fetchHandler` → the entry's composer, and the plugin API `Host.config()` returns `Settings`. Entry plumbing (`listen`, the composers) stays on `/server` and `/fetch` as today, documented as not app API.
 
@@ -176,9 +176,9 @@ await source.pipeTo(writable);
 
 A throw mid-stream aborts the body and is logged; the status can't change by then. A reply an upper layer swapped or discarded has its body cancelled, and so does a HEAD reply's, so an upstream body never stalls. On Node and in dev, a JSON reply is buffered; a streamed one sets another type through `setHeader` (`application/x-ndjson`).
 
-**Body.** `body` and `json` are lazy: nothing is read until one is awaited, so destructuring them and answering early leaves no rejected promise behind. The first read buffers the raw bytes once, up to a cap (413 `PayloadTooLarge` past it, open question 8); both getters derive from them. From then on, `Current.get().request` and the request `next()` forwards are rebuilt over those bytes, and call dispatch reads its arguments through the cache, so a `serve` that checks a signature leaves calls, catch-alls, `assets` and dev's fall-through intact. `json` on an empty body is `undefined`. Unhandled, its `BadRequest` answers 400.
+**Body.** Nothing is read until `json()` or `text()` is called, so answering early leaves no rejected promise behind. The first read buffers the raw bytes once, up to a cap (413 `PayloadTooLarge` past it, open question 8); every later read, including `request.formData()` and `request.arrayBuffer()`, derives from them. From then on, `Current.get().request` and the request `next()` forwards are rebuilt over those bytes, and call dispatch reads its arguments through the cache, so a `serve` that checks a signature leaves calls, catch-alls, `assets` and dev's fall-through intact. Unhandled, `json()`'s `BadRequest` answers 400.
 
-**Inside a call**, calling `next` or `send`, or awaiting `body` or `json`, throws: a call replies with its return value through rpc's codec. Reading them doesn't, so a shared helper can destructure `Current.get()`.
+**Inside a call**, calling `next` or `send`, `json` or `text`, throws: a call replies with its return value through rpc's codec. Reading them doesn't, so a shared helper can destructure `Current.get()`.
 
 ### What `next()` resolves, in order
 
@@ -235,7 +235,7 @@ export default () => {
 // api/hook.ts
 export async function POST() {
   const { json, send } = Current.get();
-  const event = await json;
+  const event = await json();
   await send(200);
   await process(event);   // after-work
 }
@@ -431,7 +431,7 @@ Each has a recommendation; sign-off on these unblocks PR 1.
 
 Each PR lands on the trunk with its own tests, a changeset where it is user-facing (`minor`), its README and skill section, and `hot-probe.ts` cases where it touches hot reload. In code, the layer, gate and scope of this note take names distinct from `context.ts`'s `Layer`, `gate()` and `scope()`.
 
-1. **rpc: the request on `Current`.** One scope per request, nested layers, `params`/`body`/`json`/`next`/`send` and static `send`, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`/`handler()`.
+1. **rpc: the request on `Current`.** One scope per request, nested layers, `params`/`json()`/`text()`/`next`/`send` and static `send`, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`/`handler()`.
 2. **dev: registry and composition.** `config`/`serve`/`host` with `host`'s default `fetch`, `App`, the registry rules, `/server`'s `app` and `listen`, generated entries importing `index.ts`, the `next()` order for calls and streams over today's page serving, dev's skip list and fall-through, 101 passthrough, migration errors. Updates the `FEATURE.md` lines in open question 5. Hot-probe: an `index.ts` edit resets the registry without a double-call throw. Gaps left on the trunk: the fetch target has no page fallback until PR 3, and its bundle carries `bindings`' imports until PR 4.
 3. **dev: pages over `assets`.** The one shell rule on every host and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
 4. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports nor `node:fs`.
