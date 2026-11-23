@@ -4,7 +4,7 @@ import type { Host } from '@expressive/mvc/jsx-runtime';
 /**
  * Host runtime an adapter (e.g. `@expressive/react`) registers to replace the default {@link Element}.
  *
- * One host per build - a second registration with a different runtime throws.
+ * One host per realm - copies of this package and separately bundled apps share it. A second registration with a different `jsx` throws.
  * Without one, element creation and introspection use the default element.
  * Members are ambient host capabilities callable outside render; hook-shaped ones live with the adapter.
  */
@@ -50,7 +50,14 @@ const REGISTRY = Symbol.for('@expressive/jsx.registry');
 let local: Registry | undefined;
 
 function registry(): Registry {
-  return local ||= ((globalThis as any)[REGISTRY] ||= { host: { ...DEFAULT } });
+  if (local) return local;
+
+  local = (globalThis as any)[REGISTRY] ||= { host: { ...DEFAULT } };
+
+  for (const key in DEFAULT)
+    if (!(key in local!.host)) (local!.host as any)[key] = (DEFAULT as any)[key];
+
+  return local!;
 }
 
 /**

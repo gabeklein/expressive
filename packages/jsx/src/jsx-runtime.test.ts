@@ -97,6 +97,19 @@ describe('registration', () => {
     );
   });
 
+  it('will fill members an older copy left out of the shared host', async () => {
+    const slot = (globalThis as any)[Symbol.for('@expressive/jsx.registry')];
+    const { propsOf } = slot.host;
+
+    delete slot.host.propsOf;
+    vi.resetModules();
+
+    const copy = await vi.importActual<typeof import('./jsx-runtime')>('./jsx-runtime');
+
+    expect(copy.propsOf(null)).toEqual({});
+    slot.host.propsOf = propsOf;
+  });
+
   it('will share the registered host with another copy of the runtime', async () => {
     vi.resetModules();
 
