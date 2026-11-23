@@ -93,19 +93,27 @@ describe('settled', () => {
   it('will retry a caught error, then pass one that gets no further to the next boundary', async () => {
     const inner = vi.fn();
     const outer = vi.fn();
+    const destroyed = vi.fn();
 
     function Always(): any {
       throw new Error('always');
     }
 
+    class Owned extends Component {
+      new() {
+        return destroyed;
+      }
+    }
+
     await expect(settled(
-      <Component catch={outer}><Component catch={inner}><Always /></Component></Component>,
+      <Component catch={outer}><Owned /><Component catch={inner}><Always /></Component></Component>,
       container(),
       limp
     )).rejects.toThrow('always');
 
     expect(inner).toHaveBeenCalledOnce();
     expect(outer).toHaveBeenCalledOnce();
+    expect(destroyed).toHaveBeenCalledOnce();
   });
 
   it('will keep retrying while a failing render gets further', async () => {
@@ -135,10 +143,15 @@ describe('settled', () => {
   it('will reject when aborted, unmounting before a pending retry runs', async () => {
     const pending = mockPromise<string>();
     const caught = vi.fn();
+    const destroyed = vi.fn();
     const controller = new AbortController();
 
     class Slow extends Component {
       value = set(() => pending);
+
+      new() {
+        return destroyed;
+      }
 
       render() {
         return this.value;
@@ -150,6 +163,7 @@ describe('settled', () => {
     pending.reject(new Error('failed'));
     await flushMicrotasks();
     controller.abort('stop');
+    expect(destroyed).toHaveBeenCalledOnce();
 
     await expect(rendering).rejects.toBe('stop');
     await new Promise((resolve) => setTimeout(resolve, 10));

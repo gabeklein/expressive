@@ -121,6 +121,7 @@ describe('limp host', () => {
     }
 
     aside.append('tail');
+    other.append('tail');
 
     const [spot] = mount(Spot);
 
@@ -133,7 +134,7 @@ describe('limp host', () => {
     spot.into = other;
     await flushMicrotasks();
     expect(aside.textContent).toBe('tail');
-    expect(other.textContent).toBe('in');
+    expect(other.textContent).toBe('intail');
   });
 
   it('will resolve the live parent of content mounted while its boundary is hidden, and restore its portals', async () => {

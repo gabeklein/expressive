@@ -258,7 +258,7 @@ it('will skip a batched scope claimed by an earlier update', async () => {
   expect(child.update).not.toHaveBeenCalled();
 });
 
-it('will run work after the next urgent flush, queueing one flush', async () => {
+it('will run work after the next urgent flush, in order', async () => {
   const order: string[] = [];
   const scope: Schedulable = { update: () => void order.push('update') };
 
