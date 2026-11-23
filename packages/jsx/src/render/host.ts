@@ -13,6 +13,8 @@ interface Root {
   container: globalThis.Node;
   target?: StyleTarget;
   styles?: Styles;
+  /** Work a `settled()` render waits on - its suspensions and recovering `catch` handlers. */
+  waiting?: Set<PromiseLike<unknown>>;
 }
 
 /**
