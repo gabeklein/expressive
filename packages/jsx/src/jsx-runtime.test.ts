@@ -75,7 +75,8 @@ describe('unregistered', () => {
     await vi.importActual('./index');
     await vi.importActual('@expressive/dom/jsx-runtime');
 
-    expect(() => runtime.host({ ...mockHost(), Fragment: null })).not.toThrow();
+    expect(runtime).not.toBe(entry);
+    expect((globalThis as any)[Symbol.for('@expressive/jsx.registry')].registered).toBeUndefined();
   });
 
 });
@@ -90,9 +91,20 @@ describe('registration', () => {
 
   it('will accept same host again but throw on a conflicting one', () => {
     expect(() => host(runtime)).not.toThrow();
+    expect(() => host({ ...runtime })).not.toThrow();
     expect(() => host(mockHost())).toThrow(
       'A different JSX host is already registered'
     );
+  });
+
+  it('will share the registered host with another copy of the runtime', async () => {
+    vi.resetModules();
+
+    const copy = await vi.importActual<typeof import('./jsx-runtime')>('./jsx-runtime');
+
+    expect(copy).not.toBe(entry);
+    expect(copy.jsx('div', {}, 'k')).toEqual({ kind: 'jsx', type: 'div', props: {}, key: 'k' });
+    expect(() => copy.host(mockHost())).toThrow('A different JSX host is already registered');
   });
 });
 

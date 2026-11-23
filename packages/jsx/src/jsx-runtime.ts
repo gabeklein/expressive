@@ -40,7 +40,18 @@ export const Fragment = Symbol.for('@expressive/mvc.Fragment');
 
 const ELEMENT = Symbol.for('@expressive/mvc.element');
 
-let created: ((element: Element) => void) | undefined;
+interface Registry {
+  host: HostRuntime;
+  registered?: HostRuntime;
+  created?: (element: Element) => void;
+}
+
+const REGISTRY = Symbol.for('@expressive/jsx.registry');
+let local: Registry | undefined;
+
+function registry(): Registry {
+  return local ||= ((globalThis as any)[REGISTRY] ||= { host: { ...DEFAULT } });
+}
 
 /**
  * Host-side: call `hook` with each default element as it is created. Returns the previous hook.
@@ -48,8 +59,10 @@ let created: ((element: Element) => void) | undefined;
  * A host chains by calling the previous hook from its own.
  */
 export function onElement(hook: (element: Element) => void) {
-  const previous = created;
-  created = hook;
+  const state = registry();
+  const previous = state.created;
+
+  state.created = hook;
   return previous;
 }
 
@@ -57,6 +70,8 @@ const UNKNOWN = {};
 
 function element(type: unknown, props: object, key?: unknown, source?: object): Element {
   const node = { [ELEMENT]: true, type, props: props || {}, key: key as Element['key'] } as { -readonly [K in keyof Element]: Element[K] };
+
+  const { created } = registry();
 
   if (source) node.source = source;
   if (created) created(node);
@@ -80,7 +95,7 @@ function flatten(children: unknown) {
   return output;
 }
 
-const HOST = {
+const DEFAULT = {
   childrenOf: flatten,
   isElement: isDefault,
   jsx: element,
@@ -91,35 +106,36 @@ const HOST = {
   Fragment
 } as HostRuntime;
 
-let registered: HostRuntime | undefined;
-
 /**
- * Register the host runtime. Idempotent for the same runtime - re-registering
- * picks up members added since (e.g. an optional dev seam). A runtime without
- * `jsxDEV` gets its `jsx`/`jsxs` for dev builds.
+ * Register the host runtime, shared by every copy of this package.
+ *
+ * A runtime with the registered `jsx` is the same host - re-registering picks up its members (e.g. an optional dev seam).
+ * A runtime with another `jsx` throws. A runtime without `jsxDEV` gets its `jsx`/`jsxs` for dev builds.
  */
 export function host(runtime: HostRuntime) {
-  if (registered && registered !== runtime)
+  const state = registry();
+
+  if (state.registered && state.registered.jsx !== runtime.jsx)
     throw new Error(
       'A different JSX host is already registered for @expressive/jsx. ' +
       'Only one host adapter may be active per build.'
     );
 
-  registered = runtime;
-  Object.assign(HOST, runtime, { jsxDEV: runtime.jsxDEV });
+  state.registered = runtime;
+  Object.assign(state.host, runtime, { jsxDEV: runtime.jsxDEV });
 }
 
 /** Translate the agnostic Fragment sentinel to the host's Fragment. */
 function hostType(type: unknown): unknown {
-  return type === Fragment ? HOST.Fragment : type;
+  return type === Fragment ? registry().host.Fragment : type;
 }
 
 export function jsx(type: unknown, props: object, key?: unknown): Component.Node {
-  return HOST.jsx(hostType(type), props, key);
+  return registry().host.jsx(hostType(type), props, key);
 }
 
 export function jsxs(type: unknown, props: object, key?: unknown): Component.Node {
-  return HOST.jsxs(hostType(type), props, key);
+  return registry().host.jsxs(hostType(type), props, key);
 }
 
 /** Dev-transpiled element creation. A host without a `jsxDEV` of its own falls
@@ -132,8 +148,10 @@ export function jsxDEV(
   source?: object,
   self?: unknown
 ): Component.Node {
-  return HOST.jsxDEV
-    ? HOST.jsxDEV(hostType(type), props, key, isStatic, source, self)
+  const { host } = registry();
+
+  return host.jsxDEV
+    ? host.jsxDEV(hostType(type), props, key, isStatic, source, self)
     : isStatic
       ? jsxs(type, props, key)
       : jsx(type, props, key);
@@ -141,23 +159,25 @@ export function jsxDEV(
 
 /** Flatten `children` to an array of nodes, per the host's semantics. */
 export function childrenOf(children: unknown): Component.Node[] {
-  return HOST.childrenOf(children);
+  return registry().host.childrenOf(children);
 }
 
 /** Is `node` a host element? */
 export function isElement(node: unknown): boolean {
-  return HOST.isElement(node);
+  return registry().host.isElement(node);
 }
 
 /** Element type of `node`; host Fragments surface as the agnostic `Fragment`. */
 export function typeOf(node: unknown): unknown {
-  const type = HOST.typeOf(node);
-  return type === HOST.Fragment ? Fragment : type;
+  const { host } = registry();
+  const type = host.typeOf(node);
+
+  return type === host.Fragment ? Fragment : type;
 }
 
 /** Props carried by element `node`. */
 export function propsOf(node: unknown): Record<string, unknown> {
-  return HOST.propsOf(node);
+  return registry().host.propsOf(node);
 }
 
 
