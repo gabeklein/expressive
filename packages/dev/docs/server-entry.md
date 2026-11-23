@@ -82,6 +82,8 @@ class Current {
   get params(): Record<string, string>;
   /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or another content type. */
   json(): Promise<unknown>;
+  /** The request body as JSON, passed through `check`. A throw from it rejects with `BadRequest` carrying its message; an `HttpError` keeps its status. */
+  json<T>(check: (value: unknown) => T): Promise<T>;
   /** The request body as a string. */
   text(): Promise<string>;
   /** What the layer below answers. Calling it throws where nothing is below; reading it never does. */
@@ -178,6 +180,8 @@ A throw mid-stream aborts the body and is logged; the status can't change by the
 
 **Body.** Nothing is read until `json()` or `text()` is called, so answering early leaves no rejected promise behind. The first read buffers the raw bytes once, up to a cap (413 `PayloadTooLarge` past it, open question 8); every later read, including `request.formData()` and `request.arrayBuffer()`, derives from them. From then on, `Current.get().request` and the request `next()` forwards are rebuilt over those bytes, and call dispatch reads its arguments through the cache, so a `serve` that checks a signature leaves calls, catch-alls, `assets` and dev's fall-through intact. Unhandled, `json()`'s `BadRequest` answers 400.
 
+**Validation.** `json(check)` infers `T` from the check, so a library's throwing parse types the body with no generic: `await json(Item.parse)` (zod), `await json(Event.assert)` (arktype), `await json(v => parse(User, v))` (valibot). There is no `json<T>()` without a check: it would be a cast that reads as validation. `(value: unknown) => T` is the one validation contract: rpc's call arguments reuse it later, whether the check is hand-written or generated from a call's parameter types by a build transform, which would also fill `json<T>()`.
+
 **Inside a call**, calling `next` or `send`, `json` or `text`, throws: a call replies with its return value through rpc's codec. Reading them doesn't, so a shared helper can destructure `Current.get()`.
 
 ### What `next()` resolves, in order
@@ -235,7 +239,7 @@ export default () => {
 // api/hook.ts
 export async function POST() {
   const { json, send } = Current.get();
-  const event = await json();
+  const event = await json(Event.parse);
   await send(200);
   await process(event);   // after-work
 }
