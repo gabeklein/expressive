@@ -1,3 +1,7 @@
+import { mergeConfig } from 'vitest/config';
+
 import { suite } from '../../vitest.config';
 
-export default suite(true);
+export default mergeConfig(suite(true), {
+  test: { include: ['src/**/*.test.*', '../jsx/src/**/*.test.*'] }
+});

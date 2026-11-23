@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Browser, CHROME, until } from './chrome';
 
-const target = join(import.meta.dir, '../../packages/dom/src/style/numeric.ts');
+const target = join(import.meta.dir, '../../packages/jsx/src/style/numeric.ts');
 const ambiguous = ['animation', 'webkitAnimation'];
 const check = process.argv.includes('--check');
 
@@ -98,7 +98,7 @@ if (check) {
   const current = readFileSync(target, 'utf8');
 
   if (current != source) {
-    console.log(`::warning file=packages/dom/src/style/numeric.ts::numeric.ts differs from Chrome ${await Bun.$`${CHROME} --version`.text()} - rerun .github/scripts/numeric-properties.ts.`);
+    console.log(`::warning file=packages/jsx/src/style/numeric.ts::numeric.ts differs from Chrome ${await Bun.$`${CHROME} --version`.text()} - rerun .github/scripts/numeric-properties.ts.`);
     process.exit(1);
   }
 

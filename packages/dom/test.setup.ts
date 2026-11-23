@@ -2,8 +2,8 @@ import { afterEach, vi } from 'vitest';
 import type { Component, Model } from '@expressive/mvc';
 
 import { mockPromise } from '../mvc/test.setup';
-import { render } from './src/render/render';
-import { vnode } from './src/node/vnode';
+import { render } from './src/render';
+import { createElement as vnode } from '@expressive/jsx';
 
 afterEach(() => {
   document.body.replaceChildren();

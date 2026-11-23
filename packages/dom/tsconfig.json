@@ -15,6 +15,7 @@
     "paths": {
       "@expressive/dom": ["./src"],
       "@expressive/dom/*": ["./src/*"],
+      "@expressive/jsx/*": ["../jsx/src/*"],
       "@expressive/mvc/*": ["../mvc/src/*"],
       "@expressive/*": ["../*/src"]
     }

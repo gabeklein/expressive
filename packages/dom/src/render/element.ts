@@ -1,19 +1,5 @@
-import { ALIASES, SVG, isEvent, isStringified } from '../node/tags';
-import type { VNode } from '../node/vnode';
-import { applyClaim, claim } from '../style/claim';
-import { stylesOf } from '../style/facility';
-import type { Appearance } from '../style/claim';
-import { unmatched } from '../style/diagnose';
-import { reserved } from '../style/protocol';
-import { inserted } from './commits';
-import type { Fiber } from './fiber';
-import { complete, unmountFiber } from './mount';
-import { reconcileChildren } from './reconcile';
-import { depth, focus, focusing } from './render';
-import { afterFlush } from '../core/scheduler';
-import { adopt, adopted, touch } from './hydrate';
-import { hostOf } from './suspense';
-import { activeDocument } from './target';
+import { ALIASES, SVG, activeDocument, adopt, adopted, afterFlush, applyClaim, claim, complete, depth, focus, focusing, hostOf, inserted, isEvent, isStringified, reconcileChildren, reserved, touch, unmatched, unmountFiber } from '@expressive/jsx/host';
+import type { Appearance, Fiber, VNode } from '@expressive/jsx/host';
 
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
@@ -100,7 +86,7 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adoptin
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(stylesOf(fiber.root!.target!), appearance, resolved, next.className, next.style);
+  const claimed = claim(fiber.root!.styles!, appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;

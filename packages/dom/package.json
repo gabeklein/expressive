@@ -54,6 +54,9 @@
     "coverage": "vitest run --coverage",
     "test": "bun run typecheck && bun run coverage"
   },
+  "dependencies": {
+    "@expressive/jsx": "workspace:^"
+  },
   "peerDependencies": {
     "@expressive/mvc": "^0.97.1",
     "vite": ">=5"
