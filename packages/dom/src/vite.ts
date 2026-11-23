@@ -185,11 +185,13 @@ export default function expressive(): Plugin {
 
       if (!SOURCE.test(file) || file.includes('/node_modules/')) return;
 
-      runtime ||= Promise.all(
-        ['@expressive/mvc/hot', '@expressive/dom/jsx-dev-runtime'].map((entry) =>
-          this.resolve(entry).then((found) => found && dirname(found.id))
-        )
-      );
+      runtime ||= (async () => {
+        const mvc = await this.resolve('@expressive/mvc/hot');
+        const dom = await this.resolve('@expressive/dom/jsx-dev-runtime');
+        const jsx = dom && await this.resolve('@expressive/jsx/jsx-dev-runtime', dom.id);
+
+        return [mvc, dom, jsx].map((found) => found && dirname(found.id));
+      })();
 
       for (const own of await runtime) if (own && file.startsWith(own)) return;
 

@@ -1,19 +1,9 @@
-import { ALIASES, SVG, isEvent, isStringified } from '../node/tags';
-import type { VNode } from '../node/vnode';
-import { applyClaim, claim } from '../style/claim';
-import { stylesOf } from '../style/facility';
-import type { Appearance } from '../style/claim';
-import { unmatched } from '../style/diagnose';
-import { reserved } from '../style/protocol';
-import { inserted } from './commits';
-import type { Fiber } from './fiber';
-import { complete, unmountFiber } from './mount';
-import { reconcileChildren } from './reconcile';
-import { depth, focus, focusing } from './render';
-import { afterFlush } from '../core/scheduler';
-import { adopt, adopted, touch } from './hydrate';
-import { hostOf } from './suspense';
-import { activeDocument } from './target';
+import { afterPass, afterFlush, claim, complete, hostOf, inserted, reconcileChildren, reserved, unmatched, unmountFiber } from '@expressive/jsx';
+import { activeDocument } from '../host';
+import { adopt, adopted, touch } from '../hydrate';
+import { applyClaim } from '../style';
+import { ALIASES, SVG, isEvent, isStringified } from '../tags';
+import type { Appearance, Fiber, VNode } from '@expressive/jsx';
 
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
@@ -44,8 +34,7 @@ function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, befor
 
   if (!adopting && (value.props.autofocus || value.props.autoFocus))
     inserted(fiber, () => {
-      focusing.push(element);
-      if (!depth) focus();
+      afterPass(() => element.isConnected && (element as HTMLElement).focus());
     });
 
   return complete(fiber, () => {
@@ -100,7 +89,7 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adoptin
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(stylesOf(fiber.root!.target!), appearance, resolved, next.className, next.style);
+  const claimed = claim(fiber.root!.styles!, appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;

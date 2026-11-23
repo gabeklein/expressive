@@ -53,6 +53,14 @@ const CASES = [
     code: `import * as all from '@expressive/react'; import * as mvc from '@expressive/mvc'; console.log(all, mvc);`
   },
   {
+    name: 'jsx: runtime',
+    code: `import { Fragment, jsx, jsxs } from '@expressive/jsx/jsx-runtime'; console.log(Fragment, jsx, jsxs);`
+  },
+  {
+    name: 'jsx: style',
+    code: `import Model from '@expressive/mvc'; import { Css, style } from '@expressive/jsx'; console.log(Model, Css, style);`
+  },
+  {
     name: 'dom: renderer',
     code: `import Model, { Component, Context, def, get, has, map, pending, ref, set } from '@expressive/mvc';
            import { Fragment, Portal, createElement, render } from '@expressive/dom';
