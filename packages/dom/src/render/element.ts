@@ -3,6 +3,7 @@ import { Context } from '@expressive/mvc';
 import { ALIASES, SVG, isEvent, isStringified } from '../node/tags';
 import type { VNode } from '../node/vnode';
 import { applyClaim, claim } from '../style/claim';
+import { stylesOf } from '../style/facility';
 import type { Appearance } from '../style/claim';
 import { unmatched } from '../style/diagnose';
 import { reserved } from '../style/protocol';
@@ -111,7 +112,7 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adoptin
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(activeTarget()!, appearance, resolved, next.className, next.style);
+  const claimed = claim(stylesOf(activeTarget()!), appearance, resolved, next.className, next.style);
 
   applyClaim(element, fiber.claimed, claimed);
   fiber.claimed = claimed;

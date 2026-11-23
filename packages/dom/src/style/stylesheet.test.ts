@@ -845,6 +845,13 @@ describe('targets', () => {
 
     expect(written.some((text) => text!.includes('--shade-hue'))).toBe(true);
     expect(getComputedStyle(root.querySelector('i')!).color).toBe('purple');
+
+    render(createElement(Swatch, {}), shadow());
+    render(createElement(Swatch, {}), document.createElement('main'));
+
+    const again = [...document.head.querySelectorAll('style[data-expressive=root]')].filter((element) => element.textContent!.includes('--shade-hue'));
+
+    expect(again).toHaveLength(1);
   });
 
   it('will style a fallback a late recovery draws in a shadow root', async () => {

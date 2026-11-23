@@ -27,23 +27,32 @@ interface AppearanceContext {
 }
 
 type EnterAppearance = (parent?: AppearanceContext, key?: string, defines?: boolean) => AppearanceContext | undefined;
-interface Sink {
+/** Where a root's rules go - a document's sheet, a shadow root's, or a server sink. */
+interface Styles {
+  /** Open a fresh sheet - on first use, and after `live()` turns false. */
+  open(): void;
+  /** False once the opened sheet is gone. Not consulted before the first `open`. */
+  live(): boolean;
   insert(rule: string, index: number): void;
+  /** Write a pack's root rules (custom property defaults). */
   root(key: object, css: string): void;
   serialize(declarations: Declaration): string;
+  /** Name rules by content, so names never collide with another sheet's. */
+  hashed?: boolean;
+  /** Write an element's unconditional rules into its `style` attribute. */
+  inline?: boolean;
 }
 
 type StyleTarget = Document | ShadowRoot;
-type Target = StyleTarget | Sink;
 
-type Emit = (block: Block, depth: number, target: Target) => string;
+type Emit = (block: Block, depth: number, styles: Styles) => string;
 
 const SUBCOMPONENT = /^_[A-Z]/;
 const registrations = new WeakMap<object, EnterAppearance>();
 const tokens = new WeakMap<object, ResolvedAppearance>();
 const minted = new WeakMap<ResolvedAppearance, {}>();
 let emitter: Emit | undefined;
-const generations = new WeakMap<Target, number>();
+const generations = new WeakMap<Styles, number>();
 
 function registerAppearance(type: object, enter: EnterAppearance) {
   registrations.set(type, enter);
@@ -53,20 +62,16 @@ function registerEmitter(emit: Emit) {
   emitter = emit;
 }
 
-function reopened(target: Target) {
-  generations.set(target, sheetGeneration(target) + 1);
+function reopened(styles: Styles) {
+  generations.set(styles, sheetGeneration(styles) + 1);
 }
 
-function sheetGeneration(target: Target) {
-  return generations.get(target) || 0;
+function sheetGeneration(styles: Styles) {
+  return generations.get(styles) || 0;
 }
 
-function emitClass(block: Block, depth: number, target: Target) {
-  return emitter!(block, depth, target);
-}
-
-function isSink(target: Target): target is Sink {
-  return 'insert' in target;
+function emitClass(block: Block, depth: number, styles: Styles) {
+  return emitter!(block, depth, styles);
 }
 
 function documentOf(target: globalThis.Node): Document {
@@ -112,7 +117,6 @@ function appearanceToken(value: unknown) {
 export {
   appearanceToken,
   documentOf,
-  isSink,
   createAppearanceToken,
   emitClass,
   enterAppearance,
@@ -124,4 +128,4 @@ export {
   SUBCOMPONENT
 };
 
-export type { AppearanceContext, Block, Condition, Declaration, ResolvedAppearance, Sink, StyleTarget, Target };
+export type { AppearanceContext, Block, Condition, Declaration, ResolvedAppearance, Styles, StyleTarget };
