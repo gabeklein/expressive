@@ -544,7 +544,7 @@ describe("seat", () => {
     vi.stubGlobal("fetch", vi.fn((path: string, init: RequestInit) => new Promise<Response>(resolve => sent.push({
       path,
       twin: (init.headers as Record<string, string>)["x-expressive-twin"],
-      reply: (body, status = 200) => resolve(new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": "e1" } })),
+      reply: (body, status = 200) => resolve(new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": "e1", "content-type": "application/json" } })),
     }))));
     ({ twin, define } = runtime(client, Model, def, Context, Route));
   });

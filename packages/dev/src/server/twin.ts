@@ -51,22 +51,28 @@ export async function twins(incoming: Incoming<Exports>, fn?: Call): Promise<Han
 
     const since = header("if-none-match");
 
+    const answer: Answer = {
+      done: result => (result ? reply(200, result, epoch) : reply(304, undefined, epoch)),
+      fail: error => (error instanceof Moved ? reply(409, { message: error.message }, epoch) : failure(error, list, dev, epoch)),
+    };
+
     if (!pull) begin(connection);
 
     try {
-      const result = pooled
-        ? await inPool(request, connection, pooled, twin!, since, args, list, seats, at)
-        : await atFolder(incoming, connection, { pull, method, fn: plain, twin, since, args });
-
-      return result ? reply(200, result, epoch) : reply(304, undefined, epoch);
+      return pooled
+        ? await inPool(request, connection, pooled, twin!, since, args, list, seats, at, answer)
+        : await atFolder(incoming, connection, { pull, method, fn: plain, twin, since, args }, answer);
     } catch (error) {
-      if (error instanceof Moved) return reply(409, { message: error.message }, epoch);
-
-      return failure(error, list, dev, epoch);
+      return answer.fail(error);
     } finally {
       if (!pull) end(connection);
     }
   };
+}
+
+interface Answer {
+  done(result: object | undefined): Response;
+  fail(error: unknown): Response | Promise<Response>;
 }
 
 class Moved extends Error {
@@ -82,7 +88,7 @@ interface Invocation {
   args: unknown[];
 }
 
-async function atFolder(incoming: Incoming<Exports>, connection: Connection, invocation: Invocation) {
+async function atFolder(incoming: Incoming<Exports>, connection: Connection, invocation: Invocation, { done, fail }: Answer) {
   const { pull, method, fn, twin, since, args } = invocation;
   const { pathname, exports } = incoming;
   const shape = exports!.seat ?? { fields: [] };
@@ -92,12 +98,12 @@ async function atFolder(incoming: Incoming<Exports>, connection: Connection, inv
 
     if (seat) renew(connection, pathname, seat);
     if (twin) hold(connection, twin, pathname, seat!, shape, since);
-    if (pull) return caughtUp(connection, twin!);
+    if (pull) return done(caughtUp(connection, twin!));
 
     const value = await (method ? invoke(seat!, method, args) : fn!(...args));
 
-    return { value, frame: frameOf(connection) };
-  });
+    return done({ value, frame: frameOf(connection) });
+  }, fail);
 }
 
 interface Target extends Pooled {
@@ -105,7 +111,7 @@ interface Target extends Pooled {
   method?: string;
 }
 
-async function inPool(request: Request, connection: Connection, target: Target, twin: string, since: string | undefined, args: unknown[], list: Endpoint[], seats: Seats, at: string[]) {
+async function inPool(request: Request, connection: Connection, target: Target, twin: string, since: string | undefined, args: unknown[], list: Endpoint[], seats: Seats, at: string[], { done, fail }: Answer) {
   const off = "/" + at.join("/") === DETACHED;
   const walk = off ? { segments: [], pattern: [] } : walkOf(list, at);
   const along = off ? [] : await seatsAlong(seats, walk.pattern);
@@ -124,12 +130,12 @@ async function inPool(request: Request, connection: Connection, target: Target, 
 
     hold(connection, twin, address, instance, target, since, held?.pool ?? { id: target.id, drop: built!.drop, current: built!.current });
 
-    if (!target.method) return caughtUp(connection, twin);
+    if (!target.method) return done(caughtUp(connection, twin));
 
     const value = await invoke(instance, target.method, args);
 
-    return { value, frame: frameOf(connection) };
-  }, along);
+    return done({ value, frame: frameOf(connection) });
+  }, along, fail);
 }
 
 function caughtUp(connection: Connection, twin: string) {
