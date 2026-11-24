@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Current, HttpError, NotFound, Redirect } from "@expressive/rpc";
 
-import { compose, refuse } from "./compose";
+import { compose, refuse, routed } from "./compose";
 import { install } from "./install";
 
 install();
@@ -104,14 +104,21 @@ describe("pages", () => {
     expect(assets.seen).toEqual(["GET /app.js", "GET /blog/a x", "GET /200.html", "GET /nope", "GET /200.html", "HEAD /blog/a", "HEAD /200.html"]);
   });
 
-  it("will answer anything else with the bare 404", async () => {
+  it("will answer anything else with the bare 404, and other methods without assets", async () => {
     const assets = host({ "/200.html": () => new Response("shell") });
     const app = compose({}, { pages: { ...pages, assetsDir: "static" } });
 
     expect(await text(await app(page("/nope"), { assets }))).toBe("404 missing");
     expect(await text(await app(page("/static/gone.js", { headers: html }), { assets }))).toBe("404 missing");
-    expect(await text(await app(page("/blog/a", { method: "POST", headers: html }), { assets }))).toBe("404 missing");
+    expect(await text(await app(page("/200.html", { method: "POST", headers: html }), { assets }))).toBe("404 Not found.");
     expect(await text(await app(page("/blog/a"), { assets: host({}) }))).toBe("404 missing");
+  });
+
+  it("will match a page route as the router does", () => {
+    const match = (pathname: string) => routed(["/", "/blog/:slug", "/docs/*"], pathname);
+
+    expect(["/", "/Blog/a/", "/docs", "/docs/a/b"].map(match)).toEqual([true, true, true, true]);
+    expect(["/blog", "/blog/a/b", "/doc"].map(match)).toEqual([false, false, false]);
   });
 
   it("will fall back to index.html, following one same-origin redirect", async () => {

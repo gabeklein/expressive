@@ -106,8 +106,8 @@ describe("listen", () => {
     expect(await get("/nope", { headers: html })).toBe("404 shell");
     expect(await get("/nope")).toBe("404 Not found");
     expect(await get("/static/gone.js", { headers: html })).toBe("404 Not found");
-    expect(await get("/blog/one", { method: "POST", headers: html })).toBe("404 Not found");
-    expect(await get("/about", { method: "POST" })).toBe("404 Not found");
+    expect(await get("/blog/one", { method: "POST", headers: html })).toBe("404 Not found.");
+    expect(await get("/about", { method: "POST" })).toBe("404 Not found.");
 
     server.closeAllConnections();
     server.close();

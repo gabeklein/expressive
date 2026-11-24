@@ -1,4 +1,3 @@
-import { matchPattern } from "@expressive/router";
 import { HttpError, Redirect, type Env, type ExecutionCtx } from "@expressive/rpc";
 import { isCall } from "@expressive/rpc/http";
 import { bind, dispatch, failure, type Endpoint, type Seats } from "@expressive/rpc/protocol";
@@ -13,7 +12,7 @@ export interface Parts {
   dev?: boolean;
 }
 
-/** A build's pages, for the shell fallback: its page routes' patterns, and `build.assetsDir`, never answered with the shell. Dev and tests leave it out. */
+/** A build's pages, for the page step - GET and HEAD only, with the shell fallback: its page routes' patterns, and `build.assetsDir`, never answered with the shell. Dev and tests leave it out. */
 export interface Pages {
   patterns: string[];
   assetsDir?: string;
@@ -92,17 +91,34 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
 const SHELLS = ["/200.html", "/index.html"];
 const CONDITIONAL = ["if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range", "range"];
 
-/** The shell's status for `request`: 200 on a page route, 404 for a navigation no route matches, else none. GET and HEAD outside `assetsDir` only. */
+/** The shell's status for `request`: 200 on a page route, 404 for a navigation no route matches, else none. Never under `assetsDir`. */
 function shellStatus(request: Request, { patterns, assetsDir = "assets" }: Pages): 200 | 404 | undefined {
-  const { method, headers, url } = request;
+  const { headers, url } = request;
   const { pathname } = new URL(url);
 
-  if ((method !== "GET" && method !== "HEAD") || pathname.startsWith(`/${assetsDir}/`)) return;
-  if (patterns.some(pattern => matchPattern(pattern, pathname))) return 200;
+  if (pathname.startsWith(`/${assetsDir}/`)) return;
+  if (routed(patterns, pathname)) return 200;
   if (headers.get("accept")?.includes("text/html")) return 404;
 }
 
+/** Whether a page pattern matches `pathname` as the router does: literals case-insensitively, `:param` one segment, a trailing `*` the rest. */
+export function routed(patterns: string[], pathname: string): boolean {
+  const path = segments(pathname);
+
+  return patterns.some(pattern => {
+    const parts = segments(pattern);
+    const rest = parts.at(-1) === "*" && parts.pop();
+
+    return (rest ? path.length >= parts.length : path.length === parts.length)
+      && parts.every((part, i) => part.startsWith(":") || part.toLowerCase() === path[i].toLowerCase());
+  });
+}
+
+const segments = (path: string) => path.split("/").filter(Boolean);
+
 async function page(request: Request, assets: Assets, pages: Pages): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") return new Response("Not found.", { status: 404 });
+
   const reply = await assets.fetch(request);
   const status = reply.status === 404 && shellStatus(request, pages);
 

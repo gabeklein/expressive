@@ -105,9 +105,9 @@ export function listen({ settings, client, sidecars = [], gates = [], pages = { 
   return server;
 }
 
-function files(client: string, { method, url }: Request, immutable: string): Response {
+function files(client: string, { url }: Request, immutable: string): Response {
   const { pathname } = new URL(url);
-  const found = (method === "GET" || method === "HEAD") && (fileResponse(client, pathname) ?? fileResponse(client, join(pathname, "index.html")));
+  const found = fileResponse(client, pathname) ?? fileResponse(client, join(pathname, "index.html"));
 
   if (!found) return new Response("Not found", { status: 404 });
   if (pathname.startsWith(immutable)) found.headers.set("cache-control", "public, max-age=31536000, immutable");

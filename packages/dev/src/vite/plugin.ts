@@ -9,11 +9,10 @@ import type { ModuleRunner } from "vite/module-runner";
 
 import type { Settings } from "../settings";
 import { check } from "../server/check";
-import { compose, type Pages } from "../server/compose";
+import { compose, routed, type Pages } from "../server/compose";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { Exposure, type Exposed } from "./remote";
 import { generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
-import { matchPattern } from "@expressive/router";
 import { isCall, send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
@@ -100,7 +99,7 @@ export function host(dotenv: boolean): Plugin<Host> {
   const generate = () => generateRoutes(project.appDir!, generatedDir, scanRoute);
   let assetsDir: string;
   const pages = async (): Promise<Pages> => ({ patterns: project.appDir ? await pagePatterns(project.appDir, scanRoute) : ["*"], assetsDir });
-  const pageStatus = async (pathname: string) => ((await pages()).patterns.some(pattern => matchPattern(pattern, pathname)) ? 200 : 404);
+  const pageStatus = async (pathname: string) => (routed((await pages()).patterns, pathname) ? 200 : 404);
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
