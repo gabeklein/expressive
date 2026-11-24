@@ -16,8 +16,8 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 
 - **An `index.ts`'s `default` gates its folder.** The root `index.ts`'s gates every request; an `api/` folder's gates its paths. One rule at every level: finish to pass, throw (or fail a Model's `new()`) to refuse, call `next` to wrap. It replaces `serve`, `fetch` and `around`.
 - **Handlers take no parameters.** Gates and `api/` routes read the request from `Current.get()`, so nothing needs a hand-typed `(request: Request, …)`.
-- **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
-- **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces `ctx.waitUntil`, an `after()` helper and a generator protocol. A returned value or `Response` still works.
+- **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `ctx`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
+- **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces an `after()` helper and a generator protocol. A returned value or `Response` still works. `ctx` stays on `Current` for fetch handlers dropped in (below).
 - **Gates are rpc's function gates, with `next` optional.** Models a gate activates are in context below it. Outside a folder `index.ts`, an `api/` module's `default` is a catch-all. No remainder export (`ANY`, `ELSE`).
 - **An object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
@@ -88,6 +88,8 @@ class Current {
   text(): Promise<string>;
   /** In a gate: run everything below it and resolve with that reply. Calling it outside a gate throws; reading it never does. */
   get next(): () => Promise<Response>;
+  /** The host's execution context: `bind`'s `ctx` on the fetch target; on Node and in dev, a `waitUntil` that runs the promise and logs a throw. */
+  get ctx(): { waitUntil(promise: Promise<unknown>): void; passThroughOnException(): void };
 
   /** Decide this layer's reply. Resolves once the reply is handed to the host; code after it is after-work. */
   send(body?: unknown): Promise<void>;
@@ -109,7 +111,7 @@ The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves t
 
 New public surface for sign-off (AGENTS.md):
 - **dev `/server`:** `config`, `host`, `compose`, and the types `Settings`, `AppOptions`, `App`. `Current` is already re-exported there.
-- **rpc `Current`:** `params`, `json`, `text`, `next`, `send` and static `send`; `bind`'s `ctx`; `next` in rpc's function gates.
+- **rpc `Current`:** `params`, `json`, `text`, `ctx`, `next`, `send` and static `send`; `bind`'s `ctx`; `next` in rpc's function gates.
 
 Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `listen` (the Node listener the generated entry calls), `@expressive/dev/fetch`'s `fetchHandler` → its `compose`, and the plugin API `Host.config()` returns `Settings`. Entry plumbing (`listen`) stays on `/server`, documented as not app API.
 
@@ -280,6 +282,32 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 - `api/` is server-only. A client module importing from it fails the build, as it would for another folder's sidecar.
 - When a root `api/` exists, `app/api/`, `app/api.tsx`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
 - `api/` routes are not prerendered.
+
+### Dropping in a fetch handler
+
+A library or app with the platform's fetch signature, `(request, env, ctx) => Response` (Hono, an auth library's `handler`, a tRPC fetch adapter), mounts in a catch-all by returning its reply:
+
+```ts
+// api/legacy/[...].ts
+const legacy = new Hono().basePath("/api/legacy").get("/users/:id", c => c.json(...));
+
+export default () => {
+  const { request, env, ctx } = Current.get();
+  return legacy.fetch(request, env, ctx);
+};
+```
+
+As the root gate, falling through to the app where it has no route:
+
+```ts
+export default async () => {
+  const { request, env, ctx, next } = Current.get();
+  const res = await legacy.fetch(request, env, ctx);
+  return res.status === 404 ? next() : res;
+};
+```
+
+The handler reads the body through the cache, its reply gets the headers and cookies gates set, and Models gates activated resolve inside it. `env` is the platform's bindings on the fetch target, as Hono's `c.env` expects; on Node and in dev it is the layered view (`env`, below), so code reading `c.env.SECRET` runs on both. `passThroughOnException` is a no-op off Workers.
 
 ## Alignment with sidecars
 
@@ -458,6 +486,7 @@ Each has a recommendation; sign-off on these unblocks PR 1.
 8. **Body cap.** Recommend 1 MB by default. Raising it needs a setting (`config({ body: { limit } })`), which is new surface; recommend adding it only when asked.
 9. **A throw below a wrapping gate.** Recommend resolving `next()` with the error reply, as calls already do, so a wrapper treats a failed call and a failed route alike. The alternative, rejecting `next()`, lets `db.session` roll back on a route's throw, but then calls would need to reject too to match.
 10. **Trunk.** Recommend landing the PRs below on a `feat/dev-serve` trunk cut from this branch and releasing once. Publishing 0.6 with the root gate but without `api/` would make apps port twice. The trunk isn't released between PRs, so a gap one PR leaves for a later one is tolerated there (named below).
+11. **Positional arguments.** Calling every gate and route with `(request, env, ctx)` would make any fetch handler a module default as is (`export default legacy.fetch`), while house style keeps reading `Current`. Recommend against for now: a gate given the platform triple reads as a fetch handler, so returning its 404 answers instead of passing, which the root-gate case above handles by hand; and two ways to read the request split examples and docs. Revisit if wrappers like the one above become common.
 
 ## PR split
 
