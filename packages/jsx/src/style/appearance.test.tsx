@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
-import { applyDeclarations } from '@expressive/dom/style';
 import { Component } from '@expressive/mvc';
 import * as hot from '@expressive/mvc/hot';
 
 import { createAppearanceRoute, createStyleScope, resolveAppearance } from './appearance';
 import { Style } from './stylesheet';
-import { flushMicrotasks, mount, render, useHost } from '../../test.setup';
+import { flushMicrotasks, mount, render, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 function place(node: Component.Node) {
   const root = document.body.appendChild(document.createElement('main'));
@@ -755,16 +753,6 @@ describe('appearance', () => {
     expect(resolveAppearance(scope, { _blank: false })).toBeUndefined();
   });
 
-  it('will apply custom properties when serializing', () => {
-    const declarations = document.createElement('div').style;
-
-    applyDeclarations(declarations, { '--count': 2, '--empty': null, color: null });
-
-    expect(declarations.getPropertyValue('--count')).toBe('2');
-    expect(declarations.getPropertyValue('--empty')).toBe('');
-    expect(declarations.color).toBe('');
-  });
-
   it('will ignore invalid maps', () => {
     expect(createStyleScope(undefined, null)).toBeUndefined();
     expect(createStyleScope(undefined, [])).toBeUndefined();
@@ -1206,7 +1194,7 @@ describe('hot patch', () => {
 
     const node = place(<Swatch />).querySelector('div')!;
     const rule = () => {
-      const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+      const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
       return [...sheet!.cssRules].find((rule) => rule.cssText.startsWith(`.${node.className}{`)
         || rule.cssText.startsWith(`.${node.className} {`))!.cssText;
     };
@@ -1266,7 +1254,7 @@ describe('hot patch', () => {
 
 describe('conditions', () => {
   function sheet(match: string) {
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
     return [...sheet!.cssRules]
       .map((rule) => rule.cssText.replace(/\s+/g, ' '))
       .filter((rule) => rule.includes(match));

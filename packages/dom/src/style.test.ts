@@ -3,10 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { Component } from '@expressive/mvc';
 
 import { createElement, Portal, render, Style, style } from './index';
-import { serialize } from './style';
+import { applyDeclarations, serialize } from './style';
 import { place } from '../test.setup';
 
 describe('serialize', () => {
+  it('will apply custom properties when serializing', () => {
+    const declarations = document.createElement('div').style;
+
+    applyDeclarations(declarations, { '--count': 2, '--empty': null, color: null });
+
+    expect(declarations.getPropertyValue('--count')).toBe('2');
+    expect(declarations.getPropertyValue('--empty')).toBe('');
+    expect(declarations.color).toBe('');
+  });
+
   it('will keep a var() shorthand beside its longhand', () => {
     expect(serialize(document, { margin: 'var(--gap) 1px', marginTop: '2px' }))
       .toBe('margin: var(--gap) 1px; margin-top: 2px;');

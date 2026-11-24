@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
 import { join } from 'node:path';
 import ts from 'typescript';
 
 import { createElement } from '../node/vnode';
 import { Css } from './css';
 import type { style } from './stylesheet';
-import { render, useHost } from '../../test.setup';
+import { render, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 const css = new Css();
 const glob = (value: unknown, key: string) => css.default(value, key);

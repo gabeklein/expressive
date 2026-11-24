@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
 import { Component } from '@expressive/mvc';
 
 import { createElement } from '../node/vnode';
+import type { Host } from '../render/host';
+import { render as renderWith } from '../render/render';
 import { Css } from './css';
 import { Style, style } from './stylesheet';
-import { render, useHost } from '../../test.setup';
+import { render, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 class Sides extends Style {
   readonly $wide = '@media (min-width: 600px)';
@@ -301,7 +302,7 @@ describe('Style', () => {
     });
 
     const node = place(createElement(Panel, {})).querySelector('div')!;
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
     const rules = [...sheet!.cssRules]
       .map((rule) => rule.cssText.replace(/\s+/g, ' '))
       .filter((rule) => rule.includes('.Panel'));
@@ -543,6 +544,25 @@ describe('Style', () => {
   });
 });
 
+describe('hashed sheets', () => {
+  it('will name a rule by its content, the same in every document', () => {
+    const Tag = () => createElement('b', {});
+    const hashed: Host = { ...styled, styles: (target) => ({ ...styled.styles!(target), hashed: true }) };
+
+    style(Tag, { color: 'red' });
+
+    const names = [1, 2].map(() => document.implementation.createHTMLDocument()).map((owner) => {
+      const root = owner.body.appendChild(owner.createElement('main'));
+
+      renderWith(createElement(Tag, {}), root, hashed);
+      return root.querySelector('b')!.className;
+    });
+
+    expect(names[0]).toMatch(/^Tag-[0-9a-z]+$/);
+    expect(names[1]).toBe(names[0]);
+  });
+});
+
 describe('variables', () => {
   class Theme extends Css {
     readonly $inkLight = '#222';
@@ -557,7 +577,7 @@ describe('variables', () => {
   }
 
   function rules(name: string) {
-    return [...document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!.sheet!.cssRules]
+    return [...document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!.sheet!.cssRules]
       .map((rule) => rule.cssText.replace(/\s+/g, ' '))
       .filter((rule) => rule.includes(`.${name}`));
   }
@@ -708,7 +728,7 @@ describe('variables', () => {
     kept(Dot, ($) => ({ color: $.keptHue }));
     place(createElement(Dot, {}));
 
-    document.head.querySelector('style[data-expressive=dom]')!.remove();
+    document.head.querySelector('style[data-expressive=sheet]')!.remove();
 
     const Again = () => createElement('b', {});
 

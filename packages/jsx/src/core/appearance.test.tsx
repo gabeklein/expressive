@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
 import { Component, has } from '@expressive/mvc';
 
 import { style } from '../style/stylesheet';
-import { flushMicrotasks, mount, place, render, useHost } from '../../test.setup';
+import { flushMicrotasks, mount, place, render, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 describe('style prop', () => {
   it('will recursively compose classes and inline styles', async () => {
@@ -315,7 +314,7 @@ describe('authoring scope without macros', () => {
   });
 
   function order(node: Element) {
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
     const rules = [...sheet!.cssRules].map((rule) => rule.cssText);
 
     return node.className.split(' ').sort((a, b) =>
@@ -370,7 +369,7 @@ describe('authoring scope without macros', () => {
 
     const node = place(<Account />).querySelector('div')!;
 
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
     const rule = [...sheet!.cssRules].find((rule) => rule.cssText.startsWith('.Sheet_box '));
 
     expect(node.className).toBe('Sheet_box');

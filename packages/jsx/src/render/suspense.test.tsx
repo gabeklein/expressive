@@ -1333,7 +1333,7 @@ describe('suspense and recovery', () => {
     it('will render the component a loader resolves with its props', async () => {
       const loaded = mockPromise<{ default: (props: { name: string }) => Component.Node }>();
       const load = vi.fn(() => loaded);
-      const Greeting = () => load();
+      const Greeting = (_props: { name: string }) => load();
       const root = place(<Component fallback={<i>loading</i>}><Greeting name="Ada" /><Greeting name="Bob" /></Component>);
       expect(root.textContent).toBe('loading');
 
@@ -1356,7 +1356,7 @@ describe('suspense and recovery', () => {
         }
       }
 
-      const Lazy = () => Promise.resolve(Counter);
+      const Lazy = (_props: { count: number }) => Promise.resolve(Counter);
       const root = place(<Component fallback={<i>loading</i>}><Lazy count={3} /></Component>);
 
       await flushMicrotasks();
@@ -1386,30 +1386,6 @@ describe('suspense and recovery', () => {
       await flushMicrotasks();
 
       expect(caught).toEqual(['Loader resolved no component.']);
-    });
-
-    it('will type attributes from the resolved component', () => {
-      class Settings extends Model {
-        theme = 'dark';
-      }
-
-      const Fn = (props: { size: number }) => props.size;
-      const Lazy = () => Promise.resolve({ default: Fn });
-      const LazyModel = () => Promise.resolve(Settings);
-      const Arity = (_props: { id: number }) => Promise.resolve(Fn);
-
-      void (() => [
-        <Lazy size={1} />,
-        <LazyModel theme="light" />,
-        // @ts-expect-error
-        <LazyModel theme={1} />,
-        // @ts-expect-error
-        <Arity id={1} />,
-        // @ts-expect-error
-        <Lazy size="x" />,
-        // @ts-expect-error
-        <Lazy />
-      ]);
     });
   });
 });

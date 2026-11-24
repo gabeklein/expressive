@@ -3,7 +3,7 @@
     "target": "es2020",
     "useDefineForClassFields": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "@expressive/dom",
+    "jsxImportSource": "@expressive/jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -16,7 +16,6 @@
     "paths": {
       "@expressive/jsx": ["./src"],
       "@expressive/jsx/*": ["./src/*"],
-      "@expressive/dom/*": ["../dom/src/*"],
       "@expressive/mvc/*": ["../mvc/src/*"],
       "@expressive/*": ["../*/src"]
     }
