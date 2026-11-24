@@ -999,6 +999,20 @@ describe('get method', () => {
       expect(() => Foo.get()).toThrow('Could not find Foo in context.');
     });
 
+    it.each<[string, unknown]>([
+      ['string', 'user-42'],
+      ['number', 42],
+      ['true', true]
+    ])('will throw on a %s key', (_, key) => {
+      const foo = Foo.new();
+
+      new Context(foo);
+
+      expect(() => within(foo, () => (Foo.get as (key: unknown) => Foo)(key))).toThrow(
+        'Foo.get() takes no key - override static get to resolve one'
+      );
+    });
+
     it('will return undefined if optional', () => {
       expect(Foo.get(false)).toBeUndefined();
     });
@@ -3455,6 +3469,16 @@ describe('new method', () => {
 
 describe('new method (static)', () => {
   class Test extends Model {}
+
+  it.each<[string, unknown[]]>([
+    ['string', ['user-42']],
+    ['number', [42]],
+    ['nested', [{}, ['user-42']]]
+  ])('will throw on a %s key', (_, args) => {
+    const create = Test.new as (...args: unknown[]) => Test;
+
+    expect(() => create.call(Test, ...args)).toThrow('Test.new() takes no key - override static new to resolve one');
+  });
 
   it('will call argument as lifecycle', () => {
     const didDestroy = vi.fn();
