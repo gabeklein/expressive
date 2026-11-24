@@ -742,7 +742,7 @@ export class Current extends Model {
    * carrying its message; an `HttpError` keeps its status.
    *
    * @example
-   * const event = await Current.get().json(Event.parse);
+   * const signup = await Current.get().json(Signup.parse);
    */
   json<T>(check: (value: unknown) => T): Promise<Awaited<T>>;
 
@@ -776,7 +776,7 @@ export class Current extends Model {
    *
    * @example
    * await Current.get().send(200);
-   * await process(event);
+   * await notify();
    */
   send(body?: unknown): Promise<void>;
 
