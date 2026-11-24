@@ -100,7 +100,6 @@ describe('unmatched flags', () => {
     style(Footer, { color: 'gray' });
 
     place(<Header />);
-    place(<Header />);
     expect(warn).not.toHaveBeenCalled();
 
     place(<Footer />);

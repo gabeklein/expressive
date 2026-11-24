@@ -546,20 +546,28 @@ describe('Style', () => {
 
 describe('hashed sheets', () => {
   it('will name a rule by its content, the same in every document', () => {
-    const Tag = () => createElement('b', {});
     const hashed: Host = { ...styled, styles: (target) => ({ ...styled.styles!(target), hashed: true }) };
+    const tag = (color: string) => {
+      const Tag = () => createElement('b', {});
 
-    style(Tag, { color: 'red' });
+      style(Tag, { color });
+      return Tag;
+    };
 
-    const names = [1, 2].map(() => document.implementation.createHTMLDocument()).map((owner) => {
-      const root = owner.body.appendChild(owner.createElement('main'));
+    const Red = tag('red');
+    const Blue = tag('blue');
 
-      renderWith(createElement(Tag, {}), root, hashed);
-      return root.querySelector('b')!.className;
+    const names = [1, 2].map(() => {
+      const root = document.implementation.createHTMLDocument().body.appendChild(document.createElement('main'));
+
+      renderWith(createElement('div', { children: [createElement(Red, { key: 1 }), createElement(Blue, { key: 2 })] }), root, hashed);
+      return [...root.querySelectorAll('b')].map((node) => node.className);
     });
 
-    expect(names[0]).toMatch(/^Tag-[0-9a-z]+$/);
-    expect(names[1]).toBe(names[0]);
+    expect(names[0][0]).toMatch(/^Tag-[0-9a-z]+$/);
+    expect(names[0][1]).toMatch(/^Tag-[0-9a-z]+$/);
+    expect(names[0][1]).not.toBe(names[0][0]);
+    expect(names[1]).toEqual(names[0]);
   });
 });
 
