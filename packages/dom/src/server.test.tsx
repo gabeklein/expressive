@@ -4,7 +4,7 @@ import { Component, get, has, map, Model, set } from '@expressive/mvc';
 
 import { createElement, Css, Fragment, Portal, render, style } from '@expressive/dom';
 import { renderToString } from './server';
-import { flushMicrotasks, mockPromise, mount } from '../test.setup';
+import { flushMicrotasks, mockPromise, mockWarn, mount } from '../test.setup';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -1001,5 +1001,20 @@ describe('renderToString', () => {
     }
 
     await expect(serve(<Holder />)).rejects.toThrow('Cannot render a plain object in Holder.');
+  });
+});
+
+describe('diagnostics', () => {
+  const warn = mockWarn();
+
+  it('will warn for a flag that matches no rule', async () => {
+    function Badge() {
+      return <i _smal />;
+    }
+
+    style(Badge, { _small: { color: 'red' } });
+    await renderToString(<Badge />);
+
+    expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Badge. Did you mean "_small"?']]);
   });
 });

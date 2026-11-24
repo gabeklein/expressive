@@ -6,8 +6,8 @@ import { createElement, Portal, render, Style, style } from './index';
 import { applyDeclarations, serialize } from './style';
 import { place } from '../test.setup';
 
-describe('serialize', () => {
-  it('will apply custom properties when serializing', () => {
+describe('applyDeclarations', () => {
+  it('will set and clear custom properties', () => {
     const declarations = document.createElement('div').style;
 
     applyDeclarations(declarations, { '--count': 2, '--empty': null, color: null });
@@ -16,7 +16,9 @@ describe('serialize', () => {
     expect(declarations.getPropertyValue('--empty')).toBe('');
     expect(declarations.color).toBe('');
   });
+});
 
+describe('serialize', () => {
   it('will keep a var() shorthand beside its longhand', () => {
     expect(serialize(document, { margin: 'var(--gap) 1px', marginTop: '2px' }))
       .toBe('margin: var(--gap) 1px; margin-top: 2px;');
@@ -195,5 +197,62 @@ describe('targets', () => {
     await new Promise((resolve) => setTimeout(resolve));
 
     expect(getComputedStyle(root.querySelector('i')!).color).toBe('red');
+  });
+});
+
+describe('sheet', () => {
+  function attached() {
+    return document.body.appendChild(document.createElement('main'));
+  }
+
+  it('will reopen a sheet removed from the head', () => {
+    const First = () => createElement('i', {});
+    const Second = () => createElement('b', {});
+
+    style(First, { color: 'red' });
+    style(Second, { color: 'blue' });
+    place(createElement(First, {}));
+    document.head.querySelector('style[data-expressive=dom]')!.remove();
+
+    const node = place(createElement(Second, {}), attached()).querySelector('b')!;
+
+    expect(getComputedStyle(node).color).toBe('blue');
+  });
+
+  it('will insert a later rule ahead of deeper ones', () => {
+    const Button = () => createElement('button', {});
+    const Toolbar = () => createElement('nav', { children: createElement(Button, { _accent: true }) });
+    const Later = () => createElement('i', {});
+
+    style(Toolbar, { _accent: { color: 'red' } });
+    style(Later, { color: 'blue' });
+    place(createElement(Toolbar, {}));
+    place(createElement(Later, {}));
+
+    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
+    const rules = [...sheet!.cssRules].map((rule) => rule.cssText.split(' ')[0]);
+
+    expect(rules).toContain('.Later');
+    expect(rules.indexOf('.Later')).toBeLessThan(rules.indexOf('.Toolbar_accent-d1'));
+  });
+
+  it('will rewrite pack roots into a recreated head', () => {
+    class Late extends Style {
+      readonly $lateHue = 'navy';
+    }
+
+    const late = Late.use();
+    const Dot = () => createElement('i', {});
+    const Again = () => createElement('b', {});
+
+    late(Dot, ($) => ({ color: $.lateHue }));
+    late(Again, ($) => ({ color: $.lateHue }));
+    place(createElement(Dot, {}));
+
+    for (const element of document.head.querySelectorAll('style[data-expressive]')) element.remove();
+
+    const node = place(createElement(Again, {}), attached()).querySelector('b')!;
+
+    expect(getComputedStyle(node).color).toBe('navy');
   });
 });

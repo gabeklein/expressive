@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Model, pending, set } from '@expressive/mvc';
 
-import { Portal, render } from '../index';
-import { flushMicrotasks, lazy, mockPromise, mount, place, until } from '../../test.setup';
+import { Portal, render, style } from '../index';
+import { flushMicrotasks, lazy, mockPromise, mockWarn, mount, place, until } from '../../test.setup';
 
 if (false) {
   // @ts-expect-error @expressive/dom uses className, not the class attribute name.
@@ -544,6 +544,42 @@ describe('element', () => {
   });
 });
 
+describe('styles', () => {
+  const warn = mockWarn();
+
+  it('will warn for a flag that matches no rule', () => {
+    function Badge() {
+      return <i _smal />;
+    }
+
+    style(Badge, { _small: { color: 'red' } });
+    place(<Badge />);
+
+    expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Badge. Did you mean "_small"?']]);
+  });
+
+  it('will throw for a subcomponent key on an element', () => {
+    function Card() {
+      return <div {...{ _Title: true }} />;
+    }
+
+    expect(() => place(<Card />)).toThrow('"_Title" is reserved for subcomponents in style() maps.');
+  });
+
+  it('will keep the author of children through an unstyled wrapper', () => {
+    function Wrap({ children }: { children?: Component.Node }) {
+      return <div>{children}</div>;
+    }
+
+    function Author() {
+      return <Wrap><p _note /></Wrap>;
+    }
+
+    style(Author, { _note: { color: 'green' } });
+
+    expect(place(<Author />).querySelector('p')!.className).toBe('Author_note');
+  });
+});
 
 describe('svg', () => {
   it('will render SVG, fragments and primitive updates', async () => {
