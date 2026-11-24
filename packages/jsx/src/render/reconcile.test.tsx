@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Model } from '@expressive/mvc';
-import { Fragment } from '@expressive/dom';
+
+import { Fragment } from '../node/vnode';
 import { flushMicrotasks, mount } from '../../test.setup';
 
 function Pair({ value }: { value: string }) {

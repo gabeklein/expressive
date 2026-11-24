@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component } from '@expressive/mvc';
+import { Component, Model, set } from '@expressive/mvc';
 
-import { Portal, hydrate, render } from '@expressive/dom';
-import { renderToString } from '@expressive/dom/server';
-import { afterPass, mountRoot } from './render';
+import { Portal } from '../node/vnode';
+import { fragment } from './commits';
 import { limp } from './host';
-import { mockPromise } from '../../test.setup';
+import type { Root } from './host';
+import { afterPass, mountRoot, settled } from './render';
+import { flushMicrotasks, mockPromise, render } from '../../test.setup';
 
 describe('render', () => {
   it('will replace an existing root and make unmount idempotent', () => {
@@ -20,70 +21,6 @@ describe('render', () => {
     second();
     second();
     expect(root.textContent).toBe('');
-  });
-
-  it('will build in the container\'s document, not the global one', async () => {
-    const other = document.implementation.createHTMLDocument();
-    const root = other.createElement('main');
-    const modal = other.createElement('aside');
-    const served = other.createElement('main');
-    const loading = mockPromise<void>();
-
-    modal.id = 'modal';
-    other.body.append(root, modal, served);
-
-    let waiting = true;
-
-    function Slow() {
-      if (waiting) throw loading;
-      return <i>done</i>;
-    }
-
-    class Box extends Component {
-      fallback = <b>wait</b>;
-    }
-
-    const page = () => <section>text<svg><circle /></svg></section>;
-
-    served.innerHTML = (await renderToString(page())).html;
-
-    const spies = (['createElement', 'createElementNS', 'createTextNode', 'createComment', 'createDocumentFragment'] as const)
-      .map((method) => vi.spyOn(document, method));
-
-    try {
-      const release = render(
-        <section>
-          text
-          <svg><circle /></svg>
-          <Box>
-            <Portal into="#modal"><u>modal</u></Portal>
-            <Slow />
-          </Box>
-        </section>,
-        root
-      );
-
-      expect(root.textContent).toContain('wait');
-      expect(modal.textContent).toBe('');
-
-      waiting = false;
-      loading.resolve();
-      await vi.waitFor(() => expect(root.textContent).toContain('done'));
-
-      expect(modal.textContent).toBe('modal');
-      expect(root.querySelector('circle')!.namespaceURI).toBe('http://www.w3.org/2000/svg');
-
-      const unhydrate = hydrate(<>{page()}<p>more</p></>, served);
-
-      expect(served.querySelector('circle')!.namespaceURI).toBe('http://www.w3.org/2000/svg');
-      expect(served.querySelector('p')!.textContent).toBe('more');
-      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
-
-      release();
-      unhydrate();
-    } finally {
-      spies.forEach((spy) => spy.mockRestore());
-    }
   });
 
   it('will run after the pass, or now outside one', () => {
@@ -103,5 +40,161 @@ describe('render', () => {
     mountRoot(<Child />, document.createElement('main'), limp);
 
     expect(order).toEqual(['now', 'render', 'after', 'during flush']);
+  });
+});
+
+describe('settled', () => {
+  function container() {
+    return fragment({ host: limp, container: document.body } as Root);
+  }
+
+  function text(node: globalThis.Node) {
+    return node.textContent;
+  }
+
+  it('will wait out suspensions, retrying in place without a fallback', async () => {
+    const drawn = vi.fn();
+    let ready = false;
+
+    function Spinner() {
+      drawn();
+      return 'wait';
+    }
+
+    function Slow() {
+      if (!ready) throw new Promise((resolve) => setTimeout(resolve)).then(() => ready = true);
+      return 'done';
+    }
+
+    const root = container();
+    const unmount = await settled(<Component fallback={<Spinner />}><Slow /></Component>, root, limp);
+
+    expect(text(root)).toBe('done');
+    expect(drawn).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('will wait at the root without a boundary, sharing the wait with portals', async () => {
+    const into = document.createDocumentFragment();
+    let ready = false;
+
+    function Slow() {
+      if (!ready) throw new Promise((resolve) => setTimeout(resolve)).then(() => ready = true);
+      return 'away';
+    }
+
+    const root = container();
+
+    await settled(<Portal into={into}><Slow /></Portal>, root, limp);
+
+    expect(text(into)).toBe('away');
+  });
+
+  it('will retry a caught error, then pass one that gets no further to the next boundary', async () => {
+    const inner = vi.fn();
+    const outer = vi.fn();
+    const destroyed = vi.fn();
+
+    function Always(): any {
+      throw new Error('always');
+    }
+
+    class Owned extends Component {
+      new() {
+        return destroyed;
+      }
+    }
+
+    await expect(settled(
+      <Component catch={outer}><Owned /><Component catch={inner}><Always /></Component></Component>,
+      container(),
+      limp
+    )).rejects.toThrow('always');
+
+    expect(inner).toHaveBeenCalledOnce();
+    expect(outer).toHaveBeenCalledOnce();
+    expect(destroyed).toHaveBeenCalledOnce();
+  });
+
+  it('will keep retrying while a failing render gets further', async () => {
+    const failing = new Set(['a', 'b']);
+    const caught = vi.fn();
+
+    class Setup extends Component {
+      name = '';
+
+      new() {
+        if (failing.delete(this.name)) throw new Error(this.name);
+      }
+
+      render() {
+        return this.name;
+      }
+    }
+
+    const root = container();
+
+    await settled(<Component catch={caught}><Setup name="a" /><Setup name="b" /></Component>, root, limp);
+
+    expect(caught).toHaveBeenCalledTimes(2);
+    expect(text(root)).toBe('ab');
+  });
+
+  it('will reject when aborted, unmounting before a pending retry runs', async () => {
+    const pending = mockPromise<string>();
+    const caught = vi.fn();
+    const destroyed = vi.fn();
+    const controller = new AbortController();
+
+    class Slow extends Component {
+      value = set(() => pending);
+
+      new() {
+        return destroyed;
+      }
+
+      render() {
+        return this.value;
+      }
+    }
+
+    const rendering = settled(<Component catch={caught}><Slow /></Component>, container(), limp, controller.signal);
+
+    pending.reject(new Error('failed'));
+    await flushMicrotasks();
+    controller.abort('stop');
+    expect(destroyed).toHaveBeenCalledOnce();
+
+    await expect(rendering).rejects.toBe('stop');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(caught).not.toHaveBeenCalled();
+  });
+
+  it('will stop waiting on a suspension its tree drops', async () => {
+    class Gate extends Model {
+      open = true;
+    }
+
+    function Never(): any {
+      throw new Promise(() => {});
+    }
+
+    class Shell extends Component {
+      gate = new Gate();
+
+      new() {
+        setTimeout(() => this.gate.open = false);
+      }
+
+      render() {
+        return this.gate.open ? <Never /> : 'closed';
+      }
+    }
+
+    const root = container();
+
+    await settled(<Shell />, root, limp, AbortSignal.timeout(1000));
+
+    expect(text(root)).toBe('closed');
   });
 });

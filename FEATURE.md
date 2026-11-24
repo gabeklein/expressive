@@ -38,10 +38,11 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
 - #806 `renderToString` through the reconciler: jsx `settled()`, dom's string-tree host; the second walker is gone.
 - Runtime move: /jsx owns the JSX runtime and host registry; mvc's `jsx-runtime` keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.
+- Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on limp.
 
 ## Before release
 
-- **Refactor the moved tests** onto limp and custom hosts. Then drop the doubled vitest includes in jsx and dom and the temporary jsx→dom edge in `affected.ts`.
+- **Finish the test split.** Each package runs only its own suite at 100%; jsx's reconciler tests run on limp and custom hosts. Still on dom: jsx's style tests (stylesheet host and computed-style assertions) and the JSX its tests compile against, which keep the jsx→dom edge in `affected.ts`.
 - **A /jsx skill** (`packages/jsx/skills/`) once its public shape settles.
 - **Public API**, iterated once the first extraction exists:
   - trimming /jsx's root export to what hosts actually use;

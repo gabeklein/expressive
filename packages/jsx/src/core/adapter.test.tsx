@@ -1,10 +1,10 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 
-import { Model, Component, Context } from '@expressive/mvc';
-import { render } from '@expressive/dom';
+import { Component, Context, Model } from '@expressive/mvc';
 import * as hot from '@expressive/mvc/hot';
 import { observer } from '@expressive/mvc/observable';
-import { flushMicrotasks, mockPromise, mount, until } from '../../test.setup';
+
+import { flushMicrotasks, mockPromise, mount, render, until } from '../../test.setup';
 
 describe('MVC adapter', () => {
   it('will update when a Model fetched via this.get changes', async () => {
@@ -940,7 +940,9 @@ describe('import', () => {
 
     resolver(sentinel);
 
-    const { render } = await vi.importActual<typeof import('@expressive/dom')>('@expressive/dom');
+    const { render: renderWith } = await vi.importActual<typeof import('../render/render')>('../render/render');
+    const { limp } = await vi.importActual<typeof import('../render/host')>('../render/host');
+    const render = (node: any, root: Element) => renderWith(node, root, limp);
     const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
 
     expect(resolver(sentinel)).toBe(sentinel);
@@ -967,7 +969,9 @@ describe('import', () => {
     const app = App.new();
     const { Header } = app;
 
-    const { render } = await vi.importActual<typeof import('@expressive/dom')>('@expressive/dom');
+    const { render: renderWith } = await vi.importActual<typeof import('../render/render')>('../render/render');
+    const { limp } = await vi.importActual<typeof import('../render/host')>('../render/host');
+    const render = (node: any, root: Element) => renderWith(node, root, limp);
     const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
     const root = document.createElement('main');
     const release = render(jsx(Header, {}), root);
