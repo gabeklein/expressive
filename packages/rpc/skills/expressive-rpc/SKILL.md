@@ -150,7 +150,7 @@ export default () => {
 - A Model counts when it activates during the gate or while one it activated settles, after an `await` too - `X.new()`, or `new X()` then `.set()`.
 - Nothing is cached across calls - keep a costly check (verifying a token) behind a long-lived service, built at module scope: one first built inside a gate is the call's, and destroyed with it.
 - A class gate below a function gate is per call too - its `key()` and `ttl` cache nothing.
-- Finishing passes. Returning a `Response`, or a fetch handler (`() => app.fetch`, called with `(request, env, ctx)`), answers instead and the call never runs - its reply goes out as is, and the client rejects with an `HttpError` carrying its status. Any other return value is ignored - a returned Model is not handed on.
+- Finishing passes. Returning a `Response`, or a fetch handler (`() => app.fetch`, called with `(request, env, ctx)`), answers instead and the call never runs - its reply goes out as is. The client rejects a reply that isn't JSON with an `HttpError` carrying its status; a JSON one is read as rpc's own, so answer a call with a status and text, or throw. Any other return value is ignored - a returned Model is not handed on.
 - `Current.get().next()` wraps the call: it waits for the gate's Models (refusing if one failed), runs everything below once, and resolves with the call's reply - its error reply too, rather than rejecting. Returning nothing after it passes that reply on:
 
   ```ts
@@ -173,7 +173,7 @@ await process(event);                    // after-work
 ```
 
 - `json(check?)` parses a `application/json` or `+json` body, `undefined` when empty; anything else, invalid JSON or a throwing `check` rejects with `BadRequest` (an `HttpError` from `check` keeps its status). `text()` reads it as a string. Both cap the body at 1 MB (`PayloadTooLarge`). `request` reads the same once-buffered body, uncapped.
-- `send(body?)` or `send(status, body?)` decides the reply and resolves once it has left; code after it is after-work, handed to the host's `ctx.waitUntil`. A number is a status, a `Response` the whole reply; plain objects, arrays, numbers, booleans and `null` go as JSON, a string as text, bytes, `Blob`, `FormData`, `URLSearchParams` as `Response` takes them, a `ReadableStream` or async iterable streamed. Nothing is 204. A Model, a class instance, a `Map` or a `bigint` throws - send its values. `Current.send(...)` is sugar.
+- `send(body?)` or `send(status, body?)` decides the reply and resolves once it has left; code after it is after-work, handed to the host's `ctx.waitUntil`. A number is a status, a `Response` the whole reply; plain objects, arrays, numbers, booleans and `null` go as JSON, a string as text, bytes, `Blob`, `FormData`, `URLSearchParams` as `Response` takes them, a `ReadableStream` or async iterable streamed, each pull in the request's scope, which stays open until the stream ends - a returned `Response`'s own stream does not hold it. Nothing is 204. A Model, a class instance, a `Map` or a `bigint` throws - send its values. `Current.send(...)` is sugar.
 - A second `send`, or `setHeader` after one, throws. In a call `send`, `json`, `text` and `next` throw - a call answers with its return value.
 - `ctx` is the host's execution context, with stand-ins where it lacks a member - `waitUntil` logs a rejection. `params` is what the host matched, `{}` in a call.
 - Headers and cookies join the reply of the layer that set them - a gate's set after `await next()` reach its own reply once.
@@ -236,7 +236,7 @@ configure({
 });
 ```
 
-`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in.
+`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in. A reply without a JSON `content-type` - a gate's text, a host error page - rejects with an `HttpError` carrying its status, so a `transport` or test double replies `application/json`.
 
 Every stub is a member of the client's `api` tree - `api.admin.users.ban` is `ban` from `api/admin/users.ts`, the same function each access. Any node or call takes `.with({ signal, timeout })` for the calls under it; nested, the inner extend the outer:
 

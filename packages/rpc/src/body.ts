@@ -16,7 +16,7 @@ class Buffered extends Request {
       },
     });
 
-    super(origin.url, { method: origin.method, headers: origin.headers, body, signal: origin.signal, duplex: "half" } as RequestInit);
+    super(origin, { body, duplex: "half" } as RequestInit);
   }
 
   override async bytes(): Promise<Uint8Array<ArrayBuffer>> {
@@ -50,7 +50,6 @@ class Buffered extends Request {
 
 const cache = new WeakMap<Request, Buffered>();
 
-/** The request every read of `request`'s body goes through: buffered once, on the first read of any kind. */
 export function bodyOf(request: Request): Request {
   if (request instanceof Buffered) return request;
 
@@ -66,7 +65,6 @@ export function bodyOf(request: Request): Request {
   return buffered;
 }
 
-/** The request a scope keys its maps on - the one the host passed. */
 export function originOf(request: Request): Request {
   return request instanceof Buffered ? request.origin : request;
 }

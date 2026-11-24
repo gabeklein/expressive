@@ -73,6 +73,10 @@ describe("call dispatch", () => {
     expect(await answered.text()).toBe("gated");
   });
 
+  it("will reply an error loading the folder's gates as a call's error", async () => {
+    expect(await send(endpoints, request("/tally", "add", "[1, 2]"), false, async () => { throw new Error("No gate."); })).toEqual({ status: 500, body: { message: "Internal error." } });
+  });
+
   it("will wrap a call in a gate's next, resolving its codec reply", async () => {
     const statuses: number[] = [];
     const gate = async () => void statuses.push((await Current.get().next()).status);
@@ -386,6 +390,15 @@ describe("scoped", () => {
     const response = (await scoped(new App()).fetch(new Request("http://localhost/again")))!;
 
     expect(response.headers.getSetCookie()).toEqual(["theme=dark; Path=/; HttpOnly; SameSite=Lax"]);
+  });
+
+  it("will leave a Model its fetch builds alive past the request", async () => {
+    class Cache extends Model {}
+    let cache!: Cache;
+
+    await scoped({ fetch: async (_: Request) => void (cache = Cache.new()) }).fetch(new Request("http://localhost/"));
+
+    expect(cache.get(null)).toBe(false);
   });
 
   it("will leave an entry without a fetch as it is", () => {

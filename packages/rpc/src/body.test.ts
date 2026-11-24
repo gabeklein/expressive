@@ -37,11 +37,12 @@ describe("bodyOf", () => {
     expect((await bodyOf(new Request("http://localhost/", { headers: {} })).blob()).type).toBe("");
   });
 
-  it("will leave the body unread until something asks", () => {
-    const origin = post("{}");
+  it("will leave the body unread until something asks, keeping the request's other properties", () => {
+    const origin = new Request("http://localhost/", { method: "PUT", body: "{}", redirect: "manual", cache: "no-store" });
+    const request = bodyOf(origin);
 
-    bodyOf(origin);
     expect(origin.bodyUsed).toBe(false);
+    expect([request.method, request.redirect, request.cache]).toEqual(["PUT", "manual", "no-store"]);
   });
 });
 

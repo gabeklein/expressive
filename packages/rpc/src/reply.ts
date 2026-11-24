@@ -4,7 +4,6 @@ import { HttpError, Redirect } from "./errors";
 
 type Chunk = Uint8Array | string;
 
-/** A body stream's source, read one chunk per pull. */
 export type Source = { next(): Promise<IteratorResult<Chunk>>; stop(reason?: unknown): unknown };
 
 const RULED = new WeakSet<Response>();
@@ -42,10 +41,6 @@ const isPlain = (value: object) => {
   return proto === Object.prototype || proto === null;
 };
 
-/**
- * A reply by the body rule: `send`'s arguments, or a route's returned value as `[value]`.
- * A stream body goes through `stream` so the scope can hold it.
- */
 export function toReply(args: unknown[], stream: (source: Source) => ReadableStream<Uint8Array>): Response {
   const [status, body] = typeof args[0] == "number" ? (args as [number, unknown]) : [undefined, args[0]];
 
@@ -67,10 +62,6 @@ function ruled(body: BodyInit | null, status = 200, type?: string): Response {
   return response;
 }
 
-/**
- * Join headers a scope set to its reply. Lowest first: the body rule's content type, `extra`, a
- * `Response`'s own headers - and a cookie the reply already sets is not repeated.
- */
 export function withHeaders(response: Response, extra?: Headers): Response {
   if (!extra || response.status === 101 || !hasAny(extra)) return response;
 
@@ -87,7 +78,6 @@ export function withHeaders(response: Response, extra?: Headers): Response {
 
 const hasAny = (headers: Headers) => !headers.keys().next().done;
 
-/** A refusal outside a call: an `HttpError`'s status as JSON `{ message }` (`Redirect` sets `Location`), anything else a logged 500. */
 export function refusal(error: unknown): Response {
   const json = (status: number, message: string, headers?: Record<string, string>) =>
     new Response(JSON.stringify({ message }), { status, headers: { ...headers, "content-type": "application/json; charset=utf-8" } });

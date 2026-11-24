@@ -126,7 +126,9 @@ export function scoped<A extends { fetch?: Fetch }>(app: A): A {
 function plain(incoming: Incoming, fn: Call): Handle {
   const { list, dev } = incoming;
 
-  return args => inFolder(incoming, async () => respond(await attempt(() => fn(...args), list, dev, ERRORS)), async error => respond(await fault(error, list, dev, ERRORS)));
+  const fail = async (error: unknown) => respond(await fault(error, list, dev, ERRORS));
+
+  return args => inFolder(incoming, async () => respond(await attempt(() => fn(...args), list, dev, ERRORS)), fail).catch(fail);
 }
 
 async function readArgs(request: Request): Promise<unknown[] | undefined> {

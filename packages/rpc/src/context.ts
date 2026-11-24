@@ -42,7 +42,7 @@ interface Stage {
   exchange: Exchange;
   params: Record<string, string>;
   headers: Headers;
-  gate: boolean;
+  early: string[];
   decided: boolean;
   after?: Promise<void>;
   pending?: Promise<unknown>;
@@ -234,7 +234,7 @@ function close(exchange: Exchange) {
 
   outgoing.get(exchange.origin)?.flush.forEach(flush => flush(late));
 
-  if (late.has("set-cookie")) console.warn("Cookies set after the reply left were dropped.");
+  if (late.has("set-cookie")) console.warn("Cookies set with no reply left to carry them were dropped.");
 }
 
 /**
@@ -297,16 +297,13 @@ async function walk<T>(frame: Frame, steps: (string | undefined)[], from: number
 
   const { at, fn } = gate;
 
-  return stage(frame, fn, below => walk(below, steps, at, run, seats, fail), {}, fail, true);
+  return join(await stage(frame, fn, below => walk(below, steps, at, run, seats, fail), EMPTY, fail, true));
 }
 
 const noop = () => {};
+const TRACKED = new WeakSet<ReadableStream>();
 
-/**
- * A layer of the request: `run` with `below` as its `next`, resolving with its reply once decided.
- * With `below`, a gate - returning nothing passes; without, a route - its value is the body.
- */
-function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => Promise<T>) | undefined, params: Record<string, string>, fail: (error: unknown) => T | Promise<T>, nextable: boolean): Promise<T> {
+function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => Promise<T>) | undefined, params: Record<string, string>, fail: (error: unknown) => T | Promise<T>, gate: boolean): Promise<T> {
   const { exchange } = parent;
   const shared = parent.layer;
   const layer = newLayer(shared.prefix, shared);
@@ -324,11 +321,19 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
   const decided = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
 
   const discard = (reply: unknown) => {
-    if (reply instanceof Response && reply.body && reply.body !== (final as Response | undefined)?.body) reply.body.cancel().catch(noop);
+    const body = reply instanceof Response && reply.body;
+    const sent = (final as Response | undefined)?.body;
+
+    if (!body || body === sent) return;
+
+    const cancel = () => void body.cancel().catch(noop);
+
+    if (sent && TRACKED.has(sent)) exchange.done.push(cancel);
+    else cancel();
   };
 
   const down = (): Promise<unknown> =>
-    store.run(lower, () => below!(lower)).then(
+    store.run(lower, async () => below!(lower)).then(
       reply => {
         passed = reply;
         if (st.decided) discard(reply);
@@ -341,26 +346,36 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
     exchange,
     params,
     headers: new Headers(),
-    gate: !!below,
+    early: [],
     decided: false,
     ready: () => settleAll(built),
     next() {
-      if (!below || !nextable) throw new Error("next() runs only in a gate - a route or call has nothing below it.");
+      if (!below || !gate) throw new Error("next() runs only in a gate - a route or call has nothing below it.");
       if (st.pending) throw new Error("next() runs once per gate.");
 
+      const early = new Headers();
+
+      outgoing.get(exchange.origin)?.flush.forEach(flush => flush(early));
+      st.early = early.getSetCookie();
       st.pending = st.ready().then(down);
       st.pending.catch(noop);
 
       return st.pending;
     },
     decide(reply) {
-      if (st.decided) return;
+      if (st.decided) return discard(reply);
 
       st.decided = true;
 
       if (reply instanceof Response) {
+        const extra = new Headers();
+        const named = (cookie: string) => cookie.slice(0, cookie.indexOf("="));
+        const below = new Set(reply === passed ? reply.headers.getSetCookie().map(named) : []);
+
+        st.early.forEach(cookie => below.has(named(cookie)) || extra.append("set-cookie", cookie));
         outgoing.get(exchange.origin)?.flush.forEach(flush => flush(st.headers));
-        reply = withHeaders(reply, st.headers);
+        st.headers.forEach((value, name) => (name === "set-cookie" ? extra.append(name, value) : extra.set(name, value)));
+        reply = withHeaders(reply, extra);
       }
 
       final = reply;
@@ -369,7 +384,7 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
     },
   };
 
-  const frame: Frame = { exchange, layer, stage: st, capture: built };
+  const frame: Frame = { exchange, layer, stage: st, capture: below && !gate ? undefined : built };
 
   const answer = async (result: unknown, handler = true): Promise<void> => {
     if (result instanceof Response) return st.decide(result);
@@ -384,7 +399,7 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
 
     if (below) return st.decide(await (st.pending ?? down()));
 
-    st.decide(toReply([result], source => track(source, frame)));
+    st.decide(toReply(result === undefined ? [] : [200, result], source => track(source, frame)));
   };
 
   st.after = (async () => {
@@ -416,17 +431,16 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
 }
 
 /**
- * Run a gate or route handler in the request's scope, resolving with its reply once decided.
+ * Run a gate or route in the request's scope, resolving with its reply once decided.
  *
  * With `below`, `run` is a gate: `Current.get().next` runs `below`, and returning nothing passes.
  * Without, `run` is a route: its returned value is the body. `params` is what `Current.get().params`
  * reads in `run`. A throw answers its `HttpError` status, else a logged 500. Throws outside a request.
  */
-export function layer(run: () => unknown, below?: () => Promise<Response>, params: Record<string, string> = {}): Promise<Response> {
+export function layer(run: () => unknown, below?: () => Promise<Response>, params: Record<string, string> = EMPTY): Promise<Response> {
   return stage(frame(), run, below && (() => below()), params, refusal, true);
 }
 
-/** `run` as one layer whose `next` throws: returning nothing passes, resolving `undefined`. */
 export function pass<T>(run: () => T): Promise<Awaited<T> | undefined> {
   return stage(frame(), run, async () => undefined, {}, rethrow, false) as Promise<Awaited<T> | undefined>;
 }
@@ -434,30 +448,44 @@ export function pass<T>(run: () => T): Promise<Awaited<T> | undefined> {
 function track(source: Source, frame: Frame): ReadableStream<Uint8Array> {
   const { exchange } = frame;
   const encoder = new TextEncoder();
-  const end = () => close(exchange);
+  let ended = false;
+
+  const end = () => {
+    if (ended) return true;
+    ended = true;
+    close(exchange);
+  };
 
   exchange.open++;
 
-  return new ReadableStream<Uint8Array>({
+  const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const { done, value } = await store.run(frame, () => source.next());
+
+        if (ended) return;
 
         if (done) {
           end();
           controller.close();
         } else controller.enqueue(typeof value == "string" ? encoder.encode(value) : value);
       } catch (error) {
-        end();
+        if (end()) return;
         console.error(error);
         controller.error(error);
       }
     },
     async cancel(reason) {
-      end();
-      await source.stop(reason);
+      try {
+        await store.run(frame, () => source.stop(reason));
+      } finally {
+        end();
+      }
     },
   }, { highWaterMark: 0 });
+
+  TRACKED.add(stream);
+  return stream;
 }
 
 function create(Type: Owned, layer: Layer): Entry {
@@ -663,6 +691,21 @@ function staged(verb: string): Stage {
 
 const EMPTY: Record<string, string> = Object.freeze({}) as Record<string, string>;
 
+async function sendFrom(args: unknown[]): Promise<void> {
+  const current = frame();
+  const stage = staged("send()");
+  const decided = () => {
+    if (stage.decided) throw new Error("This reply is already decided.");
+  };
+
+  decided();
+  await stage.ready();
+  decided();
+  stage.decide(toReply(args, source => track(source, current)));
+  stage.exchange.ctx.waitUntil(stage.after!);
+  await stage.exchange.left;
+}
+
 export class Current extends Model {
   /** The request, its body read through one cache: every read of any kind buffers it once. */
   get request(): Request {
@@ -702,7 +745,11 @@ export class Current extends Model {
     readOnly();
   }
 
-  /** The host's execution context - `waitUntil` runs the promise and logs a throw, `passThroughOnException` does nothing and `props` is `{}` where the host lacks them. */
+  /**
+   * The host's execution context, with stand-ins where it lacks a member.
+   *
+   * The stand-in `waitUntil` runs the promise and logs a throw, `passThroughOnException` does nothing, `props` is `{}`.
+   */
   get ctx(): ExecutionCtx {
     return frame().exchange.ctx;
   }
@@ -734,7 +781,11 @@ export class Current extends Model {
     readOnly();
   }
 
-  /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or a content type other than `application/json` or `+json`, `PayloadTooLarge` over 1 MB. */
+  /**
+   * The request body as JSON; `undefined` when empty.
+   *
+   * Rejects with `BadRequest` on invalid JSON or a type other than `application/json` or `+json`, `PayloadTooLarge` over 1 MB.
+   */
   json(): Promise<unknown>;
 
   /**
@@ -757,7 +808,11 @@ export class Current extends Model {
     return capped(exchange.request);
   }
 
-  /** Set a header on this layer's reply. A `Response`'s own win. After the reply is decided, throws. For cookies, see `Cookies`. */
+  /**
+   * Set a header on this layer's reply.
+   *
+   * A `Response`'s own headers win. Throws once the reply is decided. For cookies, see `Cookies`.
+   */
   setHeader(name: string, value: string): void {
     const { stage } = frame();
 
@@ -783,23 +838,11 @@ export class Current extends Model {
   /** Decide this layer's reply with `status`: `send(201, item)`. A body with 204, 304 or 1xx throws. */
   send(status: number, body?: unknown): Promise<void>;
 
-  async send(...args: unknown[]): Promise<void> {
-    const stage = staged("send()");
-    const current = frame();
+  send(...args: unknown[]): Promise<void> {
+    const sent = sendFrom(args);
 
-    if (stage.decided) throw new Error("This reply is already decided.");
-
-    const reply = toReply(args, source => track(source, current));
-
-    await stage.ready();
-
-    if (stage.decided) throw new Error("This reply is already decided.");
-
-    stage.decide(reply);
-
-    stage.exchange.ctx.waitUntil(stage.after!);
-
-    await stage.exchange.left;
+    sent.catch(noop);
+    return sent;
   }
 
   /** Sugar for `Current.get().send(...)`. */

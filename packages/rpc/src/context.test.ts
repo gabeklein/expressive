@@ -652,6 +652,7 @@ describe("layer", () => {
 
   it("will answer a route's value by the body rule, nothing as 204", async () => {
     expect(await (await open(() => ({ a: 1 }))).json()).toEqual({ a: 1 });
+    expect(await (await open(() => 404)).json()).toBe(404);
     expect((await open(() => {})).status).toBe(204);
   });
 
@@ -799,12 +800,10 @@ describe("layer", () => {
     });
 
     it("will resolve a throw below as its error reply", async () => {
-      const seen = await open(async () => {
-        const reply = await Current.get().next();
-        return new Response(String(reply.status));
-      }, async () => { throw new Forbidden("No."); });
+      const gate = async () => new Response(String((await Current.get().next()).status));
 
-      expect(await seen.text()).toBe("403");
+      expect(await (await open(gate, async () => { throw new Forbidden("No."); })).text()).toBe("403");
+      expect(await (await open(gate, () => { throw new Forbidden("No."); })).text()).toBe("403");
     });
 
     it("will throw a second time, in a route and in a call, but not when read", async () => {
@@ -828,6 +827,34 @@ describe("layer", () => {
       }, async () => new Response(new ReadableStream({ cancel })));
 
       expect(cancel).toHaveBeenCalled();
+    });
+
+    it("will keep a reply's body its own reply still reads", async () => {
+      async function* upper(body: ReadableStream<Uint8Array>) {
+        const reader = body.getReader();
+        for (let read = await reader.read(); !read.done; read = await reader.read()) yield new TextDecoder().decode(read.value).toUpperCase();
+      }
+
+      const res = await open(async () => {
+        const reply = await Current.get().next();
+        await Current.get().send(200, upper(reply.body!));
+      }, ok);
+
+      expect(await res.text()).toBe("BELOW");
+    });
+
+    it("will keep a gate's cookie from before next on a reply it swaps, under a newer one below", async () => {
+      class Session extends Cookies { id?: string = undefined; }
+
+      const gate = (swap: boolean) => async () => {
+        Session.set({ id: "gate" });
+        const reply = await Current.get().next();
+        return swap ? new Response("swapped") : reply;
+      };
+      const below = () => layer(() => Session.set({ id: "below" }));
+
+      expect((await open(gate(true), below)).headers.getSetCookie()).toEqual(["id=gate; Path=/; HttpOnly; SameSite=Lax"]);
+      expect((await open(gate(false), below)).headers.getSetCookie()).toEqual(["id=below; Path=/; HttpOnly; SameSite=Lax"]);
     });
 
     it("will cancel a reply below that arrives after the gate answered", async () => {
@@ -888,6 +915,27 @@ describe("layer", () => {
       await call([], async () => {
         await expect(Current.get().send()).rejects.toThrow("send() belongs to a gate or route");
       });
+    });
+
+    it("will build nothing and leave no rejection unhandled when the gate's Models fail", async () => {
+      class Session extends Model {
+        async new() {
+          throw new Forbidden("Expired.");
+        }
+      }
+
+      const stream = new ReadableStream();
+      const awaited = await open(async () => {
+        Session.new();
+        await Current.get().send(200, stream);
+      });
+      const loose = await open(() => {
+        Session.new();
+        void Current.send(200);
+      });
+
+      expect([awaited.status, loose.status]).toEqual([403, 403]);
+      expect(stream.locked).toBe(false);
     });
 
     it("will throw when another answer lands while it waits for the gate's Models", async () => {
@@ -980,7 +1028,7 @@ describe("layer", () => {
       });
 
       await tick();
-      expect(warn).toHaveBeenCalledWith("Cookies set after the reply left were dropped.");
+      expect(warn).toHaveBeenCalledWith("Cookies set with no reply left to carry them were dropped.");
     });
   });
 
@@ -1026,6 +1074,38 @@ describe("layer", () => {
 
       await expect(failed.text()).rejects.toThrow("mid");
       expect(error).toHaveBeenCalledWith(new Error("mid"));
+    });
+
+    it.each([true, false])("will release once and stop the source in scope when cancelled mid-pull", async settles => {
+      class Session extends Model {}
+      let session!: Session;
+      let resume!: () => void;
+      let stopped: unknown;
+
+      const source = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<string>>((resolve, reject) => (resume = () => (settles ? resolve({ done: false, value: "x" }) : reject(new Error("gone"))))),
+          return: async () => ((stopped = Session.get()), { done: true as const, value: undefined }),
+        }),
+      };
+
+      const res = await open(() => {
+        session = Session.new();
+        return source;
+      });
+
+      const reader = res.body!.getReader();
+      const read = reader.read();
+
+      await tick();
+      await reader.cancel();
+      resume();
+      await read;
+      await tick();
+
+      expect(stopped).toBe(session);
+      expect(session.get(null)).toBe(true);
+      expect(error).not.toHaveBeenCalled();
     });
 
     it("will stream bytes sent from a gate", async () => {
