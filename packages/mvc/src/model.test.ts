@@ -999,6 +999,52 @@ describe('get method', () => {
       expect(() => Foo.get()).toThrow('Could not find Foo in context.');
     });
 
+    it.each<[string, unknown]>([
+      ['string', 'user-42'],
+      ['number', 42],
+      ['true', true]
+    ])('will throw on a %s key', (_, key) => {
+      const foo = Foo.new();
+
+      new Context(foo);
+
+      const lookup = Foo.get as (key: unknown) => Foo;
+
+      expect(() => within(foo, () => lookup.call(Foo, key))).toThrow(
+        'Foo.get() takes no key - override static get to resolve one'
+      );
+    });
+
+    it('will throw on a key from instance or instruction', () => {
+      const foo = Foo.new();
+      const bar = Bar.new();
+
+      new Context({ foo, bar });
+
+      expect(() => (bar.get as Function)(Foo, 'user-42')).toThrow(
+        'Foo.get() takes no key - override static get to resolve one'
+      );
+
+      class Baz extends Model {
+        foo = (get as Function)(Foo, 'user-42');
+      }
+
+      expect(() => new Context({ foo }).push({ Baz })).toThrow(
+        'Foo.get() takes no key - override static get to resolve one'
+      );
+    });
+
+    it('will accept required from instance', () => {
+      const foo = Foo.new();
+      const bar = Bar.new();
+      const required: boolean = true;
+
+      new Context({ foo, bar });
+
+      expect(bar.get(Foo, true)).toBe(foo);
+      expect(bar.get(Foo, required)).toBe(foo);
+    });
+
     it('will return undefined if optional', () => {
       expect(Foo.get(false)).toBeUndefined();
     });
@@ -3455,6 +3501,19 @@ describe('new method', () => {
 
 describe('new method (static)', () => {
   class Test extends Model {}
+
+  it.each<[string, unknown[]]>([
+    ['string', ['user-42']],
+    ['number', [42]],
+    ['nested', [{}, ['user-42']]]
+  ])('will throw on a %s key', (_, args) => {
+    const message = 'Test.new() takes no key';
+    const Ctor = Test as new (...args: unknown[]) => Test;
+    const create = Test.new as (...args: unknown[]) => Test;
+
+    expect(() => create.call(Test, ...args)).toThrow(message);
+    expect(() => new Ctor(...args)).toThrow(message);
+  });
 
   it('will call argument as lifecycle', () => {
     const didDestroy = vi.fn();

@@ -442,7 +442,7 @@ abstract class Model {
     if (Model.is(arg1))
       return typeof arg2 == 'function'
         ? Context.get(self).get(arg1, arg2, args[0], self)
-        : within(this, () => (arg1.get as Function)(arg2, ...args));
+        : within(this, () => (arg1.get as Function)(arg2 === true ? undefined : arg2, ...args));
     if (typeof arg1 == 'function')
       return watch(self, function (current, update) {
         const { wait } = observer(self, true);
@@ -583,6 +583,7 @@ abstract class Model {
    * Construct and activate an instance - unlike `new`, which only constructs.
    *
    * Args apply in order: objects assign, functions run as init callbacks, the first `Context` homes it.
+   * A string or number throws.
    * Effects and `ready` wait for any async setup.
    *
    * @example
@@ -600,8 +601,8 @@ abstract class Model {
    * In a host render, the render's context, tracked. Through `instance.get(Type)` or the `get`
    * instruction, that instance's context. Elsewhere, the root context, untracked.
    *
-   * Override with one signature to accept a key - handle it with `Context.get(this, compute)`, once and
-   * synchronously, and pass base forms to `super.get()`.
+   * An argument other than `false` throws. Override with one signature to accept a key - handle it with
+   * `Context.get(this, compute)`, once and synchronously, and pass base forms to `super.get()`.
    *
    * @example
    * class User extends Model {
@@ -623,6 +624,9 @@ abstract class Model {
   static get<T extends Model>(this: Model.Extends<T>, required: false): T | undefined;
 
   static get(this: Model.Extends, required?: false): any {
+    if (required !== undefined && required !== false)
+      throw new Error(`${this}.get() takes no key - override static get to resolve one`);
+
     return Context.get(this, (context, from) => {
       const found = context.get(this, required !== false, undefined, from);
 
@@ -721,6 +725,12 @@ function init(state: Model, ...args: Model.Args) {
   const T = state.constructor as Model.Extends;
 
   if (T === Model) throw new Error('Cannot create base Model.');
+
+  args.forEach(function reject(arg) {
+    if (Array.isArray(arg)) arg.forEach(reject);
+    else if (typeof arg == 'string' || typeof arg == 'number')
+      throw new Error(`${T}.new() takes no key`);
+  });
 
   if (!ANNOUNCED) {
     ANNOUNCED = true;
