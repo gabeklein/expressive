@@ -217,12 +217,12 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
 
   return [
     `import { fileURLToPath } from "node:url";`,
-    `import { serve } from "@expressive/dev/server";`,
-    configSpec ? `import config from ${configSpec};` : `const config = {};`,
+    `import { listen } from "@expressive/dev/server";`,
+    configSpec ? `import settings from ${configSpec};` : `const settings = {};`,
     ...modules.map((m, i) => `import * as s${i} from ${m};`),
     "",
-    "serve({",
-    "  config,",
+    "listen({",
+    "  settings,",
     `  client: fileURLToPath(new URL("../client/", import.meta.url)),`,
     "  sidecars: [", ...entries, "  ],",
     "  seats: [", ...seats.map(seat => `    { pattern: ${JSON.stringify(seat.pattern)}, Type: ${alias(seat.file)}.default },`), "  ],",
@@ -244,12 +244,12 @@ export function fetchEntry(project: Project, from: string, exposure: Exposure, n
   }));
 
   return [
-    `import { fetchHandler } from "@expressive/dev/fetch";`,
-    `import config from ${configSpec};`,
+    `import { compose } from "@expressive/dev/fetch";`,
+    `import settings from ${configSpec};`,
     ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
     `export { ${named.join(", ")} } from ${configSpec};`,
     "",
-    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
+    `export default compose(settings, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
     "",
   ].join("\n");
 }

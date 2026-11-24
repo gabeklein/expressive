@@ -126,6 +126,8 @@ for (const { path, text } of docs) {
     const named = /\{([^}]*)\}/.exec(clause)?.[1] ?? '';
 
     for (const entry of named.split(',')) {
+      if (/^\s*type\s/.test(entry)) continue;
+
       const name = entry.trim().split(/\s+as\s+/)[0].trim();
 
       if (name && !names.has(name))

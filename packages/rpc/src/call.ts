@@ -113,9 +113,29 @@ export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: bo
 
 /** `within` along the folder `found` names, its seats and gates from `seats`. */
 export async function inFolder<T>({ request, found, seats }: Folder, run: () => T, fail?: (error: unknown) => Awaited<T> | Promise<Awaited<T>>): Promise<Awaited<T>> {
-  const along = await seatsAlong(seats, found!.endpoint.pattern);
+  const { endpoint, segments } = found!;
+  const along = await seatsAlong(seats, endpoint.pattern);
 
-  return within(request, found!.segments, run, along, fail);
+  return within(request, segments, run, along, fail, paramsOf(endpoint.pattern, segments));
+}
+
+function paramsOf(pattern: string[], segments: string[]): Record<string, string> {
+  const params: Record<string, string> = {};
+
+  pattern.forEach((part, i) => {
+    if (part === "*") params["*"] = decode(segments[i]);
+    else if (part.startsWith(":")) params[part.slice(1)] = decode(segments[i]);
+  });
+
+  return params;
+}
+
+function decode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 export function walkOf(list: Endpoint[], at: string[]): { pattern: string[]; segments: string[] } {
