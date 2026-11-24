@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Sources } from "@expressive/rpc/vite";
 
 import { remoteOf } from "./routes";
-import { gateProblems, scanRemote } from "./scan";
+import { gateProblems, scanGate, scanRemote } from "./scan";
 
 const files = (map: Record<string, string>): Sources => ({
   resolve: async (spec, importer) => {
@@ -102,6 +102,21 @@ describe("remote scan", () => {
       { name: "Late", parent: { file: "/app/remote.ts", name: "Billing" } },
       { name: "Gone", parent: { id: "http:HttpError" } },
     ]);
+  });
+});
+
+describe("remote entry's default alone", () => {
+  const at = (file: string) => remoteOf("/app", file)!;
+  const gate = (source: string, file = "/app/remote.ts") => scanGate(at(file), source, files({}));
+
+  it("will check a default without its exports, and refuse one re-exported", async () => {
+    expect(await gate(`${MVC} export default class Site extends Model {} export const x = 1;`)).toEqual({ gate: true, problems: [] });
+    expect(await gate("export async function add() {}")).toEqual({ gate: false, problems: [] });
+    expect(await gate("export default () => true;")).toEqual({ gate: false, problems: [expect.stringMatching(/^A remote default is its folder's gate/)] });
+    expect(await gate("export default class Site extends Error {}")).toEqual({ gate: true, problems: ["Site extends Error, which is neither declared nor imported in /app/remote.ts."] });
+    expect(await gate(`export { default } from "./site";`)).toEqual({ gate: false, problems: [expect.stringMatching(/re-exported one is not checked/)] });
+    expect(await gate(`export { Site as "default" } from "./site";`)).toMatchObject({ gate: false });
+    expect(await gate(`export { a } from "./a";`)).toEqual({ gate: false, problems: [] });
   });
 });
 

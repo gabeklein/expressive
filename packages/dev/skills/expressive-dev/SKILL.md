@@ -74,7 +74,7 @@ import { add } from "./remote";
 
 ## Server Model
 
-Inside a call, `X.get()` finds the nearest server Model at the call's location or above; it throws outside a call. A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model - the folder's gate, rpc's class gate (`expressive-rpc/SKILL.md`). It stays on the server; the client imports only the folder's functions. Every entry's default is checked at build and on each dev call, imported or not.
+Inside a call, `X.get()` finds the nearest server Model at the call's location or above; it throws outside a call. A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model - the folder's gate, rpc's class gate (`expressive-rpc/SKILL.md`). It stays on the server; the client imports only the folder's functions. Every entry's default is checked at build, and in dev on each call through its folder, imported or not.
 
 ```ts
 export default class Account extends Model {

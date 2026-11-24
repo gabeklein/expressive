@@ -275,7 +275,8 @@ A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a 
 folder's gate, as in `@expressive/rpc`. A call through the folder resolves the folder's instance for
 its key, building one when none is live, and `X.get()` finds it there and below; it throws outside a
 call. A gate stays on the server: the client imports its folder's functions, never the class. Every
-remote entry's default is checked at build and on each dev call, imported by the client or not.
+remote entry's default is checked at build, and in dev on each call through its folder, imported
+by the client or not.
 
 `static key()` admits each call: it narrows the folder's context, and everything below it, by what
 it returns - an identity from a `Cookies` field, or a value from a gate above through `get()`.

@@ -117,7 +117,8 @@ export function host(dotenv: boolean): Plugin<Host> {
     const { gate, problems } = await scanGate(remote, readFileSync(remote.file, "utf8"), sourcesOf(resolve));
 
     if (gate && (await target()) === "fetch") problems.push(STATELESS);
-    if (problems.length) return `${relative(root, remote.file)}: ${problems.join(" ")}`;
+
+    return { gate, error: problems.length ? `${relative(root, remote.file)}: ${problems.join(" ")}` : undefined };
   };
 
   const readShell = () =>
@@ -169,7 +170,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         builds.set(root, (exposure = new Exposure(salt)));
 
         for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
-          const error = await gateError(remote, async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
+          const { error } = await gateError(remote, async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
           if (error) this.error(error);
         }
       }
@@ -297,10 +298,10 @@ export function host(dotenv: boolean): Plugin<Host> {
 
         if (!remote) return;
 
-        const error = await gateError(remote, resolve);
+        const { gate, error } = await gateError(remote, resolve);
 
         if (error) throw new Error(error);
-        if (hasGate(remote.file)) return (await host.import(remote.file)).default;
+        if (gate) return (await host.import(remote.file)).default;
       };
 
       server.middlewares.use(toNode(async request => {
@@ -404,7 +405,7 @@ const FETCH: UserConfig = {
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
 
-const STATELESS = "Its default is a gate, which the fetch target does not run - a remote there exports functions only.";
+const STATELESS = "The fetch target does not run folder gates - export functions only, no default.";
 
 const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });
 

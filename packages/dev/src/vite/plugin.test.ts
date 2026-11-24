@@ -474,12 +474,10 @@ describe("vite host", () => {
   });
 
   it("will check every remote entry's default at build, imported by the client or not", async () => {
-    const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote });
-    const fetchTarget = `export default { target: "fetch" };`;
+    const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote, "app/site.ts": `${HOST} export default class Site extends Model {}` });
 
-    await expect(buildBoth(files(fetchTarget, `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: Its default is a gate, which the fetch target does not run");
-    await expect(buildBoth(files("export default {};", "export default class Site extends Error {}"))).rejects.toThrow("Site extends Error, which is neither declared nor imported");
-    await expect(buildBoth(files("export default {};", "export default () => true;"))).rejects.toThrow("A remote default is its folder's gate");
+    await expect(buildBoth(files(`export default { target: "fetch" };`, `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: The fetch target does not run folder gates");
+    await expect(buildBoth(files("export default {};", `export { default } from "./site";`))).rejects.toThrow("a re-exported one is not checked");
   });
 
   it("builds readable ids when index.ts sets remote.opaque off", async () => {
@@ -888,12 +886,12 @@ describe("vite host", () => {
 
     expect(await (await fetch(new URL("/env", server.resolvedUrls!.local[0]))).json()).toEqual({});
 
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts: Its default is a gate, which the fetch target does not run");
+    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts: The fetch target does not run folder gates");
 
     await server.transformRequest("/app/shop/remote.ts");
     const res = await fetch(new URL("/shop", server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "price" }, body: "[]" });
 
-    expect([res.status, (await res.json()).message]).toEqual([500, expect.stringContaining("app/remote.ts: Its default is a gate")]);
+    expect([res.status, (await res.json()).message]).toEqual([500, expect.stringContaining("app/remote.ts: The fetch target does not run folder gates")]);
   });
 
   it("will salt ids when index.ts has no default", async () => {

@@ -57,8 +57,9 @@ export async function scanRemote(remote: Remote, source: string, sources: Source
 
 /** A remote entry's default alone - checked whether or not the client imports the entry. */
 export async function scanGate(remote: Remote, source: string, sources: Sources): Promise<{ gate: boolean; problems: string[] }> {
-  const { exports } = moduleOf(remote.file, source);
+  const { body, exports } = moduleOf(remote.file, source);
 
+  if (body.some(isDefaultReexport)) return { gate: false, problems: ["A remote default is declared in the entry - a re-exported one is not checked or run as the folder's gate."] };
   if (!exports.has("default")) return { gate: false, problems: [] };
 
   const value = exports.get("default");
@@ -67,6 +68,9 @@ export async function scanGate(remote: Remote, source: string, sources: Sources)
 }
 
 const isGate = (value: Value): boolean => isClass(value) && !!value.superClass;
+
+const isDefaultReexport = (node: Module["body"][number]) =>
+  node.type === "ExportNamedDeclaration" && !!node.source && node.specifiers.some(({ exported }) => (exported.type === "Identifier" ? exported.name : exported.value) === "default");
 
 function defaultProblems(remote: Remote, value: Value, source: string, sources: Sources): Promise<string[]> | string[] {
   if (remote.module) return ["Only a folder's remote entry - remote.ts or remote/index.ts - may export a default."];
