@@ -143,7 +143,6 @@ export default config({
 - Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build - import what it needs inside it: `export const bindings = async () => (await import("./dev-env")).env();`.
 - Other config members join the default export (`scheduled`); listed named exports of `index.ts` but `bindings` are re-exported - not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
-- Folder gates do not run: a remote entry with a default fails the build, and in dev the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.
 - No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 
