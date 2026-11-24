@@ -10,7 +10,6 @@ import { complete } from './src/render/mount';
 import { reconcileChildren } from './src/render/reconcile';
 import { render as renderWith } from './src/render/render';
 import { claim } from './src/style/claim';
-import type { Style } from './src/style/claim';
 import { unmatched } from './src/style/diagnose';
 import { isBare } from './src/style/numeric';
 import { documentOf, reserved } from './src/style/protocol';
@@ -126,15 +125,35 @@ export { mockError, mockPromise, mockWarn, flushMicrotasks } from '../mvc/test.s
 
 export const until = <T>(assert: () => T) => vi.waitFor(assert, { interval: 1 });
 
-export function mount<T extends Model>(
-  Type: new (...args: any[]) => T,
-  props?: object,
-  root: HTMLElement = document.createElement('main')
-): [T, HTMLElement, () => void] {
-  let instance!: T;
-  const release = render(vnode(Type as any, { ...props, is: (value: T) => (instance = value) }), root);
-  return [instance, root, release];
+export const attached = () => document.body.appendChild(document.createElement('main'));
+
+/** Test helpers rendering through `render`, reading rules from `style[data-expressive=<sheet>]`. */
+export function harness(render: (node: Component.Node, root: Element | DocumentFragment) => () => void, sheet: string) {
+  function mount<T extends Model>(
+    Type: new (...args: any[]) => T,
+    props?: object,
+    root: HTMLElement = document.createElement('main')
+  ): [T, HTMLElement, () => void] {
+    let instance!: T;
+    const release = render(vnode(Type as any, { ...props, is: (value: T) => (instance = value) }), root);
+    return [instance, root, release];
+  }
+
+  function place(node: Component.Node, root: HTMLElement = document.createElement('main')) {
+    render(node, root);
+    return root;
+  }
+
+  function rules(match = '') {
+    return [...document.head.querySelector<HTMLStyleElement>(`style[data-expressive=${sheet}]`)!.sheet!.cssRules]
+      .map((rule) => rule.cssText.replace(/\s+/g, ' '))
+      .filter((rule) => rule.includes(match));
+  }
+
+  return { mount, place, rules };
 }
+
+export const { mount, place, rules } = harness(render, 'sheet');
 
 export function lazy<T = () => Component.Node>() {
   const loaded = mockPromise<T>();
@@ -148,23 +167,3 @@ export function track(promise: PromiseLike<unknown>) {
 }
 
 export const html = (root: Element) => root.innerHTML.replace(/<!--[^>]*-->/g, '');
-
-export function place(node: Component.Node, root: HTMLElement = document.createElement('main')) {
-  render(node, root);
-  return root;
-}
-
-declare module '@expressive/mvc/jsx-runtime' {
-  interface Host {
-    intrinsics: Record<string, Record<string, any>>;
-  }
-}
-
-declare module '@expressive/jsx/jsx-runtime' {
-  namespace JSX {
-    interface IntrinsicAttributes {
-      style?: Style;
-      [attribute: `_${string}`]: unknown;
-    }
-  }
-}

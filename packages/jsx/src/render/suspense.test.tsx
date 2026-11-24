@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Component, Model, pending, set } from '@expressive/mvc';
 
 import { Portal } from '../node/vnode';
-import { flushMicrotasks, html, lazy, mockPromise, mount, place, render, track, until } from '../../test.setup';
+import { attached, flushMicrotasks, html, lazy, mockPromise, mount, place, render, track, until } from '../../test.setup';
 
 describe('suspense and recovery', () => {
   it('will show a Component fallback until a loaded view resolves', async () => {
@@ -516,7 +516,7 @@ describe('suspense and recovery', () => {
   it('will not mount staged content dropped before it is inserted', async () => {
     const gate = mockPromise<void>();
     const mounted = vi.fn();
-    const attached = vi.fn();
+    const ref = vi.fn();
 
     class Nav extends Model {
       page = 'a';
@@ -528,7 +528,7 @@ describe('suspense and recovery', () => {
       }
 
       render() {
-        return <i ref={attached} />;
+        return <i ref={ref} />;
       }
     }
 
@@ -550,7 +550,7 @@ describe('suspense and recovery', () => {
       }
     }
 
-    const [app] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+    const [app] = mount(App, {}, attached());
 
     pending(() => (app.nav.page = 'b'));
     await until(() => expect(Wait).toHaveBeenCalled());
@@ -561,7 +561,7 @@ describe('suspense and recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(mounted).not.toHaveBeenCalled();
-    expect(attached).not.toHaveBeenCalledWith(expect.anything());
+    expect(ref).not.toHaveBeenCalledWith(expect.anything());
   });
 
   describe('superseded and abandoned transitions', () => {

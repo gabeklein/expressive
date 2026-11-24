@@ -5,12 +5,12 @@ import * as hot from '@expressive/mvc/hot';
 
 import { createAppearanceRoute, createStyleScope, resolveAppearance } from './appearance';
 import { Style } from './stylesheet';
-import { flushMicrotasks, mount, render, styled, useHost } from '../../test.setup';
+import { attached, flushMicrotasks, mount, render, rules, styled, useHost } from '../../test.setup';
 
 useHost(styled);
 
 function place(node: Component.Node) {
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
   render(node, root);
   return root;
 }
@@ -57,7 +57,7 @@ describe('appearance', () => {
       color: 'blue'
     });
 
-    const [view, root] = mount(Styled, {}, document.body.appendChild(document.createElement('main')));
+    const [view, root] = mount(Styled, {}, attached());
     const node = root.querySelector('div')!;
 
     expect(node.className.split(' ')).toEqual(['Styled_div', 'Styled_active', 'Styled']);
@@ -1193,11 +1193,7 @@ describe('hot patch', () => {
     hot.accept('dom-style', { Swatch });
 
     const node = place(<Swatch />).querySelector('div')!;
-    const rule = () => {
-      const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
-      return [...sheet!.cssRules].find((rule) => rule.cssText.startsWith(`.${node.className}{`)
-        || rule.cssText.startsWith(`.${node.className} {`))!.cssText;
-    };
+    const rule = () => rules().find((rule) => rule.startsWith(`.${node.className} {`));
 
     expect(rule()).toContain('red');
 
@@ -1253,13 +1249,6 @@ describe('hot patch', () => {
 });
 
 describe('conditions', () => {
-  function sheet(match: string) {
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
-    return [...sheet!.cssRules]
-      .map((rule) => rule.cssText.replace(/\s+/g, ' '))
-      .filter((rule) => rule.includes(match));
-  }
-
   it('will emit a state block after its rule', () => {
     function Field() {
       return <div _control />;
@@ -1278,7 +1267,7 @@ describe('conditions', () => {
     expect(node.className).toBe(
       'Field_control Field_control-hover Field_control-focus-within Field_control-is_active_checked Field-hover'
     );
-    expect(sheet('.Field')).toEqual([
+    expect(rules('.Field')).toEqual([
       '.Field-hover:where(:hover) { opacity: 1; }',
       '.Field_control { color: gray; }',
       '.Field_control-hover:where(:hover) { color: blue; }',
@@ -1301,7 +1290,7 @@ describe('conditions', () => {
     });
 
     place(<Entry />);
-    expect(sheet('.Entry')).toEqual([
+    expect(rules('.Entry')).toEqual([
       '.Entry_field-placeholder::placeholder { color: gray; }',
       '.Entry_field-focus_before:where(:focus)::before { content: "?"; }',
       '.Entry_field-hover-after:where(:hover)::after { content: "!"; }'
@@ -1325,7 +1314,7 @@ describe('conditions', () => {
     expect(node.className).toBe(
       'Grid_grid Grid_grid-media_max-width_900px Grid_grid-media_max-width_900px-hover Grid_grid-media_max-width_600px Grid-media_max-width_600px'
     );
-    expect(sheet('.Grid')).toEqual([
+    expect(rules('.Grid')).toEqual([
       '@media (max-width: 600px) { .Grid-media_max-width_600px { padding: 4px; } }',
       '.Grid_grid { grid-template-columns: 1fr 1fr; }',
       '@media (max-width: 900px) { .Grid_grid-media_max-width_900px { grid-template-columns: 1fr; } }',
@@ -1359,7 +1348,7 @@ describe('conditions', () => {
 
     const item = place(<List />).querySelector('li')!;
     expect(item.className).toBe('List_ul_item-media_print');
-    expect(sheet('List_ul_item')).toEqual(['@media print { .List_ul_item-media_print { color: black; } }']);
+    expect(rules('List_ul_item')).toEqual(['@media print { .List_ul_item-media_print { color: black; } }']);
   });
 
   it('will merge conditions across layers and classes', () => {
@@ -1375,7 +1364,7 @@ describe('conditions', () => {
     style(Derived, { ':hover': { padding: '3px' } });
 
     place(<Derived />);
-    expect(sheet('Derived')).toEqual([
+    expect(rules('Derived')).toEqual([
       '.Derived-hover:where(:hover) { color: red; padding: 3px; }',
       '.Derived_tone-hover:where(:hover) { color: blue; padding: 2px; }'
     ]);
@@ -1389,7 +1378,7 @@ describe('conditions', () => {
     style(Lift, { ':hover': { mex: 2 }, ':focus': false as any, ':active': null as any });
 
     place(<Lift />);
-    expect(sheet('.Lift')).toEqual([
+    expect(rules('.Lift')).toEqual([
       '.Lift-hover:where(:hover) { margin-left: 2px; margin-right: 2px; }'
     ]);
   });
@@ -1408,7 +1397,7 @@ describe('conditions', () => {
     const button = thumb.querySelector('button')!;
     expect(thumb.className).toBe('Gallery_thumb Gallery_thumb-group');
     expect(button.className).toBe('Gallery_div_delete Gallery_div_delete-Gallery_thumb_hover');
-    expect(sheet('Gallery')).toEqual([
+    expect(rules('Gallery')).toEqual([
       '.Gallery_thumb { position: relative; }',
       '.Gallery_div_delete { opacity: 0; }',
       ':where(.Gallery_thumb-group:hover) .Gallery_div_delete-Gallery_thumb_hover { opacity: 1; }'
@@ -1425,7 +1414,7 @@ describe('conditions', () => {
     const root = place(<Tile />).querySelector('div')!;
     expect(root.className).toBe('Tile-group');
     expect(root.querySelector('b')!.className).toBe('Tile_label-Tile_hover');
-    expect(sheet('Tile')).toEqual([':where(.Tile-group:hover) .Tile_label-Tile_hover { color: blue; }']);
+    expect(rules('Tile')).toEqual([':where(.Tile-group:hover) .Tile_label-Tile_hover { color: blue; }']);
   });
 
   it('will style a descendant while the root holds a state under media', () => {
@@ -1440,7 +1429,7 @@ describe('conditions', () => {
     expect(root.querySelector('b')!.className).toBe(
       'Dock_label-Dock_hover-media_print Dock_label-Dock_focus-within-media_print'
     );
-    expect(sheet('Dock')).toEqual([
+    expect(rules('Dock')).toEqual([
       '@media print { :where(.Dock-group:hover) .Dock_label-Dock_hover-media_print { color: blue; } }',
       '@media print { :where(.Dock-group:focus-within) .Dock_label-Dock_focus-within-media_print { color: blue; } }'
     ]);
@@ -1463,7 +1452,7 @@ describe('conditions', () => {
     expect(root.querySelector('b')!.className).toBe(
       'Capsule_label-media_print-Capsule_hover Capsule_label-media_print-media_min-width_1px'
     );
-    expect(sheet('Capsule')).toEqual([
+    expect(rules('Capsule')).toEqual([
       '@media print { .Capsule-media_print-hover:where(:hover) { opacity: 0.5; } }',
       '@media print { :where(.Capsule-group:hover) .Capsule_label-media_print-Capsule_hover { color: blue; } }',
       '@media print { @media (min-width: 1px) { .Capsule_label-media_print-media_min-width_1px { color: red; } } }'
@@ -1484,7 +1473,7 @@ describe('conditions', () => {
 
     const root = place(<Ledger />).querySelector('div')!;
     expect(root.querySelector('b')!.className).toBe('Ledger_label-Ledger_hover-media_print');
-    expect(sheet('Ledger')).toEqual([
+    expect(rules('Ledger')).toEqual([
       '@media print { :where(.Ledger-group:hover) .Ledger_label-Ledger_hover-media_print { color: blue; opacity: 0.5; } }',
       '.Ledger_page-focus-within:where(:focus-within) { opacity: 0.5; color: red; }'
     ]);
@@ -1501,7 +1490,7 @@ describe('conditions', () => {
     style(Bar, { _tabs: [tabs, { display: 'none', [wide]: { display: 'grid', _button: { height: '30px' } } }] });
 
     place(<Bar />);
-    expect(sheet('Bar')).toEqual([
+    expect(rules('Bar')).toEqual([
       '.Bar_tabs { display: none; }',
       '@media (min-width: 600px) { .Bar_tabs-media_min-width_600px { gap: 2px; display: grid; } }',
       '@media (min-width: 600px) { .Bar_nav_button-media_min-width_600px { font-size: 12px; height: 30px; } }'
@@ -1516,7 +1505,7 @@ describe('conditions', () => {
     style(Thumb, { ':hover, :focus-within': { _delete: { opacity: 1 } } });
 
     place(<Thumb />);
-    expect(sheet('Thumb')).toEqual([
+    expect(rules('Thumb')).toEqual([
       ':where(.Thumb-group:hover) .Thumb_delete-Thumb_hover { opacity: 1; }',
       ':where(.Thumb-group:focus-within) .Thumb_delete-Thumb_focus-within { opacity: 1; }'
     ]);
@@ -1530,7 +1519,7 @@ describe('conditions', () => {
     style(Lit, { tone: 'red', glowOn: 'blue' });
 
     place(<Lit />);
-    expect(sheet('.Lit')).toEqual([
+    expect(rules('.Lit')).toEqual([
       '.Lit { color: red; }',
       '.Lit-hover:where(:hover) { color: blue; }'
     ]);
@@ -1557,7 +1546,7 @@ describe('conditions', () => {
       'Menu_ul_item-group',
       'Menu_ul_li_icon-Menu_list_focus-within-media_print Menu_ul_li_icon-Menu_list_focus-within-Menu_ul_item_hover'
     ]);
-    expect(sheet('Menu')).toEqual([
+    expect(rules('Menu')).toEqual([
       '@media print { :where(.Menu_list-group:focus-within) .Menu_ul_li_icon-Menu_list_focus-within-media_print { display: none; } }',
       ':where(.Menu_list-group:focus-within) :where(.Menu_ul_item-group:hover) .Menu_ul_li_icon-Menu_list_focus-within-Menu_ul_item_hover { color: red; }'
     ]);

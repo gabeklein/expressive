@@ -4,7 +4,7 @@ import { Component } from '@expressive/mvc';
 
 import { createElement, Portal, render, Style, style } from './index';
 import { applyDeclarations, serialize } from './style';
-import { place } from '../test.setup';
+import { attached, place, rules } from '../test.setup';
 
 describe('applyDeclarations', () => {
   it('will set and clear custom properties', () => {
@@ -135,7 +135,7 @@ describe('targets', () => {
 
     later(Plain, {});
 
-    const node = place(createElement(Plain, {}), document.body.appendChild(document.createElement('main'))).querySelector('i')!;
+    const node = place(createElement(Plain, {}), attached()).querySelector('i')!;
 
     expect(getComputedStyle(node).color).toBe('maroon');
   });
@@ -201,10 +201,6 @@ describe('targets', () => {
 });
 
 describe('sheet', () => {
-  function attached() {
-    return document.body.appendChild(document.createElement('main'));
-  }
-
   it('will reopen a sheet removed from the head', () => {
     const First = () => createElement('i', {});
     const Second = () => createElement('b', {});
@@ -229,11 +225,10 @@ describe('sheet', () => {
     place(createElement(Toolbar, {}));
     place(createElement(Later, {}));
 
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
-    const rules = [...sheet!.cssRules].map((rule) => rule.cssText.split(' ')[0]);
+    const selectors = rules().map((rule) => rule.split(' ')[0]);
 
-    expect(rules).toContain('.Later');
-    expect(rules.indexOf('.Later')).toBeLessThan(rules.indexOf('.Toolbar_accent-d1'));
+    expect(selectors).toContain('.Later');
+    expect(selectors.indexOf('.Later')).toBeLessThan(selectors.indexOf('.Toolbar_accent-d1'));
   });
 
   it('will rewrite pack roots into a recreated head', () => {

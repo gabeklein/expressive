@@ -6,7 +6,7 @@ import ts from 'typescript';
 import { createElement } from '../node/vnode';
 import { Css } from './css';
 import type { style } from './stylesheet';
-import { render, styled, useHost } from '../../test.setup';
+import { attached, render, styled, useHost } from '../../test.setup';
 
 useHost(styled);
 
@@ -14,7 +14,7 @@ const css = new Css();
 const glob = (value: unknown, key: string) => css.default(value, key);
 
 function place(node: any) {
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
   render(node, root);
   return root;
 }

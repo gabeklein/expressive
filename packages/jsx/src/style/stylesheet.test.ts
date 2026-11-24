@@ -7,7 +7,7 @@ import type { Host } from '../render/host';
 import { render as renderWith } from '../render/render';
 import { Css } from './css';
 import { Style, style } from './stylesheet';
-import { render, styled, useHost } from '../../test.setup';
+import { attached, render, rules, styled, useHost } from '../../test.setup';
 
 useHost(styled);
 
@@ -144,7 +144,7 @@ describe('style map types', () => {
 });
 
 function place(node: any) {
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
   render(node, root);
   return root;
 }
@@ -302,13 +302,9 @@ describe('Style', () => {
     });
 
     const node = place(createElement(Panel, {})).querySelector('div')!;
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!;
-    const rules = [...sheet!.cssRules]
-      .map((rule) => rule.cssText.replace(/\s+/g, ' '))
-      .filter((rule) => rule.includes('.Panel'));
 
     expect(node.className).toBe('Panel_grid-hover Panel-media_max-width_300px Panel-media_max-width_300px-hover');
-    expect(rules).toEqual([
+    expect(rules('.Panel')).toEqual([
       '@media (max-width: 300px) { .Panel-media_max-width_300px { padding: 4px; } }',
       '@media (max-width: 300px) { .Panel-media_max-width_300px-hover:where(:hover) { color: red; } }',
       '.Panel_grid-hover:where(:hover) { opacity: 0.5; }'
@@ -584,12 +580,6 @@ describe('variables', () => {
       .map((element) => element.textContent!.replace(/\s+/g, ' '));
   }
 
-  function rules(name: string) {
-    return [...document.head.querySelector<HTMLStyleElement>('style[data-expressive=sheet]')!.sheet!.cssRules]
-      .map((rule) => rule.cssText.replace(/\s+/g, ' '))
-      .filter((rule) => rule.includes(`.${name}`));
-  }
-
   it('will type variables, conditions and tokens', () => {
     const Swatch = () => createElement('i', {});
     const map: style.Map<Theme> = { $inkLight: 'red', color: 'var(--theme-line)', $wide: { $line: '4px' } };
@@ -622,7 +612,7 @@ describe('variables', () => {
     Theme.use()(Shade, { $inkLight: 'red', $wide: { $line: '9px' } });
     place(createElement(Shade, {}));
 
-    expect(rules('Shade')).toEqual([
+    expect(rules('.Shade')).toEqual([
       '.Shade { --ink-light: red; }',
       '@media (min-width: 600px) { .Shade-media_min-width_600px { --theme-line: 9px; } }'
     ]);

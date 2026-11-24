@@ -4,7 +4,7 @@ import { Component, get, has, map, Model, set } from '@expressive/mvc';
 
 import { createElement, Css, Fragment, Portal, render, style } from '@expressive/dom';
 import { renderToString } from './server';
-import { flushMicrotasks, mockPromise, mockWarn, mount } from '../test.setup';
+import { attached, flushMicrotasks, mockPromise, mockWarn, mount } from '../test.setup';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -28,7 +28,7 @@ function unhashed(html: string, css = '') {
 }
 
 async function parity(node: () => any) {
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
   const unmount = render(node(), root);
   const expected = root.innerHTML;
 

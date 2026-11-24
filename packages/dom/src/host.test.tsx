@@ -4,7 +4,7 @@ import { Component } from '@expressive/mvc';
 
 import { hydrate, Portal, render } from './index';
 import { renderToString } from './server';
-import { flushMicrotasks, lazy, mockPromise, mount } from '../test.setup';
+import { attached, flushMicrotasks, lazy, mockPromise, mount } from '../test.setup';
 
 describe('portal targets', () => {
   it('will resolve a selector target once and move when it changes', async () => {
@@ -132,7 +132,7 @@ describe('head elements', () => {
         <meta name="description" content="about" />
         <link rel="canonical" href="/x" />
       </div>,
-      document.body.appendChild(document.createElement('main'))
+      attached()
     );
 
     expect(document.title).toBe('Inner');
@@ -230,7 +230,7 @@ describe('head elements', () => {
   });
 
   it('will keep head elements in a head element it renders', () => {
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
     const unmount = render(<head><title>Inner</title></head>, root);
 
     expect(root.querySelector('head > title')!.textContent).toBe('Inner');
@@ -238,7 +238,7 @@ describe('head elements', () => {
   });
 
   it('will keep microdata and shadow root elements in place', () => {
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
     const unmount = render(
       <div itemScope itemType="https://schema.org/Product" itemID="p1">
         <meta itemProp="price" content="9" />
@@ -259,7 +259,7 @@ describe('head elements', () => {
   });
 
   it('will keep an svg title in place, but not one in foreignObject', () => {
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
     const unmount = render(<svg><title>icon</title><foreignObject><title>page</title></foreignObject></svg>, root);
 
     expect(root.querySelector('svg > title')!.textContent).toBe('icon');
