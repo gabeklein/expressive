@@ -15,6 +15,7 @@ class Prefs extends Cookies {
 
 const at = (url: string, cookie?: string) => new Request(url, { headers: cookie ? { cookie } : {} });
 const sent = (request: Request) => headersOf(request)?.getSetCookie() ?? [];
+const replied = async (request: Request, run: () => void) => (await within(request, [], () => (run(), new Response()))).headers.getSetCookie();
 
 describe("Cookies", () => {
   it("will read the request's cookies as fields, with defaults for the rest", async () => {
@@ -41,25 +42,23 @@ describe("Cookies", () => {
   it("will send what changed, with each cookie's options", async () => {
     const request = at("https://example.com/", "theme=dark; count=2");
 
-    await within(request, [], () => {
+    const cookies = await replied(request, () => {
       Prefs.set({ session: "a b;c", theme: "dark" });
       Prefs.get().count = 3;
       expect(Prefs.get().session).toBe("a b;c");
     });
 
-    expect(sent(request)).toEqual([
+    expect(cookies).toEqual([
       "session=a%20b%3Bc; Path=/; Max-Age=60; Domain=example.com; Secure; HttpOnly; Partitioned; SameSite=Strict",
       "count=3; Path=/; Secure; HttpOnly; SameSite=Lax",
     ]);
-    expect(sent(request)).toHaveLength(2);
+    expect(sent(request)).toEqual([]);
   });
 
   it("will remove a cookie set to undefined or null, with the path and domain it was set with", async () => {
     const request = at("http://localhost/", "session=x; theme=dark");
 
-    await within(request, [], () => Prefs.set({ session: undefined, theme: null as unknown as string }));
-
-    expect(sent(request)).toEqual([
+    expect(await replied(request, () => Prefs.set({ session: undefined, theme: null as unknown as string }))).toEqual([
       "session=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Domain=example.com; HttpOnly; Partitioned; SameSite=Strict",
       "theme=; Path=/app; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax",
     ]);
@@ -78,7 +77,7 @@ describe("Cookies", () => {
     expect(two.theme).toBe("light");
   });
 
-  it("will refuse outside a call, a bad field name, and a context lookup", async () => {
+  it("will refuse outside a request, a bad field name, and a context lookup", async () => {
     class Bad extends Cookies {
       "a b" = "";
     }
@@ -87,7 +86,7 @@ describe("Cookies", () => {
       prefs = get(Prefs);
     }
 
-    expect(() => Prefs.get()).toThrow("Prefs.get() reads the request's cookies - call it within a call.");
+    expect(() => Prefs.get()).toThrow("Prefs.get() reads the request's cookies - call it within a request.");
     await within(at("http://localhost/"), [], () => {
       expect(() => Bad.get()).toThrow("Bad.a b is not a valid cookie name.");
       expect(() => Holder.new()).toThrow();

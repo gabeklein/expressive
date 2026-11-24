@@ -38,7 +38,7 @@ const jars = new WeakMap<Request, Map<Function, Cookies>>();
  * ```
  *
  * One instance per request and class, from `Session.get()` within a call - never `get(Session)`,
- * which would keep one request's cookies. A changed field goes out as `Set-Cookie` when the call replies.
+ * which would keep one request's cookies. A changed field goes out as `Set-Cookie` on the reply decided next - the call's, or the gate's or route's.
  */
 export class Cookies extends Model {
   /** Per-cookie options, by field name. Unset ones are `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` over https. */
@@ -50,7 +50,7 @@ export class Cookies extends Model {
   static get(this: typeof Cookies): Cookies {
     const request = active();
 
-    if (!request) throw new Error(`${this.name}.get() reads the request's cookies - call it within a call.`);
+    if (!request) throw new Error(`${this.name}.get() reads the request's cookies - call it within a request.`);
 
     let jar = jars.get(request);
 
@@ -82,10 +82,10 @@ function open(Type: typeof Cookies, request: Request): Cookies {
 
   instance.set(given, true);
 
-  const before = instance.get() as Record<string, unknown>;
+  let before = instance.get() as Record<string, unknown>;
   const secure = new URL(request.url).protocol === "https:";
 
-  outgoingOf(request).flush.add(() => {
+  outgoingOf(request).flush.add(into => {
     const after = instance.get() as Record<string, unknown>;
 
     for (const name of fields) {
@@ -97,8 +97,10 @@ function open(Type: typeof Cookies, request: Request): Cookies {
         ? serialize(name, "", { ...options, maxAge: 0, expires: new Date(0) })
         : serialize(name, String(value), options);
 
-      outgoingOf(request).headers.append("set-cookie", line);
+      into.append("set-cookie", line);
     }
+
+    before = after;
   });
 
   return instance;

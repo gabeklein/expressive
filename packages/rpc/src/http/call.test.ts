@@ -65,6 +65,22 @@ describe("call dispatch", () => {
     expect((await plain("none", "[]")).body).toEqual({});
   });
 
+  it("will reply a gate's refusal as a call's error, and a gate's answer as is", async () => {
+    const refused = await send(endpoints, request("/tally", "add", "[1, 2]"), false, async pattern => (pattern.length ? () => { throw new Limit(2); } : undefined));
+    const answered = await dispatch(fetched(request("/tally", "add", "[1, 2]")), () => endpoints, false, async pattern => (pattern.length ? () => new Response("gated") : undefined));
+
+    expect(refused).toEqual({ status: 409, body: { error: "/shared#Limit", message: "Over 2", limit: 2, status: 409 } });
+    expect(await answered.text()).toBe("gated");
+  });
+
+  it("will wrap a call in a gate's next, resolving its codec reply", async () => {
+    const statuses: number[] = [];
+    const gate = async () => void statuses.push((await Current.get().next()).status);
+
+    expect(await send(endpoints, request("/tally", "add", "[1, 2]"), false, async () => gate)).toEqual({ status: 200, body: { value: 3 } });
+    expect(statuses).toEqual([200, 200]);
+  });
+
   it("will reply 404 to a pull, a seat method or a pool method", async () => {
     class Tally extends Model {
       total = 0;

@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import { Context, Model } from "@expressive/mvc";
 import { resolver } from "@expressive/mvc/jsx-runtime";
 
+import { bodyOf, capped, originOf, parsed } from "./body";
+import { refusal, toReply, withHeaders, type Source } from "./reply";
+
 interface Layer {
   prefix: string;
   context: Context;
@@ -24,11 +27,34 @@ interface Entry {
   timer?: ReturnType<typeof setTimeout>;
 }
 
-interface Frame {
+interface Exchange {
+  origin: Request;
   request: Request;
-  layer: Layer;
+  ctx: ExecutionCtx;
   held: Set<Entry>;
-  gated: { layer: Layer; built: Model[] }[];
+  done: (() => void)[];
+  open: number;
+  left: Promise<void>;
+  leave(): void;
+}
+
+interface Stage {
+  exchange: Exchange;
+  params: Record<string, string>;
+  headers: Headers;
+  gate: boolean;
+  decided: boolean;
+  after?: Promise<void>;
+  pending?: Promise<unknown>;
+  next(): Promise<unknown>;
+  ready(): Promise<void>;
+  decide(reply: unknown): void;
+}
+
+interface Frame {
+  exchange: Exchange;
+  layer: Layer;
+  stage?: Stage;
   capture?: Model[];
 }
 
@@ -50,7 +76,7 @@ let built: ((instance: Model) => void) | undefined;
 
 function frame(): Frame {
   const frame = store.getStore();
-  if (!frame) throw new Error("Server Model resolves only within a call.");
+  if (!frame) throw new Error("Server Model resolves only within a request.");
   return frame;
 }
 
@@ -105,7 +131,7 @@ function seat(layer: Layer, Seat: Seat) {
     layer.seat = create(Seat, layer);
   }
 
-  hold(frame().held, layer.seat);
+  hold(frame().exchange.held, layer.seat);
 }
 
 const isEmpty = (layer: Layer) => !layer.calls && !layer.pooled && !layer.seat && !layer.children.size;
@@ -155,28 +181,6 @@ function release(entry: Entry) {
 
 const isSeat = (guard: Seat | Gate): guard is Seat => guard.prototype instanceof Model;
 
-async function gate(frame: Frame, fn: Gate) {
-  const built: Model[] = [];
-
-  frame.layer.calls++;
-  frame.layer = newLayer(frame.layer.prefix, frame.layer);
-  frame.gated.push({ layer: frame.layer, built });
-  frame.capture = built;
-
-  try {
-    await fn();
-
-    for (let done = 0; done < built.length; ) {
-      const batch = built.slice(done);
-
-      done = built.length;
-      await Promise.all(batch.map(settle));
-    }
-  } finally {
-    frame.capture = undefined;
-  }
-}
-
 async function settle(model: Model) {
   try {
     await model.set();
@@ -185,7 +189,16 @@ async function settle(model: Model) {
   }
 }
 
-function ungate({ layer, built }: Frame["gated"][number]) {
+async function settleAll(built: Model[]) {
+  for (let done = 0; done < built.length; ) {
+    const batch = built.slice(done);
+
+    done = built.length;
+    await Promise.all(batch.map(settle));
+  }
+}
+
+function ungate(layer: Layer, built: Model[]) {
   const shared = layer.parent!;
 
   layer.children.forEach(child => evict(child));
@@ -195,37 +208,256 @@ function ungate({ layer, built }: Frame["gated"][number]) {
   prune(shared);
 }
 
-export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = []): Promise<Awaited<T>> {
-  const frame: Frame = { request, layer: root(), held: new Set(), gated: [] };
+const rethrow = (error: unknown): never => {
+  throw error;
+};
 
-  return await store.run(frame, async (): Promise<Awaited<T>> => {
-    try {
-      for (const [i, segment] of [undefined, ...segments].entries()) {
-        const guard = seats[i];
+function open(request: Request): Exchange {
+  const origin = originOf(request);
+  const signal = origin.signal;
+  let leave!: () => void;
+  const left = new Promise<void>(resolve => (leave = resolve));
 
-        if (guard && !isSeat(guard)) {
-          frame.layer = enter(frame.layer, segment);
-          await gate(frame, guard);
-          continue;
-        }
+  if (signal.aborted) leave();
+  else signal.addEventListener("abort", leave, { once: true });
 
-        frame.layer = enter(frame.layer, segment, guard);
-        await frame.layer.seat?.ready;
+  return { origin, request: bodyOf(origin), ctx: ctxOf(origin), held: new Set(), done: [], open: 0, left, leave };
+}
+
+function close(exchange: Exchange) {
+  if (--exchange.open) return;
+
+  exchange.held.forEach(release);
+  exchange.done.reverse().forEach(done => done());
+
+  const late = new Headers();
+
+  outgoing.get(exchange.origin)?.flush.forEach(flush => flush(late));
+
+  if (late.has("set-cookie")) console.warn("Cookies set after the reply left were dropped.");
+}
+
+/**
+ * Run `run` in `request`'s scope, through the layers `segments` walks - seating each one's Model
+ * class, or running its function gate with the rest of the walk as its `next`.
+ *
+ * Within another scope of the same request, shares it. A throw from a seat, a gate or `run` resolves
+ * with `fail`'s reply, by default rejecting. A gate's answer - `send`, a returned `Response` or
+ * function - resolves with that `Response` instead of `run`'s value.
+ */
+export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = [], fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>> = rethrow): Promise<Awaited<T>> {
+  const parent = store.getStore();
+  const nested = parent?.exchange.origin === originOf(request);
+  const exchange = nested ? parent!.exchange : open(request);
+  const frame: Frame = { exchange, layer: root() };
+
+  exchange.open++;
+
+  try {
+    return await store.run(frame, () => walk(frame, [undefined, ...segments], 0, run, seats, fail)) as Awaited<T>;
+  } finally {
+    if (!nested) exchange.leave();
+    close(exchange);
+  }
+}
+
+async function walk<T>(frame: Frame, steps: (string | undefined)[], from: number, run: () => T, seats: (Seat | Gate | undefined)[], fail: (error: unknown) => unknown): Promise<unknown> {
+  const { exchange } = frame;
+  const join = (reply: unknown) => (reply instanceof Response ? withHeaders(reply, headersOf(exchange.origin)) : reply);
+  let gate: { at: number; fn: Gate } | undefined;
+
+  try {
+    for (let i = from; i < steps.length; i++) {
+      const guard = seats[i];
+
+      if (guard && !isSeat(guard)) {
+        frame.layer = enter(frame.layer, steps[i]);
+        gate = { at: i + 1, fn: guard };
+        break;
       }
 
-      frame.layer.calls++;
+      frame.layer = enter(frame.layer, steps[i], guard);
+      await frame.layer.seat?.ready;
+    }
+
+    if (!gate) {
+      const { layer } = frame;
+
+      layer.calls++;
+      exchange.done.push(() => {
+        layer.calls--;
+        prune(layer);
+      });
+
+      return join(await run());
+    }
+  } catch (error) {
+    return join(await fail(error));
+  }
+
+  const { at, fn } = gate;
+
+  return stage(frame, fn, below => walk(below, steps, at, run, seats, fail), {}, fail, true);
+}
+
+const noop = () => {};
+
+/**
+ * A layer of the request: `run` with `below` as its `next`, resolving with its reply once decided.
+ * With `below`, a gate - returning nothing passes; without, a route - its value is the body.
+ */
+function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => Promise<T>) | undefined, params: Record<string, string>, fail: (error: unknown) => T | Promise<T>, nextable: boolean): Promise<T> {
+  const { exchange } = parent;
+  const shared = parent.layer;
+  const layer = newLayer(shared.prefix, shared);
+  const built: Model[] = [];
+  const lower: Frame = { exchange, layer };
+  let resolve!: (reply: T) => void;
+  let reject!: (error: unknown) => void;
+  let final: unknown;
+  let passed: unknown;
+
+  shared.calls++;
+  exchange.done.push(() => ungate(layer, built));
+  exchange.open++;
+
+  const decided = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+
+  const discard = (reply: unknown) => {
+    if (reply instanceof Response && reply.body && reply.body !== (final as Response | undefined)?.body) reply.body.cancel().catch(noop);
+  };
+
+  const down = (): Promise<unknown> =>
+    store.run(lower, () => below!(lower)).then(
+      reply => {
+        passed = reply;
+        if (st.decided) discard(reply);
+        return reply;
+      },
+      fail,
+    );
+
+  const st: Stage = {
+    exchange,
+    params,
+    headers: new Headers(),
+    gate: !!below,
+    decided: false,
+    ready: () => settleAll(built),
+    next() {
+      if (!below || !nextable) throw new Error("next() runs only in a gate - a route or call has nothing below it.");
+      if (st.pending) throw new Error("next() runs once per gate.");
+
+      st.pending = st.ready().then(down);
+      st.pending.catch(noop);
+
+      return st.pending;
+    },
+    decide(reply) {
+      if (st.decided) return;
+
+      st.decided = true;
+
+      if (reply instanceof Response) {
+        outgoing.get(exchange.origin)?.flush.forEach(flush => flush(st.headers));
+        reply = withHeaders(reply, st.headers);
+      }
+
+      final = reply;
+      discard(passed);
+      resolve(reply as T);
+    },
+  };
+
+  const frame: Frame = { exchange, layer, stage: st, capture: built };
+
+  const answer = async (result: unknown, handler = true): Promise<void> => {
+    if (result instanceof Response) return st.decide(result);
+
+    if (typeof result == "function") {
+      if (!handler) throw new TypeError("A fetch handler returned a function - return a Response.");
+
+      const { request, origin, ctx } = exchange;
+
+      return answer(await result(request, bound.get(origin)?.env ?? {}, ctx), false);
+    }
+
+    if (below) return st.decide(await (st.pending ?? down()));
+
+    st.decide(toReply([result], source => track(source, frame)));
+  };
+
+  st.after = (async () => {
+    try {
+      const result = await store.run(frame, run);
+
+      if (st.decided) {
+        if (result !== undefined) console.warn("A value returned after the reply was decided is ignored.");
+        return;
+      }
+
+      await st.ready();
+      await store.run(frame, () => answer(result));
+    } catch (error) {
+      if (st.decided) return void console.error(error);
 
       try {
-        return await run();
-      } finally {
-        frame.layer.calls--;
+        st.decide(await fail(error));
+      } catch (thrown) {
+        st.decided = true;
+        reject(thrown);
       }
     } finally {
-      frame.held.forEach(release);
-      prune(frame.layer);
-      frame.gated.reverse().forEach(ungate);
+      close(exchange);
     }
-  });
+  })();
+
+  return decided;
+}
+
+/**
+ * Run a gate or route handler in the request's scope, resolving with its reply once decided.
+ *
+ * With `below`, `run` is a gate: `Current.get().next` runs `below`, and returning nothing passes.
+ * Without, `run` is a route: its returned value is the body. `params` is what `Current.get().params`
+ * reads in `run`. A throw answers its `HttpError` status, else a logged 500. Throws outside a request.
+ */
+export function layer(run: () => unknown, below?: () => Promise<Response>, params: Record<string, string> = {}): Promise<Response> {
+  return stage(frame(), run, below && (() => below()), params, refusal, true);
+}
+
+/** `run` as one layer whose `next` throws: returning nothing passes, resolving `undefined`. */
+export function pass<T>(run: () => T): Promise<Awaited<T> | undefined> {
+  return stage(frame(), run, async () => undefined, {}, rethrow, false) as Promise<Awaited<T> | undefined>;
+}
+
+function track(source: Source, frame: Frame): ReadableStream<Uint8Array> {
+  const { exchange } = frame;
+  const encoder = new TextEncoder();
+  const end = () => close(exchange);
+
+  exchange.open++;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await store.run(frame, () => source.next());
+
+        if (done) {
+          end();
+          controller.close();
+        } else controller.enqueue(typeof value == "string" ? encoder.encode(value) : value);
+      } catch (error) {
+        end();
+        console.error(error);
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      end();
+      await source.stop(reason);
+    },
+  }, { highWaterMark: 0 });
 }
 
 function create(Type: Owned, layer: Layer): Entry {
@@ -248,6 +480,8 @@ function create(Type: Owned, layer: Layer): Entry {
 }
 
 function hold(held: Set<Entry>, entry: Entry) {
+  if (held.has(entry)) return;
+
   held.add(entry);
   entry.refs++;
   clearTimeout(entry.timer);
@@ -351,7 +585,7 @@ function parseCookies(header = ""): Record<string, string> {
 
 interface Outgoing {
   headers: Headers;
-  flush: Set<() => void>;
+  flush: Set<(into: Headers) => void>;
 }
 
 const outgoing = new WeakMap<Request, Outgoing>();
@@ -363,20 +597,37 @@ const outgoing = new WeakMap<Request, Outgoing>();
  */
 export interface Env {}
 
-const bound = new WeakMap<Request, Env>();
-
-/** Give the calls on `request` the bindings `Current.env` reads. */
-export function bind(request: Request, env: Env): void {
-  bound.set(request, env);
+/** What `Current.get().ctx` gives: the host's members, a stand-in's where it lacks them. */
+export interface ExecutionCtx {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+  props: Record<string, unknown>;
 }
 
-/** The request of the call in progress, if any. */
+const bound = new WeakMap<Request, { env: Env; ctx?: Partial<ExecutionCtx> }>();
+
+/** Give the request's scope the `env` and `ctx` its host passed - `ctx` members it lacks get stand-ins. */
+export function bind(request: Request, env: Env, ctx?: Partial<ExecutionCtx>): void {
+  bound.set(originOf(request), { env, ctx });
+}
+
+function ctxOf(request: Request): ExecutionCtx {
+  const host = bound.get(request)?.ctx ?? {};
+
+  return {
+    waitUntil: host.waitUntil ? promise => host.waitUntil!(promise) : promise => void promise.catch(error => console.error("waitUntil:", error)),
+    passThroughOnException: host.passThroughOnException ? () => host.passThroughOnException!() : () => {},
+    props: host.props ?? {},
+  };
+}
+
+/** The request of the scope in progress, if any - the one its host passed. */
 export function active(): Request | undefined {
-  return store.getStore()?.request;
+  return store.getStore()?.exchange.origin;
 }
 
-/** The reply-to-be of the call in progress: headers to add, and work to run just before they are read. */
-export function outgoingOf(request = frame().request): Outgoing {
+/** The request's reply-to-be: headers to add, and cookie flushes into the reply being decided. */
+export function outgoingOf(request = frame().exchange.origin): Outgoing {
   let out = outgoing.get(request);
 
   if (!out) outgoing.set(request, (out = { headers: new Headers(), flush: new Set() }));
@@ -384,25 +635,38 @@ export function outgoingOf(request = frame().request): Outgoing {
   return out;
 }
 
-/** What the calls on `request` asked to add to its reply. */
+/** What the calls on `request` asked to add to its reply since last taken. */
 export function headersOf(request: Request): Headers | undefined {
   const out = outgoing.get(request);
 
   if (!out) return;
 
-  out.flush.forEach(flush => flush());
-  out.flush.clear();
+  const { headers } = out;
 
-  return out.headers;
+  out.flush.forEach(flush => flush(headers));
+  out.headers = new Headers();
+
+  return headers;
 }
 
 const readOnly = () => {
   throw new Error("Current is read-only.");
 };
 
+function staged(verb: string): Stage {
+  const { stage } = frame();
+
+  if (!stage) throw new Error(`${verb} belongs to a gate or route - a call answers with its return value.`);
+
+  return stage;
+}
+
+const EMPTY: Record<string, string> = Object.freeze({}) as Record<string, string>;
+
 export class Current extends Model {
+  /** The request, its body read through one cache: every read of any kind buffers it once. */
   get request(): Request {
-    return frame().request;
+    return frame().exchange.request;
   }
   set request(_: Request) {
     readOnly();
@@ -424,17 +688,127 @@ export class Current extends Model {
 
   /** Bindings of the request in progress - the `env` its host passed, or a dev host's stand-ins. Empty where the host passes none. */
   get env(): Env {
-    return bound.get(this.request) ?? {};
+    return bound.get(frame().exchange.origin)?.env ?? {};
   }
   set env(_: Env) {
     readOnly();
   }
 
-  /** Set a header on this call's reply. The reply's own (`content-type` and the like) win. For cookies, see `Cookies`. */
+  /** The matched route's params, decoded. `{}` in a call and where the host gives none. */
+  get params(): Record<string, string> {
+    return frame().stage?.params ?? EMPTY;
+  }
+  set params(_: Record<string, string>) {
+    readOnly();
+  }
+
+  /** The host's execution context - `waitUntil` runs the promise and logs a throw, `passThroughOnException` does nothing and `props` is `{}` where the host lacks them. */
+  get ctx(): ExecutionCtx {
+    return frame().exchange.ctx;
+  }
+  set ctx(_: ExecutionCtx) {
+    readOnly();
+  }
+
+  /**
+   * In a gate: wait for the Models this gate activated, run everything below and resolve with that
+   * reply - a throw below resolves its error reply. Once per gate.
+   *
+   * Calling it outside a gate throws; reading it never does.
+   *
+   * @example
+   * const { next, send } = Current.get();
+   * const reply = await next();
+   * await send(reply);
+   * await log(reply.status);
+   */
+  get next(): () => Promise<Response> {
+    const stage = store.getStore()?.stage;
+
+    return () => {
+      if (!stage) throw new Error("next() runs only in a gate - a route or call has nothing below it.");
+      return stage.next() as Promise<Response>;
+    };
+  }
+  set next(_: () => Promise<Response>) {
+    readOnly();
+  }
+
+  /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or a content type other than `application/json` or `+json`, `PayloadTooLarge` over 1 MB. */
+  json(): Promise<unknown>;
+
+  /**
+   * The request body as JSON, passed through `check`. A throw from it rejects with `BadRequest`
+   * carrying its message; an `HttpError` keeps its status.
+   *
+   * @example
+   * const event = await Current.get().json(Event.parse);
+   */
+  json<T>(check: (value: unknown) => T): Promise<Awaited<T>>;
+
+  json(check?: (value: unknown) => unknown): Promise<unknown> {
+    const { exchange } = staged("json()");
+    return parsed(exchange.request, check);
+  }
+
+  /** The request body as a string. Rejects with `PayloadTooLarge` over 1 MB. */
+  text(): Promise<string> {
+    const { exchange } = staged("text()");
+    return capped(exchange.request);
+  }
+
+  /** Set a header on this layer's reply. A `Response`'s own win. After the reply is decided, throws. For cookies, see `Cookies`. */
   setHeader(name: string, value: string): void {
-    const { headers } = outgoingOf();
+    const { stage } = frame();
+
+    if (stage?.decided) throw new Error(`Cannot set ${name} - this reply is already decided.`);
+
+    const { headers } = stage ?? outgoingOf();
 
     if (name.toLowerCase() === "set-cookie") headers.append(name, value);
     else headers.set(name, value);
+  }
+
+  /**
+   * Decide this layer's reply: a status, a `Response`, or a body - a plain object or array as JSON,
+   * a string as text, bytes or a stream as is. Resolves once the reply has left; code after it is
+   * after-work. A second `send`, or one in a call, throws.
+   *
+   * @example
+   * await Current.get().send(200);
+   * await process(event);
+   */
+  send(body?: unknown): Promise<void>;
+
+  /** Decide this layer's reply with `status`: `send(201, item)`. A body with 204, 304 or 1xx throws. */
+  send(status: number, body?: unknown): Promise<void>;
+
+  async send(...args: unknown[]): Promise<void> {
+    const stage = staged("send()");
+    const current = frame();
+
+    if (stage.decided) throw new Error("This reply is already decided.");
+
+    const reply = toReply(args, source => track(source, current));
+
+    await stage.ready();
+
+    if (stage.decided) throw new Error("This reply is already decided.");
+
+    stage.decide(reply);
+
+    stage.exchange.ctx.waitUntil(stage.after!);
+
+    await stage.exchange.left;
+  }
+
+  /** Sugar for `Current.get().send(...)`. */
+  static send(body?: unknown): Promise<void>;
+
+  /** Sugar for `Current.get().send(status, body)`. */
+  static send(status: number, body?: unknown): Promise<void>;
+
+  static send(...args: unknown[]): Promise<void> {
+    return (Current.get() as Current).send(...(args as [number, unknown]));
   }
 }
