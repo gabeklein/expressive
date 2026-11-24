@@ -855,6 +855,14 @@ describe("layer", () => {
 
       expect((await open(gate(true), below)).headers.getSetCookie()).toEqual(["id=gate; Path=/; HttpOnly; SameSite=Lax"]);
       expect((await open(gate(false), below)).headers.getSetCookie()).toEqual(["id=below; Path=/; HttpOnly; SameSite=Lax"]);
+
+      const rewrapped = async () => {
+        Session.set({ id: "gate" });
+        const reply = await Current.get().next();
+        return new Response(reply.body, reply);
+      };
+
+      expect((await open(rewrapped, below)).headers.getSetCookie()).toEqual(["id=below; Path=/; HttpOnly; SameSite=Lax"]);
     });
 
     it("will cancel a reply below that arrives after the gate answered", async () => {
@@ -936,6 +944,46 @@ describe("layer", () => {
 
       expect([awaited.status, loose.status]).toEqual([403, 403]);
       expect(stream.locked).toBe(false);
+    });
+
+    it("will refuse with what an unawaited send throws, and log a second one", async () => {
+      const res = await open(() => {
+        void Current.send(200, new Map());
+      });
+
+      await open(() => {
+        void Current.send("one");
+        void Current.send("two");
+      });
+
+      await tick();
+      expect(res.status).toBe(500);
+      expect(error).toHaveBeenCalledWith(new TypeError("Cannot send Map - send its values."));
+      expect(error).toHaveBeenCalledWith(new Error("This reply is already decided."));
+    });
+
+    it("will hold the request while a next() left running is still below", async () => {
+      class Session extends Model {}
+      let session!: Session;
+      let finish!: () => void;
+      let alive: boolean | undefined;
+
+      const res = await open(async () => {
+        session = Session.new();
+        void Current.get().next();
+        await Current.get().send(200);
+      }, async () => {
+        await new Promise<void>(resolve => (finish = resolve));
+        alive = !session.get(null);
+        return new Response("late");
+      });
+
+      expect(res.status).toBe(200);
+      await tick();
+      finish();
+      await tick();
+      expect(alive).toBe(true);
+      expect(session.get(null)).toBe(true);
     });
 
     it("will throw when another answer lands while it waits for the gate's Models", async () => {
@@ -1104,6 +1152,40 @@ describe("layer", () => {
       await tick();
 
       expect(stopped).toBe(session);
+      expect(session.get(null)).toBe(true);
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it("will release a generator cancelled mid-pull after its finally, logging nothing", async () => {
+      class Session extends Model {}
+      let session!: Session;
+      let resume!: () => void;
+      let closing: boolean | undefined;
+
+      async function* lines() {
+        try {
+          await new Promise<void>(resolve => (resume = resolve));
+          yield "x";
+        } finally {
+          closing = !session.get(null);
+        }
+      }
+
+      const res = await open(() => {
+        session = Session.new();
+        return lines();
+      });
+
+      const reader = res.body!.getReader();
+      const read = reader.read();
+
+      await tick();
+      const cancelled = reader.cancel();
+      resume();
+      await Promise.all([read, cancelled]);
+      await tick();
+
+      expect(closing).toBe(true);
       expect(session.get(null)).toBe(true);
       expect(error).not.toHaveBeenCalled();
     });

@@ -48,6 +48,7 @@ interface Stage {
   pending?: Promise<unknown>;
   next(): Promise<unknown>;
   ready(): Promise<void>;
+  refuse(error: unknown): Promise<void>;
   decide(reply: unknown): void;
 }
 
@@ -313,6 +314,7 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
   let reject!: (error: unknown) => void;
   let final: unknown;
   let passed: unknown;
+  let refusing: Promise<void> | undefined;
 
   shared.calls++;
   exchange.done.push(() => ungate(layer, built));
@@ -332,15 +334,20 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
     else cancel();
   };
 
-  const down = (): Promise<unknown> =>
-    store.run(lower, async () => below!(lower)).then(
-      reply => {
-        passed = reply;
-        if (st.decided) discard(reply);
-        return reply;
-      },
-      fail,
-    );
+  const down = (): Promise<unknown> => {
+    exchange.open++;
+
+    return store.run(lower, async () => below!(lower))
+      .then(
+        reply => {
+          passed = reply;
+          if (st.decided) discard(reply);
+          return reply;
+        },
+        fail,
+      )
+      .finally(() => close(exchange));
+  };
 
   const st: Stage = {
     exchange,
@@ -349,6 +356,16 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
     early: [],
     decided: false,
     ready: () => settleAll(built),
+    refuse(error) {
+      return (refusing ??= (async () => {
+        try {
+          st.decide(await fail(error));
+        } catch (thrown) {
+          st.decided = true;
+          reject(thrown);
+        }
+      })());
+    },
     next() {
       if (!below || !gate) throw new Error("next() runs only in a gate - a route or call has nothing below it.");
       if (st.pending) throw new Error("next() runs once per gate.");
@@ -370,7 +387,7 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
       if (reply instanceof Response) {
         const extra = new Headers();
         const named = (cookie: string) => cookie.slice(0, cookie.indexOf("="));
-        const below = new Set(reply === passed ? reply.headers.getSetCookie().map(named) : []);
+        const below = new Set(reply.headers.getSetCookie().map(named));
 
         st.early.forEach(cookie => below.has(named(cookie)) || extra.append("set-cookie", cookie));
         outgoing.get(exchange.origin)?.flush.forEach(flush => flush(st.headers));
@@ -416,12 +433,7 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
     } catch (error) {
       if (st.decided) return void console.error(error);
 
-      try {
-        st.decide(await fail(error));
-      } catch (thrown) {
-        st.decided = true;
-        reject(thrown);
-      }
+      await st.refuse(error);
     } finally {
       close(exchange);
     }
@@ -448,13 +460,8 @@ export function pass<T>(run: () => T): Promise<Awaited<T> | undefined> {
 function track(source: Source, frame: Frame): ReadableStream<Uint8Array> {
   const { exchange } = frame;
   const encoder = new TextEncoder();
-  let ended = false;
-
-  const end = () => {
-    if (ended) return true;
-    ended = true;
-    close(exchange);
-  };
+  let cancelled = false;
+  const end = () => close(exchange);
 
   exchange.open++;
 
@@ -463,19 +470,22 @@ function track(source: Source, frame: Frame): ReadableStream<Uint8Array> {
       try {
         const { done, value } = await store.run(frame, () => source.next());
 
-        if (ended) return;
+        if (cancelled) return;
 
         if (done) {
           end();
           controller.close();
         } else controller.enqueue(typeof value == "string" ? encoder.encode(value) : value);
       } catch (error) {
-        if (end()) return;
+        if (cancelled) return;
+        end();
         console.error(error);
         controller.error(error);
       }
     },
     async cancel(reason) {
+      cancelled = true;
+
       try {
         await store.run(frame, () => source.stop(reason));
       } finally {
@@ -691,17 +701,26 @@ function staged(verb: string): Stage {
 
 const EMPTY: Record<string, string> = Object.freeze({}) as Record<string, string>;
 
+class Decided extends Error {}
+
 async function sendFrom(args: unknown[]): Promise<void> {
   const current = frame();
   const stage = staged("send()");
   const decided = () => {
-    if (stage.decided) throw new Error("This reply is already decided.");
+    if (stage.decided) throw new Decided("This reply is already decided.");
   };
 
   decided();
   await stage.ready();
   decided();
-  stage.decide(toReply(args, source => track(source, current)));
+
+  try {
+    stage.decide(toReply(args, source => track(source, current)));
+  } catch (error) {
+    stage.refuse(error);
+    throw error;
+  }
+
   stage.exchange.ctx.waitUntil(stage.after!);
   await stage.exchange.left;
 }
@@ -841,7 +860,7 @@ export class Current extends Model {
   send(...args: unknown[]): Promise<void> {
     const sent = sendFrom(args);
 
-    sent.catch(noop);
+    sent.catch(error => error instanceof Decided && console.error(error));
     return sent;
   }
 
