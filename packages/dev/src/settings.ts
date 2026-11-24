@@ -17,7 +17,13 @@ export interface AppOptions {
   env?: Partial<Env>;
   /** The host's execution context. Default: a stand-in whose `waitUntil` runs the promise and logs a rejection. */
   ctx?: Partial<ExecutionCtx>;
-  /** Serves pages and static files - the last step of the chain. Without it, that step is a 404. */
+  /**
+   * Serves pages and static files - the last step of the chain. Default on the fetch target: `env.ASSETS`; without either, that step is a 404.
+   *
+   * In a build, its 404 for a GET or HEAD outside `build.assetsDir` falls back to the shell - its `/200.html`, else `/index.html` - with 200 on a page route's path and 404 for a navigation no route matches; other methods skip it for a 404.
+   * The public `compose(settings)` has no shell rule - it returns this reply as is.
+   * `<path>/index.html` is its own to resolve.
+   */
   assets?: { fetch(request: Request): Promise<Response> };
 }
 

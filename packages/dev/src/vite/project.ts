@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import type { Pages } from "../server/compose";
 import type { Exposed, Exposure } from "./remote";
 import type { Remote } from "./routes";
 
@@ -177,7 +178,7 @@ function injectBeforeBody(html: string, tag: string): string {
     : html + "\n" + tag + "\n";
 }
 
-export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[]): string {
+export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[], pages: Pages): string {
   const configSpec = project.configPath && JSON.stringify(importRel(from, project.configPath));
   const files = [...new Set([...exposure.modules.keys(), ...gates.map(gate => gate.file)])];
   const modules = files.map(file => JSON.stringify(importRel(from, file)));
@@ -197,12 +198,13 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
     `  client: fileURLToPath(new URL("../client/", import.meta.url)),`,
     "  sidecars: [", ...entries, "  ],",
     "  gates: [", ...gates.map(gate => `    { pattern: ${JSON.stringify(gate.pattern)}, gate: ${alias(gate.file)}.default },`), "  ],",
+    `  pages: ${JSON.stringify(pages)},`,
     "});",
     "",
   ].join("\n");
 }
 
-export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
+export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[], pages: Pages): string {
   const configSpec = JSON.stringify(importRel(from, project.configPath!));
   const files = [...exposure.modules.keys()];
   const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
@@ -220,7 +222,7 @@ export function fetchEntry(project: Project, from: string, exposure: Exposure, n
     ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
     `export { ${named.join(", ")} } from ${configSpec};`,
     "",
-    `export default compose(settings, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
+    `export default compose(settings, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)}, ${JSON.stringify(pages)});`,
     "",
   ].join("\n");
 }

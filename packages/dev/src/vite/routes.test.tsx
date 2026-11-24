@@ -10,7 +10,7 @@ import { Component, Model } from "@expressive/mvc";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route } from "../client";
-import { generateRoutes, remoteOf, staticPaths } from "./routes";
+import { generateRoutes, pagePatterns, remoteOf, staticPaths } from "./routes";
 import { scanExports } from "./scan";
 
 describe("app/ routing (codegen)", () => {
@@ -73,6 +73,10 @@ describe("app/ routing (codegen)", () => {
 
     expect(paths.sort()).toEqual(["/", "/about", "/docs", "/docs/guide/setup", "/docs/intro", "/paths", "/shop", "/shop/cart", "/tally", "/tally/sub"]);
     expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx", "tally/[id].tsx"]);
+    expect((await pagePatterns(appDir, scanExports)).sort()).toEqual([
+      "/", "/about", "/blog/:slug", "/blog/:slug/edit", "/docs", "/docs/guide/setup", "/docs/intro",
+      "/files/*", "/paths", "/shop", "/shop/cart", "/tally", "/tally/:id", "/tally/sub",
+    ]);
   });
 
 

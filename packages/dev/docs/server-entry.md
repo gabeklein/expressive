@@ -277,7 +277,12 @@ Below `handle`:
 3. **Pages and static files**: the file, else `<path>/index.html`, else the shell, else 404. One shell rule on every host: only for GET or HEAD, and never under the build's `assetsDir`, so a stale chunk stays a 404 instead of becoming HTML with the wrong MIME type. A path some page route matches gets the shell with 200; a navigation (`accept` has `text/html`) no route matches gets it with 404, so a route's `NotFound` still renders. Anything else is a bare 404. (Node today falls back for any method and path; this narrows it.) Every entry carries the page patterns for the match.
    - **Node:** from `dist/client`, with the `assetsDir` cached immutable. The shell is `200.html`, else `index.html`.
    - **Dev:** a `public/` file, else the shell as Vite transforms it. Anything else falls through to Vite's middleware stack (below).
-   - **Fetch target:** `assets.fetch(request)`; on a 404 that the shell rule covers, `assets.fetch` gets `/200.html` and then `/index.html`, keeping the method and following one same-origin redirect (an asset host that serves pretty URLs redirects these). This replaces the fallback each Workers app hand-writes today. `assets` defaults to `env.ASSETS` when that binding has a `fetch`; without either, the answer is 404.
+   - **Fetch target:** `assets.fetch(request)`; on a 404 that the shell rule covers, `assets.fetch` gets `/200.html` and then `/index.html`, keeping the method and following one same-origin redirect (an asset host that serves pretty URLs redirects these). This replaces the fallback each Workers app hand-writes today. `assets` defaults to `env.ASSETS` when that binding has a `fetch`; without either, the answer is 404. `<path>/index.html` is the asset host's job here, so a hand-written `assets` resolves it itself.
+   - **Other methods** than GET and HEAD skip `assets` in a build and answer a bare 404 (Workers assets would answer 405 for a file's path).
+   - **The public `compose(settings)`** has no shell rule: no page patterns, so a test's stubbed `assets` answers as is.
+   - **Single-file apps** (`app.tsx`) have no patterns the build can see: every navigation gets the shell with 200, anything else a bare 404.
+   - **Routes the scan can't see** (a custom root `Router`, a `<Route>` in a `Layout`) answer a deep link with the 404 shell; a `[...]` page claims their paths.
+   - Where the status depends on `accept`, the reply carries `Vary: Accept`.
 
 `assets` is otherwise written by hand only in tests (a stubbed shell) and for files kept elsewhere: `assets: { fetch: r => fetch(new URL(new URL(r.url).pathname, origin)) }`.
 

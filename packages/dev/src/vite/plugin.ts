@@ -9,11 +9,11 @@ import type { ModuleRunner } from "vite/module-runner";
 
 import type { Settings } from "../settings";
 import { check } from "../server/check";
-import { compose } from "../server/compose";
+import { compose, routed, type Pages } from "../server/compose";
 import { layered } from "../server/env";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { Exposure, type Exposed } from "./remote";
-import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
+import { generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
 import { isCall, send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
@@ -104,6 +104,14 @@ export function host(dotenv: boolean): Plugin<Host> {
   };
   let routes: string | undefined;
   const generate = () => generateRoutes(project.appDir!, generatedDir, scanRoute);
+  let assetsDir: string;
+  let scanned: Promise<string[]> | undefined;
+  const patterns = () => (project.appDir ? (scanned ??= pagePatterns(project.appDir, scanRoute).catch(error => ((scanned = undefined), Promise.reject(error)))) : undefined);
+  const pages = async (): Promise<Pages> => ({ patterns: await patterns(), assetsDir });
+  const pageStatus = async (pathname: string) => {
+    const known = await patterns();
+    return !known || routed(known, pathname) ? 200 : 404;
+  };
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -196,6 +204,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       settingsId = join(generatedDir, SETTINGS);
       indexId = join(generatedDir, INDEX);
       htmlId = join(root, "index.html");
+      assetsDir = config.build.assetsDir.replace(/\/+$/, "");
     },
 
     async buildStart() {
@@ -274,7 +283,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         case routesId:
           return (routes = await generate());
         case serverId:
-          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, gated(project));
+          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project), await pages()) : serverEntry(project, generatedDir, exposure, gated(project), await pages());
         case prerenderId: {
           if (!project.appDir) return prerenderEntry(importRel(generatedDir, project.appPath!), []);
 
@@ -323,7 +332,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       vite = server;
       const host = (runner = createServerModuleRunner(server.environments.ssr));
       install();
-      watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
+      watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate(), () => (scanned = undefined));
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
       const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
@@ -386,7 +395,7 @@ export function host(dotenv: boolean): Plugin<Host> {
 
               if (navigation)
                 try {
-                  return new Response(await shell(pathname + search), { headers: { "content-type": "text/html" } });
+                  return new Response(await shell(pathname + search), { status: await pageStatus(pathname), headers: { "content-type": "text/html", vary: "accept" } });
                 } catch (error) {
                   fell = { request: forward, error };
                 }
@@ -429,7 +438,9 @@ export function host(dotenv: boolean): Plugin<Host> {
 
           try {
             const html = await shell(req.originalUrl!);
+            res.statusCode = await pageStatus(new URL(req.originalUrl!, "http://x").pathname);
             res.setHeader("Content-Type", "text/html");
+            res.setHeader("Vary", "Accept");
             res.end(html);
           } catch (error) {
             next(error);
@@ -440,7 +451,7 @@ export function host(dotenv: boolean): Plugin<Host> {
   };
 }
 
-function watchRoutes(server: ViteDevServer, project: Project, routesId: string, stale: () => Promise<boolean>) {
+function watchRoutes(server: ViteDevServer, project: Project, routesId: string, stale: () => Promise<boolean>, changed: () => void) {
   const { appDir } = project;
   if (!appDir) return;
 
@@ -453,11 +464,16 @@ function watchRoutes(server: ViteDevServer, project: Project, routesId: string, 
   };
 
   const moved = (file: string) => {
-    if (file.startsWith(appDir)) reload();
+    if (!file.startsWith(appDir)) return;
+
+    changed();
+    reload();
   };
 
   const edited = async (file: string) => {
     if (!file.startsWith(appDir)) return;
+
+    changed();
 
     try {
       if (await stale()) reload();
