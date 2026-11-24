@@ -32,3 +32,11 @@ export default class Gate extends Model {
     this.member = gate != "guest";
   }
 }
+
+export async function member() {
+  return Gate.get().member;
+}
+
+export async function welcome() {
+  return Gate.get().name;
+}
