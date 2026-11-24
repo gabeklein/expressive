@@ -114,7 +114,7 @@ describe("listen", () => {
     vi.restoreAllMocks();
   });
 
-  it("will run handle around calls and files, with the file step as next", async () => {
+  it("will run handle around calls and files, with the file step as next and process.env as env", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { AsyncLocalStorage } = await import("node:async_hooks");
@@ -132,7 +132,7 @@ describe("listen", () => {
 
         if (pathname === "/hello") {
           ctx.waitUntil(Promise.reject(new Error("late")));
-          return Response.json({ env });
+          return Response.json({ name: (env as { LISTEN_NAME?: string }).LISTEN_NAME });
         }
 
         if (pathname !== "/invite/abc") return store.run("inside", () => next());
@@ -143,6 +143,7 @@ describe("listen", () => {
     };
 
     const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
+    vi.stubEnv("LISTEN_NAME", "node");
     const server = listen({ settings, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], pages: { patterns: ["/invite/:code"] } });
     await new Promise(done => server.once("listening", done));
 
@@ -150,7 +151,7 @@ describe("listen", () => {
     const invite = await fetch(base + "/invite/abc");
     const where = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "where" }, body: "[]" });
 
-    expect(await (await fetch(base + "/hello")).json()).toEqual({ env: {} });
+    expect(await (await fetch(base + "/hello")).json()).toEqual({ name: "node" });
     expect(await invite.text()).toBe("200 <head><meta></head>");
     expect(invite.headers.get("content-type")).toContain("text/html");
     expect(await where.json()).toMatchObject({ value: "inside" });
@@ -162,6 +163,7 @@ describe("listen", () => {
     server.closeAllConnections();
     server.close();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("will reply 404 with no file and no shell", async () => {

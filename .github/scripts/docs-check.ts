@@ -121,7 +121,7 @@ for (const { path, text } of docs) {
     const [, clause, scope] = match;
     const names = exported.get(scope);
 
-    if (!names) continue;
+    if (!names || /^type\s/.test(clause)) continue;
 
     const named = /\{([^}]*)\}/.exec(clause)?.[1] ?? '';
 

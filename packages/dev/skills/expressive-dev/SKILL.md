@@ -28,6 +28,7 @@ app/                  file-based routes
   blog/remote/        sidecar      or a folder of them, any depth
 app.tsx | src/app.tsx single root component instead of app/ (default export)
 index.ts              optional server entry: export default config({ port, handle, target, host })
+index.dev.ts          optional, dev only: index.ts's settings plus env() - see env and index.dev.ts
 index.html            optional shell (#root and the entry script injected if missing)
 vite.config.ts        optional, merged under the host's
 .env, .env.*          optional - see Environment
@@ -138,16 +139,28 @@ export default config({
 - Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
 
-`env` - the host's bindings, `{}` on Node and in dev. Type it: `declare module "@expressive/dev" { interface Env { API_KEY: string } }`.
+`env` - the request's bindings, below.
 
 Tests: `compose(settings)` from `@expressive/dev/server` - the app without remotes, pages from a stub: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`.
+
+## env and index.dev.ts
+
+`handle`'s `env` and `Current.get().env`:
+- `fetch` target: the host's `env` object as is.
+- Node and dev: read-only - `index.dev.ts`'s `env()` (dev), then `process.env`, then `.env` files; the first with the key wins. `env()` returns only live objects; strings come from `.env`.
+
+`expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists; the build never does, so its imports reach no bundle. It imports `./index` (no extension - no tsconfig flag), sets `settings.env`, default-exports the settings. `env` set in `index.ts`, a `bindings` export, or no default export in `index.dev.ts` fails dev and the build.
+
+- `env()` runs once per dev server, again only after a throw - changing it needs a restart. `null`/`undefined` binds nothing.
+- `{ ...env }` and `Object.keys(env)` see only `env()`'s keys on Node and in dev - read keys by name.
+- On Node, open an app-owned database in a module instead. Workers bindings: Fetch target.
 
 ## Fetch target
 
 `config({ target: "fetch" })` builds `dist/server/index.js` as a module, every dependency bundled, for a host that calls its default export's `fetch(request, env, ctx)`.
 
 - `host(app)` returns the default export - platform handlers (`scheduled`) go there; without `fetch` it gets `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. Dev never calls it; on Node it fails the build.
-- `env` is the host's second `fetch` argument - in `handle` and `Current.get().env`.
+- `env` is the host's second `fetch` argument - in `handle` and `Current.get().env` - with no `process.env` or `.env` layer.
 - Named exports of `index.ts` are re-exported - listed ones, not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
 - Folder gates do not run: a remote entry with a default fails the build, and in dev the calls below it. Remote functions only.
@@ -172,6 +185,21 @@ export default config({
 ```
 
 The binding must be named `ASSETS`; under another name, pass it: `host: app => ({ fetch: (r, env, ctx) => app(r, { env, ctx, assets: env.STATIC }) })`.
+
+Dev gets the same bindings from wrangler's local platform:
+
+```ts
+// index.dev.ts
+import type { Env } from "@expressive/dev";
+import { getPlatformProxy } from "wrangler";
+import settings from "./index";
+
+settings.env = async () => (await getPlatformProxy<Env>()).env;
+
+export default settings;
+```
+
+Local tables: `wrangler d1 migrations apply DB --local` - dev runs no migrations.
 
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 

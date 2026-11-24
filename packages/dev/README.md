@@ -17,6 +17,7 @@ app/                  file-based routes
   blog/remote/        sidecar      or a folder of them, any depth, index optional
 app.tsx | src/app.tsx single root component instead of app/ (default export)
 index.ts              optional server entry: export default config({ port, handle, target, host })
+index.dev.ts          optional, dev only: index.ts's settings plus env(), the bindings a host would pass
 index.html            optional custom shell (#root and the entry script are injected if missing)
 vite.config.ts        optional, merged under the host's config
 ```
@@ -112,8 +113,7 @@ export default config({
   the root outside `public/`. A request it passes that is neither a file nor a navigation goes on to
   Vite's middlewares, with the headers `handle` added and the request it forwarded.
 
-`env` is the host's bindings - `{}` on Node and in dev. Type it on `@expressive/dev`:
-`declare module "@expressive/dev" { interface Env { API_KEY: string } }`.
+`env` is the request's bindings - see env and index.dev.ts, below.
 
 `compose(settings)` from `@expressive/dev/server` builds the app without a server, for tests -
 no remotes; pages come from a stubbed `assets`:
@@ -126,6 +126,32 @@ const app = compose(settings);
 const page = await app(new Request("http://x/invite/abc"), { assets: { fetch: async () => new Response(shell) } });
 ```
 
+### env and index.dev.ts
+
+`handle`'s `env` and `Current.get().env` hold the request's bindings:
+
+- On the `fetch` target: the host's `env` object, as is.
+- On Node and in dev: a read-only view - in dev, what `index.dev.ts`'s `env()` returns, then
+  `process.env`, then the `.env` files. The first that has a key wins.
+
+So `env()` returns only live objects, such as a local database standing in for a host binding.
+Strings come from `.env`, and the keys `expressive env` writes to `env.d.ts` type `env` too.
+
+`expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists. It imports `./index`
+(no extension, so the app's tsconfig needs no extra flag), sets `settings.env` and default-exports
+the settings. The build never reads it, so nothing it imports reaches a bundle. `env` set in
+`index.ts`, a 0.5 `bindings` export, and an `index.dev.ts` without a default export fail the dev
+server and the build.
+
+Dev calls `env()` once per server, and again only after it throws - a change to `env()` needs a
+restart. A `null` or `undefined` result binds nothing.
+
+`{ ...env }` and `Object.keys(env)` see only `env()`'s keys on Node and in dev, never `process.env`
+or `.env` - read keys by name.
+
+On Node, a database the app opens itself needs none of this: import it from a module. For a
+Workers binding, see the example under Deploying to a fetch host.
+
 ### Deploying to a fetch host
 
 `config({ target: "fetch" })` builds `dist/server/index.js` as a module with every dependency
@@ -135,7 +161,8 @@ a server.
 - `host(app)` returns that default export, for platform handlers dev does not model; one without
   `fetch` gets `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. Dev never calls it, and
   on the Node target it fails the build.
-- `env` is the host's second `fetch` argument, as `handle` and `Current.get().env` read it.
+- `env` is the host's second `fetch` argument, as `handle` and `Current.get().env` read it - no
+  `process.env` or `.env` layer.
 - `index.ts`'s named exports are re-exported (Durable Object classes) - listed ones only, not
   `export *`; export types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
@@ -170,6 +197,23 @@ Pages and files come from the `ASSETS` binding, the shell included - the binding
 `host: app => ({ fetch: (r, env, ctx) => app(r, { env, ctx, assets: env.STATIC }) })`. `scheduled`
 runs outside any request, so it reads the platform's `env` argument and opens its own session.
 
+In dev, `index.dev.ts` gives `handle` the same bindings from wrangler's local platform, read from
+`wrangler.jsonc`:
+
+```ts
+// index.dev.ts - read by `expressive dev` instead of index.ts; never built
+import type { Env } from "@expressive/dev";
+import { getPlatformProxy } from "wrangler";
+import settings from "./index";
+
+settings.env = async () => (await getPlatformProxy<Env>()).env;
+
+export default settings;
+```
+
+`wrangler d1 migrations apply DB --local` creates the local database's tables - dev runs no
+migrations.
+
 `wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
 and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*",
 "!/assets/*"] }`. Without `run_worker_first`, a call posted to a path with a file (a root remote's,
@@ -188,7 +232,9 @@ prerendered home page for client routes.
 | `around` wrapping calls only (no `fetch`) | `handle` wraps pages and static files too |
 | a throw in `fetch` reaching the host | an `HttpError`'s status, else a logged 500 |
 | `Cookies.set` or `X.get()` inside `fetch` | `Set-Cookie` on `handle`'s `Response` |
-| `export async function bindings()` | `config.env` in `index.dev.ts` |
+| `export async function bindings()` | `settings.env = () => ({ ... })` in `index.dev.ts` |
+| `bindings` on the fetch target only, in dev | `index.dev.ts` on either target |
+| Node's `Current.get().env` as `{}` | `process.env` over `.env` |
 | `declare module "@expressive/rpc" { interface Env }` | `declare module "@expressive/dev"` |
 | `AppConfig` | `Settings` |
 

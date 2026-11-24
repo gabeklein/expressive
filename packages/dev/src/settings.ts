@@ -1,6 +1,12 @@
+import type { Env as Dotenv } from "@expressive/env";
 import type { Env, ExecutionCtx } from "@expressive/rpc";
 
+/** The request's `env`, with the keys `expressive env` declares. Augment it: `declare module "@expressive/dev" { interface Env { DB: … } }`. */
 export type { Env } from "@expressive/rpc";
+
+declare module "@expressive/rpc" {
+  interface Env extends Dotenv {}
+}
 
 /** The app below `handle`: remote calls, then pages and static files. */
 export type App = (request: Request, options?: AppOptions) => Promise<Response>;
@@ -48,6 +54,17 @@ export interface Settings {
   port?: number;
   /** `opaque: false` keeps readable call names in a build, for clients that must outlive a deploy. Default hashed per build. */
   remote?: { opaque?: boolean };
+  /**
+   * Dev only, set in `index.dev.ts`: what the host would pass as `env`, such as a local database for `DB`.
+   *
+   * Called once per dev server, again after it throws - a change to it needs a restart.
+   * Its keys win over `process.env`, then `.env` files - return only live objects. `null` or `undefined` binds nothing.
+   * Set in `index.ts`, it fails the dev server and the build.
+   *
+   * @example
+   * settings.env = async () => ({ DB });
+   */
+  env?(): Partial<Env> | null | undefined | Promise<Partial<Env> | null | undefined>;
   /**
    * Middleware around every request the host forwards - remote calls, pages and static files.
    *

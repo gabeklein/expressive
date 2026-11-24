@@ -7,6 +7,7 @@ import { verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import type { Settings } from "../settings";
 import { compose, type Pages } from "./compose";
+import { layered } from "./env";
 import { install } from "./install";
 
 const MIME: Record<string, string> = {
@@ -73,6 +74,7 @@ export interface ListenOptions {
  * Entry plumbing, not app API: the production server the generated entry starts, booted by `dist/server/index.js`.
  *
  * Composes the app `settings` over `client` - for GET and HEAD, a file, else a page's `<path>/index.html`, else the `200.html` or `index.html` shell by the page rule, else 404 - caching `assetsDir` immutably.
+ * Binds `process.env` over the `.env` files as each request's `env`.
  * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
  */
 export function listen({ settings, client, sidecars = [], gates = [], pages = { patterns: [] } }: ListenOptions): Server {
@@ -81,6 +83,7 @@ export function listen({ settings, client, sidecars = [], gates = [], pages = { 
   const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
   const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), pages });
   const assets = { fetch: async (request: Request) => files(client, request, `/${pages.assetsDir ?? "assets"}/`) };
+  const env = layered();
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
     res.statusCode = 400;
@@ -90,7 +93,7 @@ export function listen({ settings, client, sidecars = [], gates = [], pages = { 
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const request = toRequest(req, res);
 
-    return send(res, await app(request, { assets }));
+    return send(res, await app(request, { env, assets }));
   }
 
   const port = settings.port ?? 3000;
