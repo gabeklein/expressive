@@ -8,6 +8,7 @@ import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type 
 import type { ModuleRunner } from "vite/module-runner";
 
 import type { Settings } from "../settings";
+import { owns, type Api, type ApiRoute } from "../server/api";
 import { check } from "../server/check";
 import { compose, routed, type Pages } from "../server/compose";
 import { layered } from "../server/env";
@@ -20,6 +21,7 @@ import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { fileResponse } from "../server/listen";
 import { install } from "../server/install";
 import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
+import { apiErrors, reservedApi, scanApi, type ApiFile } from "./api";
 
 const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
@@ -30,6 +32,7 @@ const CALL = "call.ts";
 const SETTINGS = "settings.ts";
 const INDEX = "settings-index.ts";
 const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
+const API_IMPORT = /(^|\/)api(\/|\.[cm]?[jt]sx?$|$)/;
 
 /** The plugin's API - `config()` loads the app's settings: `index.dev.ts`'s when it exists, else `index.ts`'s. */
 export interface Host {
@@ -86,6 +89,8 @@ export function host(dotenv: boolean): Plugin<Host> {
   let settingsId: string;
   let indexId: string;
   let htmlId: string;
+  let apiDir: string;
+  let apiPrefix: string;
   let vite: ViteDevServer | undefined;
   let layout: string | undefined;
   let runner: ModuleRunner | undefined;
@@ -121,6 +126,15 @@ export function host(dotenv: boolean): Plugin<Host> {
   };
 
   const remoteAt = (file: string) => (project.appDir ? remoteOf(project.appDir, file) : undefined);
+
+  const apiFiles = (): ApiFile[] | undefined => {
+    if (!existsSync(apiDir)) return;
+
+    const { routes, problems } = scanApi(root, apiDir);
+
+    if (problems.length) throw new Error(problems.join("\n"));
+    return routes;
+  };
 
   const entries = () => [join(root, "index.ts"), join(root, "index.dev.ts")].map(file => existsSync(file) && file);
 
@@ -177,6 +191,10 @@ export function host(dotenv: boolean): Plugin<Host> {
       prerendering = user.build?.rollupOptions?.input === PRERENDER_ENTRY;
       settings = build && (await buildConfig(project));
 
+      const reserved = reservedApi(root);
+
+      if (reserved.length) throw new Error(reserved.join("\n"));
+
       const entries = project.appDir
         ? ["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*", "!app/**/remote.*", "!app/**/remote/**"]
         : [importRel(root, project.appPath!)];
@@ -204,6 +222,8 @@ export function host(dotenv: boolean): Plugin<Host> {
       settingsId = join(generatedDir, SETTINGS);
       indexId = join(generatedDir, INDEX);
       htmlId = join(root, "index.html");
+      apiDir = join(root, "api");
+      apiPrefix = `${config.base}api`;
       assetsDir = config.build.assetsDir.replace(/\/+$/, "");
     },
 
@@ -216,6 +236,10 @@ export function host(dotenv: boolean): Plugin<Host> {
           const { error } = await gateError(remote);
           if (error) this.error(error);
         }
+
+        const errors = existsSync(apiDir) ? await apiErrors(root) : [];
+
+        if (errors.length) this.error(errors.join("\n"));
       }
 
       if (build === "server") {
@@ -241,6 +265,16 @@ export function host(dotenv: boolean): Plugin<Host> {
 
       if (id === htmlId && !existsSync(htmlId)) return htmlId;
       if (id === DOM_SERVER && importer === prerenderId) return this.resolve(id, fileURLToPath(import.meta.url), { skipSelf: true });
+
+      if (!options.ssr && importer && API_IMPORT.test(id) && SCRIPT.test(importer.split("?")[0])) {
+        const resolved = await this.resolve(id, importer, { ...options, skipSelf: true });
+
+        if (resolved?.id.startsWith(apiDir + sep)) {
+          if ("scan" in options && options.scan) return { id: `\0${resolved.id}`, external: true };
+          this.error(`${relative(root, importer)} imports ${relative(root, resolved.id)} - api/ is server-only; fetch its route, or move what both need outside api/.`);
+        }
+      }
+
       if (options.ssr || !importer || !REMOTE_IMPORT.test(id) || !SCRIPT.test(importer.split("?")[0])) return;
 
       const resolved = await this.resolve(id, importer, { ...options, skipSelf: true });
@@ -282,8 +316,13 @@ export function host(dotenv: boolean): Plugin<Host> {
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
           return (routes = await generate());
-        case serverId:
-          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project), await pages()) : serverEntry(project, generatedDir, exposure, gated(project), await pages());
+        case serverId: {
+          const api = { prefix: apiPrefix, routes: apiFiles() };
+
+          return settings?.target === "fetch"
+            ? fetchEntry(project, generatedDir, exposure, await namedExports(project), api, await pages())
+            : serverEntry(project, generatedDir, exposure, gated(project), api, await pages());
+        }
         case prerenderId: {
           if (!project.appDir) return prerenderEntry(importRel(generatedDir, project.appPath!), []);
 
@@ -334,6 +373,21 @@ export function host(dotenv: boolean): Plugin<Host> {
       install();
       watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate(), () => (scanned = undefined));
 
+      let table: ApiRoute[] | undefined;
+
+      const routing: Api = {
+        prefix: apiPrefix,
+        routes: () => (table ??= apiFiles()!.map(({ file, ...route }) => ({ ...route, load: () => host.import(file) }))),
+      };
+
+      const moved = (file: string) => file.startsWith(apiDir + sep) && (table = undefined);
+
+      server.watcher.add(apiDir);
+      server.watcher.on("add", moved);
+      server.watcher.on("unlink", moved);
+      server.watcher.on("addDir", moved);
+      server.watcher.on("unlinkDir", moved);
+
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
       const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
@@ -376,12 +430,13 @@ export function host(dotenv: boolean): Plugin<Host> {
 
         try {
           const call = isCall(request);
+          const routed = existsSync(apiDir) && owns(routing, new URL(request.url).pathname);
 
-          if (!call && skipped(request)) return next();
+          if (!call && !routed && skipped(request)) return next();
 
           const settings = await api.config();
 
-          if (!call && !settings.handle) return next();
+          if (!call && !routed && !settings.handle) return next();
 
           let fell: { request: Request; error?: unknown } | undefined;
 
@@ -406,7 +461,7 @@ export function host(dotenv: boolean): Plugin<Host> {
             },
           };
 
-          const app = compose(settings, { sidecars: endpoints, gates, dev: true });
+          const app = compose(settings, { sidecars: endpoints, gates, api: existsSync(apiDir) ? routing : undefined, dev: true });
           const reply = await app(request, { env: await view(settings), ctx, assets });
 
           if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) {
