@@ -19,6 +19,7 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 - **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `ctx`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
 - **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces an `after()` helper and a generator protocol. A returned value or `Response` still works. `ctx` stays on `Current` for fetch handlers dropped in (below).
 - **Gates are rpc's function gates, with `next` optional.** Models a gate activates are in context below it. Outside a folder `index.ts`, an `api/` module's `default` is a catch-all. No remainder export (`ANY`, `ELSE`).
+- **A returned function is a fetch handler,** called with `(request, env, ctx)`, so `export default () => legacy.fetch` mounts Hono or an auth library without handlers taking parameters.
 - **An object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
 
@@ -484,7 +485,6 @@ Each has a recommendation; sign-off on these unblocks PR 1.
 8. **Body cap.** Recommend 1 MB by default. Raising it needs a setting (`config({ body: { limit } })`), which is new surface; recommend adding it only when asked.
 9. **A throw below a wrapping gate.** Recommend resolving `next()` with the error reply, as calls already do, so a wrapper treats a failed call and a failed route alike. The alternative, rejecting `next()`, lets `db.session` roll back on a route's throw, but then calls would need to reject too to match.
 10. **Trunk.** Recommend landing the PRs below on a `feat/dev-serve` trunk cut from this branch and releasing once. Publishing 0.6 with the root gate but without `api/` would make apps port twice. The trunk isn't released between PRs, so a gap one PR leaves for a later one is tolerated there (named below).
-11. **Positional arguments.** Settled: gates and routes stay parameter-free; a returned function is called as a fetch handler instead (Dropping in a fetch handler), so `export default () => legacy.fetch` mounts one without a second way to read the request.
 
 ## PR split
 
