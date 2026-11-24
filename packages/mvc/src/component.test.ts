@@ -152,6 +152,59 @@ describe('twin construction', () => {
       expect(warn).not.toBeCalled();
     });
 
+  it('will keep what the second twin built before its children', async () => {
+    const warn = mockWarn();
+    const props = {};
+
+    class Dep extends Model {}
+    class Holder extends Model {
+      dep?: Dep = undefined;
+    }
+    class Bar extends Component {
+      holder = new Holder({ dep: new Dep() });
+    }
+
+    const a = new Bar(props);
+    const b = new Bar(props);
+
+    event(b);
+    await flushMicrotasks();
+
+    expect(a.get(null)).toBe(true);
+    expect(b.holder.dep!.get(null)).toBe(false);
+    expect(warn).not.toBeCalled();
+  });
+
+  it('will spare a Model built between twins and activated since', async () => {
+    const props = {};
+
+    new Foo(props);
+    const between = new Child();
+    const kept = new Foo(props);
+
+    event(between);
+    event(kept);
+    await flushMicrotasks();
+
+    expect(between.get(null)).toBe(false);
+  });
+
+  it('will spare children of a parent activating the twin', async () => {
+    const props = {};
+    const first = new Foo(props);
+
+    class Parent extends Model {
+      child = new Child();
+    }
+
+    const parent = Parent.new(() => void event(new Foo(props)));
+
+    await flushMicrotasks();
+
+    expect(first.get(null)).toBe(true);
+    expect(parent.child.get(null)).toBe(false);
+  });
+
   it('will warn for each twin never activated', async () => {
     const warn = mockWarn();
     const props = { value: 1 };
@@ -367,6 +420,20 @@ describe('for', () => {
     expect(session.name).toBe('Ada');
     expect(is).toBeCalledWith(session);
     expect(is).not.toBeCalledWith(provider);
+  });
+
+  it('will pass a provided class to is before its new()', () => {
+    const log: string[] = [];
+
+    class Target extends Model {
+      protected new() {
+        log.push('new');
+      }
+    }
+
+    Component.new({ for: Target, is: () => void log.push('is') } as any);
+
+    expect(log).toEqual(['is', 'new']);
   });
 
   it('will assign an object is returns to a provided class', () => {

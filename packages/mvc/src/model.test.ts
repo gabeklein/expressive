@@ -3451,6 +3451,89 @@ describe('new method', () => {
 
     expect(didDestroy).toBeCalledTimes(1);
   });
+
+  it('will start field children after args, before new()', () => {
+    const log: string[] = [];
+
+    class Child extends Model {
+      parent = get(Parent);
+
+      protected new() {
+        log.push(`child sees ${this.parent.value}`);
+      }
+    }
+
+    class Parent extends Model {
+      value = 'default';
+      child = new Child();
+
+      protected new() {
+        log.push('parent new');
+      }
+    }
+
+    Parent.new({ value: 'arg' });
+
+    expect(log).toEqual(['child sees arg', 'parent new']);
+  });
+
+  it('will start a child an arg assigns after later args', () => {
+    const seen = vi.fn();
+
+    class Child extends Model {
+      parent = get(Parent);
+
+      protected new() {
+        seen(this.parent.value);
+      }
+    }
+
+    class Parent extends Model {
+      value = 'default';
+      child?: Child = undefined;
+    }
+
+    Parent.new({ child: new Child() }, { value: 'later' });
+
+    expect(seen).toBeCalledWith('later');
+  });
+
+  it('will keep field children when an arg activates another that throws', () => {
+    class Other extends Model {}
+    class Child extends Model {}
+    class Parent extends Model {
+      child = new Child();
+    }
+
+    const other = new Other(() => {
+      throw new Error('abort');
+    });
+
+    const parent = Parent.new(() => {
+      expect(() => event(other)).toThrow('abort');
+    });
+
+    expect(parent.child.get(null)).toBe(false);
+  });
+
+  it('will not start a field child destroyed by an arg', () => {
+    const didCreate = vi.fn();
+
+    class Child extends Model {
+      protected new() {
+        didCreate();
+      }
+    }
+
+    class Parent extends Model {
+      child = new Child();
+    }
+
+    const parent = Parent.new((self) => void self.child.set(null));
+
+    expect(didCreate).not.toBeCalled();
+    expect(parent.child.get(null)).toBe(true);
+  });
 });
 
 describe('new method (static)', () => {
@@ -4487,7 +4570,7 @@ describe('on setup / ready stages (static)', () => {
     await expect(Promise.resolve(settled)).rejects.toThrow('failed');
   });
 
-  it('will destroy what was built if an init callback throws', async () => {
+  it('will not start field children if an init callback throws', async () => {
     const log: string[] = [];
     const handler = vi.fn();
     let self!: Level;
@@ -4517,7 +4600,7 @@ describe('on setup / ready stages (static)', () => {
       );
 
     expect(create).toThrow('abort');
-    expect(log).toEqual(['logger new', 'logger destroyed', 'level destroyed']);
+    expect(log).toEqual(['level destroyed']);
     expect(self.get(null)).toBe(true);
     expect(self.logger.get(null)).toBe(true);
 
@@ -4550,12 +4633,12 @@ describe('on setup / ready stages (static)', () => {
   });
 
   it('will rethrow if an init callback destroys the instance then throws', () => {
-    const destroyed = vi.fn();
+    const didCreate = vi.fn();
     let self!: Test;
 
     class Child extends Model {
       protected new() {
-        return destroyed;
+        didCreate();
       }
     }
 
@@ -4571,8 +4654,9 @@ describe('on setup / ready stages (static)', () => {
       });
 
     expect(create).toThrow('abort');
-    expect(destroyed).toBeCalledTimes(1);
     expect(self.get(null)).toBe(true);
+    expect(self.child.get(null)).toBe(true);
+    expect(didCreate).not.toBeCalled();
   });
 
   it('will destroy the instance if a setup handler throws', async () => {
@@ -4776,8 +4860,8 @@ describe('on setup / ready stages (static)', () => {
       );
 
     expect(create).toThrow('abort');
-    expect(log).toEqual(['leaf', 'root']);
-    expect(built.map((x) => x.get(null))).toEqual([true, true, true]);
+    expect(log).toEqual(['root']);
+    expect(built.map((x) => x.get(null))).toEqual([true, true]);
 
     await flushMicrotasks();
     expect(warn).not.toBeCalled();

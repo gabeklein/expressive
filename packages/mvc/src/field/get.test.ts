@@ -241,6 +241,21 @@ describe('fetch mode', () => {
         expect(parent.child.peer).toBe(parent.peer);
     });
 
+    it('will resolve a required sibling assigned in new()', () => {
+      class Parent extends Model {
+        child = new Required();
+        peer?: Peer = undefined;
+
+        protected new() {
+          this.peer = new Peer();
+        }
+      }
+
+      const parent = Parent.new();
+
+      expect(parent.child.peer).toBe(parent.peer);
+    });
+
     it('will keep own sibling when another arrives in context', () => {
       class Parent extends Model {
         child = new Required();
