@@ -2,10 +2,11 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
-import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
-import { dispatch, failure, verify, type Seat } from "@expressive/rpc/protocol";
+import { send, toRequest } from "@expressive/rpc/http";
+import { verify, type Seat } from "@expressive/rpc/protocol";
 
-import { wrap, type AppConfig, type Ctx } from "./config";
+import type { Settings } from "../settings";
+import { compose } from "./compose";
 import { install } from "./install";
 import { isStream, stream } from "./stream";
 import { twins, type Endpoint } from "./twin";
@@ -62,29 +63,25 @@ export function fileResponse(dir: string, pathname: string): Response | undefine
   return new Response(body, { headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" } });
 }
 
-export interface ServeOptions {
-  config: AppConfig;
+export interface ListenOptions {
+  settings: Settings;
   client: string;
   sidecars?: Endpoint[];
   seats?: { pattern: string[]; Type: Seat }[];
 }
 
 /**
- * Production server for a built app - the generated server entry calls it, booted by `dist/server/index.js`.
+ * Entry plumbing, not app API: the production server the generated entry starts, booted by `dist/server/index.js`.
  *
- * Answers calls and twin streams, then the app's own `fetch`, then serves `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - and caches `/assets/` immutably.
- * That last step is what `fetch`'s `next` resolves.
- * Listens only after every sidecar's error classes verify.
+ * Answers twin streams, then the app `settings` compose over `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - caching `/assets/` immutably.
+ * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
  */
-export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
+export function listen({ settings, client, sidecars = [], seats = [] }: ListenOptions): Server {
   install();
 
   const seated = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
-  const app = scoped(config);
-  const ctx: Ctx = {
-    waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)),
-  };
-  const seatAt = async (pattern: string[]) => seated.get(pattern.join("/"));
+  const app = compose(settings, { sidecars: () => sidecars, seats: async pattern => seated.get(pattern.join("/")), tier: twins });
+  const assets = { fetch: async (request: Request) => files(client, new URL(request.url).pathname) };
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
     res.statusCode = 400;
@@ -94,27 +91,10 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const request = toRequest(req, res);
 
-    const scope = { request, env: {}, ctx };
-
-    if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, seatAt, twins)).catch(error => failure(error, sidecars, false)));
-    if (isStream(request)) return send(res, stream(request));
-
-    const { pathname } = new URL(request.url);
-    const next = async () => {
-      const asset = fileResponse(client, pathname);
-      if (asset && pathname.startsWith("/assets/")) asset.headers.set("cache-control", "public, max-age=31536000, immutable");
-
-      const found = asset ?? fileResponse(client, join(pathname, "index.html")) ?? fileResponse(client, "/200.html") ?? fileResponse(client, "/index.html");
-
-      return found ?? new Response("Not found", { status: 404 });
-    };
-
-    const response = app.fetch && (await wrap(config, scope, async () => app.fetch!(request, scope.env, ctx, next)));
-
-    return send(res, response ?? (await next()));
+    return send(res, isStream(request) ? stream(request) : await app(request, { assets }));
   }
 
-  const port = config.port ?? 3000;
+  const port = settings.port ?? 3000;
   const announce = () => console.log(`Expressive running at http://localhost:${port}/`);
   const checked = sidecars.map(async ({ pattern, exports }) => {
     const path = `/${pattern.join("/")}`;
@@ -124,4 +104,14 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
   Promise.all(checked).then(() => server.listen(port, announce));
 
   return server;
+}
+
+function files(client: string, pathname: string): Response {
+  const asset = fileResponse(client, pathname);
+
+  if (asset && pathname.startsWith("/assets/")) asset.headers.set("cache-control", "public, max-age=31536000, immutable");
+
+  const found = asset ?? fileResponse(client, join(pathname, "index.html")) ?? fileResponse(client, "/200.html") ?? fileResponse(client, "/index.html");
+
+  return found ?? new Response("Not found", { status: 404 });
 }

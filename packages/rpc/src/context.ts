@@ -55,6 +55,7 @@ interface Stage {
 interface Frame {
   exchange: Exchange;
   layer: Layer;
+  params?: Record<string, string>;
   stage?: Stage;
   capture?: Model[];
 }
@@ -246,11 +247,11 @@ function close(exchange: Exchange) {
  * with `fail`'s reply, by default rejecting. A gate's answer - `send`, a returned `Response` or
  * function - resolves with that `Response` instead of `run`'s value.
  */
-export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = [], fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>> = rethrow): Promise<Awaited<T>> {
+export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = [], fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>> = rethrow, params?: Record<string, string>): Promise<Awaited<T>> {
   const parent = store.getStore();
   const nested = parent?.exchange.origin === originOf(request);
   const exchange = nested ? parent!.exchange : open(request);
-  const frame: Frame = { exchange, layer: root() };
+  const frame: Frame = { exchange, layer: root(), params };
 
   exchange.open++;
 
@@ -309,7 +310,7 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
   const shared = parent.layer;
   const layer = newLayer(shared.prefix, shared);
   const built: Model[] = [];
-  const lower: Frame = { exchange, layer };
+  const lower: Frame = { exchange, layer, params: parent.params };
   let resolve!: (reply: T) => void;
   let reject!: (error: unknown) => void;
   let final: unknown;
@@ -757,9 +758,11 @@ export class Current extends Model {
     readOnly();
   }
 
-  /** The matched route's params, decoded. `{}` in a call and where the host gives none. */
+  /** The matched route's params, decoded - a sidecar call's are its folder's. `{}` where the host gives none. */
   get params(): Record<string, string> {
-    return frame().stage?.params ?? EMPTY;
+    const { stage, params } = frame();
+
+    return stage?.params ?? params ?? EMPTY;
   }
   set params(_: Record<string, string>) {
     readOnly();

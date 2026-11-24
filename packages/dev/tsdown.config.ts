@@ -8,6 +8,7 @@ export default defineConfig({
   outExtensions: () => ({ js: '.js' }),
   entry: {
     index: 'src/index.ts',
+    settings: 'src/settings.ts',
     'server/index': 'src/server/index.ts',
     fetch: 'src/fetch.ts',
     cli: 'src/cli.ts',

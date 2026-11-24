@@ -85,6 +85,20 @@ describe("call dispatch", () => {
     expect(statuses).toEqual([200, 200]);
   });
 
+  it("will give a call its folder's params, decoded, and its gates none", async () => {
+    const seen: Record<string, string>[] = [];
+    const params = async () => Current.get().params;
+    const folders: Endpoint[] = [
+      { pattern: ["blog", ":slug", "*"], exports: async () => ({ calls: { params }, classes: {} }) },
+      { pattern: ["raw", ":id"], exports: async () => ({ calls: { params }, classes: {} }) },
+    ];
+    const gate = async () => void seen.push(Current.get().params);
+
+    expect(await send(folders, request("/blog/a%20b/c/d", "params", "[]"), false, async pattern => (pattern.length == 1 ? gate : undefined))).toEqual({ status: 200, body: { value: { slug: "a b", "*": "c/d" } } });
+    expect(await send(folders, request("/raw/%E0", "params", "[]"))).toEqual({ status: 200, body: { value: { id: "%E0" } } });
+    expect(seen).toEqual([{}]);
+  });
+
   it("will reply 404 to a pull, a seat method or a pool method", async () => {
     class Tally extends Model {
       total = 0;

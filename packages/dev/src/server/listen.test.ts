@@ -6,7 +6,8 @@ import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { fileResponse, serve } from "./serve";
+import type { HandleArgs } from "../settings";
+import { fileResponse, listen } from "./listen";
 
 describe("static files", () => {
   const dir = mkdtempSync(join(tmpdir(), "client-"));
@@ -42,13 +43,13 @@ describe("static files", () => {
   });
 });
 
-describe("serve", () => {
+describe("listen", () => {
   it("will reply 400 to a request it cannot read, and keep serving", async () => {
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "index.html"), "<html></html>");
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const server = serve({ config: { port: 0 }, client: dir });
+    const server = listen({ settings: { port: 0 }, client: dir });
     await new Promise(done => server.once("listening", done));
 
     const { port } = server.address() as AddressInfo;
@@ -88,7 +89,7 @@ describe("serve", () => {
     writeFileSync(join(dir, "200.html"), "shell");
     writeFileSync(join(dir, "about", "index.html"), "about");
 
-    const server = serve({ config: { port: 0 }, client: dir });
+    const server = listen({ settings: { port: 0 }, client: dir });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
@@ -104,125 +105,50 @@ describe("serve", () => {
     vi.restoreAllMocks();
   });
 
-  it("will run the app's fetch in scope before files, falling through when it answers nothing", async () => {
+  it("will run handle around calls and files, with the file step as next", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { Current } = await import("@expressive/rpc");
-    const dir = mkdtempSync(join(tmpdir(), "client-"));
-    writeFileSync(join(dir, "index.html"), "home");
-
-    const config = {
-      port: 0,
-      async fetch(request: Request, env: object, ctx: { waitUntil(promise: Promise<unknown>): void }) {
-        if (new URL(request.url).pathname !== "/hello") return;
-
-        ctx.waitUntil(Promise.reject(new Error("late")));
-        Current.get().setHeader("x-seen", "1");
-
-        return Response.json({ env, path: Current.get().url.pathname });
-      },
-    };
-
-    const server = serve({ config, client: dir });
-    await new Promise(done => server.once("listening", done));
-
-    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const hello = await fetch(base + "/hello");
-
-    expect(await hello.json()).toEqual({ env: {}, path: "/hello" });
-    expect(hello.headers.get("x-seen")).toBe("1");
-    expect(await (await fetch(base + "/")).text()).toBe("home");
-    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil:", new Error("late")));
-
-    server.closeAllConnections();
-    server.close();
-    vi.restoreAllMocks();
-  });
-
-  it("will give the app's fetch what it falls through to as next", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { AsyncLocalStorage } = await import("node:async_hooks");
+    const store = new AsyncLocalStorage<string>();
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "200.html"), "<head></head>");
     writeFileSync(join(dir, "robots.txt"), "robots");
     mkdirSync(join(dir, "assets"));
     writeFileSync(join(dir, "assets", "app.js"), "1");
 
-    const config = {
+    const settings = {
       port: 0,
-      async fetch(_request: Request, _env: object, _ctx: object, next: () => Promise<Response>) {
+      async handle({ request, env, ctx, next }: HandleArgs) {
+        const { pathname } = new URL(request.url);
+
+        if (pathname === "/hello") {
+          ctx.waitUntil(Promise.reject(new Error("late")));
+          return Response.json({ env });
+        }
+
+        if (pathname !== "/invite/abc") return store.run("inside", () => next());
+
         const page = await next();
         return new Response(`${page.status} ${await page.text()}`.replace("</head>", "<meta></head>"), page);
       },
     };
 
-    const server = serve({ config, client: dir });
+    const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
+    const server = listen({ settings, client: dir, sidecars: [{ pattern: ["tally"], exports } as any] });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
     const invite = await fetch(base + "/invite/abc");
+    const where = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where" }, body: "[]" });
 
+    expect(await (await fetch(base + "/hello")).json()).toEqual({ env: {} });
     expect(await invite.text()).toBe("200 <head><meta></head>");
     expect(invite.headers.get("content-type")).toContain("text/html");
-    expect(await (await fetch(base + "/robots.txt")).text()).toBe("200 robots");
+    expect(await where.json()).toMatchObject({ value: "inside" });
+    expect(await (await fetch(base + "/robots.txt")).text()).toBe("robots");
     expect((await fetch(base + "/assets/app.js")).headers.get("cache-control")).toContain("immutable");
     expect((await fetch(base + "/assets/gone.js")).headers.has("cache-control")).toBe(false);
-
-    server.closeAllConnections();
-    server.close();
-    vi.restoreAllMocks();
-  });
-
-  it("will run calls and the app's fetch inside around, and reply a rejection as the call's error", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const { AsyncLocalStorage } = await import("node:async_hooks");
-    const store = new AsyncLocalStorage<string>();
-    const dir = mkdtempSync(join(tmpdir(), "client-"));
-    writeFileSync(join(dir, "index.html"), "home");
-
-    const seen: string[] = [];
-    const config = {
-      port: 0,
-      around<T>(next: () => Promise<T>, { request, env }: { request: Request; env: object }) {
-        seen.push(`${new URL(request.url).pathname} ${JSON.stringify(env)}`);
-        if (request.headers.has("x-fail")) return Promise.reject(new Error("no session"));
-        return store.run("inside", next);
-      },
-      async fetch(request: Request) {
-        if (new URL(request.url).pathname === "/hello") return Response.json(store.getStore());
-      },
-    };
-
-    const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
-    const server = serve({ config, client: dir, sidecars: [{ pattern: ["tally"], exports } as any] });
-    await new Promise(done => server.once("listening", done));
-
-    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const post = (headers: Record<string, string> = {}) => fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where", ...headers }, body: "[]" });
-    const failed = await post({ "x-fail": "1" });
-
-    expect(await (await post()).json()).toMatchObject({ value: "inside" });
-    expect(failed.status).toBe(500);
-    expect(await failed.json()).toEqual({ message: "Internal error." });
-    expect(await (await fetch(base + "/hello")).json()).toBe("inside");
-    expect(await (await fetch(base + "/")).text()).toBe("home");
-    expect(seen).toEqual(["/tally {}", "/tally {}", "/hello {}", "/ {}"]);
-
-    server.closeAllConnections();
-    server.close();
-    vi.restoreAllMocks();
-  });
-
-  it("will skip around for files when the app has no fetch", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const dir = mkdtempSync(join(tmpdir(), "client-"));
-    writeFileSync(join(dir, "index.html"), "home");
-
-    const around = vi.fn((next: () => Promise<unknown>) => next());
-    const server = serve({ config: { port: 0, around } as any, client: dir });
-    await new Promise(done => server.once("listening", done));
-
-    expect(await (await fetch(`http://localhost:${(server.address() as AddressInfo).port}/`)).text()).toBe("home");
-    expect(around).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil:", new Error("late")));
 
     server.closeAllConnections();
     server.close();
@@ -232,7 +158,7 @@ describe("serve", () => {
   it("will reply 404 with no file and no shell", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const server = serve({ config: { port: 0 }, client: mkdtempSync(join(tmpdir(), "client-")) });
+    const server = listen({ settings: { port: 0 }, client: mkdtempSync(join(tmpdir(), "client-")) });
     await new Promise(done => server.once("listening", done));
 
     const { port } = server.address() as AddressInfo;
@@ -248,13 +174,13 @@ describe("serve", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const exports = vi.fn(async () => ({ calls: {}, classes: { Oops: class Oops extends Error {} } }));
 
-    const server = serve({ config: {}, client: tmpdir(), sidecars: [{ pattern: ["todos"], exports } as any] });
-    const listen = vi.spyOn(server, "listen").mockImplementation(((port: number, done: () => void) => (done(), server)) as any);
+    const server = listen({ settings: {}, client: tmpdir(), sidecars: [{ pattern: ["todos"], exports } as any] });
+    const bound = vi.spyOn(server, "listen").mockImplementation(((port: number, done: () => void) => (done(), server)) as any);
 
-    await vi.waitFor(() => expect(listen).toHaveBeenCalled());
+    await vi.waitFor(() => expect(bound).toHaveBeenCalled());
 
     expect(exports).toHaveBeenCalled();
-    expect(listen.mock.calls[0][0]).toBe(3000);
+    expect(bound.mock.calls[0][0]).toBe(3000);
     expect(log).toHaveBeenCalledWith("Expressive running at http://localhost:3000/");
 
     vi.restoreAllMocks();
@@ -267,7 +193,7 @@ describe("serve", () => {
     writeFileSync(join(dir, "data.bin"), "1");
 
     const exports = async () => ({ calls: { add: async (a: number, b: number) => a + b }, classes: {} });
-    const server = serve({ config: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], seats: [{ pattern: ["tally"], Type: class Tally extends Model {} as any }] });
+    const server = listen({ settings: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], seats: [{ pattern: ["tally"], Type: class Tally extends Model {} as any }] });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;

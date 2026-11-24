@@ -1,19 +1,23 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
-import { wrap, type AppConfig, type Ctx } from "../server/config";
+import type { Settings } from "../settings";
+import { check } from "../server/check";
+import { compose } from "../server/compose";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { runtime } from "../client/twin";
 import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
-import { isCall, scoped, toNode } from "@expressive/rpc/http";
-import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
+import { isCall, send, toRequest } from "@expressive/rpc/http";
+import { verify, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
-import { fileResponse } from "../server/serve";
+import { fileResponse } from "../server/listen";
 import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
 import { twins, type Endpoint, type Exports, type Pooled } from "../server/twin";
@@ -29,7 +33,7 @@ const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
 
 /** The plugin's API - `config()` loads the app's `index.ts` settings. */
 export interface Host {
-  config(): Promise<AppConfig>;
+  config(): Promise<Settings>;
 }
 
 const DEPS = [
@@ -84,7 +88,7 @@ export function host(dotenv: boolean): Plugin<Host> {
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
   let prerendering = false;
-  let settings: AppConfig | undefined;
+  let settings: Settings | undefined;
   const scans = new Map<string, { source: string; scan: Scan }>();
   const scanRoute: ExportScanner = async (source, path) => {
     const hit = scans.get(path);
@@ -110,7 +114,9 @@ export function host(dotenv: boolean): Plugin<Host> {
     async config() {
       if (!runner) throw new Error("The dev server is not running.");
       if (!project.configPath) return {};
-      return ((await runner.import(project.configPath)).default as AppConfig) ?? {};
+
+      const module = await runner.import(project.configPath);
+      return check(module.default ?? {}, Object.keys(module));
     },
   };
 
@@ -275,45 +281,71 @@ export function host(dotenv: boolean): Plugin<Host> {
       watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
-      const ctx: Ctx = {
-        waitUntil: promise => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)),
-      };
-      let bound: Promise<object> | undefined;
-
-      const bindings = () =>
-        (bound ??= (async () => {
-          const { bindings: provide } = await host.import(project.configPath!);
-          return typeof provide == "function" ? provide() : {};
-        })().catch(error => {
-          bound = undefined;
-          throw error;
-        }));
-
+      const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
+      const replayed = new WeakSet<object>();
+      const skipped = skipList(server);
 
-      server.middlewares.use(toNode(async request => {
-        if (isStream(request)) return stream(request);
+      server.middlewares.use(async (req, res, next) => {
+        if (replayed.has(req)) return next();
 
-        const config = await api.config();
-        const call = isCall(request);
+        let pulled = false;
+        const body = req[Symbol.asyncIterator].bind(req);
+        const request = toRequest({ method: req.method, url: req.url, headers: req.headers, [Symbol.asyncIterator]: () => ((pulled = true), body()) }, res);
 
-        if (!call && !config.fetch) return;
+        try {
+          if (isStream(request)) return await send(res, stream(request));
 
-        const env = config.target === "fetch" ? await bindings() : {};
+          const call = isCall(request);
+          const settings = await api.config();
 
-        const scope = { request, env, ctx };
+          if (!call && (!settings.handle || skipped(request))) return next();
 
-        bind(request, env);
+          let fell: { request: Request; error?: unknown } | undefined;
 
-        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
+          const assets = {
+            async fetch(forward: Request) {
+              const { pathname, search } = new URL(forward.url);
+              const file = server.config.publicDir && fileResponse(server.config.publicDir, pathname);
+              const navigation = (forward.method === "GET" || forward.method === "HEAD") && !!forward.headers.get("accept")?.includes("text/html");
 
-        const { pathname, search } = new URL(request.url);
-        const { publicDir } = server.config;
-        const next = async () =>
-          (publicDir && fileResponse(publicDir, pathname)) || new Response(await shell(pathname + search), { headers: { "content-type": "text/html" } });
+              if (file) return file;
 
-        return wrap(config, scope, async () => scoped(config).fetch!(request, env, ctx, next));
-      }));
+              if (navigation)
+                try {
+                  return new Response(await shell(pathname + search), { headers: { "content-type": "text/html" } });
+                } catch (error) {
+                  fell = { request: forward, error };
+                }
+
+              fell ??= { request: forward };
+
+              return new Response(null, { status: 404, headers: { [FELL]: "1" } });
+            },
+          };
+
+          const app = compose(settings, { sidecars: endpoints, seats: seatsOf(host, project), tier: twins, dev: true });
+          const reply = await app(request, { ctx, assets });
+
+          if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) return await send(res, unmarked(reply));
+          if (fell.error) return next(fell.error);
+
+          reply.headers.forEach((value, name) => KEPT.has(name) || res.setHeader(name, value));
+          if (reply.headers.has("set-cookie")) res.setHeader("set-cookie", reply.headers.getSetCookie());
+
+          if (fell.request === request && !pulled) return next();
+
+          const replay = await replica(req, fell.request);
+
+          replayed.add(replay);
+          server.middlewares(replay, res, () => {
+            res.statusCode = 404;
+            res.end();
+          });
+        } catch (error) {
+          next(error);
+        }
+      });
 
       return () => {
         server.middlewares.use(async (req, res, next) => {
@@ -443,12 +475,65 @@ function stateless(context: { error(message: string): never }, file: string, { s
 
 async function namedExports(project: Project): Promise<string[]> {
   const { exports } = await scanExports(readFileSync(project.configPath!, "utf8"), project.configPath!);
-  return [...exports].filter(name => name !== "default" && name !== "bindings");
+  return [...exports].filter(name => name !== "default");
 }
 
-async function buildConfig(project: Project): Promise<AppConfig> {
+async function buildConfig(project: Project): Promise<Settings> {
   if (!project.configPath) return {};
 
-  const { module } = await runnerImport<{ default?: AppConfig }>(project.configPath, { root: project.root, configFile: false, logLevel: "silent" });
-  return module.default ?? {};
+  const { module } = await runnerImport<{ default?: Settings }>(project.configPath, { root: project.root, configFile: false, logLevel: "silent" });
+  return check(module.default ?? {}, Object.keys(module));
+}
+
+const FELL = "x-expressive-fell";
+const KEPT = new Set([FELL, "content-type", "content-length", "set-cookie"]);
+const VITE = ["/@vite/", "/@id/", "/@fs/", "/node_modules/", "/.expressive/", "/__inspect", "/__open-in-editor"];
+const FLAGS = ["import", "url", "raw"];
+
+function unmarked(reply: Response): Response {
+  if (!reply.headers.has(FELL)) return reply;
+
+  const copy = new Response(reply.body, reply);
+  copy.headers.delete(FELL);
+  return copy;
+}
+
+/** Requests that are Vite's own - its modules, a plugin's endpoints, a proxy, source files - and skip `handle`. */
+function skipList(server: ViteDevServer): (request: Request) => boolean {
+  const { root, base, publicDir, server: { proxy = {} } } = server.config;
+  const own = [publicDir, join(root, "api")].filter(Boolean).map(dir => dir + sep);
+  const proxied = Object.keys(proxy).map(key => (key.startsWith("^") ? (path: string) => new RegExp(key).test(path) : (path: string) => path.startsWith(key)));
+
+  const source = (path: string) => {
+    try {
+      const file = join(root, decodeURIComponent(path));
+      return file.startsWith(root + sep) && !own.some(dir => file.startsWith(dir)) && statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  };
+
+  return request => {
+    const { pathname, searchParams } = new URL(request.url);
+
+    if (!pathname.startsWith(base)) return true;
+
+    const path = pathname.slice(base.length - 1);
+
+    return VITE.some(prefix => path.startsWith(prefix)) || proxied.some(match => match(pathname)) || FLAGS.some(flag => searchParams.get(flag) === "") || source(path);
+  };
+}
+
+/** A copy of `req` carrying `request` - its method, path, headers and body - for Vite's stack. */
+async function replica(req: IncomingMessage, request: Request): Promise<IncomingMessage> {
+  const { pathname, search } = new URL(request.url);
+  const body = request.body ? [Buffer.from(await request.arrayBuffer())] : [];
+
+  return Object.assign(Readable.from(body, { objectMode: false }), {
+    method: request.method,
+    url: pathname + search,
+    headers: Object.fromEntries(request.headers),
+    httpVersion: req.httpVersion,
+    socket: req.socket,
+  }) as unknown as IncomingMessage;
 }
