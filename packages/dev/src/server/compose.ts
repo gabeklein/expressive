@@ -1,20 +1,30 @@
+import { matchPattern } from "@expressive/router";
 import { HttpError, Redirect, type Env, type ExecutionCtx } from "@expressive/rpc";
 import { isCall } from "@expressive/rpc/http";
 import { bind, dispatch, failure, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 
-import type { App, HandleArgs, Settings } from "../settings";
+import type { App, AppOptions, HandleArgs, Settings } from "../settings";
 import { check } from "./check";
 
 export interface Parts {
   sidecars?: () => Endpoint[];
   gates?: Seats;
+  pages?: Pages;
   dev?: boolean;
 }
+
+/** A build's pages, for the shell fallback: its page routes' patterns, and `build.assetsDir`, never answered with the shell. Dev and tests leave it out. */
+export interface Pages {
+  patterns: string[];
+  assetsDir?: string;
+}
+
+type Assets = NonNullable<AppOptions["assets"]>;
 
 const noop = () => {};
 
 /** The app from an entry's settings and the remotes a host composes it with. */
-export function compose(settings: Settings = {}, { sidecars = () => [], gates, dev = false }: Parts = {}): App {
+export function compose(settings: Settings = {}, { sidecars = () => [], gates, pages, dev = false }: Parts = {}): App {
   const { handle } = check(settings);
 
   return async (request, { env = {}, ctx, assets } = {}) => {
@@ -27,7 +37,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, d
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {
-        return mutable(await assets.fetch(forward));
+        return mutable(await (pages ? page(forward, assets, pages) : assets.fetch(forward)));
       } catch (error) {
         return refuse(error, dev);
       }
@@ -79,7 +89,56 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
   }
 }
 
-const mutable = (reply: Response) => (reply.status === 101 ? reply : new Response(reply.body, reply));
+const SHELLS = ["/200.html", "/index.html"];
+const CONDITIONAL = ["if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range", "range"];
+
+/** The shell's status for `request`: 200 on a page route, 404 for a navigation no route matches, else none. GET and HEAD outside `assetsDir` only. */
+function shellStatus(request: Request, { patterns, assetsDir = "assets" }: Pages): 200 | 404 | undefined {
+  const { method, headers, url } = request;
+  const { pathname } = new URL(url);
+
+  if ((method !== "GET" && method !== "HEAD") || pathname.startsWith(`/${assetsDir}/`)) return;
+  if (patterns.some(pattern => matchPattern(pattern, pathname))) return 200;
+  if (headers.get("accept")?.includes("text/html")) return 404;
+}
+
+async function page(request: Request, assets: Assets, pages: Pages): Promise<Response> {
+  const reply = await assets.fetch(request);
+  const status = reply.status === 404 && shellStatus(request, pages);
+
+  if (!status) return reply;
+
+  const headers = new Headers(request.headers);
+
+  for (const name of CONDITIONAL) headers.delete(name);
+
+  for (const path of SHELLS) {
+    const shell = await follow(assets, new Request(new URL(path, request.url), { method: request.method, headers }));
+
+    if (shell.ok) {
+      discard(reply);
+      return new Response(shell.body, { status, headers: shell.headers });
+    }
+
+    discard(shell);
+  }
+
+  return reply;
+}
+
+async function follow(assets: Assets, request: Request): Promise<Response> {
+  const reply = await assets.fetch(request);
+  const location = reply.status >= 300 && reply.status < 400 && reply.headers.get("location");
+  const to = location ? new URL(location, request.url) : undefined;
+
+  if (!to || to.origin !== new URL(request.url).origin) return reply;
+
+  discard(reply);
+
+  return assets.fetch(new Request(to, request));
+}
+
+const mutable =(reply: Response) => (reply.status === 101 ? reply : new Response(reply.body, reply));
 
 function discard(reply: Response, kept?: Response) {
   if (reply === kept) return;

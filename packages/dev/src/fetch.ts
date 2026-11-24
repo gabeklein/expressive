@@ -1,8 +1,8 @@
 import type { Env, ExecutionCtx } from "@expressive/rpc";
 import { install, verify, type Endpoint } from "@expressive/rpc/protocol";
 
-import type { Settings } from "./settings";
-import { compose as app } from "./server/compose";
+import type { App, AppOptions, Settings } from "./settings";
+import { compose as app, type Pages } from "./server/compose";
 
 /** An export of a server module - its index in the module list, and its name. */
 export type Ref = [module: number, name: string];
@@ -18,9 +18,10 @@ export interface FolderRefs {
  * Entry plumbing, not app API: the `target: "fetch"` bundle's default export, which the generated entry builds.
  *
  * `settings.host`'s value given the app - an object without a `fetch` method gets the default `fetch(request, env, ctx)`; a class is exported as is.
+ * The app's `assets` default to `env.ASSETS` when it has a `fetch`.
  * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */
-export function compose(settings: Settings, modules: Record<string, unknown>[], manifest: FolderRefs[]): { fetch(request: Request, env?: Env, ctx?: Partial<ExecutionCtx>): Promise<Response> } {
+export function compose(settings: Settings, modules: Record<string, unknown>[], manifest: FolderRefs[], pages?: Pages): { fetch(request: Request, env?: Env, ctx?: Partial<ExecutionCtx>): Promise<Response> } {
   install();
 
   const sidecars: Endpoint[] = manifest.map(({ pattern, calls, classes }) => {
@@ -37,7 +38,8 @@ export function compose(settings: Settings, modules: Record<string, unknown>[], 
     return { pattern, exports: async () => exports };
   });
 
-  const composed = app(settings, { sidecars: () => sidecars });
+  const inner = app(settings, { sidecars: () => sidecars, pages });
+  const composed: App = (request, options = {}) => inner(request, { ...options, assets: options.assets ?? bound(options.env) });
 
   const fetch = (request: Request, env?: Env, ctx?: Partial<ExecutionCtx>) => composed(request, { env, ctx });
   const exported = settings.host?.(composed) as { fetch?: unknown } | undefined;
@@ -46,4 +48,10 @@ export function compose(settings: Settings, modules: Record<string, unknown>[], 
   if (typeof exported == "function" || typeof exported.fetch == "function") return exported as ReturnType<typeof compose>;
 
   return Object.assign(exported, { fetch });
+}
+
+function bound(env: object = {}): AppOptions["assets"] {
+  const { ASSETS } = env as { ASSETS?: AppOptions["assets"] };
+
+  if (typeof ASSETS?.fetch == "function") return ASSETS;
 }

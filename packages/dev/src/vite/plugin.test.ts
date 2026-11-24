@@ -469,6 +469,7 @@ describe("vite host", () => {
     });
 
     expect(server).toMatch(/pattern: \["blog", ":slug"\]/);
+    expect(server).toMatch(/"patterns": \["\/", "\/blog\/:slug"\]/);
     expect(server).toContain("a + b");
     expect(server).not.toContain("secret");
 
@@ -670,10 +671,13 @@ describe("vite host", () => {
     await server.listen(0);
 
     const page = await fetch(new URL("/", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
+    const unknown = await fetch(new URL("/nope", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
     const html = await page.text();
 
     expect(html).toContain("<p>mine</p>");
     expect(html).toContain('<div id="root"></div>');
+    expect([page.status, unknown.status]).toEqual([200, 404]);
+    expect(await unknown.text()).toContain("<p>mine</p>");
   });
 
   it("will leave requests that are not for a page to Vite", async () => {
@@ -763,6 +767,7 @@ describe("vite host", () => {
     const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" });
 
     expect(server).toContain('from "@expressive/dev/server"');
+    expect(server).toMatch(/"patterns": \["\*"\],\s*"assetsDir": "assets"/);
   });
 
   const FETCH = {
@@ -821,6 +826,11 @@ describe("vite host", () => {
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod" });
     expect((await handler.fetch(new Request("http://localhost/"), env, ctx)).headers.get("x-handled")).toBe("1");
+
+    const ASSETS = { fetch: async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 }) };
+    const page = (path: string) => handler.fetch(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }), { ...env, ASSETS }, ctx);
+
+    expect([(await page("/shop")).status, (await page("/nope")).status, await (await page("/nope")).text()]).toEqual([200, 404, "shell"]);
     expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
     expect(handler.cron(env)).toEqual(["prod", "function"]);
     expect(Object.keys(named)).toEqual(["Counter"]);
@@ -861,14 +871,15 @@ describe("vite host", () => {
     expect([refused.status, (await refused.json()).message]).toEqual([500, "no session"]);
     expect(await (await fetch(at("/hello"))).json()).toEqual({ name: null });
     expect(await shell.text()).toMatch(/\/@vite\/client[^]*<div id="root"><\/div>/);
-    expect(shell.headers.get("x-handled")).toBe("1");
+    expect([shell.status, shell.headers.get("x-handled")]).toEqual([404, "1"]);
+    expect((await fetch(at("/shop"), { headers: { accept: "text/html" } })).status).toBe(200);
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
     expect([missing.status, missing.headers.get("x-handled"), missing.headers.has("x-expressive-fell")]).toEqual([404, "1", false]);
 
     for (const path of ["/@vite/client", "/app/index.tsx", "/index.ts?import", "/.expressive/main.tsx"]) await fetch(at(path));
 
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
-    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/robots.txt"]);
+    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt"]);
     delete (globalThis as any).hostCurrent;
     delete (globalThis as any).handled;
   });

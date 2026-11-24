@@ -79,6 +79,55 @@ describe("compose", () => {
   });
 });
 
+describe("pages", () => {
+  const html = { accept: "text/html" };
+  const pages = { patterns: ["/", "/blog/:slug"] };
+  const host = (files: Record<string, () => Response>) => {
+    const seen: string[] = [];
+    const fetch = async (request: Request) => {
+      const { pathname } = new URL(request.url);
+      seen.push(`${request.method} ${pathname} ${request.headers.get("if-none-match") ?? ""}`.trim());
+      return files[pathname]?.() ?? new Response("missing", { status: 404 });
+    };
+    return { seen, fetch };
+  };
+  const text = async (reply: Response) => `${reply.status} ${await reply.text()}`;
+
+  it("will answer a page route with the shell as 200, and an unmatched navigation as 404", async () => {
+    const assets = host({ "/200.html": () => new Response("shell"), "/app.js": () => new Response("js") });
+    const app = compose({}, { pages });
+
+    expect(await text(await app(page("/app.js"), { assets }))).toBe("200 js");
+    expect(await text(await app(page("/blog/a", { headers: { "if-none-match": "x" } }), { assets }))).toBe("200 shell");
+    expect(await text(await app(page("/nope", { headers: html }), { assets }))).toBe("404 shell");
+    expect((await app(page("/blog/a", { method: "HEAD" }), { assets })).status).toBe(200);
+    expect(assets.seen).toEqual(["GET /app.js", "GET /blog/a x", "GET /200.html", "GET /nope", "GET /200.html", "HEAD /blog/a", "HEAD /200.html"]);
+  });
+
+  it("will answer anything else with the bare 404", async () => {
+    const assets = host({ "/200.html": () => new Response("shell") });
+    const app = compose({}, { pages: { ...pages, assetsDir: "static" } });
+
+    expect(await text(await app(page("/nope"), { assets }))).toBe("404 missing");
+    expect(await text(await app(page("/static/gone.js", { headers: html }), { assets }))).toBe("404 missing");
+    expect(await text(await app(page("/blog/a", { method: "POST", headers: html }), { assets }))).toBe("404 missing");
+    expect(await text(await app(page("/blog/a"), { assets: host({}) }))).toBe("404 missing");
+  });
+
+  it("will fall back to index.html, following one same-origin redirect", async () => {
+    const assets = host({
+      "/index.html": () => new Response(null, { status: 307, headers: { location: "/" } }),
+      "/": () => new Response("home"),
+    });
+    const away = host({ "/200.html": () => new Response(null, { status: 307, headers: { location: "http://elsewhere/200" } }) });
+    const app = compose({}, { pages });
+
+    expect(await text(await app(page("/blog/a"), { assets }))).toBe("200 home");
+    expect(assets.seen).toEqual(["GET /blog/a", "GET /200.html", "GET /index.html", "GET /"]);
+    expect(await text(await app(page("/blog/a"), { assets: away }))).toBe("404 missing");
+  });
+});
+
 describe("handle", () => {
   it("will run around calls and pages, outside the request's scope, with the inside in next", async () => {
     const seen: string[] = [];

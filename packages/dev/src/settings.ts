@@ -11,7 +11,11 @@ export interface AppOptions {
   env?: Partial<Env>;
   /** The host's execution context. Default: a stand-in whose `waitUntil` runs the promise and logs a rejection. */
   ctx?: Partial<ExecutionCtx>;
-  /** Serves pages and static files - the last step of the chain. Without it, that step is a 404. */
+  /**
+   * Serves pages and static files - the last step of the chain. Default on the fetch target: `env.ASSETS`; without either, that step is a 404.
+   *
+   * On its 404 for a GET or HEAD outside `build.assetsDir`, the shell - its `/200.html`, else `/index.html` - answers a page route's path with 200, and a navigation no route matches with 404.
+   */
   assets?: { fetch(request: Request): Promise<Response> };
 }
 

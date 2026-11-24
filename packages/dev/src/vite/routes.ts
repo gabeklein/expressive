@@ -67,6 +67,19 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   ].join("\n");
 }
 
+/** Every page route's pattern, as the router matches it - `/blog/:slug`, `/docs/*`. */
+export async function pagePatterns(appDir: string, scan: ExportScanner): Promise<string[]> {
+  const patterns: string[] = [];
+
+  (function walk(node: RouteNode, path: string) {
+    if (node.exports.has("Page")) patterns.push(path || "/");
+
+    for (const child of node.children) walk(child, `${path}/${child.segment}`);
+  })(await scanDir(appDir, "", "", scan), "");
+
+  return patterns;
+}
+
 /**
  * Pages a build tries to render ahead. Fixed paths are listed;
  * below a `:param` or `*`, modules exporting `paths()` are returned to list their own.
