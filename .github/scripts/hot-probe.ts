@@ -1354,11 +1354,76 @@ export default settings;
   return ok ? 0 : 1;
 }
 
+async function api() {
+  const dir = join(ROOT, 'api');
+  const packages = ['mvc', 'dom', 'router', 'rpc', 'env', 'inspect', 'dev'];
+  let ok = false;
+
+  write(dir, {
+    'api/hello.ts': `import { label } from '../server/label';
+
+export const GET = () => label + ' old';
+`,
+    'server/label.ts': `export const label = 'hello';
+`,
+    'app/index.tsx': `export const Page = () => <h1>hi</h1>;
+`
+  });
+
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-api'),
+    plugins: [expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+
+  await vite.listen();
+
+  const { port } = vite.httpServer!.address() as { port: number };
+  const get = async (path: string) => {
+    const reply = await fetch(`http://127.0.0.1:${port}${path}`);
+    return `${reply.status} ${await reply.text()}`;
+  };
+
+  try {
+    if ((await get('/api/hello')) != '200 hello old') throw new Error(`before the edit: ${await get('/api/hello')}`);
+
+    await Bun.write(join(dir, 'api/hello.ts'), (await Bun.file(join(dir, 'api/hello.ts')).text()).replace("' old'", "' new'"));
+    await until(async () => (await get('/api/hello')) == '200 hello new');
+
+    await Bun.write(join(dir, 'server/label.ts'), "export const label = 'imported';\n");
+    await until(async () => (await get('/api/hello')) == '200 imported new');
+
+    await Bun.write(join(dir, 'api/hello.ts'), "export const POST = () => 'posted';\n");
+    await until(async () => (await get('/api/hello')).startsWith('405 '));
+
+    await Bun.write(join(dir, 'api/added/index.ts'), "export default () => new Response('gated', { status: 403 });\nexport const GET = () => 'added';\n");
+    await until(async () => (await get('/api/added')) == '403 gated');
+
+    rmSync(join(dir, 'api/added'), { recursive: true });
+    await until(async () => (await get('/api/added')).startsWith('404 '));
+
+    ok = true;
+    console.log('PASS [server] api/ route edited, its import edited, a folder gate added and removed');
+  } catch (error) {
+    console.log(`FAIL [server] api/ edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await vite.close();
+  }
+
+  return ok ? 0 : 1;
+}
+
 let failed = 0;
 
 try {
   failed += await server();
   failed += await settings();
+  failed += await api();
 
   if (chrome) for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
   else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);
