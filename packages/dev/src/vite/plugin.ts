@@ -14,7 +14,7 @@ import { bind, dispatch, failure, verify, type Endpoint, type Seats } from "@exp
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { fileResponse } from "../server/serve";
 import { install } from "../server/install";
-import { hasGate, scanExports, scanRemote } from "./scan";
+import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
 
 const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
@@ -113,6 +113,13 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const target = async () => (build ? settings!.target : (await api.config()).target);
 
+  const gateError = async (remote: Remote, resolve: Sources["resolve"]) => {
+    const { gate, problems } = await scanGate(remote, readFileSync(remote.file, "utf8"), sourcesOf(resolve));
+
+    if (gate && (await target()) === "fetch") problems.push(STATELESS);
+    if (problems.length) return `${relative(root, remote.file)}: ${problems.join(" ")}`;
+  };
+
   const readShell = () =>
     project.htmlPath ? ensureBootstrap(readFileSync(project.htmlPath, "utf8")) : SHELL;
 
@@ -160,6 +167,11 @@ export function host(dotenv: boolean): Plugin<Host> {
       if (build === "client") {
         const salt = settings!.remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
         builds.set(root, (exposure = new Exposure(salt)));
+
+        for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
+          const error = await gateError(remote, async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
+          if (error) this.error(error);
+        }
       }
 
       if (build === "server") {
@@ -203,15 +215,11 @@ export function host(dotenv: boolean): Plugin<Host> {
       const remote = !options?.ssr && remoteAt(file);
 
       if (remote) {
-        const sources: Sources = {
-          resolve: async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0],
-          read: path => readFileSync(path, "utf8"),
-        };
-
+        const sources = sourcesOf(async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
         const { problems, ...scanned } = await scanRemote(remote, readFileSync(file, "utf8"), sources, remoteAt);
 
+        if (scanned.gate && (await target()) === "fetch") problems.push(STATELESS);
         if (problems.length) this.error(`${relative(root, file)}: ${problems.join(" ")}`);
-        if ((await target()) === "fetch") stateless(this, relative(root, file), scanned);
 
         const exposed = { ...remote, ...scanned };
         exposure.modules.set(file, exposed);
@@ -282,6 +290,18 @@ export function host(dotenv: boolean): Plugin<Host> {
         }));
 
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
+      const resolve: Sources["resolve"] = async (spec, importer) => (await server.environments.ssr.pluginContainer.resolveId(spec, importer))?.id.split("?")[0];
+
+      const gates: Seats = async pattern => {
+        const remote = project.appDir && remoteEntries(project.appDir).find(remote => remote.pattern.join("/") === pattern.join("/"));
+
+        if (!remote) return;
+
+        const error = await gateError(remote, resolve);
+
+        if (error) throw new Error(error);
+        if (hasGate(remote.file)) return (await host.import(remote.file)).default;
+      };
 
       server.middlewares.use(toNode(async request => {
         const config = await api.config();
@@ -295,7 +315,7 @@ export function host(dotenv: boolean): Plugin<Host> {
 
         bind(request, env);
 
-        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, gatesOf(host, project))).catch(error => failure(error, endpoints(), true));
+        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, gates)).catch(error => failure(error, endpoints(), true));
 
         const { pathname, search } = new URL(request.url);
         const { publicDir } = server.config;
@@ -375,13 +395,6 @@ function gated(project: Project): Remote[] {
   return remoteEntries(project.appDir).filter(remote => hasGate(remote.file));
 }
 
-function gatesOf(host: ModuleRunner, project: Project): Seats {
-  return async pattern => {
-    const remote = gated(project).find(remote => remote.pattern.join("/") === pattern.join("/"));
-    return remote && (await host.import(remote.file)).default;
-  };
-}
-
 function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Remote | undefined): string {
   return exposure.stub(remote, locate, { from: `/${GENERATED}/${CALL}`, at: remote.pattern });
 }
@@ -391,9 +404,9 @@ const FETCH: UserConfig = {
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
 
-function stateless(context: { error(message: string): never }, file: string, { gate }: { gate: boolean }) {
-  if (gate) context.error(`${file} default-exports a Model - the fetch target does not run folder gates, so a remote there exports functions only.`);
-}
+const STATELESS = "Its default is a gate, which the fetch target does not run - a remote there exports functions only.";
+
+const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });
 
 async function namedExports(project: Project): Promise<string[]> {
   const { exports } = await scanExports(readFileSync(project.configPath!, "utf8"), project.configPath!);

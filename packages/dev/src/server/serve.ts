@@ -77,12 +77,12 @@ export interface ServeOptions {
 export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
   install();
 
-  const seated = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
+  const gates = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
   const app = scoped(config);
   const ctx: Ctx = {
     waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)),
   };
-  const seatAt = async (pattern: string[]) => seated.get(pattern.join("/"));
+  const gateAt = async (pattern: string[]) => gates.get(pattern.join("/"));
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
     res.statusCode = 400;
@@ -94,7 +94,7 @@ export function serve({ config, client, sidecars = [], seats = [] }: ServeOption
 
     const scope = { request, env: {}, ctx };
 
-    if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, seatAt)).catch(error => failure(error, sidecars, false)));
+    if (isCall(request)) return send(res, await wrap(config, scope, () => dispatch(request, () => sidecars, false, gateAt)).catch(error => failure(error, sidecars, false)));
 
     const { pathname } = new URL(request.url);
     const next = async () => {

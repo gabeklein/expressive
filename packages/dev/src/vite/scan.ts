@@ -3,7 +3,7 @@ import { sep } from "node:path";
 import { init, parse } from "es-module-lexer";
 import { parseAst, transformWithOxc, type ESTree } from "vite";
 import * as root from "@expressive/rpc";
-import { isClass, moduleOf, scanModule, type Module, type Scan, type Sources } from "@expressive/rpc/vite";
+import { isClass, moduleOf, scanModule, type Module, type Scan, type Sources, type Value } from "@expressive/rpc/vite";
 
 import type { ExportScanner, Remote } from "./routes";
 
@@ -47,20 +47,36 @@ export async function scanRemote(remote: Remote, source: string, sources: Source
 
   const scan = await scanModule(remote.file, source, sources, owned, {
     async default(value) {
-      if (remote.module) return ["Only a folder's remote entry - remote.ts or remote/index.ts - may export a default."];
-      if (!isClass(value) || !value.superClass) return ["A remote default is its folder's gate - a Model subclass whose static key() admits each call."];
-
-      gate = true;
-      return gateProblems(source, remote.file, sources);
+      gate = isGate(value);
+      return defaultProblems(remote, value, source, sources);
     },
   });
 
   return { ...scan, gate };
 }
 
+/** A remote entry's default alone - checked whether or not the client imports the entry. */
+export async function scanGate(remote: Remote, source: string, sources: Sources): Promise<{ gate: boolean; problems: string[] }> {
+  const { exports } = moduleOf(remote.file, source);
+
+  if (!exports.has("default")) return { gate: false, problems: [] };
+
+  const value = exports.get("default");
+
+  return { gate: isGate(value), problems: await defaultProblems(remote, value, source, sources) };
+}
+
+const isGate = (value: Value): boolean => isClass(value) && !!value.superClass;
+
+function defaultProblems(remote: Remote, value: Value, source: string, sources: Sources): Promise<string[]> | string[] {
+  if (remote.module) return ["Only a folder's remote entry - remote.ts or remote/index.ts - may export a default."];
+  if (!isGate(value)) return ["A remote default is its folder's gate - a Model subclass whose static key() admits each call."];
+
+  return gateProblems(source, remote.file, sources);
+}
+
 export function hasGate(file: string): boolean {
-  const value = moduleOf(file, readFileSync(file, "utf8")).exports.get("default");
-  return isClass(value) && !!value.superClass;
+  return isGate(moduleOf(file, readFileSync(file, "utf8")).exports.get("default"));
 }
 
 interface Found {
@@ -107,7 +123,6 @@ function identity({ cls, module }: Found): string {
 
 interface Base {
   owner: string;
-  library?: boolean;
   global?: string;
   error?: string;
 }
@@ -129,7 +144,7 @@ async function baseOf({ cls, module }: Found, sources: Sources, problems: string
 
   if (!imported || imported.type) return { owner, global: base.name };
   if (imported.from === ERRORS && isHttpError(imported.name)) return { owner, error: base.name };
-  if (LIBRARY.test(imported.from)) return { owner, library: true };
+  if (LIBRARY.test(imported.from)) return { owner };
 
   const file = await sources.resolve(imported.from, module.file);
 

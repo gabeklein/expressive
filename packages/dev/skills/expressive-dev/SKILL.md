@@ -74,7 +74,7 @@ import { add } from "./remote";
 
 ## Server Model
 
-Inside a call, `X.get()` finds the nearest server Model at the call's location or above; it throws outside a call. A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model - the folder's gate, rpc's class gate (`expressive-rpc/SKILL.md`). It stays on the server; the client imports only the folder's functions.
+Inside a call, `X.get()` finds the nearest server Model at the call's location or above; it throws outside a call. A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model - the folder's gate, rpc's class gate (`expressive-rpc/SKILL.md`). It stays on the server; the client imports only the folder's functions. Every entry's default is checked at build and on each dev call, imported or not.
 
 ```ts
 export default class Account extends Model {
@@ -95,7 +95,7 @@ export async function profile() {
 }
 ```
 
-- An instance per key: `protected static key()` narrows the folder's context by what it returns - an identity from verified data (a `Cookies` field, a gate above via `get()`). `undefined` passes through; throwing refuses the call. Each call waits for a new instance's `async new()`.
+- An instance per key: `protected static key()` narrows the folder's context by what it returns - an identity from verified data (a `Cookies` field, a gate above via `get()`). `undefined` passes through - one instance per location, shared by every caller; throwing refuses the call. Each call waits for a new instance's `async new()`.
 - `ttl` is a cache, not a store - state is not promised to survive between calls.
 - `Cookies` (from `@expressive/dev/server`, as in rpc): a subclass declares cookies as fields; `AppCookies.get()` reads this request's and `AppCookies.set({ ... })` sends `Set-Cookie` with the reply. `Current` is the lower level: `.request`, `.url`, `.cookies`, read-only, and `setHeader(name, value)`.
 - Process-wide state: a module-level `X.new(Context.root)`, found by `get()` from any call.
@@ -145,7 +145,7 @@ export default config({
 - Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build - import what it needs inside it: `export const bindings = async () => (await import("./dev-env")).env();`.
 - Other config members join the default export (`scheduled`); listed named exports of `index.ts` but `bindings` are re-exported - not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
-- Folder gates do not run: a remote that default-exports a Model fails dev and the build. Remote functions only.
+- Folder gates do not run: a remote that default-exports a Model fails the build, and in dev the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.
 - No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 

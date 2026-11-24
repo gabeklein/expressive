@@ -151,8 +151,8 @@ app's `fetch` forwards to them.
   types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
-- Folder gates do not run there: a remote that default-exports a Model fails the dev server and the
-  build. Remote functions only.
+- Folder gates do not run there: a remote that default-exports a Model fails the build, and in dev
+  fails the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
 Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
@@ -265,20 +265,22 @@ export class Overflow extends Error {
 }
 ```
 
-The build refuses any other export - a sync function, a value, a class without `extends` or a
-re-export, a Model class - since the client could not use it; a default is the folder's gate (below). A class whose base is not an `Error`
-fails its first call in dev and the built service at startup.
+The build refuses any other export, since the client could not use it: a sync function, a value, a
+re-export, a class without `extends`, or a Model class. A default is the folder's gate (below). A
+class whose base is not an `Error` fails its first call in dev and the built service at startup.
 
 ### Server Model
 
 A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model class - the
-folder's gate, as in `@expressive/rpc`. Every call walking through the folder builds an instance in
-its context, and `X.get()` finds it there and below; it throws outside a call. A gate stays on the
-server: the client imports its folder's functions, never the class.
+folder's gate, as in `@expressive/rpc`. A call through the folder resolves the folder's instance for
+its key, building one when none is live, and `X.get()` finds it there and below; it throws outside a
+call. A gate stays on the server: the client imports its folder's functions, never the class. Every
+remote entry's default is checked at build and on each dev call, imported by the client or not.
 
 `static key()` admits each call: it narrows the folder's context, and everything below it, by what
 it returns - an identity from a `Cookies` field, or a value from a gate above through `get()`.
-Undefined passes the location through; throwing denies the call. Build the key from verified data
+Undefined passes the location through - one instance per location, shared by every caller; throwing
+denies the call. Build the key from verified data
 only - a raw cookie lets the client pick its context - and declare it `protected`. A call waits for
 the instance's `async new()`. `static ttl` (seconds, 0 by default) caches the instance for the same
 key after its last call - a cache, not a store: do not count on state surviving between calls.

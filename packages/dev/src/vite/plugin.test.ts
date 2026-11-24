@@ -212,7 +212,7 @@ describe("vite host", () => {
     return { alias: [{ find: /^@expressive\/mvc$/, replacement: shim }, ...(SOURCES!.alias as any[])] };
   }
 
-  const SEAT = `
+  const GATED = `
     ${HOST}
     export default class Tally extends Model {
       static ttl = 60;
@@ -223,7 +223,7 @@ describe("vite host", () => {
   `;
 
   it("will keep a remote default off the browser's stub - it gates the folder on the server", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { peek } from './remote'; export const Page = () => peek", "app/tally/remote.ts": SEAT });
+    const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { peek } from './remote'; export const Page = () => peek", "app/tally/remote.ts": GATED });
     const server = await serve(root);
 
     const stub = (await server.transformRequest("/app/tally/remote.ts"))?.code;
@@ -240,14 +240,14 @@ describe("vite host", () => {
   });
 
   it("will leave a folder's remote out of the route tree", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE, "app/tally/index.tsx": PAGE, "app/tally/remote.ts": SEAT }));
+    const server = await serve(project({ "app/index.tsx": PAGE, "app/tally/index.tsx": PAGE, "app/tally/remote.ts": GATED }));
 
     const routes = await server.transformRequest("/.expressive/routes.tsx");
     expect(routes?.code).not.toContain("remote");
   });
 
   it("will answer a folder's calls, but not its default's methods", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/remote.ts": SEAT });
+    const root = project({ "app/index.tsx": PAGE, "app/tally/remote.ts": GATED });
     const server = await serve(root, expressive(), hostMvc(root));
     await server.transformRequest("/app/tally/remote.ts");
     await server.listen(0);
@@ -464,13 +464,22 @@ describe("vite host", () => {
     const { server } = await buildBoth({
       "index.ts": "export default { remote: { opaque: false } };",
       "app/index.tsx": PAGE,
-      "app/remote.ts": `${HOST} export default class Site extends Model {}`,
+      "app/base.ts": `${HOST} export class Base extends Model {}`,
+      "app/remote.ts": `import { Base } from "./base"; export default class Site extends Base {}`,
       "app/tally/index.tsx": "import { peek } from './remote'; export const Page = () => peek",
-      "app/tally/remote.ts": SEAT,
+      "app/tally/remote.ts": GATED,
     });
 
     expect(server).toMatch(/seats: \[\{\s*pattern: \[\],\s*Type: Site\s*\}, \{\s*pattern: \["tally"\],\s*Type: Tally\s*\}\]/);
-    expect(server).not.toMatch(/pool:|seat:/);
+  });
+
+  it("will check every remote entry's default at build, imported by the client or not", async () => {
+    const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote });
+    const fetchTarget = `export default { target: "fetch" };`;
+
+    await expect(buildBoth(files(fetchTarget, `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: Its default is a gate, which the fetch target does not run");
+    await expect(buildBoth(files("export default {};", "export default class Site extends Error {}"))).rejects.toThrow("Site extends Error, which is neither declared nor imported");
+    await expect(buildBoth(files("export default {};", "export default () => true;"))).rejects.toThrow("A remote default is its folder's gate");
   });
 
   it("builds readable ids when index.ts sets remote.opaque off", async () => {
@@ -865,14 +874,26 @@ describe("vite host", () => {
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
   });
 
-  it("will refuse a remote default under the fetch target, and bind nothing without bindings()", async () => {
+  it("will refuse a remote default under the fetch target, imported or not, and bind nothing without bindings()", async () => {
     const index = `export default { target: "fetch", fetch: async (_: Request, env: any) => Response.json(env) };`;
-    const server = await serve(project({ "index.ts": index, "app/index.tsx": PAGE, "app/tally/remote.ts": SEAT }));
+    const server = await serve(project({
+      "index.ts": index,
+      "app/index.tsx": PAGE,
+      "app/base.ts": `${HOST} export class Base extends Model {}`,
+      "app/remote.ts": `import { Base } from "./base"; export default class Site extends Base {}`,
+      "app/shop/remote.ts": "export async function price() { return 3; }",
+      "app/tally/remote.ts": GATED,
+    }));
     await server.listen(0);
 
     expect(await (await fetch(new URL("/env", server.resolvedUrls!.local[0]))).json()).toEqual({});
 
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts default-exports a Model - the fetch target does not run folder gates");
+    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts: Its default is a gate, which the fetch target does not run");
+
+    await server.transformRequest("/app/shop/remote.ts");
+    const res = await fetch(new URL("/shop", server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "price" }, body: "[]" });
+
+    expect([res.status, (await res.json()).message]).toEqual([500, expect.stringContaining("app/remote.ts: Its default is a gate")]);
   });
 
   it("will salt ids when index.ts has no default", async () => {

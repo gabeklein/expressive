@@ -97,7 +97,6 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
   if (entries.includes(REMOTE) && entries.some(entry => REMOTE_FILE.test(entry)))
     throw new Error(`${dir} has both a remote module and a remote/ folder - pick one.`);
 
-
   for (const entry of entries) {
     const full = join(dir, entry);
 
