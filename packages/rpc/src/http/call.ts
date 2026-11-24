@@ -1,5 +1,5 @@
 import { attempt, fault, inFolder, locate, type Call, type Endpoint, type Exports, type Match, type Outcome, type Seats } from "../call";
-import { parse, stringify } from "../codec";
+import { CODEC, parse, stringify } from "../codec";
 import { bodyOf } from "../body";
 import { ensureInstalled, pass, within } from "../context";
 import { ERRORS } from "../errors";
@@ -157,5 +157,5 @@ function statusOf(status?: number): number {
 export function reply(status: number, value?: unknown, headers: Record<string, string> = {}): Response {
   if (value === undefined) return new Response(null, { status, headers });
 
-  return new Response(stringify(value), { status, headers: { ...headers, "content-type": "application/json; charset=utf-8" } });
+  return new Response(stringify(value), { status, headers: { ...headers, "content-type": CODEC } });
 }

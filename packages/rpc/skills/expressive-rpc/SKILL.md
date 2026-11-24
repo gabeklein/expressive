@@ -150,7 +150,7 @@ export default () => {
 - A Model counts when it activates during the gate or while one it activated settles, after an `await` too - `X.new()`, or `new X()` then `.set()`.
 - Nothing is cached across calls - keep a costly check (verifying a token) behind a long-lived service, built at module scope: one first built inside a gate is the call's, and destroyed with it.
 - A class gate below a function gate is per call too - its `key()` and `ttl` cache nothing.
-- Finishing passes. Returning a `Response`, or a fetch handler (`() => app.fetch`, called with `(request, env, ctx)`), answers instead and the call never runs - its reply goes out as is. The client rejects a reply that isn't JSON with an `HttpError` carrying its status; a JSON one is read as rpc's own, so answer a call with a status and text, or throw. Any other return value is ignored - a returned Model is not handed on.
+- Finishing passes. Returning a `Response`, or a fetch handler (`() => app.fetch`, called with `(request, env, ctx)`), answers instead and the call never runs - its reply goes out as is, and the client rejects the call with an `HttpError` carrying its status. Any other return value is ignored - a returned Model is not handed on.
 - `Current.get().next()` wraps the call: it waits for the gate's Models (refusing if one failed), runs everything below once, and resolves with the call's reply - its error reply too, rather than rejecting. Returning nothing after it passes that reply on:
 
   ```ts
@@ -236,7 +236,7 @@ configure({
 });
 ```
 
-`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in. A reply without a JSON `content-type` - a gate's text, a host error page - rejects with an `HttpError` carrying its status, so a `transport` or test double replies `application/json`.
+`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in. A reply that isn't rpc's own - a gate's answer, a host error page - rejects with an `HttpError` carrying its status and text; a test double replies with `content-type: application/json; codec=expressive`.
 
 Every stub is a member of the client's `api` tree - `api.admin.users.ban` is `ban` from `api/admin/users.ts`, the same function each access. Any node or call takes `.with({ signal, timeout })` for the calls under it; nested, the inner extend the outer:
 

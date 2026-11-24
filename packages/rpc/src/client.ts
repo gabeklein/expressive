@@ -1,4 +1,4 @@
-import { parse, stringify } from "./codec";
+import { isCodec, parse, stringify } from "./codec";
 import { registry } from "./registry";
 import { ERRORS, HttpError } from "./errors";
 
@@ -101,7 +101,7 @@ export function client<T = any>(initial: ClientOptions = {}) {
   async function settle(res: Response): Promise<any> {
     if (res.status === 304) return;
 
-    if (!res.headers.get("content-type")?.startsWith("application/json"))
+    if (!isCodec(res))
       throw Object.assign(new HttpError(await res.text()), { status: res.status });
 
     const body = parse(await res.text()) as any;

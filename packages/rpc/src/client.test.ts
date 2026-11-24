@@ -32,7 +32,7 @@ function serve(...replies: Reply[]) {
   const fetch = vi.fn(async (_path: unknown, _init?: RequestInit) => {
     const { body, status = 200, epoch = "e1" } = replies.shift()!;
 
-    return new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": epoch, "content-type": "application/json" } });
+    return new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": epoch, "content-type": "application/json; codec=expressive" } });
   });
 
   vi.stubGlobal("fetch", fetch);
@@ -185,13 +185,20 @@ describe("send", () => {
     expect(await client().send("/tally", {}, [])).toBeUndefined();
   });
 
-  it("will reject a reply that isn't the codec's with an HttpError carrying its status, a 2xx included", async () => {
+  it("will reject a reply that isn't the codec's with an HttpError carrying its status, plain JSON and a 2xx included", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Gated.", { status: 200 })));
+    const text = await client().send("/tally", {}, []).catch((e: Error) => e);
 
-    const error = await client().send("/tally", {}, []).catch((e: Error) => e);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true }, { status: 201 })));
+    const json = await client().send("/tally", {}, []).catch((e: Error) => e);
 
-    expect(error).toBeInstanceOf(shared.HttpError);
-    expect(error).toMatchObject({ message: "Gated.", status: 200 });
+    expect(text).toBeInstanceOf(shared.HttpError);
+    expect(text).toMatchObject({ message: "Gated.", status: 200 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 502 })));
+    const bare = await client().send("/tally", {}, []).catch((e: Error) => e);
+
+    expect(json).toMatchObject({ message: '{"ok":true}', status: 201 });
+    expect(bare).toMatchObject({ message: "", status: 502 });
   });
 });
 

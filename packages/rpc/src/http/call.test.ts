@@ -61,7 +61,7 @@ describe("call dispatch", () => {
       return sent(endpoints, Object.assign(request("/tally", name, args), { headers }));
     };
 
-    expect(await plain("add", "[1, 2]")).toEqual({ status: 200, body: { value: 3 }, headers: { "content-type": "application/json; charset=utf-8" } });
+    expect(await plain("add", "[1, 2]")).toEqual({ status: 200, body: { value: 3 }, headers: { "content-type": "application/json; charset=utf-8; codec=expressive" } });
     expect((await plain("none", "[]")).body).toEqual({});
   });
 
@@ -324,7 +324,7 @@ describe("headers from a call", () => {
     expect(response.status).toBe(200);
     expect(response.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly; SameSite=Lax", "seen=1; Path=/; SameSite=Lax"]);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8; codec=expressive");
     expect(await response.json()).toEqual({});
   });
 

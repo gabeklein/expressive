@@ -78,7 +78,7 @@ function serve(...replies: Reply[]) {
     const sent = (init?.headers ?? {}) as Record<string, string>;
     const json = status === 304 ? null : JSON.stringify(typeof body == "function" ? body(sent) : body);
 
-    return new Response(json, { status, headers: { "x-expressive-epoch": epoch, "content-type": "application/json" } });
+    return new Response(json, { status, headers: { "x-expressive-epoch": epoch, "content-type": "application/json; codec=expressive" } });
   });
 
   vi.stubGlobal("fetch", fetch);
@@ -191,7 +191,7 @@ describe("twin", () => {
 
   it("will hold a frame that reaches a twin before its snapshot, then apply it", async () => {
     let attached!: (res: Response) => void;
-    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json" } };
+    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json; codec=expressive" } };
     const fetch = vi.fn()
       .mockReturnValueOnce(new Promise<Response>(resolve => (attached = resolve)))
       .mockImplementation(async () => new Response(JSON.stringify({ frame: { [idOf(fetch, 0)]: { patch: { total: 2 }, version: "g:3" } } }), epoch));
@@ -329,7 +329,7 @@ describe("twin", () => {
 
   it("will release itself again if destroyed before its snapshot arrives", async () => {
     let attached!: (res: Response) => void;
-    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json" } };
+    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json; codec=expressive" } };
     const fetch = vi.fn()
       .mockReturnValueOnce(new Promise<Response>(resolve => (attached = resolve)))
       .mockImplementation(async () => new Response(JSON.stringify({ frame: {} }), epoch));
@@ -361,7 +361,7 @@ describe("twin", () => {
     await new Promise(resolve => setTimeout(resolve));
     expect(ready).not.toHaveBeenCalled();
 
-    attached(new Response(JSON.stringify(snap({ total: 3 }, "g:1")({ "x-expressive-twin": idOf(fetch, 0) })), { headers: { "x-expressive-epoch": "e1", "content-type": "application/json" } }));
+    attached(new Response(JSON.stringify(snap({ total: 3 }, "g:1")({ "x-expressive-twin": idOf(fetch, 0) })), { headers: { "x-expressive-epoch": "e1", "content-type": "application/json; codec=expressive" } }));
     await vi.waitFor(() => expect(ready).toHaveBeenCalled());
   });
 
@@ -671,7 +671,7 @@ describe("child twin", () => {
 
   it("will drop a late entry for a child since replaced, or one it does not hold", async () => {
     let late!: (res: Response) => void;
-    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json" } };
+    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json; codec=expressive" } };
     const fetch = vi.fn()
       .mockImplementationOnce(async () => new Response(JSON.stringify({ frame: entries(idOf(fetch, 0), { "": { patch: { line: { $child: "l" } }, version: "o:1" }, line: { patch: { qty: 1 }, version: "l:1" } }) }), epoch))
       .mockReturnValueOnce(new Promise<Response>(resolve => (late = resolve)))
@@ -716,7 +716,7 @@ describe("child twin", () => {
 
   it("will hold a child's entry that reaches it before its owner's snapshot, then apply it", async () => {
     let attached!: (res: Response) => void;
-    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json" } };
+    const epoch = { headers: { "x-expressive-epoch": "e1", "content-type": "application/json; codec=expressive" } };
     const fetch = vi.fn()
       .mockReturnValueOnce(new Promise<Response>(resolve => (attached = resolve)))
       .mockImplementation(async () => new Response(JSON.stringify({ frame: entries(idOf(fetch, 0), { line: { patch: { qty: 2 }, version: "l:2" } }) }), epoch));
