@@ -23,6 +23,7 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 - **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces an `after()` helper and a generator protocol. A route's returned value still answers; a gate answers only by `send` or a returned `Response` or function.
 - **A returned function is a fetch handler,** called with `(request, env, ctx)`, so `export default () => legacy.fetch` mounts Hono or an auth library in an `api/` catch-all.
 - **Outside a folder `index.ts`, an `api/` module's `default` is a catch-all.** No remainder export (`ANY`, `ELSE`).
+- **`Current` stays pure.** `config` has no say over it. Per-request state lives in Models a gate activates; derived values (locale, client IP) are plain functions over `Current`, memoized on its `request` if costly; bindings extend `Env`.
 - **A plain object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
 
