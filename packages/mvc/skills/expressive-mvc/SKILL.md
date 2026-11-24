@@ -348,7 +348,7 @@ Instructions: `field/*.md`, linked from the [helper table](#instructions--reacti
 ### Server
 
 - `expressive-rpc` - `@expressive/rpc`: the api folder, module rules, http errors, gates and `Current`, client `configure`, Worker/Node deploy, limits
-- `expressive-dev` - `@expressive/dev`: app layout, route module exports, sidecars, server Model and seats, twins (experimental), commands
+- `expressive-dev` - `@expressive/dev`: app layout, route module exports, sidecars, server Model and gates, commands
 
 ### Steps
 
