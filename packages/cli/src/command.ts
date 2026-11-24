@@ -83,18 +83,19 @@ interface Outcome {
 
 /** Run a runner that was handed `--json` - its envelope, else one wrapping what it printed. */
 async function envelope(run: (out: Output) => Promise<number>) {
-  const lines: string[] = [];
-  const push = (line: unknown) => void lines.push(String(line));
-  const code = await run({ log: push, error: push });
-  const text = lines.join('\n');
+  const text = { stdout: '', stderr: '' };
+  const code = await run({
+    log: (line: unknown) => void (text.stdout += line + '\n'),
+    error: (line: unknown) => void (text.stderr += line + '\n')
+  });
 
   try {
-    const reply = JSON.parse(text);
+    const reply = JSON.parse(text.stdout);
 
     if (typeof reply.code == 'number') return reply;
   } catch {}
 
-  return { code, stdout: text && text + '\n', stderr: '' };
+  return { code, ...text, ...(code && { error: { kind: 'error', message: text.stderr.trim() } }) };
 }
 
 function capture() {
@@ -229,7 +230,7 @@ function build(Root: Model.Type, name: string): Run {
       if (Type instanceof Hand) {
         const reply = await envelope((out) => Type.run(['--help', '--json'], out, node.command));
 
-        return reply?.help ? { ...reply.help, help: node.help } : { ...node, error: reply?.error?.message ?? 'no --json support' };
+        return reply.help ? { ...reply.help, help: node.help } : { ...node, error: reply.error?.message || 'no --json support' };
       }
 
       return seen.has(Type) ? node : await tree(await sample(Type), node.command, [], seen, node.help);
@@ -401,27 +402,20 @@ function build(Root: Model.Type, name: string): Run {
     }
 
     const [text, restore] = capture();
-    let outcome: Outcome;
+    let reply: Outcome & typeof text;
 
     try {
-      outcome = await execute([...argv.slice(0, end).filter((arg) => arg != '--json'), ...argv.slice(end)], invoked, true);
+      const { delegate, code, ...rest } = await execute([...argv.slice(0, end).filter((arg) => arg != '--json'), ...argv.slice(end)], invoked, true);
+      const handed = delegate && (await envelope(delegate));
+
+      reply = handed ? { ...handed, stdout: text.stdout + handed.stdout, stderr: text.stderr + handed.stderr } : { code, ...text, ...rest };
     } finally {
       restore();
     }
 
-    const { delegate, code, ...rest } = outcome;
+    out.log(JSON.stringify(reply));
 
-    if (delegate) {
-      const reply = await envelope(delegate);
-
-      out.log(JSON.stringify(reply));
-
-      return reply.code;
-    }
-
-    out.log(JSON.stringify({ code, ...text, ...rest }));
-
-    return code;
+    return reply.code;
   };
 }
 

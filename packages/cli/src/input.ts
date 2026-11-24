@@ -134,9 +134,11 @@ function input(kind: Kind, configs: object[], target?: Target): any {
 /**
  * Inputs of `Type` read from a bare instance - constructed, never activated, so nothing it owns starts.
  *
- * Models it leaves unactivated are not reported as unused.
+ * Silences the console warning for Models left unactivated - any constructed this tick. Catch handlers on
+ * their classes still see `unused`.
  */
 async function sample(Type: Model.Type) {
+  const before = sampling;
   const found = (sampling = new Map());
   const quiet = Model.on({ catch: (error, kind) => (kind == 'unused' ? undefined : error) });
 
@@ -150,7 +152,7 @@ async function sample(Type: Model.Type) {
 
     return { Type, specs, runs: 'run' in instance };
   } finally {
-    sampling = undefined;
+    sampling = before;
     await Promise.resolve();
     quiet();
   }

@@ -45,7 +45,7 @@ Help: `--help`, `-h`, `help` in place of a command (`sql help sync`), or a group
 
 A class's own `static help` describes it - in its parent's listing and atop its own help. `cmd({ help })` overrides it. Without either, listing a `lazy` or `peer` command imports its module to read the static, so keep command modules cheap to import - heavy dependencies go inside `run()`. A missing `peer` lists as `(not installed)`; routing to it exits 2 with an install command.
 
-Routing reads each class from a bare instance, never activated, so help and usage errors start nothing. A class on the path is therefore constructed twice per run - keep construction free of side effects; work goes in `new()` or `run()`. `parse` and `valid` run against that bare instance, so they see only the value - don't read `this`.
+Routing reads each class from a bare instance, never activated, so help and usage errors start nothing. A class on the path is therefore constructed twice per run - keep construction free of side effects; work goes in `new()` or `run()`. A field calling `X.new()` starts even for help, and a `catch` handler on a command's class sees `unused` for the bare instances. `parse` and `valid` run against that bare instance, so they see only the value - don't read `this`.
 
 ## Scripts and agents
 
@@ -55,7 +55,7 @@ Routing reads each class from a bare instance, never activated, so help and usag
 { "code": 0, "stdout": "PORT  4 chars  .env:1\n", "stderr": "" }
 ```
 
-Output written through `console` or `process.stdout`/`stderr` is captured into it; `isTTY` reads false meanwhile, so color and spinner libraries back off. A child process with inherited stdio bypasses capture - pipe its output through instead - and `process.exit()` skips the envelope. Failures add `error: { kind, message }` - `kind` is `usage` (with `usage`), `absent` or `error`.
+Output written through `console` or `process.stdout`/`stderr` is captured into it; `isTTY` reads false meanwhile, so color and spinner libraries back off. A child process with inherited stdio and bun's `console.write` bypass capture - pipe output through `process.stdout` instead - and `process.exit()` skips the envelope. Failures add `error: { kind, message }` - `kind` is `usage` (with `usage`), `absent` or `error`.
 
 `--help --json` puts `help` in the envelope: the routed command and every command below it, each input with its argv spelling and a JSON Schema for its value. The routed command lists options inherited from its parents; nodes below it list only their own. It imports every `lazy` and `peer` module in that subtree.
 

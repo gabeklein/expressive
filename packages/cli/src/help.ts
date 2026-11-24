@@ -59,7 +59,7 @@ function scope(levels: Spec[][]) {
   };
 }
 
-const plain = (value: unknown) => ['string', 'number', 'boolean'].includes(typeof value);
+const plain = (value: unknown) => typeof value == 'string' || typeof value == 'boolean' || Number.isFinite(value);
 
 /** An input as JSON - its argv spelling plus a JSON Schema for its value. */
 function inputJson(spec: Spec) {

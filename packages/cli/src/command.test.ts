@@ -1122,10 +1122,10 @@ describe('peer', () => {
       it('will describe members through their runners and hand them --json', async () => {
         const help = "JSON.stringify({ code: 0, help: { command: name, runs: true } })";
 
-        install('@kit/dev', { kit: 'bin.mjs' }, runner('dev', "static help = 'dev server'").replace(/out\.log\(/, `out.log(argv.includes('--help') ? ${help} : `));
+        install('@kit/dev', { kit: 'bin.mjs' }, runner('dev', "static help = 'dev server'").replace(/out\.log\(/, `(argv.includes('--help') ? out.log : out.error)(argv.includes('--help') ? ${help} : `));
         install('@kit/sql', { kit: 'bin.mjs' }, runner('sql'));
         install('@kit/err', { kit: 'bin.mjs' }, runner('err').replace(/out\.log\(/, 'out.log(JSON.stringify({ code: 2, error: { message: "bad" } })); void ('));
-        install('@kit/odd', { kit: 'bin.mjs' }, runner('odd').replace(/out\.log\(/, "out.log('{}'); void ("));
+        install('@kit/odd', { kit: 'bin.mjs' }, runner('odd').replace(/out\.log\(/, "out.log('{}'); void (").replace('return 3', 'return 0'));
 
         expect(await run(own(), { as: 'kit' }, '--help', '--json')).toBe(0);
         expect(await run(own(), { as: 'kit' }, 'dev', 'x', '--json', '--', 'y')).toBe(3);
@@ -1139,7 +1139,12 @@ describe('peer', () => {
           { command: 'kit odd', error: 'no --json support' },
           { command: 'kit sql', error: 'no --json support' }
         ]);
-        expect(JSON.parse(handed)).toEqual({ code: 3, stdout: 'dev kit dev --json x -- y\n', stderr: '' });
+        expect(JSON.parse(handed)).toEqual({
+          code: 3,
+          stdout: '',
+          stderr: 'dev kit dev --json x -- y\n',
+          error: { kind: 'error', message: 'dev kit dev --json x -- y' }
+        });
       });
 
       it('will route to a package without a runner in this process', async () => {
