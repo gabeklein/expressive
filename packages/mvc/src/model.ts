@@ -22,6 +22,9 @@ const ID = new WeakMap<Model, string>();
  *  Also carries work to run at the deadline, which `def` uses to bound its registry. */
 const PENDING = new Set<Model | (() => void)>();
 
+/** Last Model pending as each instruction token was created - bounds what its field built. */
+const BUILT = new Map<unknown, Model | undefined>();
+
 /** External lifecycle listeners for any given Model class. */
 type Handler = Model.On<any>;
 
@@ -736,7 +739,7 @@ function init(state: Model, ...args: Model.Args) {
 
     PENDING.delete(state);
 
-    if (key === null) return null;
+    if (key === null) return abandon(state, rest);
 
     const o = observer(state, true);
     const mark = () => void PENDING.delete(mark);
@@ -1082,6 +1085,28 @@ function trailing(state: object) {
 }
 
 /**
+ * Clean up after an instance destroyed before activation. Pending Models in
+ * its fields are destroyed. Other pending Models its construction built are
+ * dropped from the unused check.
+ */
+function abandon(state: Model, rest: Model[]) {
+  const held = new Set<unknown>();
+  let end = -1;
+
+  for (const { value } of Object.values(Object.getOwnPropertyDescriptors(state)))
+    for (const item of Array.isArray(value) ? value : [value]) {
+      held.add(item);
+      end = Math.max(end, rest.indexOf(item), rest.indexOf(BUILT.get(item)!));
+    }
+
+  for (const item of rest.slice(0, end + 1))
+    if (held.has(item)) item.set(null);
+    else PENDING.delete(item);
+
+  return null;
+}
+
+/**
  * Report Models adopted by a parent - those already held, then each one
  * claimed later. Returns a callback to stop watching.
  */
@@ -1288,4 +1313,4 @@ function parent(child: object, value?: Model | null) {
 }
 
 export type { Got, Handler, Keyed };
-export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
+export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, BUILT, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };

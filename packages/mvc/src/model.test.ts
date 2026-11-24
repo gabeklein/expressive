@@ -3951,6 +3951,82 @@ describe('activation', () => {
       expect(warn).toBeCalledWith(expect.objectContaining({ message: `${other} was constructed but never activated.` }));
     });
 
+    it('will destroy children of a state released before activation', async () => {
+      class Leaf extends Model {}
+      class Holder extends Model {
+        leaf = new Leaf();
+      }
+
+      class Parent extends Model {
+        holder = new Holder();
+        list = [new Leaf(), new Leaf()];
+      }
+
+      const parent = new Parent();
+
+      parent.set(null);
+      await flushMicrotasks();
+
+      expect(warn).not.toBeCalled();
+      expect(parent.holder.get(null)).toBe(true);
+      expect(parent.holder.leaf.get(null)).toBe(true);
+      expect(parent.list.every((leaf) => leaf.get(null))).toBe(true);
+    });
+
+    it('will release what a state built before its last child', async () => {
+      class Leaf extends Model {}
+      class Holder extends Model {
+        leaf?: Leaf = undefined;
+      }
+
+      class Parent extends Model {
+        spare = void new Leaf();
+        holder = new Holder({ leaf: new Leaf() });
+      }
+
+      new Parent().set(null);
+      await flushMicrotasks();
+
+      expect(warn).not.toBeCalled();
+    });
+
+    it('will release what instructions replaced in a state released before activation', async () => {
+      class Leaf extends Model {}
+      class Base extends Model {
+        child: Leaf | undefined = new Leaf();
+      }
+
+      class Sub extends Base {
+        child = get(Leaf, false);
+        other = new Leaf();
+        value = set(new Leaf());
+      }
+
+      new Sub().set(null);
+      await flushMicrotasks();
+
+      expect(warn).not.toBeCalled();
+    });
+
+    it('will spare state constructed after a released one', async () => {
+      class Child extends Model {}
+      class Parent extends Model {
+        child = new Child();
+      }
+
+      const parent = new Parent();
+      const later = new Child();
+      const held = new Parent();
+
+      parent.set(null);
+      event(held);
+      await flushMicrotasks();
+
+      expect(held.child.get(null)).toBe(false);
+      expect(warn).toBeCalledTimes(1);
+      expect(warn).toBeCalledWith(expect.objectContaining({ message: `${later} was constructed but never activated.` }));
+    });
+
     class Child extends Model {
       value = 1;
     }
