@@ -26,42 +26,40 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 - **`Current` stays pure.** `config` has no say over it. Per-request state lives in Models a gate activates; derived values (locale, client IP) are plain functions over `Current`, memoized on its `request` if costly; bindings extend `Env`. No request-wide Model or slot (Request-wide state, below).
 - **A plain object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
-- **Dev's stand-ins live in `index.dev.ts`.** When it exists, `expressive dev` reads its default export instead of `index.ts`'s. It imports `index.ts`'s settings, sets `env` (the live objects the host would pass, such as a local database for `DB`) and anything else dev-only, and exports them. The build never reads it, so nothing in it reaches a bundle. Replaces `bindings`.
+- **Dev's stand-ins live in `index.dev.ts`.** When it exists, `expressive dev` reads its default export instead of `index.ts`'s. It imports `index.ts`'s settings, sets `env` (the live objects the host would pass, such as wrangler's local `DB`) and anything else dev-only, and exports them. The build never reads it, so nothing in it reaches a bundle. Replaces `bindings`.
 - **Apps type `env` on `@expressive/dev`:** `declare module "@expressive/dev" { interface Env { … } }`. dev re-exports rpc's `Env`, so an app never names rpc.
 
 ## Shape
 
 ```ts
-// index.ts - the app, in dev and production
+// index.ts - the app, in dev and production; d1 is the app's adapter from a D1 binding to sql's Engine
 import { config, type Env } from "@expressive/dev";
+
+declare module "@expressive/dev" {
+  interface Env {
+    DB: D1Database;
+  }
+}
 
 export default config({
   target: "fetch",
   remote: { opaque: false },
-  handle: ({ env, next }) => db.session(next, env.DB),
+  handle: ({ env, next }) => db.session(next, d1(env.DB)),
   host: () => ({
-    scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), bound.DB),
+    scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
   }),
 });
 ```
 
 ```ts
 // index.dev.ts - read by `expressive dev` instead, when present; never built
-import { createClient } from "@libsql/client";
-import config from "./index.ts";
+import type { Env } from "@expressive/dev";
+import { getPlatformProxy } from "wrangler";
+import settings from "./index";
 
-config.env = async () => ({ DB: createClient({ url: "file:local.db" }) });
+settings.env = async () => (await getPlatformProxy<Env>()).env;
 
-export default config;
-```
-
-```ts
-// types.d.ts
-declare module "@expressive/dev" {
-  interface Env {
-    DB: D1Database | import("@libsql/client").Client;   // D1 on Workers, a local file in dev
-  }
-}
+export default settings;
 ```
 
 ### Types
@@ -74,7 +72,7 @@ export interface Settings {
   /** Node and dev only. Default 3000 in production, Vite's in dev. `--port` wins. */
   port?: number;
   remote?: { opaque?: boolean };
-  /** Dev only, and only in `index.dev.ts`: what the host would pass as `env` (a local database for `DB`), over `process.env` and `.env`. Called once per server, again after a throw. */
+  /** Dev only, and only in `index.dev.ts`: what the host would pass as `env` (wrangler's local platform for `DB`), over `process.env` and `.env`. Called once per server, again after a throw; a change needs a restart. */
   env?(): Partial<Env> | Promise<Partial<Env>>;
   /** Middleware around every request the host forwards. Return a `Response`, or nothing to pass. */
   handle?(args: HandleArgs): Response | void | Promise<Response | void>;
@@ -498,7 +496,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | Node's `Current.get().env` as `{}` | the layered view (`env`, below) |
 | `bindings` on the fetch target only, in dev | `index.dev.ts` on either target |
 | `declare module "@expressive/rpc" { interface Env }` | `declare module "@expressive/dev"` |
-| `db.session(next, d1(env.DB))` | `db.session(next, env.DB)`: `@expressive/sql`'s `session` takes a D1 binding |
+| `db.session(next, d1(env.DB))` | unchanged: `@expressive/sql`'s `session` takes an `Engine`, and `d1` is the app's adapter |
 | `AppConfig` | `Settings` |
 | `serve` from `/server` (generated entries only) | `listen` |
 | `fetchHandler` from `/fetch` (generated entries only) | `compose` |
@@ -514,6 +512,7 @@ It assumes the Worker runs before assets (`run_worker_first`). Otherwise the ass
 import { config, type Env } from "@expressive/dev";
 
 import { db } from "./server/db";
+import { d1 } from "./server/d1";   // the app's adapter from a D1 binding to sql's Engine
 import { signInAs } from "./server/dev";
 import { preview } from "./server/preview";
 import { sweep } from "./server/jobs";
@@ -535,12 +534,12 @@ export default config({
       const invite = request.method === "GET" && page.ok && url.pathname.match(/^\/invite\/([^/]+)$/);
 
       return invite ? preview(page, decodeURIComponent(invite[1])) : page;
-    }, env.DB);
+    }, d1(env.DB));
   },
 
   host: () => ({
     scheduled(event: ScheduledController, bound: Env, ctx: ExecutionContext) {
-      ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), bound.DB));
+      ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), d1(bound.DB)));
     },
   }),
 });
@@ -548,15 +547,16 @@ export default config({
 
 ```ts
 // index.dev.ts
-import { createClient } from "@libsql/client";
-import config from "./index.ts";
+import type { Env } from "@expressive/dev";
+import { getPlatformProxy } from "wrangler";
+import settings from "./index";
 
-config.env = async () => ({ DB: createClient({ url: "file:local.db" }) });
+settings.env = async () => (await getPlatformProxy<Env>()).env;
 
-export default config;
+export default settings;
 ```
 
-The local file's schema is synced before serving, by `@expressive/sql`'s own means; dev does not run migrations.
+`wrangler d1 migrations apply DB --local` creates the local tables before serving; dev does not run migrations.
 
 ```
 api/auth/[...].ts     default: auth(env).handler(request) - the library's basePath becomes "/api/auth"

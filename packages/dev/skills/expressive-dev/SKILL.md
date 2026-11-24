@@ -149,70 +149,11 @@ Tests: `compose(settings)` from `@expressive/dev/server` - the app without remot
 - `fetch` target: the host's `env` object as is.
 - Node and dev: read-only - `index.dev.ts`'s `env()` (dev), then `process.env`, then `.env` files; the first with the key wins. `env()` returns only live objects; strings come from `.env`.
 
-`expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists; the build never does, so its imports reach no bundle. `env` set in `index.ts`, or a `bindings` export, fails dev and the build. `env()` is called once, again after a throw or a reload of `index.dev.ts`.
+`expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists; the build never does, so its imports reach no bundle. It imports `./index` (no extension - no tsconfig flag), sets `settings.env`, default-exports the settings. `env` set in `index.ts`, a `bindings` export, or no default export in `index.dev.ts` fails dev and the build.
 
-A D1 binding `DB` on Workers, a local SQLite file in dev:
-
-```ts
-// types.d.ts - the import line keeps this an augmentation; without it, it replaces dev's types
-import type { Db } from "./db";
-
-declare module "@expressive/dev" {
-  interface Env {
-    DB: Db;
-  }
-}
-```
-
-```ts
-// db.ts - what the app needs; a D1 binding fits as is
-import { Current } from "@expressive/dev/server";
-
-export interface Db {
-  prepare(query: string): {
-    bind(...values: unknown[]): {
-      all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
-    };
-  };
-}
-
-export const db = () => Current.get().env.DB;
-```
-
-```ts
-// index.ts
-import { config } from "@expressive/dev";
-
-export default config({
-  target: "fetch",
-});
-```
-
-```ts
-// index.dev.ts - import "./index", not "./index.ts", so tsconfig needs no extra flag
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import type { Db } from "./db";
-import settings from "./index";
-
-const file = new DatabaseSync("local.db");
-
-const DB: Db = {
-  prepare: query => ({
-    bind: (...values) => ({
-      all: async () => ({ results: file.prepare(query).all(...(values as SQLInputValue[])) as never[] }),
-    }),
-  }),
-};
-
-settings.env = () => ({ DB });
-
-export default settings;
-```
-
-- Calls read it alike in dev and on the Worker: `await db().prepare("select text from notes").bind().all<{ text: string }>()`.
-- `node:sqlite` needs Node 22.13+. Dev runs no migrations - create the tables first.
-- Keys `expressive env` declares type `env` too.
-- On Node, open an app-owned database in a module instead.
+- `env()` runs once per dev server, again only after a throw - changing it needs a restart. `null`/`undefined` binds nothing.
+- `{ ...env }` and `Object.keys(env)` see only `env()`'s keys on Node and in dev - read keys by name.
+- On Node, open an app-owned database in a module instead. Workers bindings: Fetch target.
 
 ## Fetch target
 
@@ -244,6 +185,21 @@ export default config({
 ```
 
 The binding must be named `ASSETS`; under another name, pass it: `host: app => ({ fetch: (r, env, ctx) => app(r, { env, ctx, assets: env.STATIC }) })`.
+
+Dev gets the same bindings from wrangler's local platform:
+
+```ts
+// index.dev.ts
+import type { Env } from "@expressive/dev";
+import { getPlatformProxy } from "wrangler";
+import settings from "./index";
+
+settings.env = async () => (await getPlatformProxy<Env>()).env;
+
+export default settings;
+```
+
+Local tables: `wrangler d1 migrations apply DB --local` - dev runs no migrations.
 
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 
