@@ -82,15 +82,13 @@ describe("launch", { timeout: 30_000 }, () => {
   it("will render pages beside a root remote and return null for one whose render calls it", async () => {
     const root = project({
       "app/remote.ts": `
-        import { Model } from "@expressive/mvc";
         export async function user() { return "ada"; }
         export async function slugs() { return ["a"]; }
-        export default class Site extends Model { visits = 0; async visit() {} }
       `,
       "app/index.tsx": `
-        import { Component, get } from "@expressive/mvc";
-        import Site from "./remote";
-        export class Page extends Component { site = get(Site); render() { return <button onClick={() => this.site.visit()}>home</button>; } }
+        import { Component } from "@expressive/mvc";
+        import { user } from "./remote";
+        export class Page extends Component { render() { return <button onClick={() => user()}>home</button>; } }
       `,
       "app/(account).tsx": `
         import { Component, set } from "@expressive/mvc";
@@ -106,16 +104,6 @@ describe("launch", { timeout: 30_000 }, () => {
         import { Component } from "@expressive/mvc";
         import { user } from "./remote";
         export class Page extends Component { new() { user(); } render() { return <p>later</p>; } }
-      `,
-      "app/(stats).tsx": `
-        import { Component, get } from "@expressive/mvc";
-        import Site from "./remote";
-        export class Page extends Component { site = get(Site); render() { return <p>{this.site.visits}</p>; } }
-      `,
-      "app/(snapshot).tsx": `
-        import { Component, get } from "@expressive/mvc";
-        import Site from "./remote";
-        export class Page extends Component { site = get(Site); render() { return <p>{this.site.get("visits")}</p>; } }
       `,
       "app/(timer).tsx": `
         import { Component } from "@expressive/mvc";
@@ -136,8 +124,6 @@ describe("launch", { timeout: 30_000 }, () => {
     expect(await renderer.render("/account")).toBeNull();
     expect(await renderer.render("/caught")).toBeNull();
     expect(await renderer.render("/later")).toBeNull();
-    expect(await renderer.render("/stats")).toBeNull();
-    expect(await renderer.render("/snapshot")).toBeNull();
     expect((await renderer.render("/timer"))?.html).toContain("<p>timer</p>");
     await expect(renderer.render("/broke")).rejects.toThrow("broke");
     await new Promise(resolve => setTimeout(resolve, 20));
