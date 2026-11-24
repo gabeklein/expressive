@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component } from '@expressive/mvc';
-import { render, Style } from '@expressive/dom';
-import * as hot from '@expressive/mvc/hot';
-import { flushMicrotasks, mount } from '../../test.setup';
-import { createAppearanceRoute, createStyleScope, resolveAppearance } from './appearance';
+import { dom } from '@expressive/dom/host';
 import { applyDeclarations } from '@expressive/dom/style';
+import { Component } from '@expressive/mvc';
+import * as hot from '@expressive/mvc/hot';
+
+import { createAppearanceRoute, createStyleScope, resolveAppearance } from './appearance';
+import { Style } from './stylesheet';
+import { flushMicrotasks, mount, render, useHost } from '../../test.setup';
+
+useHost(dom);
 
 function place(node: Component.Node) {
   const root = document.body.appendChild(document.createElement('main'));

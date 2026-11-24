@@ -2,8 +2,20 @@ import { afterEach, vi } from 'vitest';
 import type { Component, Model } from '@expressive/mvc';
 
 import { mockPromise } from '../mvc/test.setup';
-import { render } from '@expressive/dom';
+import { limp } from './src/render/host';
+import type { Host } from './src/render/host';
+import { render as renderWith } from './src/render/render';
 import { vnode } from './src/node/vnode';
+
+let host: Host = limp;
+
+/** Render this file's `mount` and `place` through `next` - limp by default. */
+export function useHost(next: Host) {
+  host = next;
+}
+
+/** Render through this file's host. */
+export const render = (node: Component.Node, root: Element | DocumentFragment) => renderWith(node as any, root, host);
 
 afterEach(() => {
   document.body.replaceChildren();
