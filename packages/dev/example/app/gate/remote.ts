@@ -10,21 +10,15 @@ export class SignIn extends Error {
   location = "/login";
 }
 
-export default class Gate extends Model {
+class Gate extends Model {
   name = "";
   member = false;
 
-  protected static key() {
+  protected async new() {
     const { gate } = Current.get().cookies;
 
     if (!gate) throw new SignIn("Sign in to pass the gate.");
     if (gate == "banned") throw new Banned("Banned from the gate.");
-
-    return gate;
-  }
-
-  protected async new() {
-    const { gate } = Current.get().cookies;
 
     await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -32,6 +26,8 @@ export default class Gate extends Model {
     this.member = gate != "guest";
   }
 }
+
+export default () => void Gate.new();
 
 export async function member() {
   return Gate.get().member;

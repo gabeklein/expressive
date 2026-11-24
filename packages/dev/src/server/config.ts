@@ -24,7 +24,7 @@ export interface AppConfig {
    *
    * `"fetch"` bundles every dependency into a module for a fetch-handler host: `export default { fetch }` answering calls, then this config's `fetch`, else 404.
    * Static files are the host's - `fetch` forwards to them. Other members of this config join the default export, and named exports of `index.ts` other than `bindings` are re-exported.
-   * Folder gates do not run here - a remote that default-exports a Model fails the build.
+   * Folder gates do not run here - a remote entry with a default fails the build.
    */
   target?: "node" | "fetch";
   /**

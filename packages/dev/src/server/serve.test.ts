@@ -261,13 +261,12 @@ describe("serve", () => {
   });
 
   it("will serve a gated call and a file of unknown type", async () => {
-    const { Model } = await import("@expressive/mvc");
     vi.spyOn(console, "log").mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "data.bin"), "1");
 
     const exports = async () => ({ calls: { add: async (a: number, b: number) => a + b }, classes: {} });
-    const server = serve({ config: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], seats: [{ pattern: ["tally"], Type: class Tally extends Model {} as any }] });
+    const server = serve({ config: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], gates: [{ pattern: ["tally"], gate: () => {} }] });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;

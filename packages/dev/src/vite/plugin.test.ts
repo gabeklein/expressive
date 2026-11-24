@@ -214,11 +214,8 @@ describe("vite host", () => {
 
   const GATED = `
     ${HOST}
-    export default class Tally extends Model {
-      static ttl = 60;
-      total = 0;
-      async add(by: number) { return (this.total += by); }
-    }
+    class Tally extends Model { total = 1; }
+    export default function tally() { Tally.new(); }
     export async function peek() { return Tally.get().total; }
   `;
 
@@ -229,14 +226,14 @@ describe("vite host", () => {
     const stub = (await server.transformRequest("/app/tally/remote.ts"))?.code;
     expect(stub).toContain('export const peek = (...args) => call(at, "peek", args);');
     expect(stub).not.toContain("export default");
-    expect(stub).not.toContain("this.total");
+    expect(stub).not.toContain("Tally.new");
   });
 
-  it("will throw if a remote default's base cannot be followed", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/remote.ts": `const mixin = (B: any) => B; ${HOST} export default class Tally extends mixin(Model) {}` });
+  it("will refuse a class default", async () => {
+    const root = project({ "app/index.tsx": PAGE, "app/tally/remote.ts": `${HOST} export default class Tally extends Model {}` });
     const server = await serve(root);
 
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("Tally extends an expression");
+    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("A remote default is its folder's gate - a function");
   });
 
   it("will leave a folder's remote out of the route tree", async () => {
@@ -258,15 +255,16 @@ describe("vite host", () => {
       body,
     });
 
-    expect(await (await post("peek")).json()).toEqual({ value: 0 });
-    expect((await post("default.add", "[2]")).status).toBe(404);
+    expect(await (await post("peek")).json()).toEqual({ value: 1 });
+    expect((await post("default")).status).toBe(404);
   });
 
   it("will gate the calls below a folder by its default, imported by the client or not", async () => {
     const root = project({
       "app/index.tsx": PAGE,
-      "app/remote.ts": `${HOST} export default class Site extends Model { static ttl = 60; name = "site"; }`,
-      "app/tally/remote.ts": `import Site from "../remote"; export async function site() { return Site.get().name; }`,
+      "app/site.ts": `${HOST} export class Site extends Model { name = "site"; }`,
+      "app/remote.ts": `import { Site } from "./site"; export default () => void Site.new();`,
+      "app/tally/remote.ts": `import { Site } from "../site"; export async function site() { return Site.get().name; }`,
     });
     const server = await serve(root, expressive(), hostMvc(root));
     await server.transformRequest("/app/tally/remote.ts");
@@ -279,6 +277,26 @@ describe("vite host", () => {
     });
 
     expect(await res.json()).toEqual({ value: "site" });
+  });
+
+  it("will refuse a call whose gate throws or activates a Model whose new() fails", async () => {
+    const root = project({
+      "app/index.tsx": PAGE,
+      "app/deny/remote.ts": `export default () => { throw new Error("No entry"); }; export async function open() { return 1; }`,
+      "app/fail/remote.ts": `${HOST} class Session extends Model { new() { throw new Error("Sign in"); } } export default () => void Session.new(); export async function open() { return 1; }`,
+    });
+    const server = await serve(root, expressive(), hostMvc(root));
+    await server.transformRequest("/app/deny/remote.ts");
+    await server.transformRequest("/app/fail/remote.ts");
+    await server.listen(0);
+
+    const post = async (at: string) => {
+      const res = await fetch(new URL(at, server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "open" }, body: "[]" });
+      return [res.status, (await res.json()).message];
+    };
+
+    expect(await post("/deny")).toEqual([500, "No entry"]);
+    expect(await post("/fail")).toEqual([500, "Sign in"]);
   });
 
   it("will throw if a sidecar exports what the client cannot call", async () => {
@@ -464,19 +482,19 @@ describe("vite host", () => {
     const { server } = await buildBoth({
       "index.ts": "export default { remote: { opaque: false } };",
       "app/index.tsx": PAGE,
-      "app/base.ts": `${HOST} export class Base extends Model {}`,
-      "app/remote.ts": `import { Base } from "./base"; export default class Site extends Base {}`,
+      "app/remote.ts": "export default function site() {}",
       "app/tally/index.tsx": "import { peek } from './remote'; export const Page = () => peek",
       "app/tally/remote.ts": GATED,
     });
 
-    expect(server).toMatch(/seats: \[\{\s*pattern: \[\],\s*Type: Site\s*\}, \{\s*pattern: \["tally"\],\s*Type: Tally\s*\}\]/);
+    expect(server).toMatch(/gates: \[\{\s*pattern: \[\],\s*gate: site\s*\}, \{\s*pattern: \["tally"\],\s*gate: tally\s*\}\]/);
   });
 
   it("will check every remote entry's default at build, imported by the client or not", async () => {
-    const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote, "app/site.ts": `${HOST} export default class Site extends Model {}` });
+    const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote, "app/site.ts": "export default () => {}" });
 
-    await expect(buildBoth(files(`export default { target: "fetch" };`, `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: The fetch target does not run folder gates");
+    await expect(buildBoth(files(`export default { target: "fetch" };`, "export default () => {}"))).rejects.toThrow("app/remote.ts: The fetch target does not run folder gates");
+    await expect(buildBoth(files("export default {};", `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: A remote default is its folder's gate - a function");
     await expect(buildBoth(files("export default {};", `export { default } from "./site";`))).rejects.toThrow("a re-exported one is not checked");
   });
 
@@ -877,8 +895,7 @@ describe("vite host", () => {
     const server = await serve(project({
       "index.ts": index,
       "app/index.tsx": PAGE,
-      "app/base.ts": `${HOST} export class Base extends Model {}`,
-      "app/remote.ts": `import { Base } from "./base"; export default class Site extends Base {}`,
+      "app/remote.ts": "export default () => {}",
       "app/shop/remote.ts": "export async function price() { return 3; }",
       "app/tally/remote.ts": GATED,
     }));

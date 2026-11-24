@@ -151,8 +151,8 @@ app's `fetch` forwards to them.
   types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
-- Folder gates do not run there: a remote that default-exports a Model fails the build, and in dev
-  fails the calls below it. Remote functions only.
+- Folder gates do not run there: a remote entry with a default fails the build, and in dev fails
+  the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
 Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
@@ -271,20 +271,15 @@ class whose base is not an `Error` fails its first call in dev and the built ser
 
 ### Server Model
 
-A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model class - the
-folder's gate, as in `@expressive/rpc`. A call through the folder resolves the folder's instance for
-its key, building one when none is live, and `X.get()` finds it there and below; it throws outside a
-call. A gate stays on the server: the client imports its folder's functions, never the class. Every
-remote entry's default is checked at build, and in dev on each call through its folder, imported
-by the client or not.
+A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a function - the
+folder's gate, run before each call through the folder. It refuses the call by throwing, or by
+activating a Model whose `new()` fails. A call waits for each Model the gate activates; `X.get()`
+finds them in that call and the folder's calls below, and they are dropped after it. `X.get()`
+throws outside a call. A gate stays on the server: the client imports its folder's functions, never
+the gate. Every remote entry's default is checked at build, and in dev on each call through its
+folder, imported by the client or not - a class or any other value fails.
 
-`static key()` admits each call: it narrows the folder's context, and everything below it, by what
-it returns - an identity from a `Cookies` field, or a value from a gate above through `get()`.
-Undefined passes the location through - one instance per location, shared by every caller; throwing
-denies the call. Build the key from verified data
-only - a raw cookie lets the client pick its context - and declare it `protected`. A call waits for
-the instance's `async new()`. `static ttl` (seconds, 0 by default) caches the instance for the same
-key after its last call - a cache, not a store: do not count on state surviving between calls.
+`@expressive/rpc`'s class gates (`static key()`, `static ttl`) are not read by dev.
 
 ```ts
 // app/account/remote.ts
@@ -299,20 +294,17 @@ export class SignIn extends Error {
   location = "/login";
 }
 
-export default class Account extends Model {
-  static ttl = 60;
+class Account extends Model {
   user?: User = undefined;
 
-  protected static key() {
+  protected async new() {
     const { session } = AppCookies.get();
     if (!session) throw new SignIn("Sign in first.");
-    return session;
-  }
-
-  protected async new() {
-    this.user = await db.user(AppCookies.get().session!);
+    this.user = await db.user(session);
   }
 }
+
+export default () => void Account.new();
 
 export async function admin() {
   return Account.get().user!.admin;

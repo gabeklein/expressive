@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 import { isCall, scoped, send, toRequest } from "@expressive/rpc/http";
-import { dispatch, failure, verify, type Endpoint, type Seat } from "@expressive/rpc/protocol";
+import { dispatch, failure, verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import { wrap, type AppConfig, type Ctx } from "./config";
 import { install } from "./install";
@@ -64,7 +64,7 @@ export interface ServeOptions {
   config: AppConfig;
   client: string;
   sidecars?: Endpoint[];
-  seats?: { pattern: string[]; Type: Seat }[];
+  gates?: { pattern: string[]; gate: () => unknown }[];
 }
 
 /**
@@ -74,15 +74,15 @@ export interface ServeOptions {
  * That last step is what `fetch`'s `next` resolves.
  * Listens only after every sidecar's error classes verify.
  */
-export function serve({ config, client, sidecars = [], seats = [] }: ServeOptions): Server {
+export function serve({ config, client, sidecars = [], gates = [] }: ServeOptions): Server {
   install();
 
-  const gates = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
+  const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
   const app = scoped(config);
   const ctx: Ctx = {
     waitUntil: promise => void promise.catch(error => console.error("waitUntil:", error)),
   };
-  const gateAt = async (pattern: string[]) => gates.get(pattern.join("/"));
+  const gateAt = async (pattern: string[]) => gateOf.get(pattern.join("/"));
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
     res.statusCode = 400;

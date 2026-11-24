@@ -196,7 +196,7 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
     "  config,",
     `  client: fileURLToPath(new URL("../client/", import.meta.url)),`,
     "  sidecars: [", ...entries, "  ],",
-    "  seats: [", ...gates.map(gate => `    { pattern: ${JSON.stringify(gate.pattern)}, Type: ${alias(gate.file)}.default },`), "  ],",
+    "  gates: [", ...gates.map(gate => `    { pattern: ${JSON.stringify(gate.pattern)}, gate: ${alias(gate.file)}.default },`), "  ],",
     "});",
     "",
   ].join("\n");

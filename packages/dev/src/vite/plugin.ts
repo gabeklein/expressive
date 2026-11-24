@@ -113,8 +113,8 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const target = async () => (build ? settings!.target : (await api.config()).target);
 
-  const gateError = async (remote: Remote, resolve: Sources["resolve"]) => {
-    const { gate, problems } = await scanGate(remote, readFileSync(remote.file, "utf8"), sourcesOf(resolve));
+  const gateError = async (remote: Remote) => {
+    const { gate, problems } = scanGate(remote, readFileSync(remote.file, "utf8"));
 
     if (gate && (await target()) === "fetch") problems.push(STATELESS);
 
@@ -170,7 +170,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         builds.set(root, (exposure = new Exposure(salt)));
 
         for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
-          const { error } = await gateError(remote, async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
+          const { error } = await gateError(remote);
           if (error) this.error(error);
         }
       }
@@ -291,14 +291,13 @@ export function host(dotenv: boolean): Plugin<Host> {
         }));
 
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
-      const resolve: Sources["resolve"] = async (spec, importer) => (await server.environments.ssr.pluginContainer.resolveId(spec, importer))?.id.split("?")[0];
 
       const gates: Seats = async pattern => {
         const remote = project.appDir && remoteEntries(project.appDir).find(remote => remote.pattern.join("/") === pattern.join("/"));
 
         if (!remote) return;
 
-        const { gate, error } = await gateError(remote, resolve);
+        const { gate, error } = await gateError(remote);
 
         if (error) throw new Error(error);
         if (gate) return (await host.import(remote.file)).default;
