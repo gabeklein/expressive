@@ -202,10 +202,10 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
   ].join("\n");
 }
 
-export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
+export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[], gates: Remote[]): string {
   const configSpec = JSON.stringify(importRel(from, project.configPath!));
-  const files = [...exposure.modules.keys()];
-  const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
+  const files = [...new Set([...exposure.modules.keys(), ...gates.map(gate => gate.file)])];
+  const ref = (remote: Remote, name: string) => [files.indexOf(remote.file), name];
   const ids = (group: Exposed[], names: (remote: Exposed) => string[], id: (remote: Exposed, name: string) => string) =>
     Object.fromEntries(group.flatMap(remote => names(remote).map(name => [id(remote, name), ref(remote, name)])));
   const manifest = exposure.byPattern().map(group => ({
@@ -213,6 +213,7 @@ export function fetchEntry(project: Project, from: string, exposure: Exposure, n
     calls: ids(group, remote => remote.calls, (remote, name) => exposure.callId(remote, name)),
     classes: ids(group, remote => remote.errors.map(error => error.name), (remote, name) => exposure.classId(remote, name)),
   }));
+  const gated = gates.map(gate => ({ pattern: gate.pattern, gate: ref(gate, "default") }));
 
   return [
     `import { fetchHandler } from "@expressive/dev/fetch";`,
@@ -220,7 +221,7 @@ export function fetchEntry(project: Project, from: string, exposure: Exposure, n
     ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
     `export { ${named.join(", ")} } from ${configSpec};`,
     "",
-    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
+    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)}, ${JSON.stringify(gated)});`,
     "",
   ].join("\n");
 }

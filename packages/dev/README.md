@@ -151,8 +151,6 @@ app's `fetch` forwards to them.
   types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
-- Folder gates do not run there: a remote entry with a default fails the build, and in dev fails
-  the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
 Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
