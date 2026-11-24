@@ -14,25 +14,20 @@ export interface FolderRefs {
   classes: Record<string, Ref>;
 }
 
-/** A folder's gate: its route pattern, and its remote entry's `default`. */
-export interface GateRef {
-  pattern: string[];
-  gate: Ref;
-}
-
 type Handlers<T> = Omit<T, "port" | "remote" | "target" | "fetch" | "around">;
 
 /**
  * The `target: "fetch"` server - the generated `dist/server/index.js` default-exports it.
  *
- * Answers remote calls, each through the gates of its folder and those above, then `config.fetch`, else 404, with `env` bound for `Current.get().env`.
+ * Answers remote calls, then `config.fetch`, else 404, with `env` bound for `Current.get().env`.
+ * A call runs after the gates of its folder and those above.
  * `config.fetch`'s `next` resolves that 404.
  * Calls and `config.fetch` each run inside `config.around`.
  * `env` defaults to `{}`; `ctx` to a stand-in whose `waitUntil` logs a rejection.
  * Members of `config` other than `port`, `remote`, `target`, `fetch` and `around` join the result.
  * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */
-export function fetchHandler<T extends AppConfig>(config: T, modules: Record<string, unknown>[], manifest: FolderRefs[], gates: GateRef[] = []): Handlers<T> & {
+export function fetchHandler<T extends AppConfig>(config: T, modules: Record<string, unknown>[], manifest: FolderRefs[], gates: { pattern: string[]; gate: Ref }[] = []): Handlers<T> & {
   fetch(request: Request, env?: Env, ctx?: Ctx): Promise<Response>;
 } {
   install();

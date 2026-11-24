@@ -904,7 +904,7 @@ describe("vite host", () => {
     const server = await serve(project({
       "index.ts": index,
       "app/index.tsx": PAGE,
-      "app/remote.ts": `export default () => {}`,
+      "app/remote.ts": "export default () => {}",
       "app/shop/remote.ts": `export default () => { throw new Error("Sign in"); }; export async function price() { return 3; }`,
       "app/tally/remote.ts": "export async function add(a: number, b: number) { return a + b; }",
     }));

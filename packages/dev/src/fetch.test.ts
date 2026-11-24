@@ -115,7 +115,7 @@ describe("fetchHandler", () => {
     expect(handler.scheduled).toBe(scheduled);
   });
 
-  it("will run each gate above a call before it, refusing by a throw", async () => {
+  it("will run each gate above a call, outermost first, refusing by a throw", async () => {
     const seen: string[] = [];
     const site = () => void seen.push("site");
     const deny = () => {
