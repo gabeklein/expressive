@@ -109,12 +109,14 @@ type One<C> = C extends { required: true } | { default: {} } ? Value<C> : Value<
 
 const SPECS = new WeakMap<Model, Spec[]>();
 
+const TOKENS = new Map<unknown, Spec>();
+
 function input(kind: Kind, configs: object[], target?: Target): any {
   const config = Object.assign({}, ...configs);
-
-  return def((key, self) => {
+  const token = def((key, self) => {
     const specs = SPECS.get(self) || [];
 
+    TOKENS.delete(token);
     SPECS.set(self, specs);
     specs.push({ key, kind, config, target });
 
@@ -124,6 +126,33 @@ function input(kind: Kind, configs: object[], target?: Target): any {
       value: kind == 'flag' ? !!value : Array.isArray(value) ? [...value] : kind == 'args' || kind == 'list' ? [] : value
     };
   });
+
+  TOKENS.set(token, { key: '', kind, config, target });
+
+  return token;
+}
+
+function discard(model: Model) {
+  for (const value of Object.values(model))
+    if (value instanceof Model) discard(value);
+    else TOKENS.delete(value);
+
+  model.set(null);
+}
+
+/** Inputs of `Type` read from a bare instance - never activated, so nothing it owns starts. */
+function sample(Type: Model.Type) {
+  const instance = new Type();
+  const specs = Object.entries(instance).flatMap(([key, value]) => {
+    const spec = TOKENS.get(value);
+
+    return spec ? [{ ...spec, key }] : [];
+  });
+  const runs = 'run' in instance;
+
+  discard(instance);
+
+  return { Type, specs, runs };
 }
 
 /**
@@ -264,5 +293,5 @@ declare namespace list {
   type Config<T = any> = Plural<T> & Named & { split?: string };
 }
 
-export { arg, args, flag, opt, list, cmd, SPECS };
+export { arg, args, flag, opt, list, cmd, sample, SPECS };
 export type { Spec, Kind, Type, Target, From, Lazy, Peer, Inline };

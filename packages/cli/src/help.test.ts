@@ -37,7 +37,8 @@ it('will list operands and options', () => {
       '  --size <number>',
       '  --tags <value>',
       '  --keep <number>      (default: 1)',
-      '  -h, --help           show this help'
+      '  -h, --help           show this help',
+      '  --json               print one JSON object - for scripts and agents'
     ].join('\n')
   );
 });
@@ -53,7 +54,7 @@ it('will show optional rest operands in brackets', () => {
 it('will list only help when nothing is declared', () => {
   class Test extends Model {}
 
-  expect(help('test', specs(Test))).toBe('Usage: test [options]\n\nOptions:\n  -h, --help  show this help');
+  expect(help('test', specs(Test))).toBe('Usage: test [options]\n\nOptions:\n  -h, --help  show this help\n  --json      print one JSON object - for scripts and agents');
 });
 
 it('will list commands and every option in scope', () => {
@@ -84,6 +85,7 @@ it('will list commands and every option in scope', () => {
       '  -f, --force      parent force',
       '  --entry <value>',
       '  -h, --help       show this help',
+      '  --json           print one JSON object - for scripts and agents',
       '',
       'Run "parent help <command>" for a command\'s inputs.'
     ].join('\n')
@@ -101,7 +103,8 @@ it('will list commands and every option in scope', () => {
       '  --force          child force',
       '  --depth <value>',
       '  --entry <value>',
-      '  -h, --help       show this help'
+      '  -h, --help       show this help',
+      '  --json           print one JSON object - for scripts and agents'
     ].join('\n')
   );
 });
@@ -112,6 +115,6 @@ it('will leave -h to an option claiming it', () => {
   }
 
   expect(help('test', specs(Test))).toBe(
-    'Usage: test [options]\n\nOptions:\n  -h, --host <value>\n  --help              show this help'
+    'Usage: test [options]\n\nOptions:\n  -h, --host <value>\n  --help              show this help\n  --json              print one JSON object - for scripts and agents'
   );
 });
