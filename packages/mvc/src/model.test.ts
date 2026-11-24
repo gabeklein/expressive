@@ -3990,6 +3990,24 @@ describe('activation', () => {
       expect(warn).not.toBeCalled();
     });
 
+    it('will release what instructions replaced in a state released before activation', async () => {
+      class Leaf extends Model {}
+      class Base extends Model {
+        child: Leaf | undefined = new Leaf();
+      }
+
+      class Sub extends Base {
+        child = get(Leaf, false);
+        other = new Leaf();
+        value = set(new Leaf());
+      }
+
+      new Sub().set(null);
+      await flushMicrotasks();
+
+      expect(warn).not.toBeCalled();
+    });
+
     it('will spare state constructed after a released one', async () => {
       class Child extends Model {}
       class Parent extends Model {

@@ -1,5 +1,5 @@
 import { listener } from '../observable';
-import { defer, PENDING, Model, uid } from '../model';
+import { BUILT, defer, PENDING, Model, uid } from '../model';
 import { apply, store } from '../store';
 
 declare namespace def {
@@ -27,7 +27,10 @@ declare namespace def {
 }
 
 const APPLY = new Map<symbol, [def.Factory, Model[]] | null>();
-const RESET = () => APPLY.clear();
+const RESET = () => {
+  APPLY.clear();
+  BUILT.clear();
+};
 
 /**
  * Custom instruction - define a managed property from a factory run when the instance activates.
@@ -59,7 +62,10 @@ function def<T>(arg1: def.Factory<T>) {
 
   const token = Symbol('field-' + uid());
 
-  APPLY.set(token, [arg1, [...PENDING].filter((x) => x instanceof Model) as Model[]]);
+  const pending = [...PENDING].filter((x) => x instanceof Model) as Model[];
+
+  APPLY.set(token, [arg1, pending]);
+  BUILT.set(token, pending[pending.length - 1]);
 
   return token as [T] extends [void] ? unknown : T;
 }

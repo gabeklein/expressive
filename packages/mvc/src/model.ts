@@ -22,6 +22,9 @@ const ID = new WeakMap<Model, string>();
  *  Also carries work to run at the deadline, which `def` uses to bound its registry. */
 const PENDING = new Set<Model | (() => void)>();
 
+/** Last Model pending as each instruction token was created - bounds what its field built. */
+const BUILT = new Map<unknown, Model | undefined>();
+
 /** External lifecycle listeners for any given Model class. */
 type Handler = Model.On<any>;
 
@@ -1083,22 +1086,21 @@ function trailing(state: object) {
 
 /**
  * Release what an instance destroyed before activation built - Models its
- * fields hold are destroyed, those built before the last one only released.
+ * fields hold are destroyed, others built before the last held one or an
+ * instruction's replaced value only released.
  */
 function discard(state: Model, rest: Model[]) {
   const held = new Set<unknown>();
+  let end = -1;
 
   for (const { value } of Object.values(Object.getOwnPropertyDescriptors(state)))
-    if (Array.isArray(value)) value.forEach((item) => held.add(item));
-    else held.add(value);
-
-  let end = rest.length;
-
-  while (end-- > 0 && !held.has(rest[end]));
+    for (const item of Array.isArray(value) ? value : [value]) {
+      held.add(item);
+      end = Math.max(end, rest.indexOf(item), rest.indexOf(BUILT.get(item)!));
+    }
 
   for (const item of rest.slice(0, end + 1))
-    if (!PENDING.has(item)) continue;
-    else if (held.has(item)) item.set(null);
+    if (held.has(item)) item.set(null);
     else PENDING.delete(item);
 
   return null;
@@ -1311,4 +1313,4 @@ function parent(child: object, value?: Model | null) {
 }
 
 export type { Got, Handler, Keyed };
-export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
+export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, BUILT, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
