@@ -231,7 +231,7 @@ Below the root gate:
 
 `assets` is otherwise written by hand only in tests (a stubbed shell) and for files kept elsewhere: `assets: { fetch: r => fetch(new URL(new URL(r.url).pathname, origin)) }`.
 
-**A remote entry's Model is rpc's class gate.** Twins are removed in their own PR to `main`, so a seat is only that: an instance per `key()`, built inside calls. Below the root gate, a function gate, it is per call, as rpc already documents for a class gate below a function gate, so `ttl` caches nothing there and nothing outlives the request.
+**A remote entry's `default` is a function gate.** Twins are removed in their own PR to `main`, which also makes a remote entry's `default` its folder's function gate and fails the build on a class. So nothing a call builds outlives the request, and sidecars gate the way `api/` folders do.
 
 **In dev, the root gate sees what production would, and Vite keeps the rest.**
 - Calls and `/api/*` are decided first, so they always go through the gates.
@@ -319,7 +319,21 @@ The handler reads the body through the cache, its reply gets the headers and coo
 
 ## Alignment with sidecars
 
-`app/**/remote` calls and `api/` routes share the request scope, `Current`'s request members (`request`, `url`, `cookies`, `env`, `ctx`, `params`, `setHeader`), `Cookies`, the root gate and its Models. They differ in gating: a sidecar entry's `default` must be a Model (rpc's class gate, `static key()` optional), so sidecars have no function gate, and the skill lists "the root seat cannot gate some calls and not others" as a known gap. A sidecar entry's function `default` as a gate, by this rule, is a follow-up outside this work: it has no twin, so it doesn't collide with seats.
+`app/**/remote` calls and `api/` routes share the request scope, `Current`'s request members (`request`, `url`, `cookies`, `env`, `ctx`, `params`, `setHeader`), `Cookies`, the root gate and its Models, and one gate rule: a remote entry's `default` is its folder's function gate, as an `api/` folder `index.ts`'s is (from the twins-removal PR). The difference left is reach: a sidecar gate covers its folder's calls, while the root gate covers pages too.
+
+## Gate preflight
+
+A page under a gated folder would otherwise render before anything checked the caller, and its first parallel calls would each meet the gates, each refreshing a session cookie and racing. The client runs the gates once on the way in instead.
+
+- **When.** A navigation that crosses into a folder with a remote gate, or whose gate chain differs from the current page's, sends one preflight before the Route enters. Navigations within the same chain send nothing. The route tree records which folders have gates, so an app without them never sends one. Concurrent preflights for one chain share a request.
+- **What runs.** A call request to the target's folder marked as a preflight (an internal marker beside `/.expressive/detached`) runs the root gate and each folder gate down to the target, then answers 204 with no function behind it. Cookies and headers the gates set join the reply, so a session refreshed here is settled before the page's calls.
+- **Outcome.** A pass enters the Route. A refusal reaches the nearest `Catch`, and an error with a 3xx `status` and `location` redirects, as a twin's first pull did. The Route's `enter` hook runs after the pass.
+- **Not security.** Every call still runs its gates. The client may skip or reorder a preflight without opening anything.
+- **No data.** A gate's return value stays ignored; the page reads what it needs through a remote function.
+- **Idempotent gates.** A gate may write (a refreshed session), and both the preflight and the following calls run it, so a gate must tolerate running twice.
+- **Cost.** One request per gate boundary crossed, not per navigation. Nothing persists between the preflight and the calls except cookies and module-scope state the app keeps (a verifier, a key set): warm on Node, best effort per isolate on Workers.
+
+No opt-out for now.
 
 ## Mechanics
 
@@ -512,3 +526,4 @@ Each PR lands on the trunk with its own tests, a changeset where it is user-faci
 4. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports nor `node:fs`.
 5. **dev: `api/` routes.** Scan and strict matcher without backtracking, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit.
 6. **dev: `api/` gates.** A folder `index.ts`'s `default` as a gate over matched and unmatched paths with its folder's params, its Models in context until the request ends, and the class-default error.
+7. **dev: gate preflight.** The preflight marker and its answer, the route tree recording gated folders, the client sending one per gate-chain change with refusal to `Catch` and redirects, deduping. Needs the twins-removal PR's function gates.
