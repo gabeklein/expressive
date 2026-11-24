@@ -26,22 +26,42 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 - **`Current` stays pure.** `config` has no say over it. Per-request state lives in Models a gate activates; derived values (locale, client IP) are plain functions over `Current`, memoized on its `request` if costly; bindings extend `Env`. No request-wide Model or slot (Request-wide state, below).
 - **A plain object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
+- **Dev's stand-ins live in `index.dev.ts`.** When it exists, `expressive dev` reads its default export instead of `index.ts`'s. It imports `index.ts`'s settings, sets `env` (the live objects the host would pass, such as a local database for `DB`) and anything else dev-only, and exports them. The build never reads it, so nothing in it reaches a bundle. Replaces `bindings`.
+- **Apps type `env` on `@expressive/dev`:** `declare module "@expressive/dev" { interface Env { … } }`. dev re-exports rpc's `Env`, so an app never names rpc.
 
 ## Shape
 
 ```ts
-import { config } from "@expressive/dev";
-import type { Env } from "@expressive/rpc";
+// index.ts - the app, in dev and production
+import { config, type Env } from "@expressive/dev";
 
 export default config({
   target: "fetch",
   remote: { opaque: false },
-  bindings: async () => (await import("./db/bindings.ts")).bindings(),
-  handle: ({ env, next }) => db.session(next, d1(env.DB)),
+  handle: ({ env, next }) => db.session(next, env.DB),
   host: () => ({
-    scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
+    scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), bound.DB),
   }),
 });
+```
+
+```ts
+// index.dev.ts - read by `expressive dev` instead, when present; never built
+import { createClient } from "@libsql/client";
+import config from "./index.ts";
+
+config.env = async () => ({ DB: createClient({ url: "file:local.db" }) });
+
+export default config;
+```
+
+```ts
+// types.d.ts
+declare module "@expressive/dev" {
+  interface Env {
+    DB: D1Database | import("@libsql/client").Client;   // D1 on Workers, a local file in dev
+  }
+}
 ```
 
 ### Types
@@ -54,8 +74,8 @@ export interface Settings {
   /** Node and dev only. Default 3000 in production, Vite's in dev. `--port` wins. */
   port?: number;
   remote?: { opaque?: boolean };
-  /** Dev's per-request bindings (`env`) on either target, built once per server and again after a throw. The build drops it - import inside it. */
-  bindings?(): Partial<Env> | Promise<Partial<Env>>;
+  /** Dev only, and only in `index.dev.ts`: what the host would pass as `env` (a local database for `DB`), over `process.env` and `.env`. Called once per server, again after a throw. */
+  env?(): Partial<Env> | Promise<Partial<Env>>;
   /** Middleware around every request the host forwards. Return a `Response`, or nothing to pass. */
   handle?(args: HandleArgs): Response | void | Promise<Response | void>;
   /** Fetch target only: the bundle's default export, built from the composed app. Platform handlers (`scheduled`) go here; a missing `fetch` gets the default. */
@@ -72,6 +92,9 @@ export interface HandleArgs {
 
 /** Types the entry's settings; returns them unchanged. Not generic, so an unknown key is an editor error. */
 export function config(settings: Settings): Settings;
+
+/** The request's `env`. Augment it here: `declare module "@expressive/dev" { interface Env { DB: … } }`. */
+export type { Env } from "@expressive/rpc";
 ```
 
 ```ts
@@ -135,23 +158,24 @@ The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves t
 `@expressive/rpc/protocol` (host plumbing, beside `within`) gains the layer seam dev composes with, `layer(run: () => unknown, below: () => Promise<Response>, params?: Record<string, string>): Promise<Response>`: run a gate or handler with `below` as its `next` and `params` in the request's scope, and resolve with its reply. rpc's own function gates run on it, so they gain the optional `next` too (a transaction around each call). Under rpc's `scoped()`, the wrapped `fetch` is one layer: `send`, `json` and `text` work, `params` is `{}`, and calling `next` throws. `handler()` answers only calls, as today.
 
 New public surface for sign-off (AGENTS.md):
-- **dev root:** `config` (moved from `/server`), and the types `Settings` and `HandleArgs`, in an import-free module emitted as its own chunk, so the fetch bundle pulls no router or dom code for them.
+- **dev root:** `config` (moved from `/server`), the types `Settings` and `HandleArgs`, and rpc's `Env` re-exported for augmenting, in an import-free module emitted as its own chunk, so the fetch bundle pulls no router or dom code for them.
 - **dev `/server`:** `compose`, and the types `AppOptions`, `App`, `ExecutionCtx`. `Current` is already re-exported there.
 - **dev `/fetch`:** `compose(settings, sidecars, manifest, routes, apiManifest, pages)`, for generated entries only.
 - **rpc `Current`:** `params`, `json`, `text`, `ctx`, `next`, `send` and static `send`; the `ExecutionCtx` type; `next` in rpc's function gates, and a gate's returned `Response` or function answering.
 - **rpc `/protocol`:** `bind`'s `ctx`, and `layer`.
 - **rpc client:** a non-codec reply rejects with an `HttpError` carrying its status.
 - **Behaviour:** an `HttpError` thrown outside a call, in `handle` or a gate, answers its status as JSON (`Redirect` sets `Location`); a gate's returned `Response` or function now answers where rpc ignored it.
-- **`@expressive/env`:** its generated `.env` typing augments rpc's `Env` when dev is installed.
+- **dev's `index.dev.ts`:** read in place of `index.ts` by `expressive dev`; `env` allowed only there.
+- **`@expressive/env`:** its generated keys type the request `env` (mechanism in PR 5).
 - **Entry plumbing** on `/server`, documented as not app API: `listen` and its options. The three `compose` forms (`/server`'s, `/fetch`'s, dev's internal one) share one implementation.
 
 Removed or renamed: `AppConfig` → `Settings`, `serve` → `listen` (the Node listener the generated entry calls), `@expressive/dev/fetch`'s `fetchHandler` → its `compose`, and the plugin API `Host.config()` returns `Settings`.
 
-`Env` is still augmented where `Current.get().env` reads it: `declare module "@expressive/rpc" { interface Env { … } }`. The `.env` typing `@expressive/env` generates augments rpc's `Env` as well when dev is installed, so `env` types both layers in `handle` and in `Current`.
+Apps augment `Env` through `@expressive/dev`, which re-exports rpc's interface; the merge reaches rpc's own declaration (checked with tsc 5.9), so `handle`, `Current.get().env` and `config.env` share it. rpc's docs keep `declare module "@expressive/rpc"` for apps without dev. The string keys `@expressive/env` generates should type the same `env`; whether rpc's `Env` extends `@expressive/env`'s or dev joins the two is PR 5's call.
 
 ### Semantics
 
-- **`config`** returns its argument. Dev reads `index.ts`'s default export while Vite configures and when it composes the app. Only `bindings` leaves the bundle (below); Node's entry needs `port` at runtime. Unknown keys fail the dev server and the build by name, the 0.5 ones included: "`fetch` and `around` became `handle`", "`scheduled` goes in `host`".
+- **`config`** returns its argument. Dev reads `index.ts`'s default export while Vite configures and when it composes the app. Node's entry needs `port` at runtime. Unknown keys fail the dev server and the build by name, the 0.5 ones included: "`fetch` and `around` became `handle`", "`scheduled` goes in `host`".
 - **`handle`** runs for every request the host forwards: remote calls, `/api/*`, and pages and static files. A host that answers static files itself first (Workers assets without `run_worker_first`) never forwards those.
   - Without it, every request goes straight to the app.
   - Its reply is its returned `Response`. Returning nothing passes: through `next()`'s reply if it was called, else by calling it. Another return value throws. A second `next()`, or one after `handle` returned, throws. A `next()` reply `handle` discards has its body cancelled.
@@ -161,12 +185,13 @@ Removed or renamed: `AppConfig` → `Settings`, `serve` → `listen` (the Node l
   - A thrown `HttpError` answers its status (codec-shaped on a call request, JSON `{ message }` otherwise); anything else is logged and answered with a 500 whose message shows in dev only.
   - Nothing passes from `handle` into the scope implicitly. Two channels: a header on `next(request)`, or the app's own `AsyncLocalStorage` around `next`, as `db.session(next)` does. `Current.get().request` is one object for the whole scope, so memoizing on it works in every gate and route, but not on `handle`'s `request`.
   - A 101 (WebSocket upgrade) from below passes through untouched; in dev, Vite's connect middleware never sees an upgrade, so this is fetch-target only.
-- **`host`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export. The build keeps it; only `bindings` is dropped.
+- **`index.dev.ts`** is optional. When present, `expressive dev` reads its default export in place of `index.ts`'s. `env` set anywhere else (in `index.ts`, so in a build) fails the dev server and the build, pointing at `index.dev.ts`.
+- **`host`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export.
   - Without it, the default export is `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. A returned object without `fetch` gets that one, so `host` is only needed for what dev doesn't model.
   - Platform handlers (`scheduled`, `queue`, `email`) are the app's code, typed by the app. They run outside any request, so they read the platform's `env` argument.
   - Dev never calls `host`, so there is no cron in dev, as today.
   - On the Node target, a `host` fails the build and the dev server. Node has no module host to hand an export to.
-- **`index.ts`'s named exports** are still re-exported from the fetch bundle (Durable Object and Workflow classes). A named `bindings` export fails the dev server and the build, pointing at `config({ bindings })`, so a half-migrated one can't ride into the Worker with its imports. The default is the settings, never re-exported.
+- **`index.ts`'s named exports** are still re-exported from the fetch bundle (Durable Object and Workflow classes). A named `bindings` export fails the dev server and the build, pointing at `index.dev.ts`, so a half-migrated one can't ride into the Worker with its imports. The default is the settings, never re-exported.
 - **`index.ts` is still optional.** Without it there are no settings, every request goes to the app, and the export is the default above.
 
 ### Gates
@@ -384,9 +409,9 @@ A page under a gated folder would otherwise render before anything checked the c
 
 - The plugin's `config` hook loads `index.ts` with `runnerImport` and reads `target` and `remote` from its default export.
 - `dev build` does that for each of its builds (client, server, and prerender when on).
-- For the server bundle, a transform on `index.ts` drops the `bindings` property from the default-exported `config({ … })`, and tree-shaking takes the function's dynamic imports (sqlite, local files) out of the Worker.
-- Rule: import inside the function. App modules are not `sideEffects: false`, so a static import the stripped value used would stay. The literal rule applies only when the evaluated settings have `bindings`: then the build fails when the strip leaves an import, when the default export is not `config(` an object literal `)`, and on an aliased, namespace or spread `config` it can't read. Without `bindings`, `export default { port: 3000 }` and a settings constant still work, as in 0.5.
-- `index.ts` loads in Node at build and in dev, so a static `cloudflare:workers` import (a Durable Object base class among its named exports) fails there: import such modules lazily or list them in `build.rollupOptions.external`, as the README says today. Alternative in question 5.
+- No transform: the build reads `index.ts` only, and `index.dev.ts` is never an input, so its imports (a local database driver, files) stay out of every bundle. `export default { port: 3000 }` and a settings constant still work, as in 0.5.
+- Dev reads `index.dev.ts` when it exists, else `index.ts`, and watches both.
+- `index.ts` loads in Node at build and in dev, so a static `cloudflare:workers` import (a Durable Object base class among its named exports) fails there: import such modules lazily or list them in `build.rollupOptions.external`, as the README says today.
 
 ### Generated entries
 
@@ -410,15 +435,15 @@ export default compose(settings, [s0], manifest, [a0], apiManifest, pages);   //
 **Dev:** the plugin imports a virtual `/.expressive/server.ts`:
 
 ```ts
-import settings from "../index.ts";
+import settings from "../index.dev.ts";   // ../index.ts when there is none
 import { compose } from "virtual:expressive/dev-compose";   // internal, not /server's
 export default compose(settings, { sidecars, api, pages, dev: true });
 ```
 
 The tables are the same generated ones, so an `api/` file added regenerates this entry. Dev's `compose` adds its endpoints; it stays internal, and the public `compose(settings)` is the tests' form.
 
-- Its middleware calls `app(request, { env: await bindings(), ctx, assets: public/ + Vite's shell })`, with `bindings` read from the same evaluation.
-- An edit to `index.ts` or anything it imports invalidates the entry, so the next request re-evaluates both and picks up the new `handle`.
+- Its middleware calls `app(request, { env: await settings.env?.(), ctx, assets: public/ + Vite's shell })`.
+- An edit to `index.ts`, `index.dev.ts` or anything they import invalidates the entry, so the next request re-evaluates both and picks up the new `handle`.
 - Server patching in place (#745, #746) must treat `index.ts` as a re-evaluation boundary.
 
 ### Tests
@@ -436,7 +461,7 @@ Outside a build, no remotes or api routes are composed, so this tests `handle`'s
 ### `env`
 
 `handle`'s `env` and `Current.get().env` read what the host bound. Off the fetch target, dev binds a layered view rather than the raw bindings:
-- **Node and dev:** the request's bindings, then `process.env`, then `.env` files; the first that has a key wins.
+- **Node and dev:** what the host passed (in dev, `index.dev.ts`'s `env()`), then `process.env`, then `.env` files; the first that has a key wins. So `env()` returns only live objects; string keys come from the layers below.
 - **Fetch target:** the host's `env` object as is, so a library handed it (Hono's `c.env`) sees the platform's bindings. No file layer, so `node:fs`, `node:path` and `node:util` stay out of the bundle. The README's claim that it imports only `node:async_hooks` and `node:crypto` holds.
 
 Outside a request (module scope, `scheduled`) there is no `Current`: handlers there take the platform's `env` argument, and Node code may use the root `env` (`@expressive/env`'s files-only reader shared with the client, unchanged). Reading `Current` there or in `handle` throws, and its message changes from "resolves only within a call" to "resolves only within a request"; dev adds the `handle` hint where it catches it.
@@ -453,7 +478,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | --- | --- |
 | `import { config } from "@expressive/dev/server"` | `from "@expressive/dev"` |
 | `export default config({ port, target, remote })` | unchanged |
-| `export async function bindings()` | `config({ bindings })` |
+| `export async function bindings()` | `config.env = …` in `index.dev.ts` |
 | `around: (next, { env }) => db.session(next, …)` | `handle: ({ env, next }) => db.session(next, …)` |
 | `fetch(request, env, ctx, next)` answering paths | an `api/` route, or `handle` around `next()` |
 | `fetch` returning nothing to fall through | `handle` returning nothing |
@@ -466,7 +491,9 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | `Cookies.set` or `X.get()` inside `fetch` (it ran in the request scope) | an `api/` route, or `Set-Cookie` on `handle`'s `Response` |
 | `around` keeping a typed error's status on calls | unchanged, codec-shaped |
 | Node's `Current.get().env` as `{}` | the layered view (`env`, below) |
-| `bindings` on the fetch target only, in dev | `config({ bindings })` on either target |
+| `bindings` on the fetch target only, in dev | `index.dev.ts` on either target |
+| `declare module "@expressive/rpc" { interface Env }` | `declare module "@expressive/dev"` |
+| `db.session(next, d1(env.DB))` | `db.session(next, env.DB)`: `@expressive/sql`'s `session` takes a D1 binding |
 | `AppConfig` | `Settings` |
 | `serve` from `/server` (generated entries only) | `listen` |
 | `fetchHandler` from `/fetch` (generated entries only) | `compose` |
@@ -479,10 +506,9 @@ It assumes the Worker runs before assets (`run_worker_first`). Otherwise the ass
 
 ```ts
 // index.ts
-import { config } from "@expressive/dev";
-import type { Env } from "@expressive/rpc";
+import { config, type Env } from "@expressive/dev";
 
-import { db, d1 } from "./server/db";
+import { db } from "./server/db";
 import { signInAs } from "./server/dev";
 import { preview } from "./server/preview";
 import { sweep } from "./server/jobs";
@@ -490,7 +516,6 @@ import { sweep } from "./server/jobs";
 export default config({
   target: "fetch",
   remote: { opaque: false },
-  bindings: async () => (await import("./db/bindings.ts")).bindings(),
 
   handle: ({ request, env, next }) => {
     const url = new URL(request.url);
@@ -505,16 +530,28 @@ export default config({
       const invite = request.method === "GET" && page.ok && url.pathname.match(/^\/invite\/([^/]+)$/);
 
       return invite ? preview(page, decodeURIComponent(invite[1])) : page;
-    }, d1(env.DB));
+    }, env.DB);
   },
 
   host: () => ({
     scheduled(event: ScheduledController, bound: Env, ctx: ExecutionContext) {
-      ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), d1(bound.DB)));
+      ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), bound.DB));
     },
   }),
 });
 ```
+
+```ts
+// index.dev.ts
+import { createClient } from "@libsql/client";
+import config from "./index.ts";
+
+config.env = async () => ({ DB: createClient({ url: "file:local.db" }) });
+
+export default config;
+```
+
+The local file's schema is synced before serving, by `@expressive/sql`'s own means; dev does not run migrations.
 
 ```
 api/auth/[...].ts     default: auth(env).handler(request) - the library's basePath becomes "/api/auth"
@@ -537,14 +574,14 @@ What the port shows:
 
 ## Questions
 
-Answered in review, except 5.
+All answered in review.
 
 1. **Static sugar.** Only `Current.send`, as `Cookies.set` is to `Cookies.get()`. Statics for `request`, `env` and the rest would duplicate the instance.
 2. **Sending a Model instance** throws ("send its values"). Reserved while stateful server Models are undecided.
 3. **Migration.** A clean break.
 4. **`api/` was already assigned.** `FEATURE.md`'s agreed shape had dev hosting rpc's call folder at `api/` (lines 22, 83, 185, and 302's "dev does not host an rpc `api/` folder yet"). `api/` is HTTP routes only. `api/index.ts`'s extra exports stay reserved and fail the build. Typed verb arguments feeding an OpenAPI spec is a later idea, on the board.
    - `FEATURE.md` lines 22, 83, 185 and 302 get updated, along with 62 (the OAuth `api/` slice, now this) and 288 (REST verbs on a `Route` default). Line 233's "rpc folder, beyond calls" (REST verbs, the reply pipeline, OpenAPI) concerns rpc's external-client lane and stays. Line 21's Config line describes the new entry.
-5. **`bindings` as a path. Open.** `bindings` supplies dev's local stand-ins for host bindings (a local D1, say). Its imports must not reach the production bundle, and `index.ts` is in it. As a function, the build strips the `bindings` member from the default export, so the object must be a literal the transform can find, and the function is type-checked where it is written. As a path, `bindings: "./db/bindings.ts"`, only dev imports the module, so no strip and no literal rule, but the module's default export is checked only by its own `satisfies`. Recommend the function, with the path as the fallback if the transform proves brittle.
+5. **Dev's stand-ins.** `index.dev.ts`, read by `expressive dev` in place of `index.ts` when present, sets `config.env`. No build transform, no literal rule, no flag. The member is `env`, named for what it fills.
 6. **Body cap.** 1 MB by default, on `json()` and `text()` only, so calls and uploads keep today's behaviour. A setting to raise it (`config({ body: { limit } })`) waits until asked.
 7. **A throw below a wrapper** resolves `next()` with the error reply, as calls already do, so a wrapper treats a failed call and a failed route alike.
 8. **Trunk.** PRs 2 to 7 land on a `feat/dev-serve` trunk cut from this branch, released once. Publishing 0.6 with `handle` but without `api/` would make apps port twice. The trunk isn't released between PRs, so a gap one PR leaves for a later one is tolerated there (named below).
@@ -556,9 +593,9 @@ Each PR has its own tests, a changeset where it is user-facing (`minor`), its RE
 
 1. **dev: folder gates on the fetch target.** Off `main`: a remote entry's function gate runs there (it is stateless now), lifting "The fetch target does not run folder gates". Independent of the trunk.
 2. **rpc: the request on `Current`, and gates with `next`.** One scope per request, gates' scopes enclosing what they pass to, optional `next` on function gates, `params`/`json()`/`text()`/`ctx`/`next`/`send` and static `send`, a gate's answers (`send`, a returned `Response` or function; other returns ignored), a returned function as a fetch handler, `next` waiting for the gate's Models, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, a call's frame starting inside the request scope, the frame held for streams (question 9), after-work through `bind`'s `ctx`, `layer` on `/protocol`, behaviour under `scoped()`, refusal mapping outside calls (`HttpError` status, `Redirect` `Location`), the client rejecting a non-codec reply with its status, the `Current` message change.
-3. **dev: settings and composition.** `config` as the root's identity default export, `handle` and its `next`, `host` and its default `fetch`, `compose` and `listen`, generated entries, the chain for calls over today's page serving, sidecar call `params`, dev's skip list and fall-through, 101 passthrough, migration errors (old keys by name, a named `bindings` export). Updates the `FEATURE.md` lines in question 4. Hot-probe: an `index.ts` edit swaps `handle`. Gaps left on the trunk: the fetch target has no page fallback until PR 4, its bundle carries `bindings`' imports until PR 5, and 0.5 `fetch` routes have no home until PR 6.
+3. **dev: settings and composition.** `config` as the root's identity default export, `handle` and its `next`, `host` and its default `fetch`, `compose` and `listen`, generated entries, the chain for calls over today's page serving, sidecar call `params`, dev's skip list and fall-through, 101 passthrough, migration errors (old keys by name, a named `bindings` export). Updates the `FEATURE.md` lines in question 4. Hot-probe: an `index.ts` edit swaps `handle`. Gaps left on the trunk: the fetch target has no page fallback until PR 4, dev has no `env` stand-ins until PR 5, and 0.5 `fetch` routes have no home until PR 6.
 4. **dev: pages over `assets`.** The one shell rule on every host (the page patterns in each entry, a navigation's 404 shell) and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
-5. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` from the default export and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports, `node:fs`, nor router or dom code.
+5. **dev: `index.dev.ts` and the layered `env`.** Dev reading and watching `index.dev.ts`, `env` refused elsewhere, the named-`bindings` error, the layered view dev binds, the fetch build's file-free reader, `Env` re-exported from dev's root and `.env` keys typing it. Tests prove the bundle carries neither `index.dev.ts`'s imports, `node:fs`, nor router or dom code.
 6. **dev: `api/` routes and gates.** Scan and strict matcher without backtracking, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch; a folder `index.ts`'s `default` as a gate over matched and unmatched paths with its folder's params, its Models in context until the request ends, and the class-default error; the example app. Hot-probe: an `api/` edit.
 7. **dev: gate check.** The scan marking gated folders and the generated tree wrapping their `enter`, the rule for when a check is sent, the `x-expressive-get` branch answering `200 {}` after the gates, refusal through the codec to `Catch` with retry re-sending, redirects (router or `location.assign`, a 3xx `Response` mapped, no loops), superseded checks, prerender exclusion, clearing passes on a gate edit, the example's `enter` check replaced. Needs PR 1 to fire on the fetch target. Runtime: an example e2e spec (one check on entry, none inside the folder, one on a param change, refusal to `Catch`, redirect, zero requests in a gate-less app, a superseded navigation) under dev and the Node build, and a `hot-probe.ts` case for a gate edit.
 
