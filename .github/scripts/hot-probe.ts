@@ -1306,9 +1306,13 @@ export default config({
   const { port } = vite.httpServer!.address() as { port: number };
   const label = async () => (await fetch(`http://127.0.0.1:${port}/label`)).text();
   const named = async () => (await fetch(`http://127.0.0.1:${port}/env`)).text();
-  const stand = (name: string) => `import settings from './index';
+  const stood = async () => (await fetch(`http://127.0.0.1:${port}/stand`)).text();
+  const stand = (name: string, tag: string) => `import settings from './index';
+
+const inner = settings.handle!;
 
 settings.env = () => ({ NAME: '${name}' });
+settings.handle = args => (new URL(args.request.url).pathname === '/stand' ? new Response('${tag}') : inner(args));
 
 export default settings;
 `;
@@ -1324,21 +1328,23 @@ export default settings;
 
     console.log('PASS [server] index.ts edit swaps handle, its imports too');
 
-    await Bun.write(join(dir, 'index.dev.ts'), stand('dev one'));
-    await until(async () => (await named()) == 'dev one');
+    await Bun.write(join(dir, 'index.dev.ts'), stand('dev', 'one'));
+    await until(async () => (await named()) == 'dev');
+    if ((await stood()) != 'one') throw new Error(`index.dev.ts's handle not read: ${await stood()}`);
 
-    await Bun.write(join(dir, 'index.dev.ts'), stand('dev two'));
-    await until(async () => (await named()) == 'dev two');
+    await Bun.write(join(dir, 'index.dev.ts'), stand('changed', 'two'));
+    await until(async () => (await stood()) == 'two');
+    if ((await named()) != 'dev') throw new Error(`env() ran again on reload: ${await named()}`);
 
     await Bun.write(join(dir, 'index.ts'), (await Bun.file(join(dir, 'index.ts')).text()).replace("' new'", "' newer'"));
     await until(async () => (await label()) == 'imported newer');
-    if ((await named()) != 'dev two') throw new Error(`index.ts edit dropped index.dev.ts's env: ${await named()}`);
+    if ((await stood()) != 'two' || (await named()) != 'dev') throw new Error(`index.ts edit dropped index.dev.ts: ${await stood()}, ${await named()}`);
 
     rmSync(join(dir, 'index.dev.ts'));
     await until(async () => (await named()) == 'none');
 
     ok = true;
-    console.log('PASS [server] index.dev.ts added, edited and removed swaps env');
+    console.log('PASS [server] index.dev.ts added, edited and removed, env() once per server');
   } catch (error) {
     console.log(`FAIL [server] settings edit - ${error instanceof Error ? error.message : error}`);
   } finally {

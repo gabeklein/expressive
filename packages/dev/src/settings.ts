@@ -51,14 +51,14 @@ export interface Settings {
   /**
    * Dev only, set in `index.dev.ts`: what the host would pass as `env`, such as a local database for `DB`.
    *
-   * Called once per dev server, again after it throws or `index.dev.ts` reloads.
-   * Its keys win over `process.env`, then `.env` files - return only live objects.
+   * Called once per dev server, again after it throws - a change to it needs a restart.
+   * Its keys win over `process.env`, then `.env` files - return only live objects. `null` or `undefined` binds nothing.
    * Set in `index.ts`, it fails the dev server and the build.
    *
    * @example
-   * config({ env: async () => ({ DB: await open("file:local.db") }) });
+   * settings.env = async () => ({ DB });
    */
-  env?(): Partial<Env> | Promise<Partial<Env>>;
+  env?(): Partial<Env> | null | undefined | Promise<Partial<Env> | null | undefined>;
   /**
    * Middleware around every request the host forwards - remote calls, pages and static files.
    *

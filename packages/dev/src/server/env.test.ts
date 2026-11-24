@@ -38,5 +38,7 @@ it("will be read-only", async () => {
   const env = layered({ A: 1 }) as Record<string, unknown>;
 
   expect(() => (env.A = 2)).toThrow(TypeError);
-  expect(env.A).toBe(1);
+  expect(() => delete env.A).toThrow(TypeError);
+  expect(() => Object.defineProperty(env, "B", { value: 1 })).toThrow(TypeError);
+  expect([env.A, "B" in env]).toEqual([1, false]);
 });

@@ -26,7 +26,10 @@ describe("check", () => {
     const settings = { port: 1, env: () => ({}) };
 
     expect(check(settings, ["default"], "index.dev.ts")).toBe(settings);
+    expect(check({ env: undefined }, [], "index.dev.ts")).toEqual({ env: undefined });
     expect(() => check({ around() {} }, [], "index.dev.ts")).toThrow("index.dev.ts: `fetch` and `around` became `handle`.");
+    expect(() => check({ env: {} }, [], "index.dev.ts")).toThrow("index.dev.ts: `env` is a function returning the bindings");
+    expect(() => check(undefined, [], "index.dev.ts")).toThrow("index.dev.ts: no default export");
   });
 
   it("will throw for host off the fetch target", () => {

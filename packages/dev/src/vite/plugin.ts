@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
-import type { Env } from "@expressive/rpc";
 import type { Settings } from "../settings";
 import { check } from "../server/check";
 import { compose } from "../server/compose";
@@ -138,7 +137,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       const { index, dev } = await runner.import(settingsId);
 
       if (index) check(index.before ?? {}, index.exports);
-      if (dev) return check(dev.default ?? {}, Object.keys(dev), "index.dev.ts");
+      if (dev) return check(dev.default, Object.keys(dev), "index.dev.ts");
 
       return index?.settings ?? {};
     },
@@ -323,7 +322,6 @@ export function host(dotenv: boolean): Plugin<Host> {
     configureServer(server) {
       vite = server;
       const host = (runner = createServerModuleRunner(server.environments.ssr));
-      const bound = new WeakMap<object, Promise<Partial<Env>>>();
       install();
       watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
 
@@ -333,21 +331,20 @@ export function host(dotenv: boolean): Plugin<Host> {
       const replayed = new WeakSet<object>();
       const skipped = skipList(server);
 
-      const bindings = async (settings: Settings) => {
-        const { env } = settings;
+      const unbound = layered();
+      let bound: ReturnType<typeof bindings> | undefined;
 
-        if (!env) return {};
+      const bindings = async (settings: Settings) => layered((await settings.env!()) ?? {});
 
-        const value = bound.get(env) ?? (async () => settings.env!())();
+      const view = (settings: Settings) => {
+        if (!settings.env) return unbound;
 
-        bound.set(env, value);
-
-        try {
-          return await value;
-        } catch (error) {
-          bound.delete(env);
-          throw error;
+        if (!bound) {
+          const pending = (bound = bindings(settings));
+          pending.catch(() => (bound = undefined));
         }
+
+        return bound;
       };
 
       const gates: Seats = async pattern => {
@@ -401,7 +398,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           };
 
           const app = compose(settings, { sidecars: endpoints, gates, dev: true });
-          const reply = await app(request, { env: layered(await bindings(settings)), ctx, assets });
+          const reply = await app(request, { env: await view(settings), ctx, assets });
 
           if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) {
             if (fell?.error) server.config.logger.error(`${fell.error}`);

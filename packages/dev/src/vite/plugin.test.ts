@@ -660,7 +660,7 @@ describe("vite host", () => {
     expect(await other.api!.config()).toEqual({});
   });
 
-  const DEV = `import settings from "./index.ts";\n(settings as any).env = () => ({});\nexport default settings;\n`;
+  const DEV = `import settings from "./index";\n(settings as any).env = () => ({});\nexport default settings;\n`;
 
   it("will read index.dev.ts in place of index.ts, with or without one", async () => {
     const host = expressive();
@@ -675,7 +675,11 @@ describe("vite host", () => {
 
     const bare = expressive();
     await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default { port: 0 };", "index.dev.ts": "export const port = 1;" }), bare);
-    expect(await bare.api!.config()).toEqual({});
+    await expect(bare.api!.config()).rejects.toThrow("index.dev.ts: no default export");
+
+    const wrong = expressive();
+    await serve(project({ "app/index.tsx": PAGE, "index.dev.ts": "export default { env: { DB: 1 } };" }), wrong);
+    await expect(wrong.api!.config()).rejects.toThrow("index.dev.ts: `env` is a function returning the bindings");
   });
 
   it("will refuse env set in index.ts, and a bindings export in index.dev.ts, pointing at index.dev.ts", async () => {
@@ -706,14 +710,16 @@ describe("vite host", () => {
     expect(await host.api!.config()).toEqual({ port: 0 });
   });
 
-  it("will bind env() over process.env and .env in dev, calling it once and again after a throw", async () => {
+  const SEEN = "export default { handle: ({ env }: any) => { const g = globalThis as any; const same = g.seenEnv === env; g.seenEnv = env; return Response.json({ db: env.DB, name: env.DEV_NAME, calls: g.envCalls, same }); } };";
+
+  it("will bind env() over process.env and .env in dev, once per server and again after a throw", async () => {
     (globalThis as any).envCalls = 0;
     vi.stubEnv("DEV_NAME", "process");
     const root = project({
       "app/index.tsx": PAGE,
-      "index.ts": "export default { handle: ({ env }: any) => Response.json({ db: env.DB, name: env.DEV_NAME, calls: (globalThis as any).envCalls }) };",
+      "index.ts": SEEN,
       "index.dev.ts": `
-        import settings from "./index.ts";
+        import settings from "./index";
         (settings as any).env = async () => {
           if (++(globalThis as any).envCalls === 1) throw new Error("not yet");
           return { DB: "local", DEV_NAME: undefined };
@@ -727,16 +733,22 @@ describe("vite host", () => {
     const get = () => fetch(new URL("/", server.resolvedUrls!.local[0]));
 
     expect((await get()).status).toBe(500);
-    expect(await (await get()).json()).toEqual({ db: "local", calls: 2 });
-    expect(await (await get()).json()).toEqual({ db: "local", calls: 2 });
+    expect(await (await get()).json()).toEqual({ db: "local", calls: 2, same: false });
+    expect(await (await get()).json()).toEqual({ db: "local", calls: 2, same: true });
 
-    const without = await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default { handle: ({ env }: any) => Response.json({ name: env.DEV_NAME }) };" }));
-    await without.listen(0);
-    expect(await (await fetch(new URL("/", without.resolvedUrls!.local[0]))).json()).toEqual({ name: "process" });
+    for (const files of [{ "index.ts": SEEN } as Record<string, string>, { "index.ts": SEEN, "index.dev.ts": `import settings from "./index"; (settings as any).env = () => null; export default settings;` }]) {
+      const other = await serve(project({ "app/index.tsx": PAGE, ...files }));
+      await other.listen(0);
+      const at = new URL("/", other.resolvedUrls!.local[0]);
+
+      expect(await (await fetch(at)).json()).toMatchObject({ name: "process", same: false });
+      expect(await (await fetch(at)).json()).toMatchObject({ name: "process", same: true });
+    }
 
     error.mockRestore();
     vi.unstubAllEnvs();
     delete (globalThis as any).envCalls;
+    delete (globalThis as any).seenEnv;
   });
 
   it("will resolve the working directory as the root by default", async () => {
@@ -939,6 +951,7 @@ describe("vite host", () => {
     expect([...new Set(imports)].sort()).toEqual(["node:async_hooks", "node:crypto"]);
     expect(code).not.toContain("index-dev-only");
     expect(code).toMatch(/\/\/#region \S*rpc\/src\//);
+    expect(code).not.toMatch(/node:(fs|path|util)/);
     expect(code).not.toMatch(/\/\/#region \S*(router|dom|env)\/src\/|\/\/#region \S*dev\/src\/client\//);
     delete (globalThis as any).hostEnv;
   });

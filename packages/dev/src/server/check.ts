@@ -9,12 +9,17 @@ export function check(settings: unknown, exports: Iterable<string> = [], file: "
     throw new Error(`${file}: ${message} See ${GUIDE}`);
   };
 
+  if (settings === undefined && file === "index.dev.ts") return fail("no default export - export the settings, `export default settings`.");
   if (typeof settings != "object" || settings === null) return fail("the default export is not config({ ... }).");
 
   for (const name of exports) if (name === "bindings") fail("`bindings` became `config.env`, set in index.dev.ts.");
 
   for (const [key, value] of Object.entries(settings)) {
-    if (KEYS.has(key) || (key === "env" && file === "index.dev.ts")) continue;
+    if (KEYS.has(key)) continue;
+    if (key === "env" && file === "index.dev.ts") {
+      if (value !== undefined && typeof value != "function") fail("`env` is a function returning the bindings: `settings.env = async () => ({ ... })`.");
+      continue;
+    }
     if (key === "fetch" || key === "around") fail("`fetch` and `around` became `handle`.");
     if (key === "env") fail("`env` is set in index.dev.ts, never index.ts.");
     if (typeof value == "function") fail(`\`${key}\` goes in \`host\`.`);

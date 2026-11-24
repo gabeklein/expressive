@@ -9,5 +9,7 @@ export function layered(bound: object = {}): Env {
     get: (_, key) => (key in bound || typeof key != "string" ? bound[key as never] : files[key]),
     has: (_, key) => key in bound || key in files,
     set: () => false,
+    deleteProperty: () => false,
+    defineProperty: () => false,
   });
 }

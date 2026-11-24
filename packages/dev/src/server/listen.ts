@@ -72,7 +72,8 @@ export interface ListenOptions {
 /**
  * Entry plumbing, not app API: the production server the generated entry starts, booted by `dist/server/index.js`.
  *
- * Composes the app `settings` over `client`, its `env` being `process.env` over the `.env` files - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - caching `/assets/` immutably.
+ * Composes the app `settings` over `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - caching `/assets/` immutably.
+ * Binds `process.env` over the `.env` files as each request's `env`.
  * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
  */
 export function listen({ settings, client, sidecars = [], gates = [] }: ListenOptions): Server {
