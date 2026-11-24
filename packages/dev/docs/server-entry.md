@@ -14,13 +14,13 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 
 ## Settled in review
 
-- **An `index.ts`'s `default` gates its folder.** The root `index.ts`'s gates every request; an `api/` folder's gates its paths. One rule at every level: finish to pass, throw (or fail a Model's `new()`) to refuse, call `next` to wrap. It replaces `serve`, `fetch` and `around`.
+- **An `index.ts`'s `default` gates its folder.** The root `index.ts`'s gates every request; an `api/` folder's gates its paths. One rule at every level: finish to pass, throw (or fail a Model's `new()`) to refuse, call `next` to wrap. It replaces `fetch` and `around`.
 - **Handlers take no parameters.** Gates and `api/` routes read the request from `Current.get()`, so nothing needs a hand-typed `(request: Request, …)`.
 - **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `ctx`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
-- **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces an `after()` helper and a generator protocol. A returned value or `Response` still works. `ctx` stays on `Current` for fetch handlers dropped in (below).
+- **`send`, not a returned `Response`.** Code after `send` is after-work, which replaces an `after()` helper and a generator protocol. A route's returned value still answers; a gate answers only by `send` or a returned `Response` or function. `ctx` stays on `Current` for fetch handlers dropped in (below).
 - **Gates are rpc's function gates, with `next` optional.** Models a gate activates are in context below it. Outside a folder `index.ts`, an `api/` module's `default` is a catch-all. No remainder export (`ANY`, `ELSE`).
 - **A returned function is a fetch handler,** called with `(request, env, ctx)`, so `export default () => legacy.fetch` mounts Hono or an auth library without handlers taking parameters.
-- **An object sent or returned goes as JSON.**
+- **A plain object sent or returned goes as JSON.**
 - **`assets` defaults to `env.ASSETS` on the fetch target.**
 
 ## Shape
@@ -60,10 +60,17 @@ export interface Settings {
 export interface AppOptions {
   /** This request's bindings, as `Current.get().env` reads them. Default `{}`. */
   env?: Partial<Env>;
-  /** Where after-work goes. Default: a stand-in that runs it and logs a rejection. */
-  ctx?: { waitUntil(promise: Promise<unknown>): void };
+  /** The host's execution context. Default: a stand-in whose `waitUntil` runs the promise and logs a rejection. */
+  ctx?: Partial<ExecutionCtx>;
   /** Serves pages and static files - the last step of the chain. Default on the fetch target: `env.ASSETS`. */
   assets?: { fetch(request: Request): Promise<Response> };
+}
+
+/** What `Current.get().ctx` gives: the host's members, the stand-in's where it lacks them. */
+export interface ExecutionCtx {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+  props: Record<string, unknown>;
 }
 
 /** The composed app: the root gate around calls, api routes and pages. */
@@ -72,7 +79,7 @@ export type App = (request: Request, options?: AppOptions) => Promise<Response>;
 export function config(settings: Settings): void;
 export function host<T>(build: (app: App) => T): void;
 
-/** The app from an evaluated `index.ts`: its default as the root gate, with what is registered. Seals the registry. */
+/** The app from an evaluated `index.ts`: its default as the root gate, with what is registered. Seals the registry. For tests: no remotes, api routes or pages. */
 export function compose(entry: { default?: () => unknown }): App;
 ```
 
@@ -81,40 +88,44 @@ export function compose(entry: { default?: () => unknown }): App;
 class Current {
   /** The matched route's params, decoded; a `[...]` segment under "*". A sidecar call's are its folder's. `{}` elsewhere. */
   get params(): Record<string, string>;
-  /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or another content type. */
+  /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or a content type other than `application/json` or `+json`. */
   json(): Promise<unknown>;
   /** The request body as JSON, passed through `check`. A throw from it rejects with `BadRequest` carrying its message; an `HttpError` keeps its status. */
-  json<T>(check: (value: unknown) => T): Promise<T>;
+  json<T>(check: (value: unknown) => T): Promise<Awaited<T>>;
   /** The request body as a string. */
   text(): Promise<string>;
-  /** In a gate: run everything below it and resolve with that reply. Calling it outside a gate throws; reading it never does. */
+  /** In a gate: wait for the Models this gate activated, run everything below and resolve with that reply. Calling it outside a gate throws; reading it never does. */
   get next(): () => Promise<Response>;
-  /** The host's execution context: `bind`'s `ctx` on the fetch target; on Node and in dev, a `waitUntil` that runs the promise and logs a throw. */
-  get ctx(): { waitUntil(promise: Promise<unknown>): void; passThroughOnException(): void };
+  /** The host's execution context, filled by a stand-in where the host lacks a member: `waitUntil` runs the promise and logs a throw, `passThroughOnException` does nothing, `props` is `{}`. */
+  get ctx(): ExecutionCtx;
 
   /** Decide this layer's reply. Resolves once the reply is handed to the host; code after it is after-work. */
   send(body?: unknown): Promise<void>;
   send(status: number, body?: unknown): Promise<void>;
-  send(response: Response): Promise<void>;
   static send(body?: unknown): Promise<void>;
   static send(status: number, body?: unknown): Promise<void>;
-  static send(response: Response): Promise<void>;
 }
 
-export function bind(request: Request, env: Env, ctx?: { waitUntil(promise: Promise<unknown>): void }): void;
+// @expressive/rpc/protocol
+export function bind(request: Request, env: Env, ctx?: Partial<ExecutionCtx>): void;
 ```
 
-The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves them uncomputed (it skips a getter that has a setter). `json` and `text` are methods, mirroring `Request`'s, and mvc binds them, so they destructure. Form data and bytes come from `request` itself (`await request.formData()`), which reads the same cache.
+The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves them uncomputed (it skips a getter that has a setter). `json` and `text` are methods, mirroring `Request`'s, and mvc binds them, so they destructure. Form data and bytes come from `request` itself (`await request.formData()`), which reads the same cache (Body, below). `ExecutionCtx` lives in rpc and is re-exported by dev; its `props` is what Hono's type requires.
 
 `send`'s first argument: a number is a status, a `Response` is the whole reply, anything else is the body. A number as the body needs a status: `send(200, 42)`.
 
-`@expressive/rpc/protocol` (host plumbing, beside `within`) gains the layer seam dev composes with: run a gate or handler with a given `next` and `params` in the request's scope, and resolve with its reply. rpc's own function gates run on it, so they gain the optional `next` too (a transaction around each call). Under rpc's `scoped()` and `handler()`, the wrapped `fetch` is one layer: `send`, `json` and `text` work, `params` is `{}`, and calling `next` throws.
+`@expressive/rpc/protocol` (host plumbing, beside `within`) gains the layer seam dev composes with: run a gate or handler with a given `next` and `params` in the request's scope, and resolve with its reply. rpc's own function gates run on it, so they gain the optional `next` too (a transaction around each call). Under rpc's `scoped()`, the wrapped `fetch` is one layer: `send`, `json` and `text` work, `params` is `{}`, and calling `next` throws. `handler()` answers only calls, as today.
 
 New public surface for sign-off (AGENTS.md):
-- **dev `/server`:** `config`, `host`, `compose`, and the types `Settings`, `AppOptions`, `App`. `Current` is already re-exported there.
-- **rpc `Current`:** `params`, `json`, `text`, `ctx`, `next`, `send` and static `send`; `bind`'s `ctx`; `next` in rpc's function gates.
+- **dev `/server`:** `config`, `host`, `compose`, and the types `Settings`, `AppOptions`, `App`, `ExecutionCtx`. `Current` is already re-exported there.
+- **dev `/fetch`:** `compose(root, sidecars, manifest, routes, apiManifest, pages)`, for generated entries only.
+- **rpc `Current`:** `params`, `json`, `text`, `ctx`, `next`, `send` and static `send`; the `ExecutionCtx` type; `next` in rpc's function gates, and a gate's returned `Response` or function answering.
+- **rpc `/protocol`:** `bind`'s `ctx`, and the layer seam.
+- **Behaviour:** an `HttpError` thrown outside a call answers its status as JSON.
+- **`@expressive/env`:** its generated `.env` typing augments rpc's `Env` when dev is installed.
+- **Entry plumbing** on `/server`, documented as not app API: `listen` and its options, and the registry reset the `index.ts` transform prepends.
 
-Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `listen` (the Node listener the generated entry calls), `@expressive/dev/fetch`'s `fetchHandler` → its `compose`, and the plugin API `Host.config()` returns `Settings`. Entry plumbing (`listen`) stays on `/server`, documented as not app API.
+Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `listen` (the Node listener the generated entry calls), `@expressive/dev/fetch`'s `fetchHandler` → its `compose`, and the plugin API `Host.config()` returns `Settings`.
 
 `Env` is still augmented where `Current.get().env` reads it: `declare module "@expressive/rpc" { interface Env { … } }`. The `.env` typing `@expressive/env` generates augments rpc's `Env` as well when dev is installed, so `Current.get().env` types both layers.
 
@@ -123,14 +134,14 @@ Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `lis
 - **`config`** holds build and run settings. Dev reads them while Vite configures. Only `bindings` leaves the bundle (below); Node's entry needs `port` at runtime.
 - **The root gate** (`index.ts`'s default) runs for every request the host forwards: remote calls, twin streams, `/api/*`, and pages and static files. A host that answers static files itself first (Workers assets without `run_worker_first`) never forwards those, so the root gate does not cover them.
   - Without one, every request passes.
-  - A default export that is not a function fails the dev server and the build (0.5's config object included, below).
+  - A default export that is not a function fails the dev server and the build (0.5's config object included, below). So does `export default config(...)`, caught by the same scan that reads `config`'s literal.
   - A 101 (WebSocket upgrade) passes through unjoined, since rebuilding it drops the socket.
 - **`host(build)`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export.
   - Without it, the default export is `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. A returned object without `fetch` gets that one, so `host` is only needed for what dev doesn't model.
   - Platform handlers (`scheduled`, `queue`, `email`) are the app's code, typed by the app: `satisfies ExportedHandler<Env>`. They run outside any request, so they read the platform's `env` argument, not `Current`.
   - Dev never calls `build`, so there is no cron in dev, as today.
   - On the Node target, `host` fails the build and the dev server. Node has no module host to hand an export to.
-- **`index.ts`'s named exports** are still re-exported from the fetch bundle (Durable Object and Workflow classes). There is no `bindings` exception anymore. The default stays the root gate, never re-exported.
+- **`index.ts`'s named exports** are still re-exported from the fetch bundle (Durable Object and Workflow classes). A named `bindings` export fails the dev server and the build, pointing at `config({ bindings })`, so a half-migrated one can't ride into the Worker with its imports. The default stays the root gate, never re-exported.
 - **`index.ts` is still optional.** Without it there are no settings, every request passes, and the export is the default above.
 
 ### Gates
@@ -138,9 +149,10 @@ Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `lis
 A gate is an `index.ts`'s default function: the root `index.ts`'s for every request, a folder's under `api/` for that folder's paths (below). The same rule holds at every level, and it is rpc's function gate with `next` added:
 
 - **Finishing passes.** When the gate settles without deciding a reply and without calling `next`, the chain continues below it.
-- **Refusing.** A throw refuses: on a call request it replies as a call's error would, so a gate can throw `Unauthorized` and keep its class. Elsewhere an `HttpError` answers its status with a JSON `{ message }` (`Redirect` sets `Location`), and anything else is a 500 whose message shows in dev only, logged (today Node answers a bare 400). Activating a Model whose `new()` fails refuses with that Model's error. `send(...)` or returning a value answers instead of passing.
-- **Context.** Every Model a gate activates is the request's own: found by `X.get()` in gates, routes and calls below, waited on until ready, destroyed when the request ends (after-work included). The root gate's Models reach sidecar calls too, so a call's rpc frame starts inside the request's scope, not from the root.
-- **Wrapping.** Calling `next()` runs everything below and resolves with its reply. The gate may return it, return another, or `send` it and keep working; returning nothing after `next()` passes that reply through. So `db.session(next, …)` scopes everything below, and a gate can read or rewrite the reply.
+- **Refusing.** A throw refuses: on a call request it replies as a call's error would, so a gate can throw `Unauthorized` and keep its class. Elsewhere an `HttpError` answers its status with a JSON `{ message }` (`Redirect` sets `Location`), and anything else is a 500 whose message shows in dev only, logged (today Node answers a bare 400). Activating a Model whose `new()` fails refuses with that Model's error.
+- **Answering.** `send(...)`, or returning a `Response` or a function, answers instead of passing. Any other return value is ignored, so rpc's `() => guard()` idiom keeps working and a returned Model is not sent. On a call request a gate's reply goes out as is, and the client rejects the call with its status.
+- **Context.** Every Model a gate activates is the request's own: found by `X.get()` in gates, routes and calls below, waited on until ready, destroyed when the request ends (after-work included). The root gate's Models reach sidecar calls too: a call's own context falls back to the request scope after its seat's (open question 11).
+- **Wrapping.** Calling `next()` first waits for the Models the gate has activated, refusing if one failed, so nothing below runs on an unverified session; `send` waits the same way. It then runs everything below and resolves with its reply. The gate may return it, return another, or `send` it and keep working; returning nothing after `next()` passes that reply through. So `db.session(next, …)` scopes everything below, and a gate can read or rewrite the reply.
 
 ```ts
 // index.ts - refuses or passes, nothing to wrap
@@ -157,7 +169,7 @@ export default async () => {
 };
 ```
 
-Not calling `next` is passing, so a forgotten `return next()` can't blank the app.
+Not calling `next` is passing, so a forgotten `return next()` can't blank the app. A wrapped `next()` that rejects without being returned is caught by the layer, not left unhandled.
 
 ### The request on `Current`
 
@@ -165,25 +177,25 @@ Every forwarded request runs in one request scope, so `Current`, `Cookies` and `
 
 **A layer's reply is decided** by its first of:
 - **`send(...)`.** The function keeps running.
-- **Returning a value.** A `Response` as is; any other value as a body by the rule below, status 200. `undefined` from a gate passes (through `next()`'s reply if it was called); from a verb or catch-all it is 204.
+- **Returning a value.** A `Response` as is, a function as a fetch handler; from a verb or catch-all, any other value as a body by the rule below, status 200. `undefined` from a gate passes (through `next()`'s reply if it was called); from a verb or catch-all it is 204.
 - **Throwing**, as under Gates.
 
 `next()` resolves with the reply below once that is decided, not when its function finishes. A throw below resolves `next()` with its error reply rather than rejecting, as a call's error does today, so `db.session(next)` sees the same thing from a failed call and a failed route (open question 9). A second `next()` throws.
 
 **The reply leaves** when the outermost layer's reply is decided. `send` resolves then: on hand-off to the host, not when the body drains. It also resolves when a gate above swapped the reply or threw, and when the client aborts, so after-work never hangs.
 
-**After a decided reply**, a second `send`, a return value other than `undefined` (dev warning), or `setHeader`/`Cookies.set` throws. Awaiting `next()` decides nothing, so a wrapping gate can still reply with what it got and keep working, as above.
+**After a decided reply**, a second `send` or `setHeader` throws, a `Cookies.set` is dropped with a dev warning, and a return value other than `undefined` is ignored with a dev warning. Awaiting `next()` decides nothing, so a wrapping gate can still reply with what it got and keep working, as above.
 
-**After-work.** Code after `send` runs once the reply has left. On the fetch target, the rest of the layer's promise goes to the host's `ctx.waitUntil`; on Node and in dev it just runs. A throw there is logged. The layer's own scope stays open until its function settles, so `Current`, `Cookies` and `get(Model)` still work, but every gate above has returned: a wrapper like `db.session(next)` has closed, so after-work and a lazily produced stream body open their own session. rpc's request frame (held seats, gated Models) is released once every layer has settled.
+**After-work.** Code after `send` runs once the reply has left. On the fetch target, the rest of the layer's promise goes to the host's `ctx.waitUntil`; on Node and in dev it just runs. A throw there is logged. The layer's own scope stays open until its function settles, so `Current`, `Cookies` and `get(Model)` still work, but every gate above has returned: a wrapper like `db.session(next)` has closed, so after-work and a lazily produced stream body open their own session. rpc's request frame (held seats, gated Models) is released once every layer has settled and every body produced in it has closed or been cancelled (open question 12).
 
-**Headers.** `setHeader` and `Cookies` join the reply of the layer that set them, when that reply is decided, so the `Response` `next()` resolves with already carries them; a passing gate's join the reply below. A gate that swaps the reply starts from the new one's headers. Order, lowest first: the body rule's content type, `setHeader`, a `Response`'s own headers (as `withHeaders` does today). The cookie flush re-arms per layer, so `Session.set()` after `await next()` reaches the outer reply.
+**Headers.** `setHeader` and `Cookies` join the reply of the layer that set them, when that reply is decided, so the `Response` `next()` resolves with already carries them; a passing gate's join the reply below. A gate that swaps the reply starts from the new one's headers. Order, lowest first: the body rule's content type, `setHeader`, a `Response`'s own headers (as `withHeaders` does today). The cookie flush re-arms per layer and diffs against what inner layers already emitted, so `Session.set()` after `await next()` reaches the outer reply once.
 
 **`send`'s body rule**, shared with return values:
-- plain objects, arrays, numbers, booleans and `null`: JSON, honouring `toJSON`. `Map`, `Set`, `bigint` and a Model instance throw ("send its values").
+- plain objects, arrays, numbers, booleans and `null`: JSON, honouring `toJSON`. Any other object without `toJSON` throws ("send its values"): a Model, a `Map`, a class instance such as a Hono app returned without `.fetch`. So does `bigint`.
 - a string: `text/plain`;
 - `ArrayBuffer`, typed arrays, `DataView`, `Blob`, `FormData`, `URLSearchParams`, `ReadableStream`: as `Response` takes them;
 - any other async iterable of strings or bytes (a Node `Readable`, an async generator): streamed through `ReadableStream.from`, or a small wrapper where a runtime lacks it;
-- no body: 204 unless a status is given. Status otherwise defaults to 200. A body with 204, 304 or a 1xx status throws.
+- no body: 204 unless a status is given. Status otherwise defaults to 200. A body with 204, 304 or a 1xx status throws; 101 exists only on the fetch target.
 - a function, returned only (`send` throws): a fetch handler, called as `fn(request, env, ctx)`, its result taken as the return value (a function again throws). See Dropping in a fetch handler.
 
 **Streaming and pipes** use the platform's streams rather than a `write`/`end` API:
@@ -200,11 +212,11 @@ await source.pipeTo(writable);
 
 A throw mid-stream aborts the body and is logged; the status can't change by then. A reply a gate swapped or discarded has its body cancelled, and so does a HEAD reply's, so an upstream body never stalls. On Node and in dev, a JSON reply is buffered; a streamed one sets another type through `setHeader` (`application/x-ndjson`).
 
-**Body.** Nothing is read until `json()` or `text()` is called, so answering early leaves no rejected promise behind. The first read buffers the raw bytes once, up to a cap (413 `PayloadTooLarge` past it, open question 8); every later read, including `request.formData()` and `request.arrayBuffer()`, derives from them. From then on, `Current.get().request` and the request the chain forwards are rebuilt over those bytes, and call dispatch reads its arguments through the cache, so a gate that checks a signature leaves calls, catch-alls, `assets` and dev's fall-through intact. Unhandled, `json()`'s `BadRequest` answers 400.
+**Body.** `Current.get().request` is, from the start, a request whose body reads go through one cache: nothing is read until something asks, so answering early leaves no rejected promise behind, and the first read of any kind (`json()`, `text()`, `request.text()`, a mounted handler's `c.req.json()`) buffers the raw bytes once, which every later read derives from. The chain forwards that request, and call dispatch reads its arguments through it, so a gate that checks a signature leaves calls, catch-alls, `assets` and dev's fall-through (which replays the bytes into Node's `req`) intact. rpc's per-request maps (bindings, outgoing headers, cookie jars) and Node's abort signal stay keyed on the host's original request. `json()` and `text()` cap the body at 1 MB (413 `PayloadTooLarge`, open question 8); raw reads and call arguments stay uncapped, as today. Unhandled, `json()`'s `BadRequest` answers 400.
 
 **Validation.** `json(check)` infers `T` from the check, so a library's throwing parse types the body with no generic: `await json(Item.parse)` (zod), `await json(Event.assert)` (arktype), `await json(v => parse(User, v))` (valibot). There is no `json<T>()` without a check: it would be a cast that reads as validation. `(value: unknown) => T` is the one validation contract: rpc's call arguments reuse it later, whether the check is hand-written or generated from a call's parameter types by a build transform, which would also fill `json<T>()`.
 
-**Inside a call**, calling `next` or `send`, `json` or `text`, throws: a call replies with its return value through rpc's codec. Reading them doesn't, so a shared helper can destructure `Current.get()`. `params` holds a sidecar call's folder params (`{ slug: "a" }` for `app/blog/[slug]/remote.ts` called from `/blog/a`).
+**Inside a call**, calling `next` or `send`, `json` or `text`, throws: a call replies with its return value through rpc's codec. Reading them doesn't, so a shared helper can destructure `Current.get()`. `ctx` works, and `ctx.waitUntil` is a call's way to do work after its reply. `params` holds a sidecar call's folder params (`{ slug: "a" }` for `app/blog/[slug]/remote.ts` called from `/blog/a`).
 
 ### What the chain resolves, in order
 
@@ -213,7 +225,7 @@ Below the root gate:
 1. **Remote call** (`isCall`, including `POST /.expressive/detached`): dispatch to the sidecar. A missing call is a JSON 404, as today.
 2. **Twin stream** (`GET /.expressive/stream`, Node and dev): the stream. The fetch target refuses seats and twins, so it has none.
 3. **`/api/*`**: the folder's gates, then the matching `api/` route. An unmatched path is a JSON 404 and never the shell.
-4. **Pages and static files**: the file, else `<path>/index.html`, else the shell, else 404. One shell rule on every host: only for GET or HEAD, only for a path some page route matches, and never under the build's `assetsDir`, so a stale chunk stays a 404 instead of becoming HTML with the wrong MIME type. (Node today falls back for any method and path; this narrows it.)
+4. **Pages and static files**: the file, else `<path>/index.html`, else the shell, else 404. One shell rule on every host: only for GET or HEAD, and never under the build's `assetsDir`, so a stale chunk stays a 404 instead of becoming HTML with the wrong MIME type. A path some page route matches gets the shell with 200; a navigation (`accept` has `text/html`) no route matches gets it with 404, so a route's `NotFound` still renders. Anything else is a bare 404. (Node today falls back for any method and path; this narrows it.) Every entry carries the page patterns for the match.
    - **Node:** from `dist/client`, with the `assetsDir` cached immutable. The shell is `200.html`, else `index.html`.
    - **Dev:** a `public/` file, else the shell as Vite transforms it. Anything else falls through to Vite's middleware stack (below).
    - **Fetch target:** `assets.fetch(request)`; on a 404 that the shell rule covers, `assets.fetch` gets `/200.html` and then `/index.html`, keeping the method and following one same-origin redirect (an asset host that serves pretty URLs redirects these). This replaces the fallback each Workers app hand-writes today. `assets` defaults to `env.ASSETS` when that binding has a `fetch`; without either, the answer is 404.
@@ -226,23 +238,23 @@ Below the root gate:
 
 **In dev, the root gate sees what production would, and Vite keeps the rest.**
 - Calls and `/api/*` are decided first, so they always go through the gates.
-- Vite's own URLs then skip the root gate: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` other than calls and the stream, the bare `?import`, `?url` and `?raw` flags (`?url=https://…` is not one), and paths naming a source file under the root outside `public/` and `api/`. Today `fetch` and `around` see them, which the README warns about.
-- The page step must not starve later middlewares: inspect's `/__inspect` relay, other plugins' middlewares, `server.proxy`, `/__open-in-editor`. When the chain found no `public/` file and the request is not a navigation (its `accept` lacks `text/html`), it resolves a marked 404. If the reply is that response untouched, the middleware hands the request to Vite's stack instead, without the headers the gates set. The mark survives header joining.
+- Vite's own URLs then skip the root gate: paths outside `base`, `/__inspect`, `/__open-in-editor`, `server.proxy`'s prefixes, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` other than calls and the stream, the bare `?import`, `?url` and `?raw` flags (`?url=https://…` is not one), and paths naming a source file under the root outside `public/` and `api/`. Today `fetch` and `around` see them, which the README warns about.
+- The page step must not starve later middlewares: inspect's `/__inspect` relay, other plugins' middlewares, `server.proxy`, `/__open-in-editor`. When the chain found no `public/` file and the request is not a navigation (its `accept` lacks `text/html`), it resolves a marked 404. Other plugins' middlewares are reached only through that mark, so a plugin page served to navigations outside the skip list gets the 404 shell instead: a known limit. If the reply is that response untouched, the middleware hands the request to Vite's stack instead, without the headers the gates set. The mark survives header joining.
 
 ## `api/`: routes by location
 
-A root `api/` folder sits beside `app/` and is served under a fixed `/api` prefix. It uses `app/`'s path syntax for segments: `api/photo/[id].ts` serves `/api/photo/:id`, `api/auth/[...].ts` serves `/api/auth/*` (one segment or more), and `api/index.ts` serves `/api`.
+A root `api/` folder sits beside `app/` and is served under a fixed `/api` prefix. It uses `app/`'s path syntax for segments: `api/photo/[id].ts` serves `/api/photo/:id`, `api/auth/[...].ts` serves `/api/auth/*` (one segment or more, so `/api/auth` itself needs `api/auth/index.ts`), and `api/index.ts` serves `/api`. `/api` sits under Vite's `base`.
 
 **Location makes a route, never its exports.** Every `.ts`, `.tsx`, `.js` or `.jsx` module under `api/` is a route, except `*.test.*`, `*.spec.*` and `.d.ts`. Unlike `app/`, a bare name is a route (`api/logout.ts` serves `/api/logout`), since `api/` holds no support modules; helpers live outside it, in `server/` for example. A `(name).ts` file, and `api/dev.ts` beside `api/dev/index.ts`, fail the build.
 
 **Exports:**
 - **`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`** answer that method on the module's own path. HEAD falls to GET, the host cancels the body, and `Allow` lists HEAD wherever GET is exported.
-- **`default` in a folder's `index.ts` is the folder's gate** (Gates, above). It runs before every route in the folder and below, its own verbs included, root first, and for unmatched paths there too, so a refused caller gets the same answer for a route that exists and one that doesn't. A class `default` fails the build: a function that activates the Model covers it, per request.
+- **`default` in a folder's `index.ts` is the folder's gate** (Gates, above). It runs before every route in the folder and below, its own verbs included, root first, and for unmatched paths there too, so a refused caller gets the same answer for a route that exists and one that doesn't. A class `default` fails the build (an imported one at load): a function that activates the Model covers it, per request.
 - **`default` in any other module is a catch-all**: it answers every method on its path. Beside verbs it fails the build.
 - **Any other runtime export fails the build**, so `export const Get` or a stray helper is caught rather than ignored. Type exports are fine. `api/index.ts`'s are reserved (open question 5).
 - A module with neither verbs nor a catch-all fails the build and the dev server, except a folder `index.ts` with only a gate.
 
-The chain for `/api/account/me`: the root gate → `api/index.ts`'s → `api/account/index.ts`'s → `api/account/me.ts`'s verb or catch-all. Gates see the full match's `params`. Past the gates: a path no module matches is a 404, a module with no handler for its own path is a 404, and a module whose verbs don't include the method is a 405 with `Allow`.
+The chain for `/api/account/me`: the root gate → `api/index.ts`'s → `api/account/index.ts`'s → `api/account/me.ts`'s verb or catch-all. A gate sees its own folder's params, the prefix it covers, so it reads the same `params.org` on an unmatched path as on a matched one; routes see the full match's. Past the gates: a path no module matches is a 404, a module with no handler for its own path is a 404, and a module whose verbs don't include the method is a 405 with `Allow`.
 
 ```ts
 // api/dev/index.ts - gates /api/dev and everything under it
@@ -280,7 +292,7 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 
 **Other rules:**
 
-- Matching is exact and case-sensitive, on raw segments of the path the root gate sees; params are decoded after the match. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`.
+- Matching is exact and case-sensitive, on raw segments of the path the root gate sees; params are decoded after the match. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`, with no backtracking: once a fixed folder matches a segment, a sibling `[param]` never takes the path, so `/api/admin/users` stays under `api/admin/index.ts`'s gate and 404s there if `admin/` lacks `users`.
 - `api/` is server-only. A client module importing from it fails the build, as it would for another folder's sidecar.
 - When a root `api/` exists, `app/api/`, `app/api.tsx`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
 - `api/` routes are not prerendered.
@@ -296,7 +308,7 @@ const legacy = new Hono().basePath("/api/legacy").get("/users/:id", c => c.json(
 export default () => legacy.fetch;
 ```
 
-The handler is called detached, so a `fetch` that needs `this` (a prototype method; Hono's is an instance arrow) is returned bound: `() => app.fetch.bind(app)`. An object with a `fetch` member still goes as JSON. Its 404 answers, so as the root gate, falling through to the app where it has no route, call it yourself:
+The handler is called detached, so a `fetch` that needs `this` (a prototype method; Hono's is an instance arrow) is returned bound: `() => app.fetch.bind(app)`. An app returned without `.fetch` throws (the body rule). Its 404 answers, so as the root gate, falling through to the app where it has no route, call it yourself:
 
 ```ts
 export default async () => {
@@ -310,7 +322,7 @@ The handler reads the body through the cache, its reply gets the headers and coo
 
 ## Alignment with sidecars
 
-`app/**/remote` calls and `api/` routes share the request scope, `Current`'s request members (`request`, `url`, `cookies`, `env`, `params`, `setHeader`), `Cookies`, the root gate and its Models. They differ in gating: a sidecar entry's `default` must be a seat (a Model with `static key()`), so sidecars have no function gate, and the skill lists "the root seat cannot gate some calls and not others" as a known gap. A sidecar entry's function `default` as a gate, by this rule, is a follow-up outside this work: it has no twin, so it doesn't collide with seats.
+`app/**/remote` calls and `api/` routes share the request scope, `Current`'s request members (`request`, `url`, `cookies`, `env`, `ctx`, `params`, `setHeader`), `Cookies`, the root gate and its Models. They differ in gating: a sidecar entry's `default` must be a seat (a Model, `static key()` optional), so sidecars have no function gate, and the skill lists "the root seat cannot gate some calls and not others" as a known gap. A sidecar entry's function `default` as a gate, by this rule, is a follow-up outside this work: it has no twin, so it doesn't collide with seats.
 
 ## Mechanics
 
@@ -343,20 +355,22 @@ import * as root from "../index.ts";   // registers; its default is the root gat
 import * as s0 from "../app/remote.ts";
 import * as a0 from "../api/photo/[id].ts";
 export { Room } from "../index.ts";   // index.ts's named exports, as today
-export default compose(root, [s0], manifest, [a0], apiManifest);   // host's value, else { fetch(request, env, ctx) }
+export default compose(root, [s0], manifest, [a0], apiManifest, pages);   // host's value, else { fetch(request, env, ctx) }
 ```
 
-`/fetch`'s `compose` is `/server`'s with the tables, built without Node imports; tests pass `index.ts` alone.
+`/fetch`'s `compose` is `/server`'s with the tables and page patterns, built without Node imports.
 
-**Node:** same imports. `listen({ root, client, sidecars, seats, api })` (today's `serve` in `/server`, renamed) composes and serves `app(request, { ctx, assets: dist/client })`, with the shell fallback above.
+**Node:** same imports. `listen({ root, client, sidecars, seats, api, pages })` (today's `serve` in `/server`, renamed) composes and serves `app(request, { ctx, assets: dist/client })`, with the shell fallback above.
 
 **Dev:** the plugin imports a virtual `/.expressive/server.ts`:
 
 ```ts
 import * as root from "../index.ts";   // resets itself (prepended), then registers
-import { compose } from "@expressive/dev/server";
-export default compose(root);   // read and seal
+import { compose } from "virtual:expressive/dev-compose";   // internal, not /server's
+export default compose(root, { sidecars, seats, api, pages, dev: true });   // read and seal
 ```
+
+The tables are the same generated ones, so an `api/` file added regenerates this entry. Dev's `compose` adds its endpoints, seat lookup and the twin tier; it stays internal, and the public `compose(entry)` is the tests' form.
 
 - Its middleware calls `app(request, { env: await bindings(), ctx, assets: public/ + Vite's shell })`, with `bindings` read from the same evaluation.
 - An edit to `index.ts` or anything it imports invalidates the entry, so the next request re-evaluates both. An entry re-run alone (an `api/` table change) re-reads the registry `index.ts` left, which is still whole.
@@ -371,12 +385,12 @@ const app = compose(await import("../index.ts"));
 const page = await app(new Request("http://x/invite/abc"), { env, assets: { fetch: async () => new Response(shell) } });
 ```
 
-Outside a build, no remotes or api routes are registered, so this tests the root gate's own logic (a sign-in link, a page rewrite) against a stubbed `assets`. Handlers read `Current`, so a route is tested through the app, not by calling its export. Vitest's default per-file isolation gives each test file one evaluation of `index.ts`. `vi.resetModules()` does not reset an externalised `/server`, so a second import in the same file throws "already set". Open question 6.
+Outside a build, no remotes or api routes are registered, so this tests the root gate's own logic (a sign-in link, a page rewrite) against a stubbed `assets`. Handlers read `Current`, so a route is tested through the app, not by calling its export. Vitest's default per-file isolation gives each test file one evaluation of `index.ts`. `vi.resetModules()` does not reset an externalised `/server`, so a second import in the same file throws "already set". Open question 6. The prepended reset imports from the entry-plumbing export above.
 
 ### `env`
 
 `Current.get().env` reads what the host bound. Dev binds a layered view rather than the raw bindings:
-- **Node and dev:** the request's bindings, then `process.env`, then `.env` files.
+- **Node and dev:** the request's bindings, then `process.env`, then `.env` files; the first that has a key wins.
 - **Fetch target:** bindings, then `process.env` where defined. No file layer, so `node:fs`, `node:path` and `node:util` stay out of the bundle. The README's claim that it imports only `node:async_hooks` and `node:crypto` holds.
 
 Outside a request (module scope, `scheduled`) there is no `Current`: handlers there take the platform's `env` argument, and Node code may use the root `env` (`@expressive/env`'s files-only reader shared with the client, unchanged). Reading `Current` there throws, and its message changes from "resolves only within a call" to "within a request".
@@ -387,7 +401,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 
 - `export default config({ port, remote })` dates to 0.1. `fetch`, `around`, `target` and `bindings` are in two published releases (0.4, 0.5). The only known consumer of the latter is on a pinned preview.
 - A compatibility layer would keep the export-merging that this redesign exists to remove.
-- The break is loud instead. An `index.ts` whose default export is an object fails the dev server and the build: "`index.ts`'s default export is 0.5's config - call `config()` and `host()`, and default-export the root gate", with a link to the README section. Old keys passed to `config()` name their new home.
+- The break is loud instead. An `index.ts` whose default export is an object or `config(...)` fails the dev server and the build: "`index.ts`'s default export is 0.5's config - call `config()` and `host()`, and default-export the root gate", with a link to the README section. Old keys passed to `config()` name their new home.
 
 | 0.5 | 0.6 |
 | --- | --- |
@@ -398,7 +412,11 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | `fetch` returning nothing to fall through | the root gate finishing without a reply |
 | `fetch` forwarding to `env.ASSETS` + shell fallback | nothing: `assets` defaults to `env.ASSETS` |
 | `scheduled` (and other members) | `host`'s return value |
-| `ctx.waitUntil(work)` in a handler | `send` the reply, then do the work |
+| `ctx.waitUntil(work)` in a handler | `send` the reply, then do the work; `Current.get().ctx` in calls and mounted handlers |
+| `around`'s `scope.request`, `scope.env`, `scope.ctx` | `Current.get()`'s |
+| `around` wrapping calls only (no `fetch`) | the root gate wraps pages, static files and twin streams too |
+| a throw in `fetch` reaching the host | a JSON reply (`HttpError`'s status, else 500) |
+| `bindings` on the fetch target only, in dev | `config({ bindings })` on either target |
 | `AppConfig`, `Scope` | `Settings`; `Scope` gone |
 | `serve` from `/server` (generated entries only) | `listen` |
 | `fetchHandler` from `/fetch` (generated entries only) | `compose` |
@@ -470,7 +488,7 @@ What the port shows:
 
 ## Open questions
 
-Each has a recommendation; sign-off on these unblocks PR 1.
+Each has a recommendation; sign-off on these unblocks PR 1 (questions 11 and 12 are PR 1's mechanism).
 
 1. **Where `config`, `host` and `compose` export from.** The original sketch imported from `@expressive/dev`'s root. `FEATURE.md`'s agreed shape puts server-only API (`config`, `Current`) in `@expressive/dev/server`, so a client import fails at build rather than at call. Recommend keeping that rule.
 2. **Static sugar.** Recommend only `Current.send`, as `Cookies.set` is to `Cookies.get()`. Statics for `request`, `env` and the rest would duplicate the instance.
@@ -482,17 +500,19 @@ Each has a recommendation; sign-off on these unblocks PR 1.
    - `FEATURE.md` lines 22, 83, 185 and 302 get updated, along with 62 (the OAuth `api/` slice, now this) and 288 (REST verbs on a `Route` default). Line 233's "rpc folder, beyond calls" (REST verbs, the reply pipeline, OpenAPI) concerns rpc's external-client lane and stays. Line 21's Config line describes the new entry.
 6. **A test reset.** Recommend none for now: one `index.ts` evaluation per test file. Per-test resets would need an exported `reset()`, which is new surface.
 7. **`bindings` as a path.** `bindings: "./db/bindings.ts"`, a module only dev imports, needs no AST strip, no literal rule and no tree-shaking, at the cost of checking the module's default export only by its own `satisfies`. Recommend keeping the function (typed at the call) with the strict build rule; the path is the fallback if the transform turns out brittle.
-8. **Body cap.** Recommend 1 MB by default. Raising it needs a setting (`config({ body: { limit } })`), which is new surface; recommend adding it only when asked.
+8. **Body cap.** Recommend 1 MB by default, on `json()` and `text()` only, so calls and uploads keep today's behaviour. Raising it needs a setting (`config({ body: { limit } })`), which is new surface; recommend adding it only when asked.
 9. **A throw below a wrapping gate.** Recommend resolving `next()` with the error reply, as calls already do, so a wrapper treats a failed call and a failed route alike. The alternative, rejecting `next()`, lets `db.session` roll back on a route's throw, but then calls would need to reject too to match.
 10. **Trunk.** Recommend landing the PRs below on a `feat/dev-serve` trunk cut from this branch and releasing once. Publishing 0.6 with the root gate but without `api/` would make apps port twice. The trunk isn't released between PRs, so a gap one PR leaves for a later one is tolerated there (named below).
+11. **Root-gate Models in calls.** A seat outlives the request and today's `gate()` layers rebuild seats per call, so root-gate Models can't be ancestors of the seat tree. Recommend a per-call context pushed from the seat's scope that falls back to the request scope for lookup: `Session.get()` in a seat method finds the root gate's `Session`, while the seat's `key()`, constructor and fields, which outlive the request, do not (they read `Current` and `Cookies`, as today). The alternative, making the request scope the root of the seat tree, rebuilds every seat per call and breaks `ttl` and twins.
+12. **Streams and scope.** A returned async generator settles its layer before its first pull, and a pull runs in the host's context. Recommend holding the request frame until the body closes or is cancelled, running each pull in the request's store, so `Session.get()` inside a generator works as it does in after-work. The alternative is to say stream producers run outside the scope and must capture what they need first.
 
 ## PR split
 
 Each PR lands on the trunk with its own tests, a changeset where it is user-facing (`minor`), its README and skill section, and `hot-probe.ts` cases where it touches hot reload. In code, the layer and scope of this note take names distinct from `context.ts`'s `Layer` and `scope()`; gates build on its `gate()`.
 
-1. **rpc: the request on `Current`, and gates with `next`.** One scope per request, gates' scopes enclosing what they pass to, optional `next` on function gates, `params`/`json()`/`text()`/`next`/`send` and static `send`, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, a call's frame starting inside the request scope, after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`/`handler()`.
-2. **dev: registry and composition.** `config`/`host` with `host`'s default `fetch`, the root gate as `index.ts`'s default, `compose` and `listen`, the registry rules, generated entries, the chain for calls and streams over today's page serving, sidecar call `params`, dev's skip list and fall-through, 101 passthrough, migration errors. Updates the `FEATURE.md` lines in open question 5. Hot-probe: an `index.ts` edit resets the registry without a double-call throw and swaps the root gate. Gaps left on the trunk: the fetch target has no page fallback until PR 3, and its bundle carries `bindings`' imports until PR 4.
-3. **dev: pages over `assets`.** The one shell rule on every host and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
+1. **rpc: the request on `Current`, and gates with `next`.** One scope per request, gates' scopes enclosing what they pass to, optional `next` on function gates, `params`/`json()`/`text()`/`ctx`/`next`/`send` and static `send`, a gate's answers (`send`, a returned `Response` or function; other returns ignored), a returned function as a fetch handler, `next` waiting for the gate's Models, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, a call's context falling back to the request scope (question 11), the frame held for streams (question 12), after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`.
+2. **dev: registry and composition.** `config`/`host` with `host`'s default `fetch`, the root gate as `index.ts`'s default, `compose` and `listen`, the registry rules, generated entries, the chain for calls and streams over today's page serving, sidecar call `params`, dev's skip list and fall-through, 101 passthrough, migration errors (the named `bindings` export and `export default config(...)` included). Updates the `FEATURE.md` lines in open question 5. Hot-probe: an `index.ts` edit resets the registry without a double-call throw and swaps the root gate. Gaps left on the trunk: the fetch target has no page fallback until PR 3, its bundle carries `bindings`' imports until PR 4, and an `api/` folder `index.ts` holding only a `default` is a catch-all from PR 5 until PR 6 makes it a gate.
+3. **dev: pages over `assets`.** The one shell rule on every host (the page patterns in each entry, a navigation's 404 shell) and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
 4. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports nor `node:fs`.
-5. **dev: `api/` routes.** Scan and strict matcher, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit.
-6. **dev: `api/` gates.** A folder `index.ts`'s `default` as a gate over matched and unmatched paths, its Models in context until the request ends, and the class-default error.
+5. **dev: `api/` routes.** Scan and strict matcher without backtracking, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit.
+6. **dev: `api/` gates.** A folder `index.ts`'s `default` as a gate over matched and unmatched paths with its folder's params, its Models in context until the request ends, and the class-default error.
