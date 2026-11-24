@@ -24,7 +24,7 @@ export interface AppConfig {
    *
    * `"fetch"` bundles every dependency into a module for a fetch-handler host: `export default { fetch }` answering calls, then this config's `fetch`, else 404.
    * Static files are the host's - `fetch` forwards to them. Other members of this config join the default export, and named exports of `index.ts` other than `bindings` are re-exported.
-   * Requests keep no state between them - a remote that default-exports a seat or exports a Model class fails the build.
+   * Folder gates do not run here - a remote that default-exports a Model fails the build.
    */
   target?: "node" | "fetch";
   /**
@@ -49,7 +49,7 @@ export interface AppConfig {
    *
    * Runs on every host and target, around the call's scope - read the request from `scope.request`, not `Current`.
    * With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes on - in dev, Vite's too.
-   * Twin streams and the default export's other members skip it. The scope ends when `next` resolves - `ctx.waitUntil` work and a streamed body run after.
+   * The default export's other members skip it. The scope ends when `next` resolves - `ctx.waitUntil` work and a streamed body run after.
    * A throw or rejection on a call replies as a call's error would - an error class a remote exports keeps its status. On `fetch` it reaches the host.
    *
    * @example
