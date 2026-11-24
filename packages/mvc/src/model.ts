@@ -739,7 +739,7 @@ function init(state: Model, ...args: Model.Args) {
 
     PENDING.delete(state);
 
-    if (key === null) return discard(state, rest);
+    if (key === null) return abandon(state, rest);
 
     const o = observer(state, true);
     const mark = () => void PENDING.delete(mark);
@@ -1085,11 +1085,11 @@ function trailing(state: object) {
 }
 
 /**
- * Release what an instance destroyed before activation built - Models its
- * fields hold are destroyed, others built before the last held one or an
- * instruction's replaced value only released.
+ * Clean up after an instance destroyed before activation. Pending Models in
+ * its fields are destroyed. Other pending Models its construction built are
+ * dropped from the unused check.
  */
-function discard(state: Model, rest: Model[]) {
+function abandon(state: Model, rest: Model[]) {
   const held = new Set<unknown>();
   let end = -1;
 
