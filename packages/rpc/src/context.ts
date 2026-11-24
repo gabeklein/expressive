@@ -319,7 +319,7 @@ function watch() {
 
 /**
  * Route server `get()` through the call's layer. `ttl` is how long a seat outlives its last call by
- * default: rpc's gates derive from each request, so 0 - dev's seats hold state, so it passes 300.
+ * default - 0, since a gate's state derives from each request.
  */
 export function install({ ttl = 0 }: { ttl?: number } = {}) {
   TTL = ttl;

@@ -192,9 +192,9 @@ describe("error classes", () => {
     `);
 
     expect(problems).toEqual([
-      "Cart is a class but not an Error - only error classes reach the client; a Model it constructs is a twin, which needs @expressive/dev.",
+      "Cart is a class but not an Error - only error classes reach the client.",
       ...["Plain", "Store"].map(name => `${name} is a class but not an Error - only error classes reach the client.`),
-      "Request is a class but not an Error - only error classes reach the client; a Model it constructs is a twin, which needs @expressive/dev.",
+      "Request is a class but not an Error - only error classes reach the client.",
     ]);
   });
 

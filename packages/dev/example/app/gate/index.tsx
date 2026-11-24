@@ -1,17 +1,17 @@
-import { Route } from "@expressive/dev";
+import { Component, set } from "@expressive/mvc";
 
-import type Gate from "./remote";
+import { member, welcome } from "./remote";
 
-export default (route: Route & { remote: Gate }) => (route.remote.member ? undefined : "/login");
+export default async () => ((await member()) ? undefined : "/login");
 
-export class Page extends Route {
-  declare remote: Gate;
+export class Page extends Component {
+  name = set(() => welcome());
 
   render() {
     return (
       <>
         <h1>Gate</h1>
-        <p>Welcome, {this.remote.name}</p>
+        <p>Welcome, {this.name}</p>
       </>
     );
   }

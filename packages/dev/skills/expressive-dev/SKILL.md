@@ -1,11 +1,11 @@
 ---
 name: expressive-dev
-description: Expressive app host (@expressive/dev) - expressive dev and dev build over Vite with @expressive/dom, a generated route tree, inspect and rpc. Use when working in an @expressive/dev app - layout, route modules, sidecars, server Model and seats, twins, commands.
+description: Expressive app host (@expressive/dev) - expressive dev and dev build over Vite with @expressive/dom, a generated route tree, inspect and rpc. Use when working in an @expressive/dev app - layout, route modules, sidecars, server Model and gates, commands.
 ---
 
 # @expressive/dev
 
-App host: `expressive dev` and `expressive dev build` over Vite, rendering with `@expressive/dom`, routing with `@expressive/router` from a generated tree, `@expressive/inspect` on the dev server, server calls through `@expressive/rpc`. Sidecar calls are stable; twins (server Models mirrored on the client) are experimental.
+App host: `expressive dev` and `expressive dev build` over Vite, rendering with `@expressive/dom`, routing with `@expressive/router` from a generated tree, `@expressive/inspect` on the dev server, server calls through `@expressive/rpc`.
 
 ```bash
 npm install @expressive/dev @expressive/mvc
@@ -45,7 +45,7 @@ Bare-named files under `app/` are support modules. Siblings match static before 
 - `label` - names the route for breadcrumbs (`Route.get().parent.label`). `const` string literal only - inlined into the tree; anything else fails generation. A folder's `index.tsx` labels the folder - or, with no other routes inside, the one route it collapses to (`Route.get().label`). In dev, an edit shows after a restart.
 - `Router` - root `index.tsx` only: a subclass of `Router` from `@expressive/dev` (not router's `BrowserRouter`), mounted in its place - override `navigate()`, add methods. `Router.get()` and the subclass's `get()` both find it. Prerendering constructs it and runs `new()` without `window` - guard what touches it there.
 - `default`, read by kind:
-  - a function is the entry hook: runs with the Route before render, may be async; a returned string redirects, `null` falls through to the 404. Under a seat it runs after the first pull - type it `(route: Route & { remote: Seat })`.
+  - a function is the entry hook: runs with the Route before render, may be async; a returned string redirects, `null` falls through to the 404. A thrown error with a 3xx `status` and `location` redirects; any other reaches `Catch`.
   - a Model or Component class renders around the content (around `Layout` if present) and is provided below.
 - `paths` - below a `[param]` or `[...]`, the absolute paths a prerendering build renders; may be async. Bundled with the client - no Node APIs; use static imports, `import.meta.glob` or an absolute-URL `fetch`.
 
@@ -74,50 +74,29 @@ import { add } from "./remote";
 
 ## Server Model
 
-Inside a call, `X.get()` finds the nearest server Model at the call's location or above; it throws outside a call. A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model - its seat:
+Inside a call, `X.get()` finds the nearest server Model at the call's location or above; it throws outside a call. A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a function - the folder's gate, run before each call through the folder. It refuses by throwing, or by activating a Model whose `new()` fails; each call waits for the Models it activates, found by `get()` in the call and dropped after. It stays on the server; the client imports only the folder's functions. Every entry's default is checked at build, and in dev on each call through its folder, imported or not - a class or other value fails.
 
 ```ts
-export default class Tally extends Model {
-  static ttl = 3600;   // seconds alive after its last call; 300 by default
-  total = 0;
-}
+class Account extends Model {
+  user?: User = undefined;
 
-export async function add(by: number) {
-  return (Tally.get().total += by);
-}
-```
-
-- One seat per location: `/blog/a` and `/blog/b` hold separate ones; a seat lower down shadows one above.
-- `protected static key()` narrows the folder's context by what it returns - an identity from verified data (a `Cookies` field, a seat above via `get()`). `undefined` passes through; throwing refuses the call.
-- `Cookies` (from `@expressive/dev/server`, as in rpc): a subclass declares cookies as fields; `AppCookies.get()` reads this request's and `AppCookies.set({ ... })` sends `Set-Cookie` with the reply - a twin's call or pull included. `Current` is the lower level: `.request`, `.url`, `.cookies`, read-only, and `setHeader(name, value)`.
-- Process-wide state: a module-level `X.new(Context.root)`, found by `get()` from any call.
-
-## Twins (experimental)
-
-A seat's public `async` methods and public values cross to the client: the folder's Route builds a twin and provides it below. Read it in a `Route` with `declare remote: Tally`, elsewhere with `get(Tally)`.
-
-```tsx
-// app/counter/index.tsx
-import Remote from "./remote";
-
-export class Page extends Component {
-  remote = get(Remote);
-
-  render() {
-    const { remote } = this;
-    return <button onClick={() => remote.increment()}>{remote.count}</button>;
+  protected async new() {
+    const { session } = AppCookies.get();
+    if (!session) throw new Unauthorized("Sign in.");
+    this.user = await db.user(session);
   }
 }
+
+export default () => void Account.new();
+
+export async function profile() {
+  return Account.get().user;
+}
 ```
 
-- Values cross with rpc's codec - a `Date`, `Map`, `Set` or `BigInt` field arrives as one. Values change on the server only; assigning a twin field throws. Every call's reply carries what changed on the tab's twins; changes from elsewhere arrive on a stream and the twin pulls.
-- Entering a seated folder waits for the twin's first pull (`Loading` on a cold load). A refused pull reaches the nearest `Catch`; an error with a 3xx `status` and `location` redirects.
-- A field holding a Model the seat owns (`line = new Line()`, or `line?: Line`) is a child twin.
-- Other exported Model classes are pooled: each `new Cart()` a Component owns, or `Cart.new()`, gets its own server instance.
-- A public `get()` field fails the build - declare it `protected`.
-- Reload the page when a call changes what a `key()` returns (login, logout): twins keep the context they were built in.
-
-Known gaps: a param change remounts the page; the root seat cannot gate some calls and not others; a class used as a child is also pooled; reads suspend until the first snapshot.
+- `key()`/`ttl` belong to rpc's class gates (`expressive-rpc/SKILL.md`); dev no longer reads them.
+- `Cookies` (from `@expressive/dev/server`, as in rpc): a subclass declares cookies as fields; `AppCookies.get()` reads this request's and `AppCookies.set({ ... })` sends `Set-Cookie` with the reply. `Current` is the lower level: `.request`, `.url`, `.cookies`, read-only, and `setHeader(name, value)`.
+- Process-wide state: a module-level `X.new(Context.root)`, found by `get()` from any call.
 
 ## Commands
 
@@ -145,7 +124,7 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 
 ## Request scope
 
-`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. With `config.fetch`, every non-call request runs inside it, including those `fetch` passes on (in dev, Vite's); without, only calls. Twin streams and the fetch target's other handlers (`scheduled`) skip it - wrap those in the handler. The scope ends when `next` resolves - `ctx.waitUntil` work and streamed bodies run after. A throw on a call replies as a call's error; on `fetch` it reaches the host.
+`config({ around(next, { request, env, ctx }) { ... } })` wraps each remote call and `config.fetch` on every host (Node, `fetch` target, dev) - run `next` inside the request's context and resolve what it resolves. Runs around the call's scope - read `scope.request`, not `Current`. With `config.fetch`, every non-call request runs inside it, including those `fetch` passes on (in dev, Vite's); without, only calls. The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler. The scope ends when `next` resolves - `ctx.waitUntil` work and streamed bodies run after. A throw on a call replies as a call's error; on `fetch` it reaches the host.
 
 An `@expressive/sql` session per request (skill `expressive-sql`) - its own identity map:
 
@@ -164,7 +143,7 @@ export default config({
 - Dev: `export async function bindings()` in `index.ts` returns `env` - once per server, again after a throw. Dropped from the build - import what it needs inside it: `export const bindings = async () => (await import("./dev-env")).env();`.
 - Other config members join the default export (`scheduled`); listed named exports of `index.ts` but `bindings` are re-exported - not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
-- Stateless: a remote that default-exports a seat or exports a Model class fails dev and the build. Remote functions only.
+- Folder gates do not run: a remote entry with a default fails the build, and in dev the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.
 - No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 
@@ -216,7 +195,7 @@ const db = connect(env.DATABASE_URL);
 `expressive dev build` (and `runBuild` from `@expressive/dev/vite`) builds, then renders each page with `renderToString` (`expressive-dom/SKILL.md#server-rendering`) to `dist/client/<path>/index.html` - markup in `#root`, its `head` ahead of the shell's `<title>`, its `css` as a `<style>`. The client hydrates a page prerendered for its path and renders anything else fresh. `--no-html` / `{ html: false }` opts out; a failure of the whole step - no empty `<div id="root">` in the shell, a bundle that will not load, a throwing `paths()` - warns and keeps the client-only build.
 
 - Rendered: every page with no `[param]` or `[...]` above it, plus what `paths()` lists below one - unchecked against the routes, so an unmatched path writes the 404 page.
-- Server-bound pages stay in the browser, wherever their remote sits - the build never runs server code. During a page's render, calling a remote function or twin method (`new()` included) or reading a twin's values aborts that page alone, counted in the summary. A call from an event handler or effect never runs, so its page still renders. A seat is built without a pull: pages under it render until one reads it, and an entry hook or `Layout` that reads it or calls the server leaves every page below to the browser. A `paths()` that calls the server lists nothing.
+- Server-bound pages stay in the browser, wherever their remote sits - the build never runs server code. During a page's render, calling a remote function (`new()` included) aborts that page alone, counted in the summary. A call from an event handler or effect never runs, so its page still renders. An entry hook or `Layout` that calls the server leaves every page below to the browser. A `paths()` that calls the server lists nothing.
 - A page that redirects, renders nothing, throws or takes over 30s is skipped with a warning.
 - `new()` runs at build and effects do not - DOM listeners and browser-only reads belong in effects. `typeof window` detects the build (`import.meta.env.SSR` is false); a module reading `window` or `document` at load fails the whole step.
 - The empty shell is kept as `200.html`; the built service serves `<path>/index.html`, then it. A static host should fall back to `200.html`. One that falls back to the root `index.html` (Cloudflare Pages without a `404.html`) still boots the right page, after showing the home page until scripts load.

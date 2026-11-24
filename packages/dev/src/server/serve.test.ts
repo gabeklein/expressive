@@ -197,7 +197,7 @@ describe("serve", () => {
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const post = (headers: Record<string, string> = {}) => fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "where", ...headers }, body: "[]" });
+    const post = (headers: Record<string, string> = {}) => fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "where", ...headers }, body: "[]" });
     const failed = await post({ "x-fail": "1" });
 
     expect(await (await post()).json()).toMatchObject({ value: "inside" });
@@ -260,27 +260,22 @@ describe("serve", () => {
     vi.restoreAllMocks();
   });
 
-  it("will serve the stream, a seated call, and a file of unknown type", async () => {
-    const { Model } = await import("@expressive/mvc");
+  it("will serve a gated call and a file of unknown type", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "data.bin"), "1");
 
     const exports = async () => ({ calls: { add: async (a: number, b: number) => a + b }, classes: {} });
-    const server = serve({ config: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], seats: [{ pattern: ["tally"], Type: class Tally extends Model {} as any }] });
+    const server = serve({ config: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], gates: [{ pattern: ["tally"], gate: () => {} }] });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const abort = new AbortController();
-    const stream = await fetch(`${base}/.expressive/stream?connection=${crypto.randomUUID()}`, { signal: abort.signal });
-    const call = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-connection": crypto.randomUUID(), "x-expressive-call": "add" }, body: "[2, 3]" });
+    const call = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add" }, body: "[2, 3]" });
     const file = await fetch(`${base}/data.bin`);
 
-    expect(stream.headers.get("content-type")).toBe("text/event-stream");
     expect(await call.json()).toMatchObject({ value: 5 });
     expect(file.headers.get("content-type")).toBe("application/octet-stream");
 
-    abort.abort();
     server.closeAllConnections();
     server.close();
     vi.restoreAllMocks();

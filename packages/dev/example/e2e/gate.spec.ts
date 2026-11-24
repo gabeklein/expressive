@@ -4,7 +4,7 @@ import { expect, test } from "./fixture";
 
 const pass = (context: BrowserContext, url: string | undefined, value: string) => context.addCookies([{ name: "gate", value, url: url! }]);
 
-test("admits a visitor the gate lets through, with its seat already fetched", async ({ page, context, baseURL, open }) => {
+test("admits a visitor the gate lets through", async ({ page, context, baseURL, open }) => {
   await pass(context, baseURL, "ada");
   await open("/gate");
 
@@ -46,7 +46,7 @@ test("redirects where the gate's refusal names a location", async ({ page, open 
   await expect(page.getByRole("heading")).toHaveText("Login");
 });
 
-test("redirects from the entry hook, which reads the fetched seat", async ({ page, context, baseURL, open }) => {
+test("redirects from the entry hook, which calls through the gate", async ({ page, context, baseURL, open }) => {
   await pass(context, baseURL, "guest");
   await open("/gate");
 

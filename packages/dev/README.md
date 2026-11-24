@@ -28,8 +28,7 @@ express nesting. dev's `Route` owns no suspense boundary unless given a `fallbac
 page's waits show its slot's `Loading`.
 
 The `default` export is read by kind. A function is the entry hook: it runs with the Route before
-it renders, and a returned string redirects (`null` falls through to the 404). In a folder with a
-seat, it runs once the seat's twin is fetched (Entry, below). A class - Model or
+it renders, and a returned string redirects (`null` falls through to the 404). A class - Model or
 Component - renders around the route's content and is provided to everything below it; with a
 `Layout`, it wraps the `Layout`.
 
@@ -116,7 +115,7 @@ and resolve what it resolves. `scope` holds `request`, `env` and `ctx`. It runs 
 scope, so read the request from `scope.request`, not `Current`.
 
 - With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes
-  on - in dev, Vite's too. Without one, only calls do. Twin streams skip it.
+  on - in dev, Vite's too. Without one, only calls do.
 - The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler.
 - The scope ends when `next` resolves: `ctx.waitUntil` work and a streamed body run after it.
 - A throw or rejection on a call replies as a call's error would - an error class a remote exports
@@ -152,8 +151,8 @@ app's `fetch` forwards to them.
   types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
-- Requests keep no state between them: a remote that default-exports a seat or exports a Model class
-  fails the dev server and the build. Remote functions only.
+- Folder gates do not run there: a remote entry with a default fails the build, and in dev fails
+  the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
 Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
@@ -244,9 +243,8 @@ import { add } from "./remote";
 
 A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
 for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
-`feed/latest:add` inside `remote/`), the tab's `x-expressive-connection` id, and the arguments as a
-JSON array. The reply is `{ value, frame }` - the frame carries what the call changed on the tab's
-twins (below). Only the folder and those below it may import its sidecar.
+`feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
+Only the folder and those below it may import its sidecar.
 
 Only what the client imports is callable: the server accepts calls to the stubs the browser loaded in
 dev, and to those the client build generated in production - a helper module in `remote/` is never
@@ -257,7 +255,7 @@ in `index.ts` keeps readable names, for clients that must outlive a deploy.
 A sidecar may also export `Error` subclasses. Thrown on the server, one rejects the call on the
 client as the same class - `instanceof` works - with its message and own fields; a numeric
 `status` field in 400-599 sets the reply's status (409 below, else 500); a 3xx `status` with a
-`location` field redirects a refused entry (below) and replies 500. Any other thrown error
+`location` field redirects an entry hook that awaits the call and replies 500. Any other thrown error
 rejects with its message in dev and a generic one in production.
 
 ```ts
@@ -267,80 +265,21 @@ export class Overflow extends Error {
 }
 ```
 
-The build refuses any other export - a sync function, a value, a class without `extends` or a
-re-export - since the client could not use it; a default is the folder's twin (below). A class whose base is not an `Error`
-fails its first call in dev and the built service at startup.
+The build refuses any other export, since the client could not use it: a sync function, a value, a
+re-export, a class without `extends`, or a Model class. A default is the folder's gate (below). A
+class whose base is not an `Error` fails its first call in dev and the built service at startup.
 
 ### Server Model
 
-Server Model is a folder's `default` class - its seat, built at the call's location - and the
-children it owns. Inside a call, `X.get()` finds the nearest seat or owned child at that location
-or above; it throws outside a call. `/blog/a` and `/blog/b` hold separate seats, every visitor to a
-location shares one, and a seat further down shadows one above. A seat lives while a call holds it,
-then `static ttl` seconds (300 by default); `set(null)` ends it at once, with its children. A child
-created lazily (`draft = set(() => new Draft())`) is found once its owner has read it - reach it
-through the owner (`Tally.get().draft`).
+A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a function - the
+folder's gate, run before each call through the folder. It refuses the call by throwing, or by
+activating a Model whose `new()` fails. A call waits for each Model the gate activates; `X.get()`
+finds them in that call and the folder's calls below, and they are dropped after it. `X.get()`
+throws outside a call. A gate stays on the server: the client imports its folder's functions, never
+the gate. Every remote entry's default is checked at build, and in dev on each call through its
+folder, imported by the client or not - a class or any other value fails.
 
-```ts
-export default class Tally extends Model {
-  static ttl = 3600;
-  total = 0;
-}
-
-export async function add(by: number) {
-  return (Tally.get().total += by);
-}
-```
-
-`Current` (from `@expressive/dev/server`) is the request in progress, readable from any server
-Model or function in a call: `Current.get().url`, `.cookies`, `.request` (a Web `Request`), and `setHeader` for
-that call's reply. Cookies the app uses are better declared as a `Cookies` subclass (see below). Its accessors read the
-call live, so a reused instance may hold it in a field (`current = get(Current)`) but should not
-copy its values into its own.
-
-### Twins
-
-A folder's remote entry (`remote.ts` or `remote/index.ts`) may default-export a Model class. Every
-call walking through the folder seats one instance in its context - `get()` finds it there and below
-- and on the client the folder's Route builds its twin and provides it below. The twin's methods
-are the class's public `async` methods, each a call to that instance.
-
-```ts
-// app/counter/remote.ts
-export default class Counter extends Model {
-  count = 0;
-  async increment() { return ++this.count; }
-}
-```
-
-```tsx
-// app/counter/index.tsx
-import Remote from "./remote";
-
-export class Page extends Component {
-  remote = get(Remote);
-  render() {
-    const { remote } = this;
-    return <button onClick={() => remote.increment()}>{remote.count}</button>;
-  }
-}
-```
-
-`static key()` narrows the folder's context, and everything below it, by what it returns - an
-identity from a `Cookies` field, or a value from a seat above through `get()`. Undefined passes
-the location through; throwing denies the call. Build the key from verified data only - a raw cookie
-lets the client pick its context - and declare it `protected`. The seat lives for `static ttl` after
-its last call; when it ends, its context and everything below go with it.
-
-#### Entry
-
-Entering a folder with a seat waits for the server. Its Route builds the twin and holds the page -
-the current one during in-app navigation, `Loading` on a cold load - until the twin's first pull
-returns. The pull walks every `key()` from the root down to the folder, and waits for each seat it
-newly builds - an `async new()` included. The folder's entry hook then runs with `route.remote`
-fetched. A refused pull reaches the nearest `Catch`; an exported error class carrying a 3xx `status`
-and a `location` field redirects there instead, as does one thrown by the hook. Leaving the route
-ends the twin; returning, or a change of the folder's own params, builds a fresh one.
+`@expressive/rpc`'s class gates (`static key()`, `static ttl`) are not read by dev.
 
 ```ts
 // app/account/remote.ts
@@ -355,91 +294,38 @@ export class SignIn extends Error {
   location = "/login";
 }
 
-export default class Account extends Model {
-  name = "";
-  admin = false;
-
-  protected static key() {
-    const { session } = AppCookies.get();
-    if (!session) throw new SignIn("Sign in first.");
-    return session;
-  }
+class Account extends Model {
+  user?: User = undefined;
 
   protected async new() {
-    const user = await db.user(AppCookies.get().session!);
-
-    this.name = user.name;
-    this.admin = user.admin;
+    const { session } = AppCookies.get();
+    if (!session) throw new SignIn("Sign in first.");
+    this.user = await db.user(session);
   }
+}
+
+export default () => void Account.new();
+
+export async function admin() {
+  return Account.get().user!.admin;
 }
 ```
 
 ```tsx
 // app/account/index.tsx
-import type Account from "./remote";
+import { admin } from "./remote";
 
-export default (route: Route & { remote: Account }) => (route.remote.admin ? undefined : "/");
-
-export class Page extends Route {
-  declare remote: Account;
-
-  render() {
-    return <h1>{this.remote.name}</h1>;
-  }
-}
+export default async () => ((await admin()) ? undefined : "/");
 ```
 
-A `Route` below the folder reads the seat as `this.remote`; `declare remote: Account` types it.
-Declare it rather than `remote = get(Account)`, which replaces the field and, on the folder's own
-Route, looks past the twin that Route provides. Anything else below reaches it through `get(Account)`.
+A refused call rejects with the gate's error: from an entry hook, one carrying a 3xx `status` and a
+`location` redirects there, and anything else reaches the nearest `Catch`.
 
-Methods a seat inherits cross too: the build follows its bases by import - source, or a package's
-`.d.ts` - up to `@expressive`'s classes, and the nearest declaration's `private`/`protected` wins. A
-base it cannot follow, such as `extends mixin(Model)`, fails the build.
-
-A twin holds the seat's public values too. It attaches a microtask after construction and suspends until the
-snapshot arrives. Every call's reply - a twin's method or a plain function - carries everything that
-changed on any twin the tab holds since that twin last heard, so an awaited call never reads stale,
-even where it changed a parent folder's twin through `get()`. Values change on the server only -
-assigning a twin field throws. Changes made elsewhere - another tab, a timer on the server - arrive
-on a stream the tab opens with its first twin: the server names what went stale and the twin pulls
-it.
-
-A field holding a Model its class owns - `line = new Line()`, or one declared `line?: Line` - is a
-child: the twin holds a twin of it, read-only like its other values, whose public `async` methods
-call through the owner (`order.line.bump()`). Assigning a new instance on the server replaces the
-child twin; clearing the field leaves it `undefined`. A public `get()` field fails the build - make
-it `protected` or `private`.
-
-A value still pending on the server - a `set()` field not yet assigned, or a getter waiting on one -
-is pending on the twin too: reading it suspends until the server assigns it. A value the twin already
-holds stays, unless the server rebuilt the instance.
-
-A remote module may also export Model classes. Each is a twin built per construction: every one a
-Component owns as a field (`cart = new Cart()`), or `Cart.new()` anywhere, gets a server instance of
-its own, alive while the client holds the twin. Build twins through those two - not a standalone
-`new Cart()`. It is built under the component's nearest route, so its `get()` fields reach the seats
-above it and every `key()` above it runs on each call; off any route it has no seat above it.
-
-```ts
-// app/shop/remote.ts
-import { Model, get } from "@expressive/mvc";
-
-export default class Shop extends Model {
-  name = "Shop";
-}
-
-export class Cart extends Model {
-  protected shop = get(Shop);
-  items = 0;
-  async add() { return ++this.items; }
-}
-```
-
-Reload the page when a call changes what a seat's `key()` returns - a login, a logout, switching
-accounts. Twins hold the context they were built in; a pooled twin's next request is refused once that
-context is replaced, but values already shown, client state under the route and replies to other
-calls can still carry the previous identity's data until the page reloads.
+`Current` (from `@expressive/dev/server`) is the request in progress, readable from any server
+Model or function in a call: `Current.get().url`, `.cookies`, `.request` (a Web `Request`), and `setHeader` for
+that call's reply. Cookies the app uses are better declared as a `Cookies` subclass (see below). Its accessors read the
+call live, so a reused instance may hold it in a field (`current = get(Current)`) but should not
+copy its values into its own.
 
 ## Commands
 
@@ -492,14 +378,13 @@ no route matches writes the 404 page.
 
 A page that needs the server while it renders stays client-rendered, wherever its `remote.ts` or
 `remote/` sits, and the build never runs server code. In the build, remote stubs stop at the server:
-calling a remote function or a twin's method, or reading a twin's values, aborts that page's render
+calling a remote function aborts that page's render
 and leaves that page to the browser, counted in the build's summary. So a `remote/` at the root of
 `app/`, shared by many screens, still lets `/privacy` and `/terms` prerender, while a dashboard that
 loads its data on render does not.
 
 - A call from `new()` counts; one from an event handler or effect never runs.
-- A seat is built without a pull. Pages under it render until one reads it, and an entry hook or
-  `Layout` that reads it, or calls the server, leaves every page below it to the browser.
+- An entry hook or `Layout` that calls the server leaves every page below it to the browser.
 - A `paths()` that calls the server lists nothing.
 
 A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.

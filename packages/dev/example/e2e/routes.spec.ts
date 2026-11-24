@@ -98,12 +98,12 @@ test("shows the layout's Loading while a page's code arrives on a cold load, or 
   await expect(page.getByText("Loading…")).toHaveCount(0);
 });
 
-test("prerenders pages beside the root remote, leaving those that read the server to the browser", async ({ request }, { project }) => {
+test("prerenders pages beside a remote, leaving those that call the server to the browser", async ({ request }, { project }) => {
   test.skip(project.name == "dev", "prerendering runs at build");
 
   const html = async (path: string) => (await request.get(path, { headers: { accept: "text/html" } })).text();
 
   expect(await html("/about")).toContain(`<div id="root" data-prerender="/about">`);
   expect(await html("/tally")).toContain(`data-prerender="/tally"`);
-  for (const path of ["/counter", "/gate", "/fortune"]) expect(await html(path)).toContain(`<div id="root"></div>`);
+  expect(await html("/gate")).toContain(`<div id="root"></div>`);
 });

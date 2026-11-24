@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { shapeOf, type Exposed, type Exposure } from "./remote";
+import type { Exposed, Exposure } from "./remote";
 import type { Remote } from "./routes";
 
 export interface Project {
@@ -130,7 +130,6 @@ export default async function page(path) {
 }
 
 export const PRERENDER_CALL = `\
-import { Model, def } from "@expressive/mvc";
 import { define } from "@expressive/rpc";
 
 export { define };
@@ -160,28 +159,6 @@ export function call() {
 
   return refused;
 }
-
-export function twin(_at, methods, fields, name) {
-  const Twin = {
-    [name]: class extends Model {
-      constructor(...args) {
-        super(...args);
-
-        for (const field of fields) this[field] = def(() => ({ get() { throw halt(); } }));
-      }
-
-      get(...args) {
-        if (!args.length || typeof args[0] == "string") throw halt();
-
-        return super.get(...args);
-      }
-    },
-  }[name];
-
-  for (const method of Object.keys(methods)) Object.defineProperty(Twin.prototype, method, { configurable: true, writable: true, value: call });
-
-  return Twin;
-}
 `;
 
 export function ensureBootstrap(html: string): string {
@@ -200,20 +177,14 @@ function injectBeforeBody(html: string, tag: string): string {
     : html + "\n" + tag + "\n";
 }
 
-export function serverEntry(project: Project, from: string, exposure: Exposure, seats: Remote[]): string {
+export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[]): string {
   const configSpec = project.configPath && JSON.stringify(importRel(from, project.configPath));
-  const files = [...new Set([...exposure.modules.keys(), ...seats.map(seat => seat.file)])];
+  const files = [...new Set([...exposure.modules.keys(), ...gates.map(gate => gate.file)])];
   const modules = files.map(file => JSON.stringify(importRel(from, file)));
   const alias = (file: string) => `s${files.indexOf(file)}`;
 
-  const entries = exposure.byPattern().map(group => {
-    const pool = group.flatMap(remote => remote.pooled.map(twin =>
-      `${JSON.stringify(exposure.classId(remote, twin.name))}: { Type: ${alias(remote.file)}.${twin.name}, ${props({ ...shapeOf(twin), methods: exposure.methodIds(remote, twin, true) })} }`)).join(", ");
-    const seated = group.find(remote => remote.seat);
-    const seat = seated && JSON.stringify({ ...shapeOf(seated.seat!), methods: exposure.methodIds(seated, seated.seat!, false) });
-
-    return `    { pattern: ${JSON.stringify(group[0].pattern)}, async exports() { return { ${exposure.table(group, alias)}, pool: { ${pool} }${seat ? `, seat: ${seat}` : ""} }; } },`;
-  });
+  const entries = exposure.byPattern().map(group =>
+    `    { pattern: ${JSON.stringify(group[0].pattern)}, async exports() { return { ${exposure.table(group, alias)} }; } },`);
 
   return [
     `import { fileURLToPath } from "node:url";`,
@@ -225,7 +196,7 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
     "  config,",
     `  client: fileURLToPath(new URL("../client/", import.meta.url)),`,
     "  sidecars: [", ...entries, "  ],",
-    "  seats: [", ...seats.map(seat => `    { pattern: ${JSON.stringify(seat.pattern)}, Type: ${alias(seat.file)}.default },`), "  ],",
+    "  gates: [", ...gates.map(gate => `    { pattern: ${JSON.stringify(gate.pattern)}, gate: ${alias(gate.file)}.default },`), "  ],",
     "});",
     "",
   ].join("\n");
@@ -252,10 +223,6 @@ export function fetchEntry(project: Project, from: string, exposure: Exposure, n
     `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
     "",
   ].join("\n");
-}
-
-function props(object: object): string {
-  return Object.entries(object).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(", ");
 }
 
 export function importRel(from: string, file: string): string {

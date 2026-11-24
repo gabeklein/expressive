@@ -7,17 +7,14 @@ import type { ModuleRunner } from "vite/module-runner";
 
 import { wrap, type AppConfig, type Ctx } from "../server/config";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
-import { runtime } from "../client/twin";
-import { Exposure, shapeOf, type Definition, type Exposed } from "./remote";
+import { Exposure, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
 import { isCall, scoped, toNode } from "@expressive/rpc/http";
-import { bind, dispatch, failure, verify, type Seats } from "@expressive/rpc/protocol";
+import { bind, dispatch, failure, verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { fileResponse } from "../server/serve";
-import { isStream, stream } from "../server/stream";
 import { install } from "../server/install";
-import { twins, type Endpoint, type Exports, type Pooled } from "../server/twin";
-import { hasSeat, scanExports, scanRemote } from "./scan";
+import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
 
 const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
@@ -62,7 +59,7 @@ const SHARED = ["@expressive/mvc", "@expressive/dom", "@expressive/router", "@ex
 /**
  * The app host as a Vite plugin, for a hand-written Vite config.
  *
- * Serves the virtual shell, entry and route tree under `/.expressive/`, and builds sidecars and twins.
+ * Serves the virtual shell, entry and route tree under `/.expressive/`, and builds sidecars.
  * Add `inspect()` from `@expressive/inspect/vite` beside it for the dev relay.
  * The built server's `index.js` copies `.env` files into `process.env` before the app loads.
  */
@@ -116,6 +113,14 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const target = async () => (build ? settings!.target : (await api.config()).target);
 
+  const gateError = async (remote: Remote) => {
+    const { gate, problems } = scanGate(remote, readFileSync(remote.file, "utf8"));
+
+    if (gate && (await target()) === "fetch") problems.push(STATELESS);
+
+    return { gate, error: problems.length ? `${relative(root, remote.file)}: ${problems.join(" ")}` : undefined };
+  };
+
   const readShell = () =>
     project.htmlPath ? ensureBootstrap(readFileSync(project.htmlPath, "utf8")) : SHELL;
 
@@ -163,6 +168,11 @@ export function host(dotenv: boolean): Plugin<Host> {
       if (build === "client") {
         const salt = settings!.remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
         builds.set(root, (exposure = new Exposure(salt)));
+
+        for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
+          const { error } = await gateError(remote);
+          if (error) this.error(error);
+        }
       }
 
       if (build === "server") {
@@ -206,15 +216,11 @@ export function host(dotenv: boolean): Plugin<Host> {
       const remote = !options?.ssr && remoteAt(file);
 
       if (remote) {
-        const sources: Sources = {
-          resolve: async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0],
-          read: path => readFileSync(path, "utf8"),
-        };
-
+        const sources = sourcesOf(async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
         const { problems, ...scanned } = await scanRemote(remote, readFileSync(file, "utf8"), sources, remoteAt);
 
+        if (scanned.gate && (await target()) === "fetch") problems.push(STATELESS);
         if (problems.length) this.error(`${relative(root, file)}: ${problems.join(" ")}`);
-        if ((await target()) === "fetch") stateless(this, relative(root, file), scanned);
 
         const exposed = { ...remote, ...scanned };
         exposure.modules.set(file, exposed);
@@ -226,18 +232,13 @@ export function host(dotenv: boolean): Plugin<Host> {
         case callId:
           if (prerendering) return PRERENDER_CALL;
 
-          return [
-            `import { Context, Model, def } from "@expressive/mvc";`,
-            `import { Route } from "@expressive/dev";`,
-            `import { client } from "@expressive/rpc";`,
-            `export const { call, define, twin } = (${runtime})(client, Model, def, Context, Route);`,
-          ].join("\n");
+          return `export { call, define } from "@expressive/rpc";`;
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
           return (routes = await generate());
         case serverId:
-          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, seated(project));
+          return settings?.target === "fetch" ? fetchEntry(project, generatedDir, exposure, await namedExports(project)) : serverEntry(project, generatedDir, exposure, gated(project));
         case prerenderId: {
           if (!project.appDir) return prerenderEntry(importRel(generatedDir, project.appPath!), []);
 
@@ -291,9 +292,18 @@ export function host(dotenv: boolean): Plugin<Host> {
 
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
 
-      server.middlewares.use(toNode(async request => {
-        if (isStream(request)) return stream(request);
+      const gates: Seats = async pattern => {
+        const remote = project.appDir && remoteEntries(project.appDir).find(remote => remote.pattern.join("/") === pattern.join("/"));
 
+        if (!remote) return;
+
+        const { gate, error } = await gateError(remote);
+
+        if (error) throw new Error(error);
+        if (gate) return (await host.import(remote.file)).default;
+      };
+
+      server.middlewares.use(toNode(async request => {
         const config = await api.config();
         const call = isCall(request);
 
@@ -305,7 +315,7 @@ export function host(dotenv: boolean): Plugin<Host> {
 
         bind(request, env);
 
-        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, seatsOf(host, project), twins)).catch(error => failure(error, endpoints(), true));
+        if (call) return wrap(config, scope, () => dispatch(request, endpoints, true, gates)).catch(error => failure(error, endpoints(), true));
 
         const { pathname, search } = new URL(request.url);
         const { publicDir } = server.config;
@@ -375,58 +385,18 @@ function hosted() {
 function endpointOf(host: ModuleRunner, root: string, exposure: Exposure, group: Exposed[]): Endpoint {
   return {
     pattern: group[0].pattern,
-    async exports() {
-      const plain = await exposure.exports(group, file => host.import(file), (file, exports) => verify(relative(root, file), exports));
-      const pool: Record<string, Pooled> = {};
-      let seat: Exports["seat"];
-
-      for (const remote of group) {
-        const mod = await host.import(remote.file);
-
-        if (remote.seat) seat = { ...shapeOf(remote.seat), methods: exposure.methodIds(remote, remote.seat, false) };
-
-        for (const twin of remote.pooled)
-          pool[exposure.classId(remote, twin.name)] = { Type: mod[twin.name], ...shapeOf(twin), methods: exposure.methodIds(remote, twin, true) };
-      }
-
-      return { ...plain, seat, pool };
-    },
+    exports: () => exposure.exports(group, file => host.import(file), (file, exports) => verify(relative(root, file), exports)),
   };
 }
 
-function seated(project: Project): Remote[] {
+function gated(project: Project): Remote[] {
   if (!project.appDir) return [];
 
-  return remoteEntries(project.appDir).filter(remote => hasSeat(remote.file));
-}
-
-function seatsOf(host: ModuleRunner, project: Project): Seats {
-  return async pattern => {
-    const remote = seated(project).find(remote => remote.pattern.join("/") === pattern.join("/"));
-    return remote && (await host.import(remote.file)).default;
-  };
+  return remoteEntries(project.appDir).filter(remote => hasGate(remote.file));
 }
 
 function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Remote | undefined): string {
-  const json = JSON.stringify;
-  const twinOf = (definition: Definition, pool?: string) => {
-    const args = [json(definition.methods), json(definition.fields), json(definition.name)];
-
-    if (pool || definition.children) args.push(pool ? json(pool) : "undefined");
-    if (definition.children) args.push(json(definition.children));
-
-    return `twin(at, ${args.join(", ")})`;
-  };
-
-  return exposure.stub(remote, locate, {
-    from: `/${GENERATED}/${CALL}`,
-    at: remote.pattern,
-    imports: ["twin"],
-    lines: [
-      ...remote.pooled.map(twin => `export const ${twin.name} = ${twinOf(exposure.definition(remote, twin, true), exposure.classId(remote, twin.name))};`),
-      ...(remote.seat ? [`export default ${twinOf(exposure.definition(remote, remote.seat, false))};`] : []),
-    ],
-  });
+  return exposure.stub(remote, locate, { from: `/${GENERATED}/${CALL}`, at: remote.pattern });
 }
 
 const FETCH: UserConfig = {
@@ -434,12 +404,9 @@ const FETCH: UserConfig = {
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
 
-function stateless(context: { error(message: string): never }, file: string, { seat, pooled }: { seat?: unknown; pooled: { name: string }[] }) {
-  const why = "- the fetch target keeps no state between requests, so a remote there exports functions only.";
+const STATELESS = "The fetch target does not run folder gates - export functions only, no default.";
 
-  if (seat) context.error(`${file} default-exports a seat ${why}`);
-  if (pooled.length) context.error(`${file} exports Model ${pooled.map(twin => twin.name).join(", ")} ${why}`);
-}
+const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });
 
 async function namedExports(project: Project): Promise<string[]> {
   const { exports } = await scanExports(readFileSync(project.configPath!, "utf8"), project.configPath!);
