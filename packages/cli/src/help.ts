@@ -59,8 +59,10 @@ function scope(levels: Spec[][]) {
   };
 }
 
-/** An input as JSON - argv spelling plus a JSON Schema for its value. */
-function input(spec: Spec) {
+const plain = (value: unknown) => ['string', 'number', 'boolean'].includes(typeof value);
+
+/** An input as JSON - its argv spelling plus a JSON Schema for its value. */
+function inputJson(spec: Spec) {
   const { help, short, min, max, ext, default: fallback } = spec.config;
   const type = valueType(spec);
   const path = type != 'string' && type != 'number';
@@ -71,19 +73,20 @@ function input(spec: Spec) {
         ? { type: 'number' }
         : {
             type: 'string',
-            format: path ? 'path' : undefined,
+            format: path ? type : undefined,
             pattern: path && ext && type != 'dir' ? `(${ext.map((end) => end.replace(/\./g, '\\.')).join('|')})$` : undefined
           };
   const schema = isPlural(spec) ? { type: 'array', items: item, minItems: min, maxItems: max } : item;
+  const negated = spec.kind == 'flag' && fallback === true;
 
   return {
     name: kebab(spec.key),
     kind: spec.kind,
-    flag: isNamed(spec) ? option(spec).replace(/^-., /, '').split(' ')[0] : undefined,
+    option: isNamed(spec) ? (negated ? '--no-' + kebab(spec.key) : label(spec)) : undefined,
     short: short && '-' + short,
     required: isRequired(spec) || undefined,
     help,
-    schema: { ...schema, default: fallback }
+    schema: { ...schema, default: [fallback].flat().every(plain) ? fallback : undefined }
   };
 }
 
@@ -122,4 +125,4 @@ function help(name: string, levels: Spec[][], runs = true, about?: string) {
   return sections.join('\n\n');
 }
 
-export { help, input, scope, usage };
+export { help, inputJson, scope, usage };

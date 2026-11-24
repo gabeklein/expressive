@@ -15,9 +15,9 @@ interface Common {
 interface Valued<T = any> extends Common {
   /** How to read the raw string - default `number` with a number default, else `string`. */
   type?: Type;
-  /** Turn each value into what the field holds - given the string, a path resolved. Throw to reject. */
+  /** Turn each value into what the field holds - given the string, a path resolved. Throw to reject. Don't read `this`. */
   parse?: (value: string) => T;
-  /** Accept or reject each value - `false` is a usage error naming the input. */
+  /** Accept or reject each value - `false` is a usage error naming the input. Don't read `this`. */
   valid?: (value: any) => boolean;
   /** Allowed extensions for a `file` or `path`, dot included. */
   ext?: readonly string[];
@@ -109,14 +109,13 @@ type One<C> = C extends { required: true } | { default: {} } ? Value<C> : Value<
 
 const SPECS = new WeakMap<Model, Spec[]>();
 
-const TOKENS = new Map<unknown, Spec>();
+let sampling: Map<unknown, Spec> | undefined;
 
 function input(kind: Kind, configs: object[], target?: Target): any {
   const config = Object.assign({}, ...configs);
   const token = def((key, self) => {
     const specs = SPECS.get(self) || [];
 
-    TOKENS.delete(token);
     SPECS.set(self, specs);
     specs.push({ key, kind, config, target });
 
@@ -127,32 +126,34 @@ function input(kind: Kind, configs: object[], target?: Target): any {
     };
   });
 
-  TOKENS.set(token, { key: '', kind, config, target });
+  sampling?.set(token, { key: '', kind, config, target });
 
   return token;
 }
 
-function discard(model: Model) {
-  for (const value of Object.values(model))
-    if (value instanceof Model) discard(value);
-    else TOKENS.delete(value);
+/**
+ * Inputs of `Type` read from a bare instance - constructed, never activated, so nothing it owns starts.
+ *
+ * Models it leaves unactivated are not reported as unused.
+ */
+async function sample(Type: Model.Type) {
+  const found = (sampling = new Map());
+  const quiet = Model.on({ catch: (error, kind) => (kind == 'unused' ? undefined : error) });
 
-  model.set(null);
-}
+  try {
+    const instance = new Type();
+    const specs = Object.entries(instance).flatMap(([key, value]) => {
+      const spec = found.get(value);
 
-/** Inputs of `Type` read from a bare instance - never activated, so nothing it owns starts. */
-function sample(Type: Model.Type) {
-  const instance = new Type();
-  const specs = Object.entries(instance).flatMap(([key, value]) => {
-    const spec = TOKENS.get(value);
+      return spec ? [{ ...spec, key }] : [];
+    });
 
-    return spec ? [{ ...spec, key }] : [];
-  });
-  const runs = 'run' in instance;
-
-  discard(instance);
-
-  return { Type, specs, runs };
+    return { Type, specs, runs: 'run' in instance };
+  } finally {
+    sampling = undefined;
+    await Promise.resolve();
+    quiet();
+  }
 }
 
 /**

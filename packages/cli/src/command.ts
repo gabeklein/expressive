@@ -1,10 +1,12 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { format } from 'node:util';
+import { Console } from 'node:console';
+import { Writable } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 
 import { Model } from '@expressive/mvc';
 
-import { help, input, scope, usage } from './help';
+import { help, inputJson, scope, usage } from './help';
 import { cmd, sample, SPECS, type Spec, type Target } from './input';
 import { kebab, Reader, Usage } from './parse';
 import { described, discover, install, locate, owner, peer, unscoped } from './peer';
@@ -79,6 +81,22 @@ interface Outcome {
   delegate?: (out: Output) => Promise<number>;
 }
 
+/** Run a runner that was handed `--json` - its envelope, else one wrapping what it printed. */
+async function envelope(run: (out: Output) => Promise<number>) {
+  const lines: string[] = [];
+  const push = (line: unknown) => void lines.push(String(line));
+  const code = await run({ log: push, error: push });
+  const text = lines.join('\n');
+
+  try {
+    const reply = JSON.parse(text);
+
+    if (typeof reply.code == 'number') return reply;
+  } catch {}
+
+  return { code, stdout: text && text + '\n', stderr: '' };
+}
+
 function capture() {
   const text = { stdout: '', stderr: '' };
   const undo: (() => void)[] = [];
@@ -90,17 +108,29 @@ function capture() {
     undo.push(() => (before ? Object.defineProperty(target, key, before) : delete target[key]));
   };
 
-  for (const stream of ['stdout', 'stderr'] as const) {
-    patch(process[stream], 'isTTY', false);
-    patch(process[stream], 'write', (chunk: string | Uint8Array, ...rest: unknown[]) => {
-      text[stream] += typeof chunk == 'string' ? chunk : Buffer.from(chunk).toString();
+  const sink = (stream: keyof typeof text) => {
+    const decoder = new StringDecoder();
+
+    return (chunk: string | Uint8Array, ...rest: unknown[]) => {
+      text[stream] += typeof chunk == 'string' ? chunk : decoder.write(Buffer.from(chunk));
       (rest.find((arg) => typeof arg == 'function') as Function | undefined)?.();
       return true;
-    });
+    };
+  };
+
+  const writable = (stream: keyof typeof text) => {
+    const write = sink(stream);
+
+    return new Writable({ write: (chunk, _, done) => (write(chunk), done()) });
+  };
+  const local = new Console(writable('stdout'), writable('stderr'));
+
+  for (const stream of ['stdout', 'stderr'] as const) {
+    patch(process[stream], 'isTTY', false);
+    patch(process[stream], 'write', sink(stream));
   }
 
-  for (const [method, stream] of [['log', 'stdout'], ['info', 'stdout'], ['debug', 'stdout'], ['warn', 'stderr'], ['error', 'stderr']] as const)
-    patch(console, method, (...args: unknown[]) => void (text[stream] += format(...args) + '\n'));
+  for (const [key, value] of Object.entries(local).filter(([, value]) => typeof value == 'function')) patch(console, key, value.bind(local));
 
   return [text, () => undo.reverse().forEach((restore) => restore())] as const;
 }
@@ -197,15 +227,12 @@ function build(Root: Model.Type, name: string): Run {
       const Type = await load(owner, spec.key, target, node.command);
 
       if (Type instanceof Hand) {
-        const lines: string[] = [];
-        const push = (line: string) => void lines.push(line);
+        const reply = await envelope((out) => Type.run(['--help', '--json'], out, node.command));
 
-        await Type.run(['--help', '--json'], { log: push, error: push }, node.command);
-
-        return { ...JSON.parse(lines.join('\n')).help, help: node.help };
+        return reply?.help ? { ...reply.help, help: node.help } : { ...node, error: reply?.error?.message ?? 'no --json support' };
       }
 
-      return seen.has(Type) ? node : await tree(sample(Type), node.command, [], seen, node.help);
+      return seen.has(Type) ? node : await tree(await sample(Type), node.command, [], seen, node.help);
     } catch (error) {
       return { ...node, error: message(error) };
     }
@@ -222,8 +249,11 @@ function build(Root: Model.Type, name: string): Run {
       help: about,
       usage: usage(path, specs, level.runs),
       runs: level.runs,
-      inputs: [...operands, ...options].map(input),
-      commands: await Promise.all(listed.map((spec) => describe(spec, level.Type, path, inner)))
+      inputs: [...operands, ...options].map(inputJson),
+      commands: await listed.reduce(
+        async (nodes, spec) => [...(await nodes), await describe(spec, level.Type, path, inner)],
+        Promise.resolve([] as Node[])
+      )
     };
   };
 
@@ -243,7 +273,7 @@ function build(Root: Model.Type, name: string): Run {
 
     const route = async () => {
       for (let Type = Root, named = invoked; ; ) {
-        const level: Level = sample(Type);
+        const level: Level = await sample(Type);
 
         levels.push(level);
 
@@ -280,8 +310,11 @@ function build(Root: Model.Type, name: string): Run {
 
         about ??= helpOf(Next);
 
-        if (Next instanceof Hand)
-          throw new Delegate(Next.run, [...reader.rest(), ...(reader.help ? ['--help'] : []), ...(json ? ['--json'] : [])], path);
+        if (Next instanceof Hand) {
+          const flags = [...(json ? ['--json'] : []), ...(reader.help ? ['--help'] : [])];
+
+          throw new Delegate(Next.run, [...flags, ...reader.rest()], path);
+        }
 
         Type = Next;
         named = child;
@@ -320,13 +353,14 @@ function build(Root: Model.Type, name: string): Run {
 
       const { key, inline } = levels.at(-1)!;
       const target = path.at(-1) as Model & { run(): unknown };
-      const result = await (inline ? SPECS.get(target)!.find((spec) => spec.key == key)!.target!.run!.call(target) : target.run());
+      const run = inline ? SPECS.get(target)!.find((spec) => spec.key == key)!.target!.run! : target.run;
+      const result = await run.call(target);
 
       if (result === undefined || result === true) return { code: 0 };
       if (result === false) return { code: 1 };
       if (typeof result == 'number') return { code: result };
 
-      throw new TypeError(`${target.constructor.name} run() returned ${typeof result} - print output and return a status.`);
+      throw new TypeError(`${target.constructor.name} run() returned ${result === null ? 'null' : typeof result} - print output and return a status.`);
     } catch (error) {
       if (error instanceof Delegate) return { code: 0, delegate: (out) => error.run(error.argv, out, error.name) };
 
@@ -375,13 +409,19 @@ function build(Root: Model.Type, name: string): Run {
       restore();
     }
 
-    const { delegate, ...result } = outcome;
+    const { delegate, code, ...rest } = outcome;
 
-    if (delegate) return delegate(out);
+    if (delegate) {
+      const reply = await envelope(delegate);
 
-    out.log(JSON.stringify({ ...result, ...text }));
+      out.log(JSON.stringify(reply));
 
-    return result.code;
+      return reply.code;
+    }
+
+    out.log(JSON.stringify({ code, ...text, ...rest }));
+
+    return code;
   };
 }
 

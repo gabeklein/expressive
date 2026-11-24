@@ -93,7 +93,11 @@ it('will map results to exit codes', async () => {
   expect(await command(returns(7))([], out)).toBe(7);
   expect(await command(returns(Promise.resolve(3)))([], out)).toBe(3);
   expect(await command(returns('done'))([], out)).toBe(1);
-  expect(lines).toEqual(['! Test run() returned string - print output and return a status.']);
+  expect(await command(returns(null))([], out)).toBe(1);
+  expect(lines).toEqual([
+    '! Test run() returned string - print output and return a status.',
+    '! Test run() returned null - print output and return a status.'
+  ]);
 });
 
 it('will print a throw and return 1', async () => {
@@ -140,6 +144,28 @@ it('will destroy the instance after', async () => {
 
   await call(Test, '--nope');
   expect(created).toHaveBeenCalledTimes(1);
+});
+
+it('will pass other reports through while reading a class', async () => {
+  class Box extends Model {
+    value = 0;
+  }
+
+  const gone = Box.new();
+  const caught = vi.fn();
+
+  gone.set(null);
+
+  const stop = Model.on({ catch: (_error, kind) => void caught(kind) });
+
+  class Test extends Leaf {
+    touched = ((gone.value = 1), true);
+  }
+
+  await call(Test, '--help');
+  stop();
+
+  expect(caught).toHaveBeenCalledWith('dead');
 });
 
 it('will reserve --json', async () => {
@@ -601,9 +627,19 @@ describe('cmd', () => {
         logger = new Logger();
       }
 
+      class Plain extends Model {}
+
+      class Side extends Leaf {
+        kids = [new Plain()];
+      }
+
+      const shared = Plain.new();
+
       class Test extends Model {
         logger = new Logger();
+        shared = shared;
         late = cmd({ lazy: async () => ({ default: Late }), help: 'late' });
+        side = cmd({ from: Side });
       }
 
       const caught = vi.fn();
@@ -617,6 +653,7 @@ describe('cmd', () => {
       stop();
 
       expect(caught).not.toHaveBeenCalled();
+      expect(shared.get(null)).toBe(false);
       expect(lines).toEqual([
         '! Unknown option --nope.\nUsage: test [options] <command>',
         'logger new',
@@ -757,6 +794,7 @@ describe('json', () => {
       out = opt({ type: 'dir', ext: ['.x'] });
       retries = opt({ default: 2 });
       tags = list({ min: 1 });
+      size = opt({ parse: BigInt, default: 0n });
       deploy = cmd({ from: Deploy });
       later = cmd({ lazy: async () => ({ default: Deploy }), help: 'lazily' });
       broken = cmd({ lazy: () => Promise.reject(new Error('missing')), help: 'broken' });
@@ -771,7 +809,7 @@ describe('json', () => {
       runs: true,
       inputs: [
         { name: 'target', kind: 'arg', required: true, help: 'where', schema: { type: 'string' } },
-        { name: 'files', kind: 'args', schema: { type: 'array', items: { type: 'string', format: 'path', pattern: '(\\.js|\\.mjs)$' }, maxItems: 3 } }
+        { name: 'files', kind: 'args', schema: { type: 'array', items: { type: 'string', format: 'file', pattern: '(\\.js|\\.mjs)$' }, maxItems: 3 } }
       ],
       commands: []
     });
@@ -784,11 +822,12 @@ describe('json', () => {
       usage: 'Usage: tool [options] <command>',
       runs: false,
       inputs: [
-        { name: 'verbose', kind: 'flag', flag: '--verbose', short: '-v', schema: { type: 'boolean' } },
-        { name: 'cache', kind: 'flag', flag: '--no-cache', schema: { type: 'boolean', default: true } },
-        { name: 'out', kind: 'opt', flag: '--out', schema: { type: 'string', format: 'path' } },
-        { name: 'retries', kind: 'opt', flag: '--retries', schema: { type: 'number', default: 2 } },
-        { name: 'tags', kind: 'list', flag: '--tags', schema: { type: 'array', items: { type: 'string' }, minItems: 1 } }
+        { name: 'verbose', kind: 'flag', option: '--verbose', short: '-v', schema: { type: 'boolean' } },
+        { name: 'cache', kind: 'flag', option: '--no-cache', schema: { type: 'boolean', default: true } },
+        { name: 'out', kind: 'opt', option: '--out', schema: { type: 'string', format: 'dir' } },
+        { name: 'retries', kind: 'opt', option: '--retries', schema: { type: 'number', default: 2 } },
+        { name: 'tags', kind: 'list', option: '--tags', schema: { type: 'array', items: { type: 'string' }, minItems: 1 } },
+        { name: 'size', kind: 'opt', option: '--size', schema: { type: 'string' } }
       ],
       commands: [
         deploy('tool deploy', 'ship it'),
@@ -801,7 +840,7 @@ describe('json', () => {
 
     const [, routed] = await parsed(Tool, 'deploy', '--help', '--json');
 
-    expect(routed.help.inputs.map((input: { name: string }) => input.name)).toEqual(['target', 'files', 'verbose', 'cache', 'out', 'retries', 'tags']);
+    expect(routed.help.inputs.map((input: { name: string }) => input.name)).toEqual(['target', 'files', 'verbose', 'cache', 'out', 'retries', 'tags', 'size']);
   });
 });
 
@@ -1085,25 +1124,22 @@ describe('peer', () => {
 
         install('@kit/dev', { kit: 'bin.mjs' }, runner('dev', "static help = 'dev server'").replace(/out\.log\(/, `out.log(argv.includes('--help') ? ${help} : `));
         install('@kit/sql', { kit: 'bin.mjs' }, runner('sql'));
+        install('@kit/err', { kit: 'bin.mjs' }, runner('err').replace(/out\.log\(/, 'out.log(JSON.stringify({ code: 2, error: { message: "bad" } })); void ('));
+        install('@kit/odd', { kit: 'bin.mjs' }, runner('odd').replace(/out\.log\(/, "out.log('{}'); void ("));
 
         expect(await run(own(), { as: 'kit' }, '--help', '--json')).toBe(0);
-        expect(await run(own(), { as: 'kit' }, 'dev', 'x', '--json')).toBe(3);
+        expect(await run(own(), { as: 'kit' }, 'dev', 'x', '--json', '--', 'y')).toBe(3);
 
         const [described, handed] = lines;
 
         expect(JSON.parse(described).help.commands).toEqual([
           { command: 'kit dev', help: 'dev server', runs: true },
-          {
-            command: 'kit env',
-            help: 'env files',
-            usage: 'Usage: kit env [options] [key]',
-            runs: true,
-            inputs: [{ name: 'key', kind: 'arg', schema: { type: 'string' } }],
-            commands: []
-          },
-          { command: 'kit sql', error: expect.any(String) }
+          { command: 'kit env', help: 'env files', usage: 'Usage: kit env [options] [key]', runs: true, inputs: [{ name: 'key', kind: 'arg', schema: { type: 'string' } }], commands: [] },
+          { command: 'kit err', error: 'bad' },
+          { command: 'kit odd', error: 'no --json support' },
+          { command: 'kit sql', error: 'no --json support' }
         ]);
-        expect(handed).toBe('dev kit dev x --json');
+        expect(JSON.parse(handed)).toEqual({ code: 3, stdout: 'dev kit dev --json x -- y\n', stderr: '' });
       });
 
       it('will route to a package without a runner in this process', async () => {
