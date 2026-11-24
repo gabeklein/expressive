@@ -1,21 +1,20 @@
 import { HttpError, Redirect, type Env, type ExecutionCtx } from "@expressive/rpc";
 import { isCall } from "@expressive/rpc/http";
-import { bind, dispatch, failure, type Endpoint, type Exports, type Seats, type Tier } from "@expressive/rpc/protocol";
+import { bind, dispatch, failure, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 
 import type { App, HandleArgs, Settings } from "../settings";
 import { check } from "./check";
 
-export interface Parts<E extends Exports = Exports> {
-  sidecars?: () => Endpoint<E>[];
-  seats?: Seats;
-  tier?: Tier<E>;
+export interface Parts {
+  sidecars?: () => Endpoint[];
+  gates?: Seats;
   dev?: boolean;
 }
 
 const noop = () => {};
 
 /** The app from an entry's settings and the remotes a host composes it with. */
-export function compose<E extends Exports>(settings: Settings = {}, { sidecars = () => [], seats, tier, dev = false }: Parts<E> = {}): App {
+export function compose(settings: Settings = {}, { sidecars = () => [], gates, dev = false }: Parts = {}): App {
   const { handle } = check(settings);
 
   return async (request, { env = {}, ctx, assets } = {}) => {
@@ -24,7 +23,7 @@ export function compose<E extends Exports>(settings: Settings = {}, { sidecars =
     const below = async (forward: Request): Promise<Response> => {
       bind(forward, env as Env, filled);
 
-      if (isCall(forward)) return dispatch(forward, sidecars, dev, seats, tier).then(mutable).catch(error => failure(error, sidecars(), dev));
+      if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {

@@ -3,13 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 import { send, toRequest } from "@expressive/rpc/http";
-import { verify, type Seat } from "@expressive/rpc/protocol";
+import { verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import type { Settings } from "../settings";
 import { compose } from "./compose";
 import { install } from "./install";
-import { isStream, stream } from "./stream";
-import { twins, type Endpoint } from "./twin";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -67,20 +65,20 @@ export interface ListenOptions {
   settings: Settings;
   client: string;
   sidecars?: Endpoint[];
-  seats?: { pattern: string[]; Type: Seat }[];
+  gates?: { pattern: string[]; gate: () => unknown }[];
 }
 
 /**
  * Entry plumbing, not app API: the production server the generated entry starts, booted by `dist/server/index.js`.
  *
- * Answers twin streams, then the app `settings` compose over `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - caching `/assets/` immutably.
+ * Composes the app `settings` over `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - caching `/assets/` immutably.
  * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
  */
-export function listen({ settings, client, sidecars = [], seats = [] }: ListenOptions): Server {
+export function listen({ settings, client, sidecars = [], gates = [] }: ListenOptions): Server {
   install();
 
-  const seated = new Map(seats.map(({ pattern, Type }) => [pattern.join("/"), Type]));
-  const app = compose(settings, { sidecars: () => sidecars, seats: async pattern => seated.get(pattern.join("/")), tier: twins });
+  const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
+  const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")) });
   const assets = { fetch: async (request: Request) => files(client, new URL(request.url).pathname) };
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
@@ -91,7 +89,7 @@ export function listen({ settings, client, sidecars = [], seats = [] }: ListenOp
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const request = toRequest(req, res);
 
-    return send(res, isStream(request) ? stream(request) : await app(request, { assets }));
+    return send(res, await app(request, { assets }));
   }
 
   const port = settings.port ?? 3000;

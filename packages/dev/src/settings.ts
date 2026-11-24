@@ -35,7 +35,7 @@ export interface Settings {
    * What `dist/server/index.js` is - default `"node"`, a server on `port` serving `dist/client`.
    *
    * `"fetch"` bundles every dependency into a module exporting `host`'s value, else `{ fetch(request, env, ctx) }` over the app.
-   * Requests keep no state between them - a remote that default-exports a seat or exports a Model class fails the build.
+   * Folder gates do not run here - a remote entry with a default fails the build.
    */
   target?: "node" | "fetch";
   /** Port to listen on, on Node and in dev - production defaults to 3000, dev to Vite's, where `--port` wins. */

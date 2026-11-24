@@ -46,7 +46,7 @@ A server module under `dir` may export:
 - [Groups](#groups) - objects of calls and Error classes imported from elsewhere in `dir` - and re-exports of them.
 - In an `index.ts` only, a default `Model` subclass or function - the folder's gate.
 
-Anything else fails the build: a sync function, a value, `export *`, a non-Error class, a default outside an index. Twin-shaped exports (Model classes) are refused - stateful twins are `@expressive/dev`'s. `with` and `then` are the client's - no call, module or folder takes them.
+Anything else fails the build: a sync function, a value, `export *`, a non-Error class, a default outside an index. `with` and `then` are the client's - no call, module or folder takes them.
 
 Only calls the client build imports are served. Helpers belong outside `dir` (`server/`, `shared/`), or in a module `test` leaves plain; a type a call's signature names must be importable by the client.
 
