@@ -61,8 +61,28 @@ describe("call dispatch", () => {
       return sent(endpoints, Object.assign(request("/tally", name, args), { headers }));
     };
 
-    expect(await plain("add", "[1, 2]")).toEqual({ status: 200, body: { value: 3 }, headers: { "content-type": "application/json; charset=utf-8" } });
+    expect(await plain("add", "[1, 2]")).toEqual({ status: 200, body: { value: 3 }, headers: { "content-type": "application/json; charset=utf-8; codec=expressive" } });
     expect((await plain("none", "[]")).body).toEqual({});
+  });
+
+  it("will reply a gate's refusal as a call's error, and a gate's answer as is", async () => {
+    const refused = await send(endpoints, request("/tally", "add", "[1, 2]"), false, async pattern => (pattern.length ? () => { throw new Limit(2); } : undefined));
+    const answered = await dispatch(fetched(request("/tally", "add", "[1, 2]")), () => endpoints, false, async pattern => (pattern.length ? () => new Response("gated") : undefined));
+
+    expect(refused).toEqual({ status: 409, body: { error: "/shared#Limit", message: "Over 2", limit: 2, status: 409 } });
+    expect(await answered.text()).toBe("gated");
+  });
+
+  it("will reply an error loading the folder's gates as a call's error", async () => {
+    expect(await send(endpoints, request("/tally", "add", "[1, 2]"), false, async () => { throw new Error("No gate."); })).toEqual({ status: 500, body: { message: "Internal error." } });
+  });
+
+  it("will wrap a call in a gate's next, resolving its codec reply", async () => {
+    const statuses: number[] = [];
+    const gate = async () => void statuses.push((await Current.get().next()).status);
+
+    expect(await send(endpoints, request("/tally", "add", "[1, 2]"), false, async () => gate)).toEqual({ status: 200, body: { value: 3 } });
+    expect(statuses).toEqual([200, 200]);
   });
 
   it("will reply 404 to a pull, a seat method or a pool method", async () => {
@@ -304,7 +324,7 @@ describe("headers from a call", () => {
     expect(response.status).toBe(200);
     expect(response.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly; SameSite=Lax", "seen=1; Path=/; SameSite=Lax"]);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8; codec=expressive");
     expect(await response.json()).toEqual({});
   });
 
@@ -370,6 +390,15 @@ describe("scoped", () => {
     const response = (await scoped(new App()).fetch(new Request("http://localhost/again")))!;
 
     expect(response.headers.getSetCookie()).toEqual(["theme=dark; Path=/; HttpOnly; SameSite=Lax"]);
+  });
+
+  it("will leave a Model its fetch builds alive past the request", async () => {
+    class Cache extends Model {}
+    let cache!: Cache;
+
+    await scoped({ fetch: async (_: Request) => void (cache = Cache.new()) }).fetch(new Request("http://localhost/"));
+
+    expect(cache.get(null)).toBe(false);
   });
 
   it("will leave an entry without a fetch as it is", () => {

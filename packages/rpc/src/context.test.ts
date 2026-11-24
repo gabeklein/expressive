@@ -1,7 +1,9 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Context, get, set, Model } from "@expressive/mvc";
 
-import { bind, construct, Current, headersOf, install, onBuild, seated, within, type Gate, type Seat } from "./context";
+import { bind, construct, Current, headersOf, install, layer, onBuild, seated, within, type Gate, type Seat } from "./context";
+import { Cookies } from "./cookies";
+import { Forbidden, Redirect } from "./errors";
 
 const request = (url = "/", cookie = "") => new Request(`http://localhost${url}`, { headers: { cookie } });
 const call = <T>(segments: string[], run: () => T) => within(request("/" + segments.join("/")), segments, run);
@@ -19,7 +21,7 @@ describe("server get", () => {
 
   it("will throw outside a call", () => {
     class Tally extends Model {}
-    expect(() => Tally.get()).toThrow("Server Model resolves only within a call.");
+    expect(() => Tally.get()).toThrow("Server Model resolves only within a request.");
   });
 
   it("will find what context provides, or throw if missing unless optional", async () => {
@@ -527,6 +529,9 @@ describe("Current", () => {
       expect(() => { current.request = {}; }).toThrow("Current is read-only.");
       expect(() => { current.url = {}; }).toThrow("Current is read-only.");
       expect(() => { current.cookies = {}; }).toThrow("Current is read-only.");
+      expect(() => { current.params = {}; }).toThrow("Current is read-only.");
+      expect(() => { current.ctx = {}; }).toThrow("Current is read-only.");
+      expect(() => { current.next = () => {}; }).toThrow("Current is read-only.");
     });
   });
   it("will gather headers for the reply", async () => {
@@ -615,5 +620,699 @@ describe("hooks", () => {
 
     expect(built.mock.calls).toEqual([[seat], [cart.instance]]);
     cart.drop();
+  });
+});
+
+describe("layer", () => {
+  const ok = async () => new Response("below");
+  const open = (run: () => unknown, below?: () => Promise<Response>, req = request()) => within(req, [], () => layer(run, below));
+  const tick = () => new Promise(resolve => setTimeout(resolve));
+  let error: ReturnType<typeof vi.spyOn>;
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    error = vi.spyOn(console, "error").mockImplementation(() => {});
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    error.mockRestore();
+    warn.mockRestore();
+  });
+
+  it("will throw outside a request", () => {
+    expect(() => layer(() => {})).toThrow("Server Model resolves only within a request.");
+  });
+
+  it("will pass a gate that finishes, and answer one that returns a Response", async () => {
+    expect(await (await open(() => {}, ok)).text()).toBe("below");
+    expect(await (await open(() => 42, ok)).text()).toBe("below");
+    expect(await (await open(() => new Response("gate"), ok)).text()).toBe("gate");
+  });
+
+  it("will answer a route's value by the body rule, nothing as 204", async () => {
+    expect(await (await open(() => ({ a: 1 }))).json()).toEqual({ a: 1 });
+    expect(await (await open(() => 404)).json()).toBe(404);
+    expect((await open(() => {})).status).toBe(204);
+  });
+
+  it("will call a returned function as a fetch handler with the request, env and ctx", async () => {
+    const req = request("/x");
+    const env = { KEY: "k" };
+    const handler = vi.fn(async () => "handled");
+
+    bind(req, env);
+
+    const res = await open(() => handler, undefined, req);
+
+    expect(await res.text()).toBe("handled");
+    expect(handler).toHaveBeenCalledWith(expect.any(Request), env, expect.objectContaining({ props: {} }));
+    expect(await (await open(() => () => {})).status).toBe(204);
+    expect(await (await open(() => () => {}, ok)).text()).toBe("below");
+    expect((await open(() => () => () => {})).status).toBe(500);
+    expect(error).toHaveBeenCalledWith(new TypeError("A fetch handler returned a function - return a Response."));
+  });
+
+  it("will hand an unbound request's fetch handler an empty env", async () => {
+    expect(await (await open(() => (_: Request, env: unknown) => Response.json(env))).json()).toEqual({});
+  });
+
+  it("will answer a refusal's HttpError status, a Redirect's location, anything else a logged 500", async () => {
+    const denied = await open(() => { throw new Forbidden("No."); }, ok);
+    const moved = await open(() => { throw new Redirect("/login"); }, ok);
+    const broken = await open(() => { throw new Error("boom"); }, ok);
+
+    expect([denied.status, await denied.json()]).toEqual([403, { message: "No." }]);
+    expect([moved.status, moved.headers.get("location")]).toEqual([302, "/login"]);
+    expect(broken.status).toBe(500);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  it("will refuse with the error of a Model the gate activates", async () => {
+    class Session extends Model {
+      async new() {
+        throw new Forbidden("Expired.");
+      }
+    }
+
+    const below = vi.fn(ok);
+    const res = await open(() => void Session.new(), below);
+
+    expect(res.status).toBe(403);
+    expect(below).not.toHaveBeenCalled();
+  });
+
+  it("will give params to the layer that has them, and none in a call", async () => {
+    const seen: unknown[] = [];
+
+    await within(request(), [], () =>
+      layer(() => void seen.push(Current.get().params), () => layer(() => void seen.push(Current.get().params), undefined, { id: "7" }), { org: "a" }));
+
+    expect(seen).toEqual([{ org: "a" }, { id: "7" }]);
+    expect(await call([], () => Current.get().params)).toEqual({});
+  });
+
+  it("will keep a gate's Models in reach below it until the request ends", async () => {
+    class Session extends Model { user = "ada"; }
+    let session!: Session;
+
+    const res = await open(() => void (session = Session.new()), () => layer(() => Session.get().user));
+
+    expect(await res.text()).toBe("ada");
+    expect(session.get(null)).toBe(true);
+  });
+
+  it("will join headers and cookies a layer sets to its reply, one cookie once", async () => {
+    class Session extends Cookies { id?: string = undefined; }
+    const req = request();
+
+    const res = await open(async () => {
+      const { next, setHeader } = Current.get();
+
+      setHeader("x-gate", "1");
+      Session.set({ id: "a" });
+
+      const reply = await next();
+
+      expect(reply.headers.get("x-route")).toBe("1");
+      expect(reply.headers.getSetCookie()).toEqual(["id=b; Path=/; HttpOnly; SameSite=Lax"]);
+
+      Session.set({ id: "c" });
+    }, () => layer(() => {
+      Current.get().setHeader("x-route", "1");
+      Session.set({ id: "b" });
+    }), req);
+
+    expect(res.headers.get("x-gate")).toBe("1");
+    expect(res.headers.get("x-route")).toBe("1");
+    expect(res.headers.getSetCookie()).toEqual(["id=b; Path=/; HttpOnly; SameSite=Lax", "id=c; Path=/; HttpOnly; SameSite=Lax"]);
+  });
+
+  describe("next", () => {
+    it("will wait for the gate's Models, run below once and resolve its reply", async () => {
+      let ready!: () => void;
+      const order: string[] = [];
+
+      class Session extends Model {
+        async new() {
+          await new Promise<void>(resolve => (ready = resolve));
+          order.push("ready");
+        }
+      }
+
+      const pending = open(async () => {
+        Session.new();
+        const reply = await Current.get().next();
+        order.push("passed");
+        return reply;
+      }, async () => {
+        order.push("below");
+        return new Response("below");
+      });
+
+      await tick();
+      expect(order).toEqual([]);
+      ready();
+
+      expect(await (await pending).text()).toBe("below");
+      expect(order).toEqual(["ready", "below", "passed"]);
+    });
+
+    it("will refuse when a gate's Model fails, even with next() unreturned", async () => {
+      class Session extends Model {
+        async new() {
+          throw new Forbidden("Expired.");
+        }
+      }
+
+      const awaited = await open(async () => {
+        Session.new();
+        await Current.get().next();
+      }, ok);
+
+      const loose = await open(() => {
+        Session.new();
+        void Current.get().next();
+      }, ok);
+
+      expect(awaited.status).toBe(403);
+      expect(loose.status).toBe(403);
+    });
+
+    it("will resolve a throw below as its error reply", async () => {
+      const gate = async () => new Response(String((await Current.get().next()).status));
+
+      expect(await (await open(gate, async () => { throw new Forbidden("No."); })).text()).toBe("403");
+      expect(await (await open(gate, () => { throw new Forbidden("No."); })).text()).toBe("403");
+    });
+
+    it("will throw a second time, in a route and in a call, but not when read", async () => {
+      const res = await open(async () => {
+        const { next } = Current.get();
+        await next();
+        expect(() => next()).toThrow("next() runs once per gate.");
+      }, ok);
+
+      expect(await res.text()).toBe("below");
+      await open(() => expect(() => Current.get().next()).toThrow("next() runs only in a gate"));
+      await call([], () => expect(() => Current.get().next()).toThrow("next() runs only in a gate"));
+    });
+
+    it("will cancel the body of a reply it discards", async () => {
+      const cancel = vi.fn();
+
+      await open(async () => {
+        await Current.get().next();
+        return new Response("swapped");
+      }, async () => new Response(new ReadableStream({ cancel })));
+
+      expect(cancel).toHaveBeenCalled();
+    });
+
+    it("will keep a reply's body its own reply still reads", async () => {
+      async function* upper(body: ReadableStream<Uint8Array>) {
+        const reader = body.getReader();
+        for (let read = await reader.read(); !read.done; read = await reader.read()) yield new TextDecoder().decode(read.value).toUpperCase();
+      }
+
+      const res = await open(async () => {
+        const reply = await Current.get().next();
+        await Current.get().send(200, upper(reply.body!));
+      }, ok);
+
+      expect(await res.text()).toBe("BELOW");
+    });
+
+    it("will keep a gate's cookie from before next on a reply it swaps, under a newer one below", async () => {
+      class Session extends Cookies { id?: string = undefined; }
+
+      const gate = (swap: boolean) => async () => {
+        Session.set({ id: "gate" });
+        const reply = await Current.get().next();
+        return swap ? new Response("swapped") : reply;
+      };
+      const below = () => layer(() => Session.set({ id: "below" }));
+
+      expect((await open(gate(true), below)).headers.getSetCookie()).toEqual(["id=gate; Path=/; HttpOnly; SameSite=Lax"]);
+      expect((await open(gate(false), below)).headers.getSetCookie()).toEqual(["id=below; Path=/; HttpOnly; SameSite=Lax"]);
+
+      const rewrapped = async () => {
+        Session.set({ id: "gate" });
+        const reply = await Current.get().next();
+        return new Response(reply.body, reply);
+      };
+
+      expect((await open(rewrapped, below)).headers.getSetCookie()).toEqual(["id=below; Path=/; HttpOnly; SameSite=Lax"]);
+    });
+
+    it("will cancel a reply below that arrives after the gate answered", async () => {
+      const cancel = vi.fn();
+      let arrive!: () => void;
+
+      const res = await open(async () => {
+        void Current.get().next();
+        await Current.get().send("early");
+      }, async () => {
+        await new Promise<void>(resolve => (arrive = resolve));
+        return new Response(new ReadableStream({ cancel }));
+      });
+
+      expect(await res.text()).toBe("early");
+      arrive();
+      await tick();
+      expect(cancel).toHaveBeenCalled();
+    });
+  });
+
+  describe("send", () => {
+    it("will decide the reply, resolving once it has left, with after-work through ctx.waitUntil", async () => {
+      const req = request();
+      const order: string[] = [];
+      const waitUntil = vi.fn();
+      let work!: Promise<void>;
+
+      bind(req, {}, { waitUntil });
+
+      const res = await open(() => {
+        work = (async () => {
+          await Current.get().send(201, { ok: true });
+          order.push("after");
+          Current.get().ctx;
+        })();
+      }, undefined, req);
+
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ ok: true });
+      await work;
+      expect(order).toEqual(["after"]);
+      expect(waitUntil).toHaveBeenCalledTimes(1);
+    });
+
+    it("will throw twice, from a call, or for a function; setHeader after it throws", async () => {
+      await open(async () => {
+        const { send, setHeader } = Current.get();
+
+        await expect(send(() => {})).rejects.toThrow("Cannot send a function");
+        void send("one");
+        await expect(send("two")).rejects.toThrow("This reply is already decided.");
+        await tick();
+        await expect(send("three")).rejects.toThrow("This reply is already decided.");
+        expect(() => setHeader("x", "1")).toThrow("Cannot set x - this reply is already decided.");
+      });
+
+      await call([], async () => {
+        await expect(Current.get().send()).rejects.toThrow("send() belongs to a gate or route");
+      });
+    });
+
+    it("will build nothing and leave no rejection unhandled when the gate's Models fail", async () => {
+      class Session extends Model {
+        async new() {
+          throw new Forbidden("Expired.");
+        }
+      }
+
+      const stream = new ReadableStream();
+      const awaited = await open(async () => {
+        Session.new();
+        await Current.get().send(200, stream);
+      });
+      const loose = await open(() => {
+        Session.new();
+        void Current.send(200);
+      });
+
+      expect([awaited.status, loose.status]).toEqual([403, 403]);
+      expect(stream.locked).toBe(false);
+    });
+
+    it("will refuse with what an unawaited send throws, and log a second one", async () => {
+      const res = await open(() => {
+        void Current.send(200, new Map());
+      });
+
+      await open(() => {
+        void Current.send("one");
+        void Current.send("two");
+      });
+
+      const awaited = await open(() => Current.send(200, new Map()));
+      const gated = await within(request(), ["a"], () => "called", [() => void Current.send(200, new Map())], () => "refused");
+
+      await tick();
+      expect([res.status, awaited.status, gated]).toEqual([500, 500, "refused"]);
+      expect(error.mock.calls.filter((call: unknown[]) => call[0] instanceof TypeError)).toHaveLength(2);
+      expect(error).toHaveBeenCalledWith(new Error("This reply is already decided."));
+    });
+
+    it("will hold the request while a next() left running is still below", async () => {
+      class Session extends Model {}
+      let session!: Session;
+      let finish!: () => void;
+      let alive: boolean | undefined;
+
+      const res = await open(async () => {
+        session = Session.new();
+        void Current.get().next();
+        await Current.get().send(200);
+      }, async () => {
+        await new Promise<void>(resolve => (finish = resolve));
+        alive = !session.get(null);
+        return new Response("late");
+      });
+
+      expect(res.status).toBe(200);
+      await tick();
+      finish();
+      await tick();
+      expect(alive).toBe(true);
+      expect(session.get(null)).toBe(true);
+    });
+
+    it("will throw when another answer lands while it waits for the gate's Models", async () => {
+      let ready!: () => void;
+
+      class Session extends Model {
+        async new() {
+          await new Promise<void>(resolve => (ready = resolve));
+        }
+      }
+
+      let late!: Promise<void>;
+
+      const res = await open(async () => {
+        Session.new();
+        late = Current.get().send("late");
+        throw new Forbidden("No.");
+      });
+
+      ready();
+      expect(res.status).toBe(403);
+      await expect(late).rejects.toThrow("This reply is already decided.");
+    });
+
+    it("will answer a send left unawaited once the gate's Models are ready", async () => {
+      class Session extends Model {
+        async new() {
+          await tick();
+        }
+      }
+
+      const res = await open(() => {
+        Session.new();
+        void Current.get().send("sent");
+      }, ok);
+
+      expect(await res.text()).toBe("sent");
+    });
+
+    it("will send through the static", async () => {
+      expect(await (await open(() => void Current.send("static"))).text()).toBe("static");
+    });
+
+    it("will warn of a value returned after the reply, and log a throw in after-work", async () => {
+      await open(async () => {
+        await Current.get().send();
+        return "ignored";
+      });
+
+      await open(async () => {
+        await Current.get().send();
+        throw new Error("after");
+      });
+
+      await tick();
+      expect(warn).toHaveBeenCalledWith("A value returned after the reply was decided is ignored.");
+      expect(error).toHaveBeenCalledWith(new Error("after"));
+    });
+
+    it("will resolve when the client aborts", async () => {
+      const aborted = new AbortController();
+      const req = new Request("http://localhost/", { signal: aborted.signal });
+      let sent!: Promise<void>;
+      let hold!: () => void;
+
+      const done = within(req, [], async () => {
+        await layer(() => void (sent = Current.get().send("x")));
+        await new Promise<void>(resolve => (hold = resolve));
+        return new Response();
+      });
+
+      await tick();
+      aborted.abort();
+      await sent;
+      hold();
+      await done;
+
+      const gone = new AbortController();
+      gone.abort();
+      await within(new Request("http://localhost/", { signal: gone.signal }), [], () => layer(() => Current.send()));
+    });
+
+    it("will drop a cookie set after the reply left, warning", async () => {
+      class Session extends Cookies { id?: string = undefined; }
+
+      await open(async () => {
+        Session.get();
+        await Current.get().send();
+        Session.set({ id: "late" });
+      });
+
+      await tick();
+      expect(warn).toHaveBeenCalledWith("Cookies set with no reply left to carry them were dropped.");
+    });
+  });
+
+  describe("stream", () => {
+    it("will hold the request until its body closes, each pull in the request's scope", async () => {
+      class Session extends Model { user = "ada"; }
+      let session!: Session;
+
+      async function* lines() {
+        yield Session.get().user;
+        yield "!";
+      }
+
+      const res = await open(() => {
+        session = Session.new();
+        return lines();
+      });
+
+      await tick();
+      expect(session.get(null)).toBe(false);
+      expect(await res.text()).toBe("ada!");
+      expect(session.get(null)).toBe(true);
+    });
+
+    it("will release on cancel, and abort the body and log a throw mid-stream", async () => {
+      class Session extends Model {}
+      let session!: Session;
+
+      async function* broken() {
+        yield "a";
+        throw new Error("mid");
+      }
+
+      const cancelled = await open(() => {
+        session = Session.new();
+        return new ReadableStream({ pull: controller => controller.enqueue(new Uint8Array([1])) });
+      });
+
+      await cancelled.body!.cancel();
+      expect(session.get(null)).toBe(true);
+
+      const failed = await open(() => broken());
+
+      await expect(failed.text()).rejects.toThrow("mid");
+      expect(error).toHaveBeenCalledWith(new Error("mid"));
+    });
+
+    it.each([true, false])("will release once and stop the source in scope when cancelled mid-pull", async settles => {
+      class Session extends Model {}
+      let session!: Session;
+      let resume!: () => void;
+      let stopped: unknown;
+
+      const source = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<string>>((resolve, reject) => (resume = () => (settles ? resolve({ done: false, value: "x" }) : reject(new Error("gone"))))),
+          return: async () => ((stopped = Session.get()), { done: true as const, value: undefined }),
+        }),
+      };
+
+      const res = await open(() => {
+        session = Session.new();
+        return source;
+      });
+
+      const reader = res.body!.getReader();
+      const read = reader.read();
+
+      await tick();
+      await reader.cancel();
+      resume();
+      await read;
+      await tick();
+
+      expect(stopped).toBe(session);
+      expect(session.get(null)).toBe(true);
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it("will release a generator cancelled mid-pull after its finally, logging nothing", async () => {
+      class Session extends Model {}
+      let session!: Session;
+      let resume!: () => void;
+      let closing: boolean | undefined;
+
+      async function* lines() {
+        try {
+          await new Promise<void>(resolve => (resume = resolve));
+          yield "x";
+        } finally {
+          closing = !session.get(null);
+        }
+      }
+
+      const res = await open(() => {
+        session = Session.new();
+        return lines();
+      });
+
+      const reader = res.body!.getReader();
+      const read = reader.read();
+
+      await tick();
+      const cancelled = reader.cancel();
+      resume();
+      await Promise.all([read, cancelled]);
+      await tick();
+
+      expect(closing).toBe(true);
+      expect(session.get(null)).toBe(true);
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it("will stream bytes sent from a gate", async () => {
+      const res = await open(async () => {
+        await Current.get().send(new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("hi"));
+            controller.close();
+          },
+        }));
+      });
+
+      expect(await res.text()).toBe("hi");
+    });
+  });
+
+  describe("body", () => {
+    it("will read the body in a layer, capped, and refuse it in a call", async () => {
+      const req = () => new Request("http://localhost/", { method: "POST", body: '{"a":1}', headers: { "content-type": "application/json" } });
+
+      expect(await (await within(req(), [], () => layer(() => Current.get().json()))).json()).toEqual({ a: 1 });
+      expect(await (await within(req(), [], () => layer(() => Current.get().text()))).text()).toBe('{"a":1}');
+
+      await within(req(), [], async () => {
+        const { json, text } = Current.get();
+
+        expect(() => json()).toThrow("json() belongs to a gate or route");
+        expect(() => text()).toThrow("text() belongs to a gate or route");
+      });
+    });
+
+    it("will read through one cache the request and the call's arguments share", async () => {
+      const origin = new Request("http://localhost/", { method: "POST", body: "[1]", headers: { "content-type": "application/json" } });
+
+      await within(origin, [], () =>
+        layer(async () => {
+          expect(await Current.get().request.text()).toBe("[1]");
+          expect(await Current.get().json()).toEqual([1]);
+        }, async () => new Response(await Current.get().request.text())));
+    });
+  });
+
+  describe("ctx", () => {
+    it("will fill what the host lacks with stand-ins", async () => {
+      const req = request();
+      const pass = vi.fn();
+
+      bind(req, {}, { passThroughOnException: pass, props: { a: 1 } });
+
+      const ctx = await within(req, [], () => Current.get().ctx);
+
+      ctx.passThroughOnException();
+      ctx.waitUntil(Promise.reject(new Error("late")));
+      await tick();
+
+      expect(pass).toHaveBeenCalled();
+      expect(ctx.props).toEqual({ a: 1 });
+      expect(error).toHaveBeenCalledWith("waitUntil:", new Error("late"));
+
+      const bare = await call([], () => Current.get().ctx);
+
+      bare.passThroughOnException();
+      expect(bare.props).toEqual({});
+    });
+  });
+
+  describe("call gates", () => {
+    it("will wrap a call with next, resolving its reply", async () => {
+      const gate = vi.fn(async () => {
+        const reply = (await Current.get().next()) as unknown as string;
+        expect(reply).toBe("called");
+      });
+
+      expect(await walk(request(), ["app"], [undefined, gate], () => "called")).toBe("called");
+    });
+
+    it("will answer a call from its gate, the call unrun", async () => {
+      const run = vi.fn();
+      const res = await walk(request(), ["app"], [undefined, () => new Response("gate")], run) as unknown as Response;
+
+      expect(await res.text()).toBe("gate");
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("will reply a seat's or gate's refusal through fail", async () => {
+      class Locked extends Model {
+        static key(): string {
+          throw new Forbidden("Locked.");
+        }
+      }
+
+      const fail = (error: unknown) => (error as Error).message;
+
+      expect(await within(request(), ["a"], () => "ok", [undefined, Locked], fail)).toBe("Locked.");
+      expect(await within(request(), ["a"], () => "ok", [() => { throw new Forbidden("Gate."); }], fail)).toBe("Gate.");
+    });
+
+    it("will hold a seat once for the calls one request runs", async () => {
+      class Tally extends Model {}
+      const req = request();
+
+      let first!: Tally;
+      let second!: Tally;
+
+      await within(req, [], () =>
+        layer(async () => {
+          first = await within(req, ["t"], () => Tally.get(), [undefined, Tally]);
+          second = await within(req, ["t"], () => Tally.get(), [undefined, Tally]);
+        }));
+
+      expect(first).toBe(second);
+      expect(first.get(null)).toBe(true);
+    });
+
+    it("will share the request's scope with a call it runs", async () => {
+      const req = request();
+
+      await within(req, [], () =>
+        layer(async () => {
+          const outer = Current.get().request;
+          expect(await within(req, [], () => Current.get().request)).toBe(outer);
+        }));
+    });
   });
 });

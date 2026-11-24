@@ -1,6 +1,7 @@
 import { attempt, fault, inFolder, locate, type Call, type Endpoint, type Exports, type Match, type Outcome, type Seats } from "../call";
-import { parse, stringify } from "../codec";
-import { ensureInstalled, headersOf, within } from "../context";
+import { CODEC, parse, stringify } from "../codec";
+import { bodyOf } from "../body";
+import { ensureInstalled, pass, within } from "../context";
 import { ERRORS } from "../errors";
 import { reserved, walk, type Tree } from "../route";
 
@@ -80,9 +81,7 @@ async function answer(request: Request, tree: Tree, dev: boolean, errors: Record
 
   if (!args) return reply(400, { message: "Expected a JSON array of arguments." });
 
-  const outcome = await attempt(() => within(request, at, () => found.fn(...args), found.seats), [], dev, errors);
-
-  return withHeaders(respond(outcome), headersOf(request));
+  return within(request, at, async () => respond(await attempt(() => found.fn(...args), [], dev, errors)), found.seats, async error => respond(await fault(error, [], dev, errors)));
 }
 
 const unseated: Seats = async () => undefined;
@@ -102,14 +101,15 @@ export async function dispatch<E extends Exports>(request: Request, endpoints: (
 
   if (!args) return reply(400, { message: "Expected a JSON array of arguments." });
 
-  return withHeaders(await handle(args), headersOf(request));
+  return handle(args);
 }
 
 type Fetch = (request: Request, ...rest: any[]) => Response | undefined | Promise<Response | undefined>;
 
 /**
- * An app's server entry with its `fetch` run in the request's scope: `Current` and `Cookies` work in
- * its routes as in a call, and the headers and cookies they set join the route's response.
+ * An app's server entry with its `fetch` run as one layer of the request's scope: `Current` and
+ * `Cookies` work in its routes as in a call, `send`, `json` and `text` too, and the headers and cookies
+ * they set join the route's response. `next` throws, and returning nothing passes `undefined` on.
  */
 export function scoped<A extends { fetch?: Fetch }>(app: A): A {
   const fetch = app?.fetch;
@@ -118,35 +118,22 @@ export function scoped<A extends { fetch?: Fetch }>(app: A): A {
 
   ensureInstalled();
 
-  const run: Fetch = async (request, ...rest) => {
-    const response = await within(request, [], () => fetch.call(app, request, ...rest));
-    return response && withHeaders(response, headersOf(request));
-  };
+  const run: Fetch = (request, ...rest) => within(request, [], () => pass(() => fetch.call(app, bodyOf(request), ...rest)));
 
   return Object.assign(Object.create(Object.getPrototypeOf(app)), app, { fetch: run });
 }
 
-/** Add what the call set to its reply - the reply's own headers win, and a cookie it already sets is not repeated. */
-function withHeaders(response: Response, extra?: Headers): Response {
-  if (!extra) return response;
-
-  const headers = new Headers(response.headers);
-  const sent = new Set(response.headers.getSetCookie());
-
-  extra.forEach((value, name) => name === "set-cookie" || response.headers.has(name) || headers.set(name, value));
-
-  for (const cookie of extra.getSetCookie()) if (!sent.has(cookie)) headers.append("set-cookie", cookie);
-
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-}
-
 function plain(incoming: Incoming, fn: Call): Handle {
-  return async args => respond(await attempt(() => inFolder(incoming, () => fn(...args)), incoming.list, incoming.dev, ERRORS));
+  const { list, dev } = incoming;
+
+  const fail = async (error: unknown) => respond(await fault(error, list, dev, ERRORS));
+
+  return args => inFolder(incoming, async () => respond(await attempt(() => fn(...args), list, dev, ERRORS)), fail).catch(fail);
 }
 
 async function readArgs(request: Request): Promise<unknown[] | undefined> {
   try {
-    const args = parse(await request.text());
+    const args = parse(await bodyOf(request).text());
     return Array.isArray(args) ? args : undefined;
   } catch {
     return undefined;
@@ -170,5 +157,5 @@ function statusOf(status?: number): number {
 export function reply(status: number, value?: unknown, headers: Record<string, string> = {}): Response {
   if (value === undefined) return new Response(null, { status, headers });
 
-  return new Response(stringify(value), { status, headers: { ...headers, "content-type": "application/json; charset=utf-8" } });
+  return new Response(stringify(value), { status, headers: { ...headers, "content-type": CODEC } });
 }

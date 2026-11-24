@@ -65,6 +65,14 @@ describe("call dispatch", () => {
     expect(first.headers["x-expressive-epoch"]).toMatch(/^[\w-]{8}$/);
     expect(failed.headers["x-expressive-epoch"]).toBe(first.headers["x-expressive-epoch"]);
   });
+
+  it("will reply an error finding the folder's seats with the epoch", async () => {
+    const broken: Seats = async () => { throw new Error("No seat."); };
+    const failed = await sent(endpoints, request("/tally", "add", "[1, 2]"), false, broken);
+
+    expect(failed.status).toBe(500);
+    expect(failed.headers["x-expressive-epoch"]).toMatch(/^[\w-]{8}$/);
+  });
 });
 
 describe("seat dispatch", () => {
