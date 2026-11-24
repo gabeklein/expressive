@@ -121,8 +121,7 @@ export async function scanModule(file: string, source: string, sources: Sources,
 
     if (end.kind === "error") found.push([{ name, ...(end.parent && { parent: end.parent }) }, value.start]);
     else if (end.kind === "problem") scan.problems.push(end.problem);
-    else if (end.kind === "plain") scan.problems.push(`${name} is a class but not an Error - only error classes reach the client.`);
-    else scan.problems.push(`${name} is a class but not an Error - only error classes reach the client; a Model it constructs is a twin, which needs @expressive/dev.`);
+    else scan.problems.push(`${name} is a class but not an Error - only error classes reach the client.`);
   }
 
   scan.errors = found.sort((a, b) => a[1] - b[1]).map(([error]) => error);
