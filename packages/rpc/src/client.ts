@@ -1,6 +1,6 @@
 import { parse, stringify } from "./codec";
 import { registry } from "./registry";
-import { ERRORS } from "./errors";
+import { ERRORS, HttpError } from "./errors";
 
 export {
   BadRequest,
@@ -100,6 +100,9 @@ export function client<T = any>(initial: ClientOptions = {}) {
 
   async function settle(res: Response): Promise<any> {
     if (res.status === 304) return;
+
+    if (!res.headers.get("content-type")?.startsWith("application/json"))
+      throw Object.assign(new HttpError(await res.text()), { status: res.status });
 
     const body = parse(await res.text()) as any;
 

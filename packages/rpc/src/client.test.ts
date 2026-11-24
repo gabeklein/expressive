@@ -32,7 +32,7 @@ function serve(...replies: Reply[]) {
   const fetch = vi.fn(async (_path: unknown, _init?: RequestInit) => {
     const { body, status = 200, epoch = "e1" } = replies.shift()!;
 
-    return new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": epoch } });
+    return new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": epoch, "content-type": "application/json" } });
   });
 
   vi.stubGlobal("fetch", fetch);
@@ -183,6 +183,15 @@ describe("send", () => {
     vi.stubGlobal("fetch", fetch);
 
     expect(await client().send("/tally", {}, [])).toBeUndefined();
+  });
+
+  it("will reject a reply that isn't the codec's with an HttpError carrying its status, a 2xx included", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Gated.", { status: 200 })));
+
+    const error = await client().send("/tally", {}, []).catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(shared.HttpError);
+    expect(error).toMatchObject({ message: "Gated.", status: 200 });
   });
 });
 
