@@ -63,7 +63,7 @@ function ruled(body: BodyInit | null, status = 200, type?: string): Response {
 }
 
 export function withHeaders(response: Response, extra?: Headers): Response {
-  if (!extra || response.status === 101 || !hasAny(extra)) return response;
+  if (!extra || response.status < 200 || !hasAny(extra)) return response;
 
   const ruled = RULED.has(response);
   const headers = new Headers(response.headers);

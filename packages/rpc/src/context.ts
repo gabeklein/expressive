@@ -429,8 +429,9 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
       }
 
       await st.ready();
-      await store.run(frame, () => answer(result));
+      await (refusing ?? store.run(frame, () => answer(result)));
     } catch (error) {
+      if (refusing) return void (await refusing);
       if (st.decided) return void console.error(error);
 
       await st.refuse(error);

@@ -956,9 +956,12 @@ describe("layer", () => {
         void Current.send("two");
       });
 
+      const awaited = await open(() => Current.send(200, new Map()));
+      const gated = await within(request(), ["a"], () => "called", [() => void Current.send(200, new Map())], () => "refused");
+
       await tick();
-      expect(res.status).toBe(500);
-      expect(error).toHaveBeenCalledWith(new TypeError("Cannot send Map - send its values."));
+      expect([res.status, awaited.status, gated]).toEqual([500, 500, "refused"]);
+      expect(error.mock.calls.filter((call: unknown[]) => call[0] instanceof TypeError)).toHaveLength(2);
       expect(error).toHaveBeenCalledWith(new Error("This reply is already decided."));
     });
 
