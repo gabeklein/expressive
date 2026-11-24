@@ -25,17 +25,20 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 
 ## Shape
 
-`index.ts` calls `config()` and, optionally, `host()` at its top level, and default-exports the root gate.
+`index.ts` calls `config()` at its top level and default-exports the root gate.
 
 ```ts
-import { config, host, Current } from "@expressive/dev/server";   // see open question 1
+import { config, Current } from "@expressive/dev/server";   // see open question 1
 import type { Env } from "@expressive/rpc";
 
-config({ target: "fetch", remote: { opaque: false }, bindings: async () => (await import("./dev-env")).bindings() });
-
-host(() => ({
-  scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
-}));
+config({
+  target: "fetch",
+  remote: { opaque: false },
+  bindings: async () => (await import("./dev-env")).bindings(),
+  host: () => ({
+    scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
+  }),
+});
 
 export default () => {
   const { env, next } = Current.get();
@@ -55,6 +58,8 @@ export interface Settings {
   remote?: { opaque?: boolean };
   /** Dev's per-request bindings (`env`) on either target, built once per server and again after a throw. The build drops it - import inside it. */
   bindings?(): Partial<Env> | Promise<Partial<Env>>;
+  /** Fetch target only: the bundle's default export, built from the composed app. Platform handlers (`scheduled`) go here; a missing `fetch` gets the default. */
+  host?(app: App): object;
 }
 
 export interface AppOptions {
@@ -77,7 +82,6 @@ export interface ExecutionCtx {
 export type App = (request: Request, options?: AppOptions) => Promise<Response>;
 
 export function config(settings: Settings): void;
-export function host<T>(build: (app: App) => T): void;
 
 /** The app from an evaluated `index.ts`: its default as the root gate, with what is registered. Seals the registry. For tests: no remotes, api routes or pages. */
 export function compose(entry: { default?: () => unknown }): App;
@@ -117,7 +121,7 @@ The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves t
 `@expressive/rpc/protocol` (host plumbing, beside `within`) gains the layer seam dev composes with: run a gate or handler with a given `next` and `params` in the request's scope, and resolve with its reply. rpc's own function gates run on it, so they gain the optional `next` too (a transaction around each call). Under rpc's `scoped()`, the wrapped `fetch` is one layer: `send`, `json` and `text` work, `params` is `{}`, and calling `next` throws. `handler()` answers only calls, as today.
 
 New public surface for sign-off (AGENTS.md):
-- **dev `/server`:** `config`, `host`, `compose`, and the types `Settings`, `AppOptions`, `App`, `ExecutionCtx`. `Current` is already re-exported there.
+- **dev `/server`:** `config`, `compose`, and the types `Settings`, `AppOptions`, `App`, `ExecutionCtx`. `Current` is already re-exported there.
 - **dev `/fetch`:** `compose(root, sidecars, manifest, routes, apiManifest, pages)`, for generated entries only.
 - **rpc `Current`:** `params`, `json`, `text`, `ctx`, `next`, `send` and static `send`; the `ExecutionCtx` type; `next` in rpc's function gates, and a gate's returned `Response` or function answering.
 - **rpc `/protocol`:** `bind`'s `ctx`, and the layer seam.
@@ -136,11 +140,11 @@ Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `lis
   - Without one, every request passes.
   - A default export that is not a function fails the dev server and the build (0.5's config object included, below). So does `export default config(...)`, caught by the same scan that reads `config`'s literal.
   - A 101 (WebSocket upgrade) passes through unjoined, since rebuilding it drops the socket.
-- **`host(build)`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export.
+- **`config`'s `host`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export. The build keeps it; only `bindings` is dropped.
   - Without it, the default export is `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. A returned object without `fetch` gets that one, so `host` is only needed for what dev doesn't model.
   - Platform handlers (`scheduled`, `queue`, `email`) are the app's code, typed by the app. They run outside any request, so they read the platform's `env` argument, not `Current`.
-  - Dev never calls `build`, so there is no cron in dev, as today.
-  - On the Node target, `host` fails the build and the dev server. Node has no module host to hand an export to.
+  - Dev never calls `host`, so there is no cron in dev, as today.
+  - On the Node target, a `host` fails the build and the dev server. Node has no module host to hand an export to.
 - **`index.ts`'s named exports** are still re-exported from the fetch bundle (Durable Object and Workflow classes). A named `bindings` export fails the dev server and the build, pointing at `config({ bindings })`, so a half-migrated one can't ride into the Worker with its imports. The default stays the root gate, never re-exported.
 - **`index.ts` is still optional.** Without it there are no settings, every request passes, and the export is the default above.
 
@@ -346,12 +350,12 @@ A page under a gated folder would otherwise render before anything checked the c
 
 ### Registry
 
-A module in dev, shared through one tsdown chunk by `dist/server/*` and `dist/fetch.js`, holds `{ settings?, build?, sealed }`. The root gate is not in it: the entry reads `index.ts`'s default directly.
+A module in dev, shared through one tsdown chunk by `dist/server/*` and `dist/fetch.js`, holds `{ settings?, sealed }`. The root gate is not in it: the entry reads `index.ts`'s default directly.
 
-- **Once per evaluation.** `config` and `host` each set their slot. A second call to the same one throws: "`host()` is already set - call it once, at `index.ts`'s top level."
+- **Once per evaluation.** A second `config()` throws: "`config()` is already set - call it once, at `index.ts`'s top level."
 - **Old keys throw too.** `config` rejects unknown keys by name, the 0.5 ones included: "`fetch` and `around` moved to `index.ts`'s default export …". This is the migration error.
 - **Sealed when composed.** `compose` reads the registry and seals it. A call after that throws: "`config()` ran after the app was composed - call it at `index.ts`'s top level, not after an await or in a callback". That covers `target` being set after dev read it.
-- **Reset when `index.ts` evaluates, and only then.** The plugin's transform prepends the reset to `index.ts` itself. Tying it to the entry would fail two ways. An entry re-run with `index.ts` cached (an `api/` file added regenerates the table) would reset and re-register nothing, silently dropping `host`. An `index.ts` patched in place would throw "after composed".
+- **Reset when `index.ts` evaluates, and only then.** The plugin's transform prepends the reset to `index.ts` itself. Tying it to the entry would fail two ways. An entry re-run with `index.ts` cached (an `api/` file added regenerates the table) would reset and re-register nothing, silently dropping the settings. An `index.ts` patched in place would throw "after composed".
 - **The plugin never imports the registry.** It reads settings through a module evaluated on the same runner as `index.ts`: the virtual entry in dev, and at build an inline-plugin virtual module passed to `runnerImport`. One instance then holds whatever resolves `@expressive/dev`: an installed package, the suite's `src` aliases (`plugin.test.ts`), or two copies (a global bin beside a local install). No `globalThis` keys.
 
 ### Settings at build
@@ -419,7 +423,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 
 - `export default config({ port, remote })` dates to 0.1. `fetch`, `around`, `target` and `bindings` are in two published releases (0.4, 0.5). The only known consumer of the latter is on a pinned preview.
 - A compatibility layer would keep the export-merging that this redesign exists to remove.
-- The break is loud instead. An `index.ts` whose default export is an object or `config(...)` fails the dev server and the build: "`index.ts`'s default export is 0.5's config - call `config()` and `host()`, and default-export the root gate", with a link to the README section. Old keys passed to `config()` name their new home.
+- The break is loud instead. An `index.ts` whose default export is an object or `config(...)` fails the dev server and the build: "`index.ts`'s default export is 0.5's config - call `config()`, and default-export the root gate", with a link to the README section. Old keys passed to `config()` name their new home.
 
 | 0.5 | 0.6 |
 | --- | --- |
@@ -429,7 +433,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | `fetch(request, env, ctx, next)` answering paths | an `api/` route, or the root gate around `next()` |
 | `fetch` returning nothing to fall through | the root gate finishing without a reply |
 | `fetch` forwarding to `env.ASSETS` + shell fallback | nothing: `assets` defaults to `env.ASSETS` |
-| `scheduled` (and other members) | `host`'s return value |
+| `scheduled` (and other members) | `config({ host })`'s return value |
 | `ctx.waitUntil(work)` in a handler | `send` the reply, then do the work; `Current.get().ctx` in calls and mounted handlers |
 | `around`'s `scope.request`, `scope.env`, `scope.ctx` | `Current.get()`'s |
 | `around` wrapping calls only (no `fetch`) | the root gate wraps pages and static files too |
@@ -447,7 +451,7 @@ It assumes the Worker runs before assets (`run_worker_first`). Otherwise the ass
 
 ```ts
 // index.ts
-import { config, host, Current } from "@expressive/dev/server";
+import { config, Current } from "@expressive/dev/server";
 import type { Env } from "@expressive/rpc";
 
 import { db, d1 } from "./server/db";
@@ -459,13 +463,12 @@ config({
   target: "fetch",
   remote: { opaque: false },
   bindings: async () => (await import("./db/bindings.ts")).bindings(),
+  host: () => ({
+    scheduled(event: ScheduledController, bound: Env, ctx: ExecutionContext) {
+      ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), d1(bound.DB)));
+    },
+  }),
 });
-
-host(() => ({
-  scheduled(event: ScheduledController, bound: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), d1(bound.DB)));
-  },
-}));
 
 export default () => {
   const { env, request, url, next } = Current.get();
@@ -508,7 +511,7 @@ What the port shows:
 
 Each has a recommendation; sign-off on these unblocks PR 1 (question 11 is PR 1's mechanism).
 
-1. **Where `config`, `host` and `compose` export from.** The original sketch imported from `@expressive/dev`'s root. `FEATURE.md`'s agreed shape puts server-only API (`config`, `Current`) in `@expressive/dev/server`, so a client import fails at build rather than at call. Recommend keeping that rule.
+1. **Where `config` and `compose` export from.** The original sketch imported from `@expressive/dev`'s root. `FEATURE.md`'s agreed shape puts server-only API (`config`, `Current`) in `@expressive/dev/server`, so a client import fails at build rather than at call. Recommend keeping that rule.
 2. **Static sugar.** Recommend only `Current.send`, as `Cookies.set` is to `Cookies.get()`. Statics for `request`, `env` and the rest would duplicate the instance.
 3. **Sending a Model instance.** Recommend throwing ("send its values") until Models have a defined JSON form.
 4. **Migration.** Recommend the clean break.
@@ -527,10 +530,12 @@ Each has a recommendation; sign-off on these unblocks PR 1 (question 11 is PR 1'
 
 Each PR lands on the trunk with its own tests, a changeset where it is user-facing (`minor`), its README and skill section, and `hot-probe.ts` cases where it touches hot reload. In code, the layer and scope of this note take names distinct from `context.ts`'s `Layer` and `scope()`; gates build on its `gate()`.
 
-1. **rpc: the request on `Current`, and gates with `next`.** One scope per request, gates' scopes enclosing what they pass to, optional `next` on function gates, `params`/`json()`/`text()`/`ctx`/`next`/`send` and static `send`, a gate's answers (`send`, a returned `Response` or function; other returns ignored), a returned function as a fetch handler, `next` waiting for the gate's Models, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, a call's frame starting inside the request scope, the frame held for streams (question 11), after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`.
-2. **dev: registry and composition.** `config`/`host` with `host`'s default `fetch`, the root gate as `index.ts`'s default, `compose` and `listen`, the registry rules, generated entries, the chain for calls over today's page serving, sidecar call `params`, dev's skip list and fall-through, 101 passthrough, migration errors (the named `bindings` export and `export default config(...)` included). Updates the `FEATURE.md` lines in open question 5. Hot-probe: an `index.ts` edit resets the registry without a double-call throw and swaps the root gate. Gaps left on the trunk: the fetch target has no page fallback until PR 3, its bundle carries `bindings`' imports until PR 4, and an `api/` folder `index.ts` holding only a `default` is a catch-all from PR 5 until PR 6 makes it a gate.
-3. **dev: pages over `assets`.** The one shell rule on every host (the page patterns in each entry, a navigation's 404 shell) and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
-4. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports nor `node:fs`.
-5. **dev: `api/` routes.** Scan and strict matcher without backtracking, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit.
-6. **dev: `api/` gates.** A folder `index.ts`'s `default` as a gate over matched and unmatched paths with its folder's params, its Models in context until the request ends, and the class-default error.
-7. **dev: gate check.** The scan marking gated folders and the generated tree wrapping their `enter`, the rule for when a check is sent, the `x-expressive-get` branch answering `200 {}` after the gates, refusal through the codec to `Catch` with retry re-sending, redirects (router or `location.assign`, a 3xx `Response` mapped, no loops), superseded checks, prerender exclusion, clearing passes on a gate edit, the example's `enter` check replaced. Needs the twins-removal PR's function gates, and folder gates running on the fetch target for it to fire there: lifting that refusal is its own PR before this one. Runtime: an example e2e spec (one check on entry, none inside the folder, one on a param change, refusal to `Catch`, redirect, zero requests in a gate-less app, a superseded navigation) under dev and the Node build, and a `hot-probe.ts` case for a gate edit.
+1. **dev: folder gates on the fetch target.** Off `main`: a remote entry's function gate runs there (it is stateless now), lifting "The fetch target does not run folder gates". Independent of the trunk.
+2. **rpc: the request on `Current`, and gates with `next`.** One scope per request, gates' scopes enclosing what they pass to, optional `next` on function gates, `params`/`json()`/`text()`/`ctx`/`next`/`send` and static `send`, a gate's answers (`send`, a returned `Response` or function; other returns ignored), a returned function as a fetch handler, `next` waiting for the gate's Models, decided-reply timing, header joining per layer, the body rule with streams and cancellation, the body cache with call dispatch reading through it, a call's frame starting inside the request scope, the frame held for streams (question 11), after-work through `bind`'s `ctx`, the layer seam on `/protocol`, behaviour under `scoped()`.
+3. **dev: registry and composition.** `config` with `host` and its default `fetch`, the root gate as `index.ts`'s default, `compose` and `listen`, the registry rules, generated entries, the chain for calls over today's page serving, sidecar call `params`, dev's skip list and fall-through, 101 passthrough, migration errors (the named `bindings` export and `export default config(...)` included). Updates the `FEATURE.md` lines in open question 5. Hot-probe: an `index.ts` edit resets the registry without a double-call throw and swaps the root gate. Gaps left on the trunk: the fetch target has no page fallback until PR 4, and its bundle carries `bindings`' imports until PR 5.
+4. **dev: pages over `assets`.** The one shell rule on every host (the page patterns in each entry, a navigation's 404 shell) and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
+5. **dev: build-only `bindings` and the layered `env`.** The transform dropping `bindings` and its build errors, the layered view dev binds, the fetch build's file-free reader, `.env` typing on rpc's `Env`. Tests prove the bundle carries neither the `bindings` imports nor `node:fs`.
+6. **dev: `api/` routes and gates.** Scan and strict matcher without backtracking, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch, the example app. Hot-probe: an `api/` edit; a folder `index.ts`'s `default` as a gate over matched and unmatched paths with its folder's params, its Models in context until the request ends, and the class-default error.
+7. **dev: gate check.** The scan marking gated folders and the generated tree wrapping their `enter`, the rule for when a check is sent, the `x-expressive-get` branch answering `200 {}` after the gates, refusal through the codec to `Catch` with retry re-sending, redirects (router or `location.assign`, a 3xx `Response` mapped, no loops), superseded checks, prerender exclusion, clearing passes on a gate edit, the example's `enter` check replaced. Needs PR 1 to fire on the fetch target. Runtime: an example e2e spec (one check on entry, none inside the folder, one on a param change, refusal to `Catch`, redirect, zero requests in a gate-less app, a superseded navigation) under dev and the Node build, and a `hot-probe.ts` case for a gate edit.
+
+PRs 1 and 2 are independent and can start together; 3 to 7 follow in order, except 5, which can run beside 4.
