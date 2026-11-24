@@ -442,7 +442,7 @@ abstract class Model {
     if (Model.is(arg1))
       return typeof arg2 == 'function'
         ? Context.get(self).get(arg1, arg2, args[0], self)
-        : within(this, () => (arg1.get as Function)(arg2, ...args));
+        : within(this, () => (arg1.get as Function)(arg2 === true ? undefined : arg2, ...args));
     if (typeof arg1 == 'function')
       return watch(self, function (current, update) {
         const { wait } = observer(self, true);
@@ -601,8 +601,8 @@ abstract class Model {
    * In a host render, the render's context, tracked. Through `instance.get(Type)` or the `get`
    * instruction, that instance's context. Elsewhere, the root context, untracked.
    *
-   * Any other argument throws. Override with one signature to accept a key - handle it with `Context.get(this, compute)`, once and
-   * synchronously, and pass base forms to `super.get()`.
+   * An argument other than `false` throws. Override with one signature to accept a key - handle it with
+   * `Context.get(this, compute)`, once and synchronously, and pass base forms to `super.get()`.
    *
    * @example
    * class User extends Model {
@@ -726,8 +726,8 @@ function init(state: Model, ...args: Model.Args) {
 
   if (T === Model) throw new Error('Cannot create base Model.');
 
-  args.forEach(function key(arg) {
-    if (Array.isArray(arg)) arg.forEach(key);
+  args.forEach(function reject(arg) {
+    if (Array.isArray(arg)) arg.forEach(reject);
     else if (typeof arg == 'string' || typeof arg == 'number')
       throw new Error(`${T}.new() takes no key - override static new to resolve one`);
   });

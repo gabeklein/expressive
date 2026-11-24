@@ -158,7 +158,7 @@ Model.get(): T                  // required; throws if not in context
 Model.get(false): T | undefined // optional
 ```
 
-Context lookup from wherever it is called. Inside a host render (React, dom) the host supplies context and subscribes to reads. Through `state.get(Type)` or the `get` instruction it reads that instance's context, hosts uninvolved ([context.md](context.md#static-context)); elsewhere the root context, untracked. Function arguments are not accepted. The base takes no key - any argument but `false` throws, as does a string or number passed to `new`; only an override resolves one.
+Context lookup from wherever it is called. Inside a host render (React, dom) the host supplies context and subscribes to reads. Through `state.get(Type)` or the `get` instruction it reads that instance's context, hosts uninvolved ([context.md](context.md#static-context)); elsewhere the root context, untracked. Function arguments are not accepted. The base takes no key - any other argument throws; only an override resolves one.
 
 ### Overriding
 
