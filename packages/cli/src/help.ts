@@ -59,6 +59,37 @@ function scope(levels: Spec[][]) {
   };
 }
 
+const plain = (value: unknown) => typeof value == 'string' || typeof value == 'boolean' || Number.isFinite(value);
+
+/** An input as JSON - its argv spelling plus a JSON Schema for its value. */
+function inputJson(spec: Spec) {
+  const { help, short, min, max, ext, default: fallback } = spec.config;
+  const type = valueType(spec);
+  const path = type != 'string' && type != 'number';
+  const item =
+    spec.kind == 'flag'
+      ? { type: 'boolean' }
+      : type == 'number'
+        ? { type: 'number' }
+        : {
+            type: 'string',
+            format: path ? type : undefined,
+            pattern: path && ext && type != 'dir' ? `(${ext.map((end) => end.replace(/\./g, '\\.')).join('|')})$` : undefined
+          };
+  const schema = isPlural(spec) ? { type: 'array', items: item, minItems: min, maxItems: max } : item;
+  const negated = spec.kind == 'flag' && fallback === true;
+
+  return {
+    name: kebab(spec.key),
+    kind: spec.kind,
+    option: isNamed(spec) ? (negated ? '--no-' + kebab(spec.key) : label(spec)) : undefined,
+    short: short && '-' + short,
+    required: isRequired(spec) || undefined,
+    help,
+    schema: { ...schema, default: [fallback].flat().every(plain) ? fallback : undefined }
+  };
+}
+
 /** Usage line for a command path - its name, then `[options]`, a command if it has subs, and operands. */
 function usage(name: string, levels: Spec[][], runs = true) {
   const { operands, commands } = scope(levels);
@@ -84,7 +115,8 @@ function help(name: string, levels: Spec[][], runs = true, about?: string) {
     'Options:\n' +
       table([
         ...options.map((spec): [string, string] => [option(spec), describe(spec)]),
-        [options.some((spec) => spec.config.short == 'h') ? '--help' : '-h, --help', 'show this help']
+        [options.some((spec) => spec.config.short == 'h') ? '--help' : '-h, --help', 'show this help'],
+        ['--json', 'print one JSON object - for scripts and agents']
       ])
   );
 
@@ -93,4 +125,4 @@ function help(name: string, levels: Spec[][], runs = true, about?: string) {
   return sections.join('\n\n');
 }
 
-export { help, usage };
+export { help, inputJson, scope, usage };

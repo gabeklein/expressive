@@ -15,9 +15,9 @@ interface Common {
 interface Valued<T = any> extends Common {
   /** How to read the raw string - default `number` with a number default, else `string`. */
   type?: Type;
-  /** Turn each value into what the field holds - given the string, a path resolved. Throw to reject. */
+  /** Turn each value into what the field holds - given the string, a path resolved. Throw to reject. Don't read `this`. */
   parse?: (value: string) => T;
-  /** Accept or reject each value - `false` is a usage error naming the input. */
+  /** Accept or reject each value - `false` is a usage error naming the input. Don't read `this`. */
   valid?: (value: any) => boolean;
   /** Allowed extensions for a `file` or `path`, dot included. */
   ext?: readonly string[];
@@ -109,10 +109,11 @@ type One<C> = C extends { required: true } | { default: {} } ? Value<C> : Value<
 
 const SPECS = new WeakMap<Model, Spec[]>();
 
+let sampling: Map<unknown, Spec> | undefined;
+
 function input(kind: Kind, configs: object[], target?: Target): any {
   const config = Object.assign({}, ...configs);
-
-  return def((key, self) => {
+  const token = def((key, self) => {
     const specs = SPECS.get(self) || [];
 
     SPECS.set(self, specs);
@@ -124,6 +125,37 @@ function input(kind: Kind, configs: object[], target?: Target): any {
       value: kind == 'flag' ? !!value : Array.isArray(value) ? [...value] : kind == 'args' || kind == 'list' ? [] : value
     };
   });
+
+  sampling?.set(token, { key: '', kind, config, target });
+
+  return token;
+}
+
+/**
+ * Inputs of `Type` read from a bare instance - constructed, never activated, so nothing it owns starts.
+ *
+ * Silences the console warning for Models left unactivated - any constructed this tick. Catch handlers on
+ * their classes still see `unused`.
+ */
+async function sample(Type: Model.Type) {
+  const before = sampling;
+  const found = (sampling = new Map());
+  const quiet = Model.on({ catch: (error, kind) => (kind == 'unused' ? undefined : error) });
+
+  try {
+    const instance = new Type();
+    const specs = Object.entries(instance).flatMap(([key, value]) => {
+      const spec = found.get(value);
+
+      return spec ? [{ ...spec, key }] : [];
+    });
+
+    return { Type, specs, runs: 'run' in instance };
+  } finally {
+    sampling = before;
+    await Promise.resolve();
+    quiet();
+  }
 }
 
 /**
@@ -264,5 +296,5 @@ declare namespace list {
   type Config<T = any> = Plural<T> & Named & { split?: string };
 }
 
-export { arg, args, flag, opt, list, cmd, SPECS };
+export { arg, args, flag, opt, list, cmd, sample, SPECS };
 export type { Spec, Kind, Type, Target, From, Lazy, Peer, Inline };

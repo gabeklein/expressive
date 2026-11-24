@@ -25,7 +25,8 @@ function check(specs: Spec[]) {
   let rest: Spec | undefined;
 
   for (const spec of specs)
-    if (isPositional(spec)) {
+    if (isNamed(spec) && spec.key == 'json') throw new Error('--json is reserved - rename the json field.');
+    else if (isPositional(spec)) {
       if (rest) throw new Error(`${label(rest)} takes the remaining arguments - ${label(spec)} cannot follow it.`);
 
       if (spec.kind == 'args') rest = spec;

@@ -1,12 +1,15 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Console } from 'node:console';
+import { Writable } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 
 import { Model } from '@expressive/mvc';
 
-import { help, usage } from './help';
-import { cmd, SPECS, type Spec, type Target } from './input';
+import { help, inputJson, scope, usage } from './help';
+import { cmd, sample, SPECS, type Spec, type Target } from './input';
 import { kebab, Reader, Usage } from './parse';
-import { described, discover, install, owner, peer, unscoped } from './peer';
+import { described, discover, install, locate, owner, peer, unscoped } from './peer';
 
 /** Where a command writes - `console`, or a test double. */
 type Output = Pick<Console, 'log' | 'error'>;
@@ -32,6 +35,8 @@ const helpOf = (Type: unknown): string | undefined => {
   return typeof help == 'string' ? help : undefined;
 };
 
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 class Help extends Error {}
 
 class Absent extends Error {}
@@ -50,29 +55,105 @@ class Delegate extends Error {
   }
 }
 
-class Miss extends Error {
-  constructor(
-    readonly loader: () => Promise<unknown>,
-    readonly cache: Map<string, Model.Type | Hand>,
-    readonly key: string,
-    readonly owner: Function
-  ) {
-    super();
+interface Level {
+  Type: Model.Type;
+  specs: Spec[];
+  runs: boolean;
+  key?: string;
+  inline?: boolean;
+}
+
+interface Node {
+  command: string;
+  help?: string;
+  usage?: string;
+  runs?: boolean;
+  installed?: false;
+  error?: string;
+  inputs?: object[];
+  commands?: Node[];
+}
+
+interface Outcome {
+  code: number;
+  help?: string | Node;
+  error?: { kind: 'usage' | 'absent' | 'error'; message: string; usage?: string };
+  delegate?: (out: Output) => Promise<number>;
+}
+
+/** Run a runner that was handed `--json` - its envelope, else one wrapping what it printed. */
+async function envelope(run: (out: Output) => Promise<number>) {
+  const text = { stdout: '', stderr: '' };
+  const code = await run({
+    log: (line: unknown) => void (text.stdout += line + '\n'),
+    error: (line: unknown) => void (text.stderr += line + '\n')
+  });
+
+  try {
+    const reply = JSON.parse(text.stdout);
+
+    if (typeof reply.code == 'number') return reply;
+  } catch {}
+
+  return { code, ...text, ...(code && { error: { kind: 'error', message: text.stderr.trim() } }) };
+}
+
+function capture() {
+  const text = { stdout: '', stderr: '' };
+  const undo: (() => void)[] = [];
+
+  const patch = (target: any, key: string, value: unknown) => {
+    const before = Object.getOwnPropertyDescriptor(target, key);
+
+    Object.defineProperty(target, key, { value, configurable: true, writable: true });
+    undo.push(() => (before ? Object.defineProperty(target, key, before) : delete target[key]));
+  };
+
+  const sink = (stream: keyof typeof text) => {
+    const decoder = new StringDecoder();
+
+    return (chunk: string | Uint8Array, ...rest: unknown[]) => {
+      text[stream] += typeof chunk == 'string' ? chunk : decoder.write(Buffer.from(chunk));
+      (rest.find((arg) => typeof arg == 'function') as Function | undefined)?.();
+      return true;
+    };
+  };
+
+  const writable = (stream: keyof typeof text) => {
+    const write = sink(stream);
+
+    return new Writable({ write: (chunk, _, done) => (write(chunk), done()) });
+  };
+  const local = new Console(writable('stdout'), writable('stderr'));
+
+  for (const stream of ['stdout', 'stderr'] as const) {
+    patch(process[stream], 'isTTY', false);
+    patch(process[stream], 'write', sink(stream));
   }
+
+  for (const [key, value] of Object.entries(local).filter(([, value]) => typeof value == 'function')) patch(console, key, value.bind(local));
+
+  return [text, () => undo.reverse().forEach((restore) => restore())] as const;
 }
 
 /**
  * Turn a Model class into a command - argv in, exit code out.
  *
- * Its `arg`, `args`, `flag`, `opt` and `list` fields are filled from argv before `new()`. A `sub`
- * named in argv is created in turn - every class on the routed path, outermost first, each filled
- * before any `new()` runs. Models held in plain fields activate earlier, before argv is read. Once
- * every class on the path is ready, the last one's `run()` is awaited, then the path is destroyed.
+ * Argv is routed against bare instances of each class on the path - constructed, never activated - so
+ * help and usage errors start nothing. Then the path is built, outermost first, each class filled from
+ * argv before any `new()` runs. Once every class is ready, the last one's `run()` is awaited, then the
+ * path is destroyed.
  *
- * A usage error prints to `out.error` and returns 2. `--help`, `-h`, `help` in place of a command, or a
- * group run alone prints help for the path and returns 0. `run` returning `undefined` or `true` gives 0, `false` 1, a number itself; anything else
- * prints to `out.log` and gives 0. A throw, or a failed async `new()`, prints its message and gives 1.
- * The command name in help is `name` if given, else the class name in kebab case.
+ * `run` returns `undefined` or `true` for 0, `false` for 1, or an exit code - anything else is an error,
+ * so a command prints its own output. A usage error prints to `out.error` and returns 2. `--help`, `-h`,
+ * `help` in place of a command, or a group run alone prints help for the path and returns 0. A throw, or
+ * a failed async `new()`, prints its message and gives 1. The command name in help is `name` if given,
+ * else the class name in kebab case.
+ *
+ * `--json`, reserved on every class, prints one line instead - `{ code, stdout, stderr }`, plus `error`
+ * on failure and `help` for help. Output written while running is captured into it, and `isTTY` reads
+ * false meanwhile. Capture is process-wide - don't run `--json` calls concurrently. Help under `--json`
+ * describes the routed command and every command below it, importing `lazy` and `peer` modules.
  *
  * @example
  * export default command(Lint);
@@ -82,25 +163,32 @@ function command(Root: Model.Type): Run {
 }
 
 function build(Root: Model.Type, name: string): Run {
-  const load = (target: Target, path: string) => {
-    if (target.lazy) return target.lazy;
-
-    const pkg = target.peer!;
-
-    return async () => {
-      const file = peer(pkg, name);
-
-      if (!file) throw new Absent(`"${path}" is not installed - ${install(pkg)}`);
-
-      return import(pathToFileURL(file).href);
-    };
-  };
   const loaded = new Map<Function, Map<string, Model.Type | Hand>>();
 
   const bin = async (pkg: string) => {
     const file = peer(pkg, name);
 
     return file && (await import(pathToFileURL(file).href)).default;
+  };
+
+  const load = async (owner: Function, key: string, target: Target, path: string) => {
+    const cache = loaded.get(owner) || loaded.set(owner, new Map()).get(owner)!;
+    let Type: any = target.from || cache.get(key);
+
+    if (Type) return Type as Model.Type | Hand;
+
+    if (target.peer && !locate(target.peer)) throw new Absent(`"${path}" is not installed - ${install(target.peer)}`);
+
+    Type = target.lazy ? (await target.lazy()).default : await bin(target.peer!);
+
+    const runner = own(Type, RUNNER)?.run;
+
+    if (typeof runner == 'function' && FAMILY.has(owner)) Type = new Hand(runner);
+    else if (!(Type?.prototype instanceof Model)) throw new TypeError(`Command "${kebab(key)}" did not load a Model class.`);
+
+    cache.set(key, Type);
+
+    return Type as Model.Type | Hand;
   };
 
   const resolve = async (spec: Spec): Promise<[Spec, number]> => {
@@ -112,7 +200,7 @@ function build(Root: Model.Type, name: string): Run {
       if (!Type && help === undefined)
         Type = target.lazy ? (await target.lazy()).default : target.peer && (await bin(target.peer));
     } catch (error) {
-      help = `(failed to load: ${error instanceof Error ? error.message : error})`;
+      help = `(failed to load: ${message(error)})`;
     }
 
     help ??= helpOf(Type) ?? (target.peer && described(target.peer));
@@ -120,165 +208,214 @@ function build(Root: Model.Type, name: string): Run {
     return [{ ...spec, config: { ...spec.config, help } }, own(Type, RUNNER)?.priority ?? 0];
   };
 
-  return async (argv: string[], out: Output, invoked = name) => {
-    for (;;) {
-      const reader = new Reader(argv, process.cwd());
-      const path: Model[] = [];
-      let run!: () => unknown;
-      let root: Model | undefined;
-      let about = helpOf(Root);
+  const listing = async (Type: Function, specs: Spec[]) => {
+    const rows = await Promise.all(specs.map((spec) => (spec.kind == 'cmd' ? resolve(spec) : ([spec, 0] as [Spec, number]))));
 
-      const enter = (named: string) =>
-        function (this: Model): any {
-          const specs = SPECS.get(this) || [];
+    if (FAMILY.has(Type)) rows.sort(([a, p], [b, q]) => q - p || a.key.localeCompare(b.key));
 
-          path.push(this);
+    return rows.map(([spec]) => spec);
+  };
 
-          const step = reader.enter(specs, named, this.constructor.name);
+  const describe = async (spec: Spec, owner: Function, path: string, seen: Set<Function>): Promise<Node> => {
+    const target = spec.target as Target;
+    const node: Node = { command: `${path} ${kebab(spec.key)}`, help: spec.config.help };
 
-          if (!step) {
-            if (reader.help) throw new Help();
+    if (target.run) return { ...node, runs: true };
 
-            if ('run' in this) {
-              finish();
-              run = () => (this as Model & { run(): unknown }).run();
-              return;
-            }
+    if (target.peer && !locate(target.peer)) return { ...node, installed: false };
 
-            if (!specs.some((spec) => spec.kind == 'cmd'))
-              throw new TypeError(`${this.constructor.name} has no run() method.`);
+    try {
+      const Type = await load(owner, spec.key, target, node.command);
 
-            const [extra] = reader.levels.at(-1)!.operands;
+      if (Type instanceof Hand) {
+        const reply = await envelope((out) => Type.run(['--help', '--json'], out, node.command));
 
-            if (extra === undefined) throw new Help();
-
-            throw new Usage(reader.ended ? `Unexpected argument "${extra}".` : `Unknown command "${extra}".`);
-          }
-
-          const target = step.target as Target;
-          const child = kebab(step.key);
-
-          about = step.config.help;
-
-          if (!target.run) {
-            const owner = this.constructor;
-            const cache = loaded.get(owner) || loaded.set(owner, new Map()).get(owner)!;
-            const Type = target.from || cache.get(step.key);
-            const named = `${reader.levels.map((level) => level.name).join(' ')} ${child}`;
-
-            if (!Type) throw new Miss(load(target, named), cache, step.key, owner);
-
-            about ??= helpOf(Type);
-
-            if (Type instanceof Hand) throw new Delegate(Type.run, [...reader.rest(), ...(reader.help ? ['--help'] : [])], named);
-
-            return { [step.key]: new Type(enter(child)) };
-          }
-
-          reader.proceed(child);
-          finish();
-          run = () => target.run!.call(this);
-
-          return { [step.key]: true };
-        };
-
-      const finish = () => {
-        const values = reader.finish();
-
-        if (values === true) throw new Help();
-
-        path.forEach((level, index) => Object.assign(level, values[index]));
-      };
-
-      const shown = () => {
-        const names = reader.levels.map((level) => level.name).join(' ');
-        const specs = reader.levels.map((level) =>
-          level.inline ? level.specs.filter((spec) => spec.kind != 'cmd') : level.specs
-        );
-
-        return [names, specs, 'run' in path.at(-1)!, about] as const;
-      };
-
-      const listed = async () => {
-        const [names, specs, runs, shownAbout] = shown();
-        const leaf = specs.length - 1;
-        const rows = await Promise.all(
-          specs[leaf].map((spec) => (spec.kind == 'cmd' ? resolve(spec) : ([spec, 0] as [Spec, number])))
-        );
-
-        if (FAMILY.has(path[leaf].constructor)) rows.sort(([a, p], [b, q]) => q - p || a.key.localeCompare(b.key));
-
-        specs[leaf] = rows.map(([spec]) => spec);
-
-        return [names, specs, runs, shownAbout] as const;
-      };
-
-      const quiet = Model.on({
-        catch(error, kind) {
-          return kind == 'setup' && path.includes(this) ? undefined : error;
-        }
-      });
-
-      try {
-        root = Root.new(enter(invoked));
-
-        for (const level of path) await level.get(() => {});
-
-        const result = await run();
-
-        if (result === undefined || result === true) return 0;
-        if (result === false) return 1;
-        if (typeof result == 'number') return result;
-
-        out.log(result);
-        return 0;
-      } catch (error) {
-        if (error instanceof Miss) {
-          try {
-            const Type = ((await error.loader()) as { default?: Model.Type } | undefined)?.default;
-            const runner = own(Type, RUNNER)?.run;
-
-            if (typeof runner == 'function' && FAMILY.has(error.owner)) {
-              error.cache.set(error.key, new Hand(runner));
-              continue;
-            }
-
-            if (!(Type?.prototype instanceof Model))
-              throw new TypeError(`Command "${kebab(error.key)}" did not load a Model class.`);
-
-            error.cache.set(error.key, Type);
-            continue;
-          } catch (failed) {
-            error = failed;
-          }
-        }
-
-        if (error instanceof Delegate) return error.run(error.argv, out, error.name);
-
-        if (error instanceof Help) {
-          out.log(help(...(await listed())));
-          return 0;
-        }
-
-        if (error instanceof Absent) {
-          out.error(error.message);
-          return 2;
-        }
-
-        if (error instanceof Usage) {
-          const [names, specs, runs] = shown();
-
-          out.error(`${error.message}\n${usage(names, specs, runs)}`);
-          return 2;
-        }
-
-        out.error(error instanceof Error ? error.message : String(error));
-        return 1;
-      } finally {
-        quiet();
-        root?.set(null);
+        return reply.help ? { ...reply.help, help: node.help } : { ...node, error: reply.error?.message || 'no --json support' };
       }
+
+      return seen.has(Type) ? node : await tree(await sample(Type), node.command, [], seen, node.help);
+    } catch (error) {
+      return { ...node, error: message(error) };
     }
+  };
+
+  const tree = async (level: Level, path: string, above: Spec[][], seen: Set<Function>, about?: string): Promise<Node> => {
+    const specs = [...above, level.specs];
+    const { operands, commands, options } = scope(specs);
+    const inner = new Set(seen).add(level.Type);
+    const listed = await listing(level.Type, commands);
+
+    return {
+      command: path,
+      help: about,
+      usage: usage(path, specs, level.runs),
+      runs: level.runs,
+      inputs: [...operands, ...options].map(inputJson),
+      commands: await listed.reduce(
+        async (nodes, spec) => [...(await nodes), await describe(spec, level.Type, path, inner)],
+        Promise.resolve([] as Node[])
+      )
+    };
+  };
+
+  const execute = async (argv: string[], invoked: string, json: boolean): Promise<Outcome> => {
+    const reader = new Reader(argv, process.cwd());
+    const levels: Level[] = [];
+    const path: Model[] = [];
+    let about = helpOf(Root);
+    let root: Model | undefined;
+
+    const shown = () => {
+      const names = reader.levels.map((level) => level.name).join(' ');
+      const specs = reader.levels.map((level) => (level.inline ? level.specs.filter((spec) => spec.kind != 'cmd') : level.specs));
+
+      return [names, specs, !!levels.at(-1)?.runs] as const;
+    };
+
+    const route = async () => {
+      for (let Type = Root, named = invoked; ; ) {
+        const level: Level = await sample(Type);
+
+        levels.push(level);
+
+        const step = reader.enter(level.specs, named, Type.name);
+
+        if (!step) {
+          if (reader.help) throw new Help();
+
+          if (level.runs) return;
+
+          if (!level.specs.some((spec) => spec.kind == 'cmd')) throw new TypeError(`${Type.name} has no run() method.`);
+
+          const [extra] = reader.levels.at(-1)!.operands;
+
+          if (extra === undefined) throw new Help();
+
+          throw new Usage(reader.ended ? `Unexpected argument "${extra}".` : `Unknown command "${extra}".`);
+        }
+
+        const target = step.target as Target;
+        const child = kebab(step.key);
+
+        about = step.config.help;
+        level.key = step.key;
+
+        if (target.run) {
+          reader.proceed(child);
+          level.inline = true;
+          return;
+        }
+
+        const path = `${reader.levels.map((level) => level.name).join(' ')} ${child}`;
+        const Next = await load(Type, step.key, target, path);
+
+        about ??= helpOf(Next);
+
+        if (Next instanceof Hand) {
+          const flags = [...(json ? ['--json'] : []), ...(reader.help ? ['--help'] : [])];
+
+          throw new Delegate(Next.run, [...flags, ...reader.rest()], path);
+        }
+
+        Type = Next;
+        named = child;
+      }
+    };
+
+    const assign = (index: number) =>
+      function (this: Model) {
+        const { key } = levels[index];
+        const Next = levels[index + 1]?.Type;
+
+        path.push(this);
+
+        return key ? { ...values[index], [key]: Next ? new Next(assign(index + 1)) : true } : values[index];
+      };
+
+    const quiet = Model.on({
+      catch(error, kind) {
+        return kind == 'setup' && path.includes(this) ? undefined : error;
+      }
+    });
+
+    let values: Record<string, unknown>[];
+
+    try {
+      await route();
+
+      const read = reader.finish();
+
+      if (read === true) throw new Help();
+
+      values = read;
+      root = Root.new(assign(0));
+
+      for (const level of path) await level.get(() => {});
+
+      const { key, inline } = levels.at(-1)!;
+      const target = path.at(-1) as Model & { run(): unknown };
+      const run = inline ? SPECS.get(target)!.find((spec) => spec.key == key)!.target!.run! : target.run;
+      const result = await run.call(target);
+
+      if (result === undefined || result === true) return { code: 0 };
+      if (result === false) return { code: 1 };
+      if (typeof result == 'number') return { code: result };
+
+      throw new TypeError(`${target.constructor.name} run() returned ${result === null ? 'null' : typeof result} - print output and return a status.`);
+    } catch (error) {
+      if (error instanceof Delegate) return { code: 0, delegate: (out) => error.run(error.argv, out, error.name) };
+
+      if (error instanceof Help) {
+        const [names, specs, runs] = shown();
+        const leaf = levels.at(-1)!;
+
+        if (json) return { code: 0, help: await tree({ ...leaf, specs: specs.at(-1)! }, names, specs.slice(0, -1), new Set(), about) };
+
+        specs[specs.length - 1] = await listing(leaf.Type, specs.at(-1)!);
+
+        return { code: 0, help: help(names, specs, runs, about) };
+      }
+
+      if (error instanceof Absent) return { code: 2, error: { kind: 'absent', message: error.message } };
+
+      if (error instanceof Usage) return { code: 2, error: { kind: 'usage', message: error.message, usage: usage(...shown()) } };
+
+      return { code: 1, error: { kind: 'error', message: message(error) } };
+    } finally {
+      quiet();
+      root?.set(null);
+    }
+  };
+
+  return async (argv: string[], out: Output, invoked = name) => {
+    const end = argv.includes('--') ? argv.indexOf('--') : argv.length;
+    const json = argv.slice(0, end).includes('--json');
+
+    if (!json) {
+      const { code, help, error, delegate } = await execute(argv, invoked, false);
+
+      if (delegate) return delegate(out);
+      if (help) out.log(help);
+      if (error) out.error(error.usage ? `${error.message}\n${error.usage}` : error.message);
+
+      return code;
+    }
+
+    const [text, restore] = capture();
+    let reply: Outcome & typeof text;
+
+    try {
+      const { delegate, code, ...rest } = await execute([...argv.slice(0, end).filter((arg) => arg != '--json'), ...argv.slice(end)], invoked, true);
+      const handed = delegate && (await envelope(delegate));
+
+      reply = handed ? { ...handed, stdout: text.stdout + handed.stdout, stderr: text.stderr + handed.stderr } : { code, ...text, ...rest };
+    } finally {
+      restore();
+    }
+
+    out.log(JSON.stringify(reply));
+
+    return reply.code;
   };
 }
 

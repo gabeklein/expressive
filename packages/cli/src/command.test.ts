@@ -53,7 +53,7 @@ it('will fill fields before new()', async () => {
     }
 
     run() {
-      return this.seen;
+      lines.push(this.seen!);
     }
   }
 
@@ -92,8 +92,12 @@ it('will map results to exit codes', async () => {
   expect(await command(returns(false))([], out)).toBe(1);
   expect(await command(returns(7))([], out)).toBe(7);
   expect(await command(returns(Promise.resolve(3)))([], out)).toBe(3);
-  expect(await command(returns('done'))([], out)).toBe(0);
-  expect(lines).toEqual(['done']);
+  expect(await command(returns('done'))([], out)).toBe(1);
+  expect(await command(returns(null))([], out)).toBe(1);
+  expect(lines).toEqual([
+    '! Test run() returned string - print output and return a status.',
+    '! Test run() returned null - print output and return a status.'
+  ]);
 });
 
 it('will print a throw and return 1', async () => {
@@ -140,6 +144,37 @@ it('will destroy the instance after', async () => {
 
   await call(Test, '--nope');
   expect(created).toHaveBeenCalledTimes(1);
+});
+
+it('will pass other reports through while reading a class', async () => {
+  class Box extends Model {
+    value = 0;
+  }
+
+  const gone = Box.new();
+  const caught = vi.fn();
+
+  gone.set(null);
+
+  const stop = Model.on({ catch: (_error, kind) => void caught(kind) });
+
+  class Test extends Leaf {
+    touched = ((gone.value = 1), true);
+  }
+
+  await call(Test, '--help');
+  stop();
+
+  expect(caught).toHaveBeenCalledWith('dead');
+});
+
+it('will reserve --json', async () => {
+  class Test extends Leaf {
+    json = flag();
+  }
+
+  expect(await call(Test)).toBe(1);
+  expect(lines).toEqual(['! --json is reserved - rename the json field.']);
 });
 
 it('will fail for a class without run', async () => {
@@ -337,7 +372,7 @@ describe('cmd', () => {
       class Empty extends Model {}
 
       expect(await call(Empty, '--help')).toBe(0);
-      expect(lines).toEqual(['Usage: empty [options]\n\nOptions:\n  -h, --help  show this help']);
+      expect(lines).toEqual(['Usage: empty [options]\n\nOptions:\n  -h, --help  show this help\n  --json      print one JSON object - for scripts and agents']);
     });
   });
 
@@ -580,9 +615,7 @@ describe('cmd', () => {
       expect(lines).toEqual(['child destroyed', 'parent destroyed']);
     });
 
-    it('will tear down field children when the build aborts', async () => {
-      let loads = 0;
-
+    it('will start field children only for a build that completes', async () => {
       class Logger extends Model {
         new() {
           lines.push('logger new');
@@ -594,20 +627,35 @@ describe('cmd', () => {
         logger = new Logger();
       }
 
-      class Test extends Model {
-        logger = new Logger();
-        late = cmd({ lazy: async () => (loads++, { default: Late }), help: 'late' });
+      class Plain extends Model {}
+
+      class Side extends Leaf {
+        kids = [new Plain()];
       }
 
+      const shared = Plain.new();
+
+      class Test extends Model {
+        logger = new Logger();
+        shared = shared;
+        late = cmd({ lazy: async () => ({ default: Late }), help: 'late' });
+        side = cmd({ from: Side });
+      }
+
+      const caught = vi.fn();
+      const stop = Model.on({ catch: (error) => void caught(error) });
+
       expect(await call(Test, '--nope')).toBe(2);
+      expect(await call(Test, 'late', '--help')).toBe(0);
+      expect(await call(Test, '--help', '--json')).toBe(0);
+      lines.splice(1, 2);
       expect(await call(Test, 'late')).toBe(0);
-      expect(loads).toBe(1);
+      stop();
+
+      expect(caught).not.toHaveBeenCalled();
+      expect(shared.get(null)).toBe(false);
       expect(lines).toEqual([
-        'logger new',
-        'logger destroyed',
         '! Unknown option --nope.\nUsage: test [options] <command>',
-        'logger new',
-        'logger destroyed',
         'logger new',
         'logger new',
         'logger destroyed',
@@ -680,6 +728,122 @@ describe('cmd', () => {
   });
 });
 
+describe('json', () => {
+  const parsed = async (Type: Model.Type, ...argv: string[]) => [await call(Type, ...argv), JSON.parse(lines.pop()!)];
+
+  it('will print one object, capturing output', async () => {
+    const tty = process.stdout.isTTY;
+
+    class Test extends Model {
+      name = opt();
+      rest = args();
+
+      run() {
+        lines.push(`tty ${process.stdout.isTTY} ${this.rest}`);
+        console.log('hello', this.name);
+        process.stdout.write('raw\n');
+        process.stderr.write(Buffer.from('bytes\n'), () => lines.push('flushed'));
+        console.warn('careful');
+        return 3;
+      }
+    }
+
+    expect(await parsed(Test, '--json', '--name', 'x', '--', '--json')).toEqual([
+      3,
+      { code: 3, stdout: 'hello x\nraw\n', stderr: 'bytes\ncareful\n' }
+    ]);
+    expect(lines).toEqual(['tty false --json', 'flushed']);
+    expect(process.stdout.isTTY).toBe(tty);
+  });
+
+  it('will report a failure by kind', async () => {
+    class Test extends Model {
+      run() {
+        throw new Error('broke');
+      }
+    }
+
+    class Wide extends Test {
+      test = cmd({ from: Test });
+    }
+
+    expect(await parsed(Test, '--nope', '--json')).toEqual([
+      2,
+      { code: 2, error: { kind: 'usage', message: 'Unknown option --nope.', usage: 'Usage: test [options]' }, stdout: '', stderr: '' }
+    ]);
+    expect(await parsed(Test, '--json')).toEqual([1, { code: 1, error: { kind: 'error', message: 'broke' }, stdout: '', stderr: '' }]);
+    expect(await parsed(Wide, 'nope', '--json')).toEqual([
+      2,
+      { code: 2, error: { kind: 'usage', message: 'Unknown command "nope".', usage: 'Usage: wide [options] [command]' }, stdout: '', stderr: '' }
+    ]);
+  });
+
+  it('will describe the routed command and every command below it', async () => {
+    class Deploy extends Model {
+      static help = 'ship it';
+
+      target = arg({ required: true, help: 'where' });
+      files = args({ type: 'file', ext: ['.js', '.mjs'], max: 3 });
+
+      run() {}
+    }
+
+    class Tool extends Model {
+      verbose = flag({ short: 'v' });
+      cache = flag({ default: true });
+      out = opt({ type: 'dir', ext: ['.x'] });
+      retries = opt({ default: 2 });
+      tags = list({ min: 1 });
+      size = opt({ parse: BigInt, default: 0n });
+      deploy = cmd({ from: Deploy });
+      later = cmd({ lazy: async () => ({ default: Deploy }), help: 'lazily' });
+      broken = cmd({ lazy: () => Promise.reject(new Error('missing')), help: 'broken' });
+      again = cmd({ from: Tool });
+      status = cmd({ help: 'print status', run() {} });
+    }
+
+    const deploy = (command: string, help: string) => ({
+      command,
+      help,
+      usage: `Usage: ${command} [options] <target> [files...]`,
+      runs: true,
+      inputs: [
+        { name: 'target', kind: 'arg', required: true, help: 'where', schema: { type: 'string' } },
+        { name: 'files', kind: 'args', schema: { type: 'array', items: { type: 'string', format: 'file', pattern: '(\\.js|\\.mjs)$' }, maxItems: 3 } }
+      ],
+      commands: []
+    });
+
+    const [code, { help }] = await parsed(Tool, 'help', '--json');
+
+    expect(code).toBe(0);
+    expect(help).toEqual({
+      command: 'tool',
+      usage: 'Usage: tool [options] <command>',
+      runs: false,
+      inputs: [
+        { name: 'verbose', kind: 'flag', option: '--verbose', short: '-v', schema: { type: 'boolean' } },
+        { name: 'cache', kind: 'flag', option: '--no-cache', schema: { type: 'boolean', default: true } },
+        { name: 'out', kind: 'opt', option: '--out', schema: { type: 'string', format: 'dir' } },
+        { name: 'retries', kind: 'opt', option: '--retries', schema: { type: 'number', default: 2 } },
+        { name: 'tags', kind: 'list', option: '--tags', schema: { type: 'array', items: { type: 'string' }, minItems: 1 } },
+        { name: 'size', kind: 'opt', option: '--size', schema: { type: 'string' } }
+      ],
+      commands: [
+        deploy('tool deploy', 'ship it'),
+        deploy('tool later', 'lazily'),
+        { command: 'tool broken', help: 'broken', error: 'missing' },
+        { command: 'tool again' },
+        { command: 'tool status', help: 'print status', runs: true }
+      ]
+    });
+
+    const [, routed] = await parsed(Tool, 'deploy', '--help', '--json');
+
+    expect(routed.help.inputs.map((input: { name: string }) => input.name)).toEqual(['target', 'files', 'verbose', 'cache', 'out', 'retries', 'tags', 'size']);
+  });
+});
+
 describe('peer', () => {
   let root: string;
   const { argv } = process;
@@ -733,9 +897,22 @@ describe('peer', () => {
     expect(await call(Kit)).toBe(0);
     expect(await call(Kit, 'dev', '--port', '1')).toBe(2);
     expect(lines).toEqual([
-      'Usage: kit [options] <command>\n\nCommands:\n  sql  sync your schema\n  dev  dev server (not installed)\n\nOptions:\n  -h, --help  show this help\n\nRun "kit help <command>" for a command\'s inputs.',
+      'Usage: kit [options] <command>\n\nCommands:\n  sql  sync your schema\n  dev  dev server (not installed)\n\nOptions:\n  -h, --help  show this help\n  --json      print one JSON object - for scripts and agents\n\nRun "kit help <command>" for a command\'s inputs.',
       '! "kit dev" is not installed - npm i -D @kit/dev'
     ]);
+  });
+
+  it('will describe a missing peer and report it absent', async () => {
+    (globalThis as any).kitSql = Sql;
+    install('@kit/sql', { kit: 'bin.mjs' }, 'export default globalThis.kitSql;');
+
+    expect(await call(Kit, '--help', '--json')).toBe(0);
+    expect(await call(Kit, 'dev', '--json')).toBe(2);
+
+    const [described, absent] = lines.map((line) => JSON.parse(line));
+
+    expect(described.help.commands.map((node: any) => [node.command, node.installed])).toEqual([['kit sql', undefined], ['kit dev', false]]);
+    expect(absent.error).toEqual({ kind: 'absent', message: '"kit dev" is not installed - npm i -D @kit/dev' });
   });
 
   it('will fail a peer without the bin', async () => {
@@ -940,6 +1117,34 @@ describe('peer', () => {
         expect(await run(own(), { as: 'kit' }, 'dev', 'build', '--out', 'dist')).toBe(3);
         expect(await run(own(), { as: 'kit' }, 'help', 'dev')).toBe(3);
         expect(lines).toEqual(['env PORT', 'dev kit dev build --out dist', 'dev kit dev --help']);
+      });
+
+      it('will describe members through their runners and hand them --json', async () => {
+        const help = "JSON.stringify({ code: 0, help: { command: name, runs: true } })";
+
+        install('@kit/dev', { kit: 'bin.mjs' }, runner('dev', "static help = 'dev server'").replace(/out\.log\(/, `(argv.includes('--help') ? out.log : out.error)(argv.includes('--help') ? ${help} : `));
+        install('@kit/sql', { kit: 'bin.mjs' }, runner('sql'));
+        install('@kit/err', { kit: 'bin.mjs' }, runner('err').replace(/out\.log\(/, 'out.log(JSON.stringify({ code: 2, error: { message: "bad" } })); void ('));
+        install('@kit/odd', { kit: 'bin.mjs' }, runner('odd').replace(/out\.log\(/, "out.log('{}'); void (").replace('return 3', 'return 0'));
+
+        expect(await run(own(), { as: 'kit' }, '--help', '--json')).toBe(0);
+        expect(await run(own(), { as: 'kit' }, 'dev', 'x', '--json', '--', 'y')).toBe(3);
+
+        const [described, handed] = lines;
+
+        expect(JSON.parse(described).help.commands).toEqual([
+          { command: 'kit dev', help: 'dev server', runs: true },
+          { command: 'kit env', help: 'env files', usage: 'Usage: kit env [options] [key]', runs: true, inputs: [{ name: 'key', kind: 'arg', schema: { type: 'string' } }], commands: [] },
+          { command: 'kit err', error: 'bad' },
+          { command: 'kit odd', error: 'no --json support' },
+          { command: 'kit sql', error: 'no --json support' }
+        ]);
+        expect(JSON.parse(handed)).toEqual({
+          code: 3,
+          stdout: '',
+          stderr: 'dev kit dev --json x -- y\n',
+          error: { kind: 'error', message: 'dev kit dev --json x -- y' }
+        });
       });
 
       it('will route to a package without a runner in this process', async () => {
