@@ -7,6 +7,7 @@ import type { Plugin } from 'vite';
 import inspect from '../../packages/inspect/src/vite';
 import domHot from '../../packages/dom/src/vite';
 import reactHot from '../../packages/react/src/vite';
+import { expressive } from '../../packages/dev/src/vite';
 import { Browser, CHROME, until } from './chrome';
 
 /**
@@ -1266,10 +1267,69 @@ export class Session extends Base {
   return results.filter((ok) => !ok).length;
 }
 
+async function settings() {
+  const dir = join(ROOT, 'settings');
+  const packages = ['mvc', 'dom', 'router', 'rpc', 'env', 'inspect', 'dev'];
+  let ok = false;
+
+  write(dir, {
+    'index.ts': `import { config } from '@expressive/dev';
+import { label } from './label';
+
+export default config({
+  async handle({ request, next }) {
+    if (new URL(request.url).pathname === '/label') return new Response(label + ' old');
+    return next();
+  }
+});
+`,
+    'label.ts': `export const label = 'handle';
+`,
+    'app/index.tsx': `export const Page = () => <h1>hi</h1>;
+`
+  });
+
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-settings'),
+    plugins: [expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+
+  await vite.listen();
+
+  const { port } = vite.httpServer!.address() as { port: number };
+  const label = async () => (await fetch(`http://127.0.0.1:${port}/label`)).text();
+
+  try {
+    if ((await label()) != 'handle old') throw new Error(`before the edit: ${await label()}`);
+
+    await Bun.write(join(dir, 'index.ts'), (await Bun.file(join(dir, 'index.ts')).text()).replace("' old'", "' new'"));
+    await until(async () => (await label()) == 'handle new');
+
+    await Bun.write(join(dir, 'label.ts'), "export const label = 'imported';\n");
+    await until(async () => (await label()) == 'imported new');
+
+    ok = true;
+    console.log('PASS [server] index.ts edit swaps handle, its imports too');
+  } catch (error) {
+    console.log(`FAIL [server] index.ts edit swaps handle - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await vite.close();
+  }
+
+  return ok ? 0 : 1;
+}
+
 let failed = 0;
 
 try {
   failed += await server();
+  failed += await settings();
 
   if (chrome) for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
   else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);

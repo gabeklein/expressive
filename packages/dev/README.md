@@ -16,7 +16,7 @@ app/                  file-based routes
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth, index optional
 app.tsx | src/app.tsx single root component instead of app/ (default export)
-index.ts              optional service entry, run on the server: export default config({ port })
+index.ts              optional server entry: export default config({ port, handle, target, host })
 index.html            optional custom shell (#root and the entry script are injected if missing)
 vite.config.ts        optional, merged under the host's config
 ```
@@ -65,121 +65,113 @@ augmentation (`Model.get()` and friends), so nothing else is needed.
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
 `dist/server/index.js`, which serves `dist/client` (with `public/`, copied only there) and falls back
-to `index.html` for client routes.
-It imports `config` from `@expressive/dev/server`: `port`, `remote.opaque` (below), `fetch`,
-`around` and `target`.
+to `index.html` for client routes. Its default export is `config({ ... })` from `@expressive/dev`,
+an identity function that types the settings: `target`, `port`, `remote.opaque` (below), `handle`
+and `host`. Any other key fails the dev server and the build by name.
 
-### App routes
+### handle
+
+`handle({ request, env, ctx, next })` is fetch middleware around every request the host forwards:
+remote calls, pages and static files. Return a `Response` to answer, or nothing to pass. `next()`
+runs the app below and resolves its reply - to return, rewrite or wrap:
 
 ```ts
 // index.ts
-import { config } from "@expressive/dev/server";
+import { config } from "@expressive/dev";
+import { db } from "./db";
 
 export default config({
-  async fetch(request) {
-    if (new URL(request.url).pathname === "/health") return new Response("ok");
-  },
+  handle: ({ next }) => db.session(next),
 });
 ```
 
-`fetch(request, env, ctx)` answers after remote calls and before static files; returning nothing
-falls through. It runs in the request's scope - `Current` and `Cookies` work as in a call. In dev it
-also sees Vite's own requests (`/@vite/client`, `/.expressive/*`), so match only the paths it
-answers. On Node, `env` is `{}`.
+- Returning nothing passes through `next()`'s reply if it was called, else calls it. Anything else
+  returned throws. `next()` runs once, and only until `handle` returns.
+- `next(request)` forwards a rewritten request. Anything other than a `Request` throws, so a wrapper
+  that calls back with its own value (`db.transaction(next)`) fails loudly - wrap it: `() => next()`.
+  To read the body and still pass it on, read `request.clone()`.
+- `next()` resolves a `Response` with mutable headers (a 101 upgrade as is); a throw below resolves
+  its error reply rather than rejecting. A reply `handle` discards has its body cancelled.
+- `handle` runs outside the request's scope: `Current`, `Cookies` and `get(Model)` throw there, and
+  work inside `next()` - `db.session(next)` encloses all of it. Cookies go out on the `Response` it
+  returns; work after the reply goes through `ctx.waitUntil`.
+- A thrown `HttpError` answers its status - on a call as the call's error, else JSON `{ message }`
+  (`Redirect` sets `Location`). Anything else is logged and answered with a 500 whose message shows
+  in dev only.
+- Below `handle`: a remote call, else the page or file - on Node, the file, `<path>/index.html` or the
+  shell from `dist/client`, else 404; in dev, a `public/` file, else the shell for a navigation; on
+  the `fetch` target, 404 (static files are the host's, below).
+- In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
+  `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
+  `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
+  the root outside `public/`. A request it passes that is neither a file nor a navigation goes on to
+  Vite's middlewares, with the headers `handle` added and the request it forwarded.
 
-`next()`, its fourth argument, resolves what the request gets without `fetch` - to return as is or
-rewrite, such as a page's `<head>` for link previews. Read, return or cancel its body.
+`env` is the host's bindings - `{}` on Node and in dev. Type it on `@expressive/dev`:
+`declare module "@expressive/dev" { interface Env { API_KEY: string } }`.
 
-- Node: the file, the page's `<path>/index.html` or the shell from `dist/client`, else 404.
-- Dev: a file from `public/`, else the shell as Vite transforms it - never Vite's modules, so return
-  nothing for those.
-- The `fetch` target: 404 - static files are the host's there (below).
+`compose(settings)` from `@expressive/dev/server` builds the app without a server, for tests -
+no remotes; pages come from a stubbed `assets`:
 
 ```ts
-export default config({
-  async fetch(request, env, ctx, next) {
-    if (!new URL(request.url).pathname.startsWith("/invite/")) return;
+import { compose } from "@expressive/dev/server";
+import settings from "../index.ts";
 
-    const page = await next();
-    const html = (await page.text()).replace("</head>", `<meta property="og:title" content="Join"></head>`);
-
-    return new Response(html, page);
-  },
-});
+const app = compose(settings);
+const page = await app(new Request("http://x/invite/abc"), { assets: { fetch: async () => new Response(shell) } });
 ```
-
-### Request scope
-
-`around(next, scope)` wraps each remote call and the app's `fetch` on every host - Node, the
-`fetch` target and dev. Run `next` inside whatever the request needs, such as a database session,
-and resolve what it resolves. `scope` holds `request`, `env` and `ctx`. It runs around the call's
-scope, so read the request from `scope.request`, not `Current`.
-
-- With a `fetch`, every request that is not a call runs inside it, including those `fetch` passes
-  on - in dev, Vite's too. Without one, only calls do. Twin streams skip it.
-- The fetch target's other handlers (`scheduled`) skip it - wrap those in the handler.
-- The scope ends when `next` resolves: `ctx.waitUntil` work and a streamed body run after it.
-- A throw or rejection on a call replies as a call's error would - an error class a remote exports
-  keeps its status, anything else is a 500. On `fetch` it reaches the host, as a throw in `fetch` does.
-
-```ts
-import { config } from "@expressive/dev/server";
-import { db } from "./db";   // SQLiteConnection.new(types, "app.db")
-
-export default config({
-  around: next => db.session(next),
-});
-```
-
-With `@expressive/sql`, each request gets its own identity map. A session can also take the
-request's database as its second argument - see the fetch target below.
 
 ### Deploying to a fetch host
 
-`config({ target: "fetch" })` builds `dist/server/index.js` as `export default { fetch }` with
-every dependency bundled - for a host that calls a module's `fetch` rather than running a server. A
-request goes to remote calls, then the app's `fetch`, else 404. Static files are the host's: the
-app's `fetch` forwards to them.
+`config({ target: "fetch" })` builds `dist/server/index.js` as a module with every dependency
+bundled, for a host that calls its default export's `fetch(request, env, ctx)` rather than running
+a server.
 
-- `env` is the host's second `fetch` argument, and `Current.get().env` anywhere in the request.
-  Type it by extending rpc's `Env` - `declare module "@expressive/rpc" { interface Env { API_KEY:
-  string } }` - with `@expressive/rpc` a dependency of the app.
-- In dev, `export async function bindings()` in `index.ts` supplies `env`: once per server, again
-  after a throw. The build drops it - import what it needs inside it, so that goes too:
-  `export const bindings = async () => (await import("./dev-env")).env();`
-- The config's other members join the default export (a `scheduled` handler, say), and `index.ts`'s
-  named exports other than `bindings` are re-exported - listed ones only, not `export *`; export
-  types with `export type`.
+- `host(app)` returns that default export, for platform handlers dev does not model; one without
+  `fetch` gets `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. Dev never calls it, and
+  on the Node target it fails the build.
+- `env` is the host's second `fetch` argument, as `handle` and `Current.get().env` read it.
+- `index.ts`'s named exports are re-exported (Durable Object classes) - listed ones only, not
+  `export *`; export types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
 - Requests keep no state between them: a remote that default-exports a seat or exports a Model class
   fails the dev server and the build. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
-Cloudflare Workers with static assets, for example: `fetch` forwards to the `ASSETS` binding and
-serves the shell for client routes, as the Node server does.
+Cloudflare Workers with static assets, for example - a cron, a session per request on a D1 binding,
+and pages from the `ASSETS` binding with the shell for client routes:
 
 ```ts
 // index.ts
-import { config } from "@expressive/dev/server";
+import { config, type Env } from "@expressive/dev";
+import { db } from "./db";   // SQLiteConnection.new(types) - no source
+import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
+import { sweep } from "./jobs";
 
-declare module "@expressive/rpc" { interface Env { ASSETS?: Fetcher } }
+declare module "@expressive/dev" { interface Env { ASSETS?: Fetcher; DB: D1Database } }
 
 export default config({
   target: "fetch",
-  async fetch(request, env) {
-    const found = await env.ASSETS?.fetch(request); // undefined in dev - Vite answers
-    if (found?.status !== 404 || request.method !== "GET") return found;
+  handle: ({ request, env, next }) => db.session(async () => {
+    const reply = await next();
+    if (reply.status !== 404 || !env.ASSETS || request.method !== "GET") return reply;
 
     for (const shell of ["/200", "/"]) {
-      const page = await env.ASSETS!.fetch(new URL(shell, request.url));
+      const page = await env.ASSETS.fetch(new URL(shell, request.url));
       if (page.ok) return page;
     }
 
-    return found;
-  },
+    return reply;
+  }, d1(env.DB)),
+  host: () => ({
+    scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
+  }),
 });
 ```
+
+`next()` answers the calls; the 404 below it falls to the assets. `scheduled` runs outside any
+request, so it reads the platform's `env` argument and opens its own session.
 
 `wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
 and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*",
@@ -187,42 +179,21 @@ and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_fi
 to `/`) gets 405 from the assets. Leave `not_found_handling` unset - its single-page mode serves the
 prerendered home page for client routes.
 
-To rewrite a page there, take the shell from the assets (`/200`, or `/` under `--no-html`), with
-`next()` for dev, and drop the length and validator a rewrite makes stale:
+### From 0.5
 
-```ts
-const page = await (env.ASSETS?.fetch(new URL("/200", request.url)) ?? next());
-const headers = new Headers(page.headers);
-
-headers.delete("content-length");
-headers.delete("etag");
-
-return new Response(rewrite(await page.text()), { status: page.status, headers });
-```
-
-A session per request on a D1 binding there, through `around`:
-
-```ts
-import { config } from "@expressive/dev/server";
-import { db } from "./db";   // SQLiteConnection.new(types) - no source
-import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
-import { sweep } from "./jobs";
-
-export async function bindings() {
-  const { sqlite } = await import("@expressive/sql");
-  return { DB: await sqlite("local.db", { migrations: "migrations" }) };
-}
-
-export default config({
-  target: "fetch",
-  around: (next, { env }) => db.session(next, d1(env.DB)),
-  scheduled: (event, env) => db.session(() => sweep(), d1(env.DB)),
-});
-```
-
-`d1` is app code: it wraps a D1 binding in sql's `Engine` (`all`, `get`, `run`, `exec`, `close`) and
-passes an `Engine` through, so dev's `sqlite()` file - migrated on first use - serves unchanged.
-`scheduled` is outside `around`, so it opens its own session.
+| 0.5 | 0.6 |
+| --- | --- |
+| `import { config } from "@expressive/dev/server"` | `from "@expressive/dev"` |
+| `around: (next, { env }) => db.session(next, …)` | `handle: ({ env, next }) => db.session(next, …)` |
+| `fetch(request, env, ctx, next)` answering paths | `handle`, returning a `Response` |
+| `fetch` returning nothing to fall through | `handle` returning nothing |
+| `scheduled` (and other members) | `host`'s return value |
+| `around` wrapping calls only (no `fetch`) | `handle` wraps pages and static files too |
+| a throw in `fetch` reaching the host | an `HttpError`'s status, else a logged 500 |
+| `Cookies.set` or `X.get()` inside `fetch` | `Set-Cookie` on `handle`'s `Response` |
+| `export async function bindings()` | `config.env` in `index.dev.ts` |
+| `declare module "@expressive/rpc" { interface Env }` | `declare module "@expressive/dev"` |
+| `AppConfig` | `Settings` |
 
 ### Sidecars
 
@@ -460,9 +431,9 @@ vanish under `app/`, or an edit changes what it generates.
 
 `@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
 adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
-Server-only API - `config`, `serve`, `Current` - is `@expressive/dev/server`; the generated server
-entry imports `serve` from there. Under `target: "fetch"` it calls `@expressive/dev/fetch` instead - the
-generated entry's runtime, not an API to call by hand.
+`config` comes from the root. Server-only API - `compose`, `Current` - is `@expressive/dev/server`;
+the generated server entry imports `listen` from there. Under `target: "fetch"` it calls
+`@expressive/dev/fetch`'s `compose` instead - entry plumbing, not an API to call by hand.
 
 ### Prerendering
 

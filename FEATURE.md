@@ -15,11 +15,11 @@ Next-like host for Expressive: Vite, `@expressive/dom` rendering, file-based rou
 
 ## Agreed shape
 
-- **Two entries.** The root export holds what client and server share. Server-only API (`config`, `serve`, `Current`) is `@expressive/dev/server`, so a client import fails at build rather than at call.
+- **Two entries.** The root export holds what client and server share, `config` included (an import-free chunk). Server-only API (`compose`, `listen`, `Current`) is `@expressive/dev/server`, so a client import fails at build rather than at call.
 - **Turnkey.** dom, router, inspect are dependencies; `@expressive/mvc` is the only peer.
 - **JSX.** `jsxImportSource: "@expressive/dev"` - dev's runtime re-exports dom's.
 - **Router.** dev exports its own `Router` (extends `BrowserRouter`) and `Route`, plus `Link`, `NavLinks`, `Redirect`. No `BrowserRouter` export.
-- **Config.** `index.ts` default-exports `config({...})` from `@expressive/dev/server`, read on the server.
+- **Config.** `index.ts` default-exports `config({...})` from `@expressive/dev`, an identity function read on the server: `target`, `port`, `remote`, `handle` (fetch middleware around every request the host forwards, outside the request scope) and `host` (the fetch target's default export, built from the composed app). Other keys fail dev and the build by name.
 - **Server modules, one model.** Sidecars (`app/**/remote.ts`) and the rpc folder (RPC) share one invocation path from the bundled client and one context model (below). The rpc folder has its own root; a sidecar call never passes through its `index.ts`. Process globals are the only layer both lanes share.
 - **Session is the app's concern.** dev does not detect or mint sessions or tabs; an app expresses identity through keys (Context model). Recipes may come later.
 - **dom on the server.** Needed for JSX rendered to HTML (responses, emails), not SSR.
@@ -60,7 +60,7 @@ Not built yet, but the MVP must not cut against them.
 
 - **Values invariant.** What TypeScript shows as public is readable on the twin with no separate mechanism, and stays fresh. The scan's fields are the allowlist - TS `private` is erased at runtime, so a snapshot of the live instance would leak it. Holds for plain values and owned children; whether references cross is open (Open).
 - **Remount on a replaced context.** Each server layer gets a random token at creation; replies carry the walk's token per depth; a client `Route` whose depth's token changes remounts its subtree, dropping its twins and client state, and seat twins move from re-pointing in place to that remount. Ends the identity-change exposure #508 documents (apps reload on identity change until then). Deferred, not scheduled.
-- **OAuth** - not built, anticipated: an `api/` slice (GET, `Set-Cookie`, redirect) for the callback, forwarding to a process-global client.
+- **OAuth** - not built, anticipated: an `api/` route (GET, `Set-Cookie`, redirect) for the callback, forwarding to a process-global client - `api/` routes are the server-entry note's PR 6.
 
 ## RPC (`@expressive/rpc`)
 
@@ -81,7 +81,7 @@ Agreed direction, staged below. The stateless call lane carved out of dev as a V
       - `guardScript(code, file)`.
   - `@expressive/rpc/protocol` - the runtime plumbing for hosts and flavors, not app API: endpoint resolution (`resolve`, `walkOf`, `seatsAlong`, `locate`), the folder walk and its `key()` gates (`within`, `install`, `inFolder`), error ids (`classId`, `verify`, `registry`), `invoke({ request, at, name, args }, endpoints, { seats, dev, errors })` - `{ value }`, `{ error, status? }`, or `undefined` for no such call - and dev's seam: the tier-aware `dispatch`, `failure`, `attempt`, `fault`, `construct`, `seated`, `onBuild` (dev's version tracking). Free of Vite, oxc and es-module-lexer - dev's production server imports it; only `./vite` loads them.
   - A client import of a server-only name from `@expressive/rpc` (`Current`), or any value import of `@expressive/rpc/http` or `@expressive/rpc/protocol` (dynamic `import()` included), fails the build (`guardScript`, run by both plugins on script modules). Every file in `dist` is an export's target or reached from one.
-- **Folder.** One configurable folder (`api/` by default), anywhere. An import from it in client code is a stub that fetches per call; types come from the source. A call's id is its module path and export name, posted to one endpoint. No dynamic segments.
+- **Folder.** One configurable folder, anywhere - not `api/`, which is dev's HTTP routes (server-entry note). An import from it in client code is a stub that fetches per call; types come from the source. A call's id is its module path and export name, posted to one endpoint. No dynamic segments.
 - **Gate.** A folder's `index.ts` default class gates everything below through `key()` - the sidecar walk, minus URL params and the route table. Statelessness rule: a seat's state derives from the request (`key()` reads a bearer or cookie and loads); cached contexts are a per-isolate optimization, never relied on across calls.
 - **Outputs.** *Embedded* - the client build carries the stubs and emits a sibling server bundle (a second Vite environment), deployed to a Cloudflare Worker or run with `serve`; in dev it runs through the module runner as sidecars do. *Library* - the server bundle plus an installable client package: stubs, client runtime, `.d.ts` from the folder, `@expressive/mvc` as peer.
 - **Tiers.** Calls are stateless and run anywhere. Twins, versions, the stream and the pool need a long-lived host (`serve`, Node; Durable Objects later, one per pooled twin) - dev's extension over rpc. The plugin refuses twin-shaped exports for a stateless target.
@@ -183,7 +183,7 @@ Per-request data sits behind one process-global `Current`, in context everywhere
 
 ## Boundaries
 
-- **Where:** a server module is `remote.ts` or anything under a `remote/` folder (or under `api/`); everything else is client. An import from one is a stub or a twin - visible at the import site.
+- **Where:** a server module is `remote.ts` or anything under a `remote/` folder (or under `api/`, HTTP routes); everything else is client. An import from one is a stub or a twin - visible at the import site.
 - **What crosses, decided at build:** the scanner reads the source, TS modifiers included, and emits the allowlist both sides use. Callable: public `async` methods and exported `async` functions. Server-only: TS `protected`/`private`, `_`-prefixed and `#private` members, statics (`key`, `ttl`), lifecycle and Model's own names. The call dispatcher accepts nothing outside the allowlist, so the boundary never rests on runtime visibility.
 - **Refuse to build what the client cannot have.** A public sync method (every call is async over the wire) and a public `_`-prefixed member (unmanaged, so never replicated) are build errors. `protected`, `private` and `#private` members are free - they never cross. Linters can warn earlier, later.
 - **No ceremony.** No wrapper, no client-view types. Read-only values are a runtime rule, not an editor one: assigning a twin field throws. Otherwise a twin class is an ordinary client class - each owned field, placement and `.new()` builds its own server instance, and a client subclass adds client-side members over the scanned class, whose server half is unchanged. A raw `new` works but is documented against, not refused. Writes go through server methods.
@@ -208,7 +208,7 @@ Per-request data sits behind one process-global `Current`, in context everywhere
 
 - The instance `use()` gate is server-only: `remote.ts` bodies never ship to the client, and dom has no per-render `use()` to collide with.
 - `use()` returns nothing; the instance learns it was reached.
-- No middleware hook - gating is `key()`, `new()` and `use()` throwing. An integration (OAuth) is a service the route forwards to, not a hook that inspects every request.
+- Middleware is `config`'s `handle`, around the request scope rather than in it - gating is `key()`, `new()` and `use()` throwing, and folder gates. An integration (OAuth) is a service a route forwards to.
 - References are not owned: `route = get(Route)` gets no `mount()` of its own.
 - **Never callable:** lifecycle names (`new`, `use`, `mount`), Model's own (`get`, `set`), `_`-prefixed and `#private` members.
 
@@ -286,7 +286,7 @@ Ideas the context model replaced, kept so they are not re-proposed blind.
 - Reliability defaults: timeouts, the per-call wait-or-fail option, the strict-route flag, the pool's TTL after disconnect.
 - Hot reload retiring cached contexts.
 - Client parity for the `mount()` cascade: the server needs it (owned helpers have no other attach signal), so the maintainer cascades on the client too, upstream.
-- REST over the rpc folder (a `Route` default with uppercase verbs) - assessed after RPC stage 3. Twins of rpc classes are dev's, on stateful hosts only.
+- REST verbs live on `api/` routes (server-entry note), not a `Route` default in the rpc folder. Twins of rpc classes are dev's, on stateful hosts only.
 - On the client only the layout chain stays mounted - sibling pages remount (per the generated route tree). Twins inherit that lifetime.
 - Entry follow-ups:
   - `Catch`'s `retry` re-throws the cached refusal - the router keeps a rejected guard's promise for the space until the route is left. Retry from `Catch` should re-run admission - recorded for later.
@@ -300,7 +300,7 @@ Ideas the context model replaced, kept so they are not re-proposed blind.
   - Binary arguments: `Uint8Array` crosses base64 in the codec (stage 5); streams and `Blob` go through a server entry. A per-call `AbortSignal` or timeout on stubs.
   - An rpc gate's async `new()` is cached for the TTL, so a logout lands only when it expires (`ttl = 0` is the workaround) - an argument for a per-pass `use()` gate in rpc.
   - Layout: `app/` sits at the project root, every directory is a route, and a sidecar is importable only from its folder down. Asked: non-route folders (`_x/`, `(group)/`), or root sidecars importable from anywhere.
-  - dev does not host an rpc `api/` folder yet, though Agreed shape gives sidecars and the rpc folder one invocation path; an app adding `rpc()` beside dev gets plain `{ value }` replies in dev and a server with no api/ endpoints in build. dev also does not re-export the `HttpError` family.
+  - dev does not host an rpc folder yet (its `api/` is HTTP routes), though Agreed shape gives sidecars and the rpc folder one invocation path; an app adding `rpc()` beside dev gets plain `{ value }` replies in dev and a server with no api/ endpoints in build. dev also does not re-export the `HttpError` family.
   - Server code runs on Vite's module runner: a Bun app launches Vite under Bun (`bun --bun vite`), and the runner gives Node's `import.meta` (`import.meta.dir` is undefined). Needs a doc line.
 
 ## Upstream (bullpen)

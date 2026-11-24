@@ -50,7 +50,7 @@ export interface Settings {
    * A thrown `HttpError` answers its status, anything else a logged 500 - on a call, as a call's error.
    *
    * @example
-   * config({ handle: ({ env, next }) => db.session(next, env.DB) });
+   * config({ handle: ({ next }) => db.session(next) });
    */
   handle?(args: HandleArgs): Response | void | Promise<Response | void>;
   /**

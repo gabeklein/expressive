@@ -651,11 +651,13 @@ describe("vite host", () => {
     await expect(build(config)).rejects.toThrow("run the client build first");
   });
 
-  it("builds the node service with index.ts as its config", async () => {
+  it("builds the node service with index.ts as its settings, and fails a host there", async () => {
     const { server } = await buildBoth({ "app/index.tsx": PAGE, "index.ts": "export default { port: 4000 };" });
 
     expect(server).toContain('from "@expressive/dev/server"');
+    expect(server).toMatch(/listen\(\{\s*settings/);
     expect(server).toMatch(/port: 4(000|e3)/);
+    await expect(buildBoth({ "app/index.tsx": PAGE, "index.ts": "export default { host: () => ({}) };" })).rejects.toThrow("`host` is for the fetch target only");
   });
 
   it("builds a static site with a bundled entry and no dev script", async () => {
