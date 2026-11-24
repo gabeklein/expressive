@@ -134,7 +134,8 @@ export default config({
 - `next()` resolves a `Response` with mutable headers (101 as is); a throw below resolves its error reply. A discarded reply's body is cancelled.
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
-- Below it: a remote call, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: a `public/` file. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML.
+- Below it: a remote call, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: a `public/` file. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
+- Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
 
 `env` - the host's bindings, `{}` on Node and in dev. Type it: `declare module "@expressive/dev" { interface Env { API_KEY: string } }`.
@@ -169,6 +170,8 @@ export default config({
   }),
 });
 ```
+
+The binding must be named `ASSETS`; under another name, pass it: `host: app => ({ fetch: (r, env, ctx) => app(r, { env, ctx, assets: env.STATIC }) })`.
 
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 

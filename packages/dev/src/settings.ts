@@ -14,7 +14,9 @@ export interface AppOptions {
   /**
    * Serves pages and static files - the last step of the chain. Default on the fetch target: `env.ASSETS`; without either, that step is a 404.
    *
-   * On its 404 for a GET or HEAD outside `build.assetsDir`, the shell - its `/200.html`, else `/index.html` - answers a page route's path with 200, and a navigation no route matches with 404.
+   * In a build, its 404 for a GET or HEAD outside `build.assetsDir` falls back to the shell - its `/200.html`, else `/index.html` - with 200 on a page route's path and 404 for a navigation no route matches; other methods skip it for a 404.
+   * The public `compose(settings)` has no shell rule - it returns this reply as is.
+   * `<path>/index.html` is its own to resolve.
    */
   assets?: { fetch(request: Request): Promise<Response> };
 }

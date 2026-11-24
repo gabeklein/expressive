@@ -102,7 +102,10 @@ export default config({
   file. Else the shell (`200.html`, else `index.html`) for a GET or HEAD outside `build.assetsDir`:
   with 200 on a path a page route matches, with 404 for a navigation (`accept` has `text/html`) no
   route matches, so the router's `NotFound` renders. Anything else is a bare 404, so a stale chunk
-  never comes back as HTML.
+  never comes back as HTML; a built app answers other methods than GET and HEAD with 404 too. A
+  single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
+  the `app/` files exporting `Page` - a deep link into a route the scan can't see (a custom root
+  `Router`, a `<Route>` in a `Layout`) gets the shell with 404; a `[...]` page claims those paths.
 - In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
   `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
@@ -162,8 +165,10 @@ export default config({
 });
 ```
 
-Pages and files come from the `ASSETS` binding, the shell included. `scheduled` runs outside any
-request, so it reads the platform's `env` argument and opens its own session.
+Pages and files come from the `ASSETS` binding, the shell included - the binding must be named
+`ASSETS`. Under another name, pass it yourself:
+`host: app => ({ fetch: (r, env, ctx) => app(r, { env, ctx, assets: env.STATIC }) })`. `scheduled`
+runs outside any request, so it reads the platform's `env` argument and opens its own session.
 
 `wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
 and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*",

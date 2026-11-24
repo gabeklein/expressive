@@ -12,9 +12,16 @@ export interface Parts {
   dev?: boolean;
 }
 
-/** A build's pages, for the page step - GET and HEAD only, with the shell fallback: its page routes' patterns, and `build.assetsDir`, never answered with the shell. Dev and tests leave it out. */
+/**
+ * A build's page routes, for the shell fallback.
+ *
+ * With it, other methods than GET and HEAD skip `assets` for a bare 404.
+ * Without `patterns` (a single-file app), every navigation is a page.
+ * Dev and the public `compose` leave it out.
+ */
 export interface Pages {
-  patterns: string[];
+  patterns?: string[];
+  /** `build.assetsDir`, never answered with the shell. Default `"assets"`. */
   assetsDir?: string;
 }
 
@@ -91,16 +98,6 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
 const SHELLS = ["/200.html", "/index.html"];
 const CONDITIONAL = ["if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range", "range"];
 
-/** The shell's status for `request`: 200 on a page route, 404 for a navigation no route matches, else none. Never under `assetsDir`. */
-function shellStatus(request: Request, { patterns, assetsDir = "assets" }: Pages): 200 | 404 | undefined {
-  const { headers, url } = request;
-  const { pathname } = new URL(url);
-
-  if (pathname.startsWith(`/${assetsDir}/`)) return;
-  if (routed(patterns, pathname)) return 200;
-  if (headers.get("accept")?.includes("text/html")) return 404;
-}
-
 /** Whether a page pattern matches `pathname` as the router does: literals case-insensitively, `:param` one segment, a trailing `*` the rest. */
 export function routed(patterns: string[], pathname: string): boolean {
   const path = segments(pathname);
@@ -114,32 +111,43 @@ export function routed(patterns: string[], pathname: string): boolean {
   });
 }
 
-const segments = (path: string) => path.split("/").filter(Boolean);
+function segments(path: string) {
+  const trimmed = path.replace(/^\/+|\/+$/g, "");
+  return trimmed === "" ? [] : trimmed.split("/");
+}
 
-async function page(request: Request, assets: Assets, pages: Pages): Promise<Response> {
+async function page(request: Request, assets: Assets, { patterns, assetsDir = "assets" }: Pages): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Not found.", { status: 404 });
 
   const reply = await assets.fetch(request);
-  const status = reply.status === 404 && shellStatus(request, pages);
+  const { pathname } = new URL(request.url);
 
-  if (!status) return reply;
+  if (reply.status !== 404 || pathname.startsWith(`/${assetsDir}/`)) return reply;
+  if (patterns && routed(patterns, pathname)) return (await shell(request, assets, 200, reply)) ?? reply;
 
+  const navigation = request.headers.get("accept")?.includes("text/html");
+  const answer = (navigation && (await shell(request, assets, patterns ? 404 : 200, reply))) || new Response(reply.body, reply);
+
+  answer.headers.append("vary", "accept");
+
+  return answer;
+}
+
+async function shell(request: Request, assets: Assets, status: number, reply: Response): Promise<Response | undefined> {
   const headers = new Headers(request.headers);
 
   for (const name of CONDITIONAL) headers.delete(name);
 
   for (const path of SHELLS) {
-    const shell = await follow(assets, new Request(new URL(path, request.url), { method: request.method, headers }));
+    const found = await follow(assets, new Request(new URL(path, request.url), { method: request.method, headers }));
 
-    if (shell.ok) {
+    if (found.ok) {
       discard(reply);
-      return new Response(shell.body, { status, headers: shell.headers });
+      return new Response(found.body, { status, headers: found.headers });
     }
 
-    discard(shell);
+    discard(found);
   }
-
-  return reply;
 }
 
 async function follow(assets: Assets, request: Request): Promise<Response> {
@@ -154,7 +162,7 @@ async function follow(assets: Assets, request: Request): Promise<Response> {
   return assets.fetch(new Request(to, request));
 }
 
-const mutable =(reply: Response) => (reply.status === 101 ? reply : new Response(reply.body, reply));
+const mutable = (reply: Response) => (reply.status === 101 ? reply : new Response(reply.body, reply));
 
 function discard(reply: Response, kept?: Response) {
   if (reply === kept) return;

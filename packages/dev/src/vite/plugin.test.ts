@@ -441,12 +441,13 @@ describe("vite host", () => {
     await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("only modules in app/tally/ and below may call it");
   });
 
-  async function buildBoth(files: Record<string, string>, options: { env?: boolean } = {}) {
+  async function buildBoth(files: Record<string, string>, { assetsDir, ...options }: { env?: boolean; assetsDir?: string } = {}) {
     const root = project(files);
     const quiet = (config: InlineConfig) => {
       config.configFile = false;
       config.logLevel = "silent";
       config.resolve = SOURCES;
+      if (assetsDir) config.build!.assetsDir = assetsDir;
       config.build!.rollupOptions = { ...config.build!.rollupOptions, external: ["@expressive/dev", "@expressive/dev/server"] };
       return config;
     };
@@ -680,6 +681,15 @@ describe("vite host", () => {
     expect(await unknown.text()).toContain("<p>mine</p>");
   });
 
+  it("will answer every navigation with the shell as 200 in a single-file project", async () => {
+    const server = await serve(project({ "app.tsx": "export default () => null" }));
+    await server.listen(0);
+
+    const page = await fetch(new URL("/deep/link", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
+
+    expect([page.status, page.headers.get("vary")]).toEqual([200, "Accept"]);
+  });
+
   it("will leave requests that are not for a page to Vite", async () => {
     const server = await serve(project({ "app/index.tsx": PAGE }));
     await server.listen(0);
@@ -729,6 +739,22 @@ describe("vite host", () => {
     expect(sent).toEqual([{ type: "full-reload" }, { type: "full-reload" }]);
   });
 
+  it("will rescan page routes after a change under app/, and after a scan that failed", async () => {
+    const root = realpathSync(project({ "app/index.tsx": PAGE }));
+    const server = await serve(root);
+    await server.listen(0);
+    const status = async (path: string) => (await fetch(new URL(path, server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } })).status;
+
+    expect(await status("/about")).toBe(404);
+
+    writeFileSync(join(root, "app/(about).tsx"), "export function Page( {");
+    server.watcher.emit("add", join(root, "app/(about).tsx"));
+    expect(await status("/about")).toBe(500);
+
+    writeFileSync(join(root, "app/(about).tsx"), PAGE);
+    expect(await status("/about")).toBe(200);
+  });
+
   it("will reload the page when an edit changes the route tree", async () => {
     const root = realpathSync(project({
       "app/index.tsx": PAGE,
@@ -763,11 +789,11 @@ describe("vite host", () => {
     expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain("Layout as RootLayout");
   });
 
-  it("builds the node service for a single-file project", async () => {
-    const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" });
+  it("builds the node service for a single-file project, with no page patterns", async () => {
+    const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" }, { assetsDir: "static/" });
 
     expect(server).toContain('from "@expressive/dev/server"');
-    expect(server).toMatch(/"patterns": \["\*"\],\s*"assetsDir": "assets"/);
+    expect(server).toContain(`pages: { "assetsDir": "static" }`);
   });
 
   const FETCH = {
