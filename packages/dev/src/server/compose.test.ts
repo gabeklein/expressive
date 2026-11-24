@@ -74,8 +74,9 @@ describe("compose", () => {
     expect(error).toHaveBeenCalledWith(new Error("disk"));
   });
 
-  it("will throw on creation for a setting it does not read", () => {
+  it("will throw on creation for a setting it does not read, but not for index.dev.ts's env", () => {
     expect(() => compose({ fetch: () => {} } as object)).toThrow("`fetch` and `around` became `handle`.");
+    expect(() => compose({ env: () => ({}) })).not.toThrow();
   });
 });
 

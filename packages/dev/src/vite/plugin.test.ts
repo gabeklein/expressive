@@ -660,6 +660,85 @@ describe("vite host", () => {
     expect(await other.api!.config()).toEqual({});
   });
 
+  const DEV = `import settings from "./index.ts";\n(settings as any).env = () => ({});\nexport default settings;\n`;
+
+  it("will read index.dev.ts in place of index.ts, with or without one", async () => {
+    const host = expressive();
+    await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default { port: 0 };", "index.dev.ts": DEV }), host);
+
+    expect(await host.api!.config()).toEqual({ port: 0, env: expect.any(Function) });
+    expect(await host.api!.config()).toEqual({ port: 0, env: expect.any(Function) });
+
+    const alone = expressive();
+    await serve(project({ "app/index.tsx": PAGE, "index.dev.ts": "export default { port: 2, env: () => ({}) };" }), alone);
+    expect(await alone.api!.config()).toEqual({ port: 2, env: expect.any(Function) });
+
+    const bare = expressive();
+    await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default { port: 0 };", "index.dev.ts": "export const port = 1;" }), bare);
+    expect(await bare.api!.config()).toEqual({});
+  });
+
+  it("will refuse env set in index.ts, and a bindings export in index.dev.ts, pointing at index.dev.ts", async () => {
+    const misplaced = expressive();
+    const bindings = expressive();
+    const number = expressive();
+
+    await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default { env: () => ({}) };", "index.dev.ts": `export { default } from "./index.ts";` }), misplaced);
+    await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default {};", "index.dev.ts": `export const bindings = 1; export default {};` }), bindings);
+    await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default 1;", "index.dev.ts": `export default {};` }), number);
+
+    await expect(misplaced.api!.config()).rejects.toThrow("index.ts: `env` is set in index.dev.ts, never index.ts.");
+    await expect(bindings.api!.config()).rejects.toThrow("index.dev.ts: `bindings` became `config.env`, set in index.dev.ts.");
+    await expect(number.api!.config()).rejects.toThrow("index.ts: the default export is not config({ ... }).");
+  });
+
+  it("will switch to index.dev.ts when it is added, and back when it is removed", async () => {
+    const host = expressive();
+    const root = project({ "app/index.tsx": PAGE, "index.ts": "export default { port: 0 };" });
+    await serve(root, host);
+
+    expect(await host.api!.config()).toEqual({ port: 0 });
+
+    writeFileSync(join(root, "index.dev.ts"), DEV);
+    expect(await host.api!.config()).toEqual({ port: 0, env: expect.any(Function) });
+
+    rmSync(join(root, "index.dev.ts"));
+    expect(await host.api!.config()).toEqual({ port: 0 });
+  });
+
+  it("will bind env() over process.env and .env in dev, calling it once and again after a throw", async () => {
+    (globalThis as any).envCalls = 0;
+    vi.stubEnv("DEV_NAME", "process");
+    const root = project({
+      "app/index.tsx": PAGE,
+      "index.ts": "export default { handle: ({ env }: any) => Response.json({ db: env.DB, name: env.DEV_NAME, calls: (globalThis as any).envCalls }) };",
+      "index.dev.ts": `
+        import settings from "./index.ts";
+        (settings as any).env = async () => {
+          if (++(globalThis as any).envCalls === 1) throw new Error("not yet");
+          return { DB: "local", DEV_NAME: undefined };
+        };
+        export default settings;
+      `,
+    });
+    const server = await serve(root);
+    const error = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
+    await server.listen(0);
+    const get = () => fetch(new URL("/", server.resolvedUrls!.local[0]));
+
+    expect((await get()).status).toBe(500);
+    expect(await (await get()).json()).toEqual({ db: "local", calls: 2 });
+    expect(await (await get()).json()).toEqual({ db: "local", calls: 2 });
+
+    const without = await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default { handle: ({ env }: any) => Response.json({ name: env.DEV_NAME }) };" }));
+    await without.listen(0);
+    expect(await (await fetch(new URL("/", without.resolvedUrls!.local[0]))).json()).toEqual({ name: "process" });
+
+    error.mockRestore();
+    vi.unstubAllEnvs();
+    delete (globalThis as any).envCalls;
+  });
+
   it("will resolve the working directory as the root by default", async () => {
     const host = expressive() as any;
     await expect(host.config({}, { command: "serve", mode: "development" })).rejects.toThrow("Missing app.tsx");
@@ -828,13 +907,51 @@ describe("vite host", () => {
     expect(code).not.toContain("createServer");
   });
 
+  it("builds the fetch entry from index.ts alone, bundling neither index.dev.ts's imports, node:fs, nor router or dom code", async () => {
+    const root = project({
+      "index.ts": `
+        import { config } from "@expressive/dev";
+        export default config({ target: "fetch", handle: ({ env }) => Response.json({ same: env === (globalThis as any).hostEnv }) });
+      `,
+      "index.dev.ts": `
+        import settings from "./index.ts";
+        import { open } from "./local";
+        settings.env = () => ({ DB: open() });
+        export default settings;
+      `,
+      "local.ts": `import { readFileSync } from "node:fs"; export const open = () => ["index-dev-only", readFileSync];`,
+      "app/index.tsx": PAGE,
+      "node_modules/@expressive/dev/package.json": JSON.stringify({ name: "@expressive/dev", type: "module", exports: "./index.js" }),
+      "node_modules/@expressive/dev/index.js": "export const config = settings => settings;",
+    });
+    const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
+
+    await build(quiet(clientBuild(root)));
+    await build(quiet(serverBuild(root)));
+
+    const dir = join(root, "dist/server");
+    const code = readdirSync(dir, { recursive: true, encoding: "utf8" }).filter(file => /\.m?js$/.test(file)).map(file => readFileSync(join(dir, file), "utf8")).join("\n");
+    const imports = [...code.matchAll(/from\s*"([^"]+)"|import\s*"([^"]+)"/g)].map(([, a, b]) => a ?? b).filter(spec => !spec.startsWith("./"));
+    const { default: handler } = await import(join(dir, "index.js"));
+    const env = ((globalThis as any).hostEnv = { NAME: "prod" });
+
+    expect(await (await handler.fetch(new Request("http://localhost/"), env)).json()).toEqual({ same: true });
+    expect([...new Set(imports)].sort()).toEqual(["node:async_hooks", "node:crypto"]);
+    expect(code).not.toContain("index-dev-only");
+    expect(code).toMatch(/\/\/#region \S*rpc\/src\//);
+    expect(code).not.toMatch(/\/\/#region \S*(router|dom|env)\/src\/|\/\/#region \S*dev\/src\/client\//);
+    delete (globalThis as any).hostEnv;
+  });
+
   it("will fail a build and the dev server on a 0.5 setting or a bindings export, by name", async () => {
     const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
     const old = project({ "index.ts": "export default { around: (next: any) => next() };", "app/index.tsx": PAGE });
     const bindings = project({ "index.ts": "export const bindings = () => ({}); export default {};", "app/index.tsx": PAGE });
+    const misplaced = project({ "index.ts": "export default { env: () => ({}) };", "index.dev.ts": "export default {};", "app/index.tsx": PAGE });
     const host = expressive();
 
     await expect(build(quiet(serverBuild(old)))).rejects.toThrow("`fetch` and `around` became `handle`.");
+    await expect(build(quiet(clientBuild(misplaced)))).rejects.toThrow("index.ts: `env` is set in index.dev.ts, never index.ts.");
     await serve(bindings, host);
     await expect(host.api!.config()).rejects.toThrow("`bindings` became `config.env`, set in index.dev.ts.");
   });

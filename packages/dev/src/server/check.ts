@@ -3,10 +3,10 @@ import type { Settings } from "../settings";
 const GUIDE = "https://github.com/gabeklein/expressive/tree/main/packages/dev#from-05";
 const KEYS = new Set(["target", "port", "remote", "handle", "host"]);
 
-/** Throw if `settings` holds a key 0.6 does not read, naming where it went; `exports` are `index.ts`'s named ones. */
-export function check(settings: unknown, exports: Iterable<string> = []): Settings {
+/** Throw if `settings` holds a key 0.6 does not read, naming where it went; `exports` are the file's named ones. `env` is read only from `index.dev.ts`. */
+export function check(settings: unknown, exports: Iterable<string> = [], file: "index.ts" | "index.dev.ts" = "index.ts"): Settings {
   const fail = (message: string): never => {
-    throw new Error(`index.ts: ${message} See ${GUIDE}`);
+    throw new Error(`${file}: ${message} See ${GUIDE}`);
   };
 
   if (typeof settings != "object" || settings === null) return fail("the default export is not config({ ... }).");
@@ -14,7 +14,7 @@ export function check(settings: unknown, exports: Iterable<string> = []): Settin
   for (const name of exports) if (name === "bindings") fail("`bindings` became `config.env`, set in index.dev.ts.");
 
   for (const [key, value] of Object.entries(settings)) {
-    if (KEYS.has(key)) continue;
+    if (KEYS.has(key) || (key === "env" && file === "index.dev.ts")) continue;
     if (key === "fetch" || key === "around") fail("`fetch` and `around` became `handle`.");
     if (key === "env") fail("`env` is set in index.dev.ts, never index.ts.");
     if (typeof value == "function") fail(`\`${key}\` goes in \`host\`.`);

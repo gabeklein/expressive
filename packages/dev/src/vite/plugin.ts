@@ -7,9 +7,11 @@ import { fileURLToPath } from "node:url";
 import { createServerModuleRunner, runnerImport, type Plugin, type Rollup, type UserConfig, type ViteDevServer } from "vite";
 import type { ModuleRunner } from "vite/module-runner";
 
+import type { Env } from "@expressive/rpc";
 import type { Settings } from "../settings";
 import { check } from "../server/check";
 import { compose } from "../server/compose";
+import { layered } from "../server/env";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { Exposure, type Exposed } from "./remote";
 import { generateRoutes, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
@@ -26,9 +28,11 @@ const SERVER = "server.ts";
 const PRERENDER = "prerender.tsx";
 const DOM_SERVER = "@expressive/dom/server";
 const CALL = "call.ts";
+const SETTINGS = "settings.ts";
+const INDEX = "settings-index.ts";
 const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
 
-/** The plugin's API - `config()` loads the app's `index.ts` settings. */
+/** The plugin's API - `config()` loads the app's settings: `index.dev.ts`'s when it exists, else `index.ts`'s. */
 export interface Host {
   config(): Promise<Settings>;
 }
@@ -80,7 +84,11 @@ export function host(dotenv: boolean): Plugin<Host> {
   let serverId: string;
   let prerenderId: string;
   let callId: string;
+  let settingsId: string;
+  let indexId: string;
   let htmlId: string;
+  let vite: ViteDevServer | undefined;
+  let layout: string | undefined;
   let runner: ModuleRunner | undefined;
   let exposure = new Exposure();
   let build: "client" | "server" | undefined;
@@ -107,13 +115,32 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const remoteAt = (file: string) => (project.appDir ? remoteOf(project.appDir, file) : undefined);
 
+  const entries = () => [join(root, "index.ts"), join(root, "index.dev.ts")].map(file => existsSync(file) && file);
+
   const api: Host = {
     async config() {
       if (!runner) throw new Error("The dev server is not running.");
-      if (!project.configPath) return {};
 
-      const module = await runner.import(project.configPath);
-      return check(module.default ?? {}, Object.keys(module));
+      const files = `${entries()}`;
+
+      if (layout !== files) {
+        const graph = vite!.environments.ssr.moduleGraph;
+
+        for (const id of [settingsId, indexId]) {
+          const mod = graph.getModuleById(id);
+          if (mod) graph.invalidateModule(mod);
+        }
+
+        if (layout !== undefined) runner.evaluatedModules.clear();
+        layout = files;
+      }
+
+      const { index, dev } = await runner.import(settingsId);
+
+      if (index) check(index.before ?? {}, index.exports);
+      if (dev) return check(dev.default ?? {}, Object.keys(dev), "index.dev.ts");
+
+      return index?.settings ?? {};
     },
   };
 
@@ -167,6 +194,8 @@ export function host(dotenv: boolean): Plugin<Host> {
       serverId = join(generatedDir, SERVER);
       prerenderId = join(generatedDir, PRERENDER);
       callId = join(generatedDir, CALL);
+      settingsId = join(generatedDir, SETTINGS);
+      indexId = join(generatedDir, INDEX);
       htmlId = join(root, "index.html");
     },
 
@@ -197,6 +226,8 @@ export function host(dotenv: boolean): Plugin<Host> {
         case serverId:
         case prerenderId:
         case callId:
+        case settingsId:
+        case indexId:
           return generated;
       }
 
@@ -251,6 +282,19 @@ export function host(dotenv: boolean): Plugin<Host> {
           const { sources } = await staticPaths(project.appDir, scanExports);
           return prerenderEntry(`./${ROUTES}`, sources.map(file => importRel(generatedDir, file)));
         }
+        case settingsId: {
+          const [index, dev] = entries();
+
+          return [index && `export * as index from "./${INDEX}";`, dev && `export * as dev from ${JSON.stringify(importRel(generatedDir, dev))};`].filter(Boolean).join("\n") + "\n";
+        }
+        case indexId:
+          return [
+            `import * as module from ${JSON.stringify(importRel(generatedDir, join(root, "index.ts")))};`,
+            "export const exports = Object.keys(module);",
+            "export const settings = module.default;",
+            `export const before = settings && typeof settings == "object" ? { ...settings } : settings;`,
+            "",
+          ].join("\n");
         case htmlId:
           return project.htmlPath ? undefined : SHELL;
       }
@@ -277,7 +321,9 @@ export function host(dotenv: boolean): Plugin<Host> {
     },
 
     configureServer(server) {
+      vite = server;
       const host = (runner = createServerModuleRunner(server.environments.ssr));
+      const bound = new WeakMap<object, Promise<Partial<Env>>>();
       install();
       watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate());
 
@@ -286,6 +332,23 @@ export function host(dotenv: boolean): Plugin<Host> {
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
       const replayed = new WeakSet<object>();
       const skipped = skipList(server);
+
+      const bindings = async (settings: Settings) => {
+        const { env } = settings;
+
+        if (!env) return {};
+
+        const value = bound.get(env) ?? (async () => settings.env!())();
+
+        bound.set(env, value);
+
+        try {
+          return await value;
+        } catch (error) {
+          bound.delete(env);
+          throw error;
+        }
+      };
 
       const gates: Seats = async pattern => {
         const remote = project.appDir && remoteEntries(project.appDir).find(remote => remote.pattern.join("/") === pattern.join("/"));
@@ -338,7 +401,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           };
 
           const app = compose(settings, { sidecars: endpoints, gates, dev: true });
-          const reply = await app(request, { ctx, assets });
+          const reply = await app(request, { env: layered(await bindings(settings)), ctx, assets });
 
           if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) {
             if (fell?.error) server.config.logger.error(`${fell.error}`);

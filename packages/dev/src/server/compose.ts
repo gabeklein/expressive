@@ -15,7 +15,8 @@ const noop = () => {};
 
 /** The app from an entry's settings and the remotes a host composes it with. */
 export function compose(settings: Settings = {}, { sidecars = () => [], gates, dev = false }: Parts = {}): App {
-  const { handle } = check(settings);
+  const { env: _, ...read } = settings;
+  const { handle } = check(read);
 
   return async (request, { env = {}, ctx, assets } = {}) => {
     const filled = fill(ctx);

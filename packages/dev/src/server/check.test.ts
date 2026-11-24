@@ -19,6 +19,14 @@ describe("check", () => {
 
   it("will throw for a bindings export, pointing at index.dev.ts", () => {
     expect(() => check({}, ["default", "bindings"])).toThrow("`bindings` became `config.env`, set in index.dev.ts.");
+    expect(() => check({}, ["default", "bindings"], "index.dev.ts")).toThrow("index.dev.ts: `bindings` became `config.env`");
+  });
+
+  it("will read env from index.dev.ts only", () => {
+    const settings = { port: 1, env: () => ({}) };
+
+    expect(check(settings, ["default"], "index.dev.ts")).toBe(settings);
+    expect(() => check({ around() {} }, [], "index.dev.ts")).toThrow("index.dev.ts: `fetch` and `around` became `handle`.");
   });
 
   it("will throw for host off the fetch target", () => {
