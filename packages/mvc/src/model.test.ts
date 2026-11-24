@@ -3507,7 +3507,7 @@ describe('new method (static)', () => {
     ['number', [42]],
     ['nested', [{}, ['user-42']]]
   ])('will throw on a %s key', (_, args) => {
-    const message = 'Test.new() takes no key - override static new to resolve one';
+    const message = 'Test.new() takes no key';
     const Ctor = Test as new (...args: unknown[]) => Test;
     const create = Test.new as (...args: unknown[]) => Test;
 

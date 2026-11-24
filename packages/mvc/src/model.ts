@@ -583,7 +583,7 @@ abstract class Model {
    * Construct and activate an instance - unlike `new`, which only constructs.
    *
    * Args apply in order: objects assign, functions run as init callbacks, the first `Context` homes it.
-   * A string or number throws - override to resolve a key into args.
+   * A string or number throws.
    * Effects and `ready` wait for any async setup.
    *
    * @example
@@ -729,7 +729,7 @@ function init(state: Model, ...args: Model.Args) {
   args.forEach(function reject(arg) {
     if (Array.isArray(arg)) arg.forEach(reject);
     else if (typeof arg == 'string' || typeof arg == 'number')
-      throw new Error(`${T}.new() takes no key - override static new to resolve one`);
+      throw new Error(`${T}.new() takes no key`);
   });
 
   if (!ANNOUNCED) {
