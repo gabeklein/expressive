@@ -736,7 +736,7 @@ function init(state: Model, ...args: Model.Args) {
 
     PENDING.delete(state);
 
-    if (key === null) return null;
+    if (key === null) return discard(state, rest);
 
     const o = observer(state, true);
     const mark = () => void PENDING.delete(mark);
@@ -1079,6 +1079,29 @@ function trailing(state: object) {
     else if (item instanceof Model) rest.push(item);
 
   return rest;
+}
+
+/**
+ * Release what an instance destroyed before activation built - Models its
+ * fields hold are destroyed, those built before the last one only released.
+ */
+function discard(state: Model, rest: Model[]) {
+  const held = new Set<unknown>();
+
+  for (const { value } of Object.values(Object.getOwnPropertyDescriptors(state)))
+    if (Array.isArray(value)) value.forEach((item) => held.add(item));
+    else held.add(value);
+
+  let end = rest.length;
+
+  while (end-- > 0 && !held.has(rest[end]));
+
+  for (const item of rest.slice(0, end + 1))
+    if (!PENDING.has(item)) continue;
+    else if (held.has(item)) item.set(null);
+    else PENDING.delete(item);
+
+  return null;
 }
 
 /**
