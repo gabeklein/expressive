@@ -28,6 +28,7 @@ app/                  file-based routes
   blog/remote/        sidecar      or a folder of them, any depth
 app.tsx | src/app.tsx single root component instead of app/ (default export)
 index.ts              optional server entry: export default config({ port, handle, target, host })
+index.dev.ts          optional, dev only: index.ts's settings plus env() - see env and index.dev.ts
 index.html            optional shell (#root and the entry script injected if missing)
 vite.config.ts        optional, merged under the host's
 .env, .env.*          optional - see Environment
@@ -137,16 +138,87 @@ export default config({
 - Below it: a remote call, else the page - Node: file, `<path>/index.html`, shell from `dist/client`, else 404. Dev: a `public/` file, else the shell for a navigation. `fetch` target: 404.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
 
-`env` - the host's bindings, `{}` on Node and in dev. Type it: `declare module "@expressive/dev" { interface Env { API_KEY: string } }`.
+`env` - the request's bindings, below.
 
 Tests: `compose(settings)` from `@expressive/dev/server` - the app without remotes, pages from a stub: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`.
+
+## env and index.dev.ts
+
+`handle`'s `env` and `Current.get().env`:
+- `fetch` target: the host's `env` object as is.
+- Node and dev: read-only - `index.dev.ts`'s `env()` (dev), then `process.env`, then `.env` files; the first with the key wins. `env()` returns only live objects; strings come from `.env`.
+
+`expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists; the build never does, so its imports reach no bundle. `env` set in `index.ts`, or a `bindings` export, fails dev and the build. `env()` is called once, again after a throw or a reload of `index.dev.ts`.
+
+A D1 binding `DB` on Workers, a local SQLite file in dev:
+
+```ts
+// types.d.ts - the import line keeps this an augmentation; without it, it replaces dev's types
+import type { Db } from "./db";
+
+declare module "@expressive/dev" {
+  interface Env {
+    DB: Db;
+  }
+}
+```
+
+```ts
+// db.ts - what the app needs; a D1 binding fits as is
+import { Current } from "@expressive/dev/server";
+
+export interface Db {
+  prepare(query: string): {
+    bind(...values: unknown[]): {
+      all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
+    };
+  };
+}
+
+export const db = () => Current.get().env.DB;
+```
+
+```ts
+// index.ts
+import { config } from "@expressive/dev";
+
+export default config({
+  target: "fetch",
+});
+```
+
+```ts
+// index.dev.ts - import "./index", not "./index.ts", so tsconfig needs no extra flag
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { Db } from "./db";
+import settings from "./index";
+
+const file = new DatabaseSync("local.db");
+
+const DB: Db = {
+  prepare: query => ({
+    bind: (...values) => ({
+      all: async () => ({ results: file.prepare(query).all(...(values as SQLInputValue[])) as never[] }),
+    }),
+  }),
+};
+
+settings.env = () => ({ DB });
+
+export default settings;
+```
+
+- Calls read it alike in dev and on the Worker: `await db().prepare("select text from notes").bind().all<{ text: string }>()`.
+- `node:sqlite` needs Node 22.13+. Dev runs no migrations - create the tables first.
+- Keys `expressive env` declares type `env` too.
+- On Node, open an app-owned database in a module instead.
 
 ## Fetch target
 
 `config({ target: "fetch" })` builds `dist/server/index.js` as a module, every dependency bundled, for a host that calls its default export's `fetch(request, env, ctx)`.
 
 - `host(app)` returns the default export - platform handlers (`scheduled`) go there; without `fetch` it gets `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. Dev never calls it; on Node it fails the build.
-- `env` is the host's second `fetch` argument - in `handle` and `Current.get().env`.
+- `env` is the host's second `fetch` argument - in `handle` and `Current.get().env` - with no `process.env` or `.env` layer.
 - Named exports of `index.ts` are re-exported - listed ones, not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
 - Folder gates do not run: a remote entry with a default fails the build, and in dev the calls below it. Remote functions only.
