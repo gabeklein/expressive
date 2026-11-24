@@ -345,6 +345,15 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 - When a root `api/` exists, `app/api/`, `app/api.tsx`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
 - `api/` routes are not prerendered.
 
+**Settled in PR 6:**
+
+- 404 and 405 replies are JSON `{ message }`; only the 405 carries `Allow` (a 404 has no methods to list). The 404 names the path and says `/api` belongs to `api/`.
+- A trailing slash is an empty segment, so `/api/logout/` is a 404. A `[...]` param is the rest of the path joined with `/`, decoded, under `"*"`.
+- Naming errors beyond the note's: a `(name)` folder, a `[...]` folder (it takes the rest - a file only), and two `[param]` names in one folder (`[id].ts` beside `[slug]/`), which would take the same segment.
+- A runtime export check at load backs the build's static one: a class `default` in a folder `index.ts` (imported or not) and a verb or `default` that isn't a function fail as the module loads - in dev that request answers a 500 naming the file; a Node build throws before listening; a fetch build at module load. A naming error in dev fails every `/api` request the same way until fixed; the reservations fail the dev server at start.
+- The prefix is `base` + `api`, carried by each generated entry.
+- Generated tables: Node's `listen({ ..., api: { prefix, routes: [{ name, path, index, module }] } })`, and `/fetch`'s `compose(settings, sidecars, manifest, apiModules, apiRefs, pages)` with `apiRefs` `{ prefix, routes: [{ name, path, index }] }` in `apiModules`' order (`null` without `api/`), its type exported beside `FolderRefs` as entry plumbing.
+
 ### Dropping in a fetch handler
 
 A library or app with the platform's fetch signature, `(request, env, ctx) => Response` (Hono, an auth library's `handler`, a tRPC fetch adapter), mounts in a catch-all by returning the handler:

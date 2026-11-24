@@ -1,0 +1,5 @@
+---
+"@expressive/dev": minor
+---
+
+`api/` routes. A root `api/` folder beside `app/` serves HTTP routes under `/api`, by location in `app/`'s path syntax: `api/photo/[id].ts` serves `/api/photo/:id`, `api/auth/[...].ts` serves `/api/auth/*`. A module exports `GET`, `POST`, `PUT`, `PATCH`, `DELETE` or `OPTIONS` - HEAD runs `GET`, another method is a 405 with `Allow` - or a `default` that answers every method, where a returned function is a fetch handler called with `(request, env, ctx)`, so `export default () => hono.fetch` mounts an app. A folder `index.ts`'s `default` is its gate, run before everything below it - unmatched paths included - and its Models are in context until the request ends. Routes read the request from `Current`. Matching is exact with no backtracking; an unmatched path is a JSON 404, never the shell. The dev server and the build fail on a module with no handler, any other runtime export, a class gate, a misnamed file, something else serving `/api` (`app/api/`, `public/api/`), and a client import from `api/`. Served in dev, on Node and on the fetch target; in dev an edit lands on the next request.
