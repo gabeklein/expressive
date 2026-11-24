@@ -134,7 +134,8 @@ export default config({
 - `next()` resolves a `Response` with mutable headers (101 as is); a throw below resolves its error reply. A discarded reply's body is cancelled.
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
-- Below it: a remote call, else the page - Node: file, `<path>/index.html`, shell from `dist/client`, else 404. Dev: a `public/` file, else the shell for a navigation. `fetch` target: 404.
+- Below it: a remote call, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: a `public/` file. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
+- Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
 
 `env` - the host's bindings, `{}` on Node and in dev. Type it: `declare module "@expressive/dev" { interface Env { API_KEY: string } }`.
@@ -153,35 +154,24 @@ Tests: `compose(settings)` from `@expressive/dev/server` - the app without remot
 - The bundle imports `node:async_hooks` and `node:crypto`.
 - No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 
-Cloudflare Workers with static assets - a D1 session per request, the shell for client routes from `ASSETS`, a cron:
+Cloudflare Workers with static assets - a D1 session per request, a cron; pages and the shell come from `ASSETS`:
 
 ```ts
 // index.ts - d1 is app code wrapping a D1 binding in sql's Engine
 import { config, type Env } from "@expressive/dev";
 
-declare module "@expressive/dev" { interface Env { ASSETS?: Fetcher; DB: D1Database } }
+declare module "@expressive/dev" { interface Env { DB: D1Database } }
 
 export default config({
   target: "fetch",
-  handle: ({ request, env, next }) => db.session(async () => {
-    const reply = await next();
-    if (reply.status !== 404 || !env.ASSETS || request.method !== "GET") return reply;
-
-    const found = await env.ASSETS.fetch(request);
-    if (found.status !== 404) return found;
-
-    for (const shell of ["/200", "/"]) {
-      const page = await env.ASSETS.fetch(new URL(shell, request.url));
-      if (page.ok) return page;
-    }
-
-    return reply;
-  }, d1(env.DB)),
+  handle: ({ env, next }) => db.session(next, d1(env.DB)),
   host: () => ({
     scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
   }),
 });
 ```
+
+The binding must be named `ASSETS`; under another name, pass it: `host: app => ({ fetch: (r, env, ctx) => app(r, { env, ctx, assets: env.STATIC }) })`.
 
 `wrangler.jsonc`: `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`, `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*", "!/assets/*"] }`. Without `run_worker_first` a call to a path with a file (a root remote's, `/`) gets 405. Leave `not_found_handling` unset - single-page mode serves the prerendered home page for client routes.
 

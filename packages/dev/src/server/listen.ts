@@ -6,7 +6,7 @@ import { send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import type { Settings } from "../settings";
-import { compose } from "./compose";
+import { compose, type Pages } from "./compose";
 import { install } from "./install";
 
 const MIME: Record<string, string> = {
@@ -66,20 +66,21 @@ export interface ListenOptions {
   client: string;
   sidecars?: Endpoint[];
   gates?: { pattern: string[]; gate: () => unknown }[];
+  pages?: Pages;
 }
 
 /**
  * Entry plumbing, not app API: the production server the generated entry starts, booted by `dist/server/index.js`.
  *
- * Composes the app `settings` over `client` - a file, a page's `<path>/index.html`, else the `200.html` or `index.html` shell, else 404 - caching `/assets/` immutably.
+ * Composes the app `settings` over `client` - for GET and HEAD, a file, else a page's `<path>/index.html`, else the `200.html` or `index.html` shell by the page rule, else 404 - caching `assetsDir` immutably.
  * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
  */
-export function listen({ settings, client, sidecars = [], gates = [] }: ListenOptions): Server {
+export function listen({ settings, client, sidecars = [], gates = [], pages = { patterns: [] } }: ListenOptions): Server {
   install();
 
   const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
-  const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")) });
-  const assets = { fetch: async (request: Request) => files(client, new URL(request.url).pathname) };
+  const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), pages });
+  const assets = { fetch: async (request: Request) => files(client, request, `/${pages.assetsDir ?? "assets"}/`) };
 
   const server = createServer((req, res) => void handle(req, res).catch(() => {
     res.statusCode = 400;
@@ -104,12 +105,12 @@ export function listen({ settings, client, sidecars = [], gates = [] }: ListenOp
   return server;
 }
 
-function files(client: string, pathname: string): Response {
-  const asset = fileResponse(client, pathname);
+function files(client: string, { url }: Request, immutable: string): Response {
+  const { pathname } = new URL(url);
+  const found = fileResponse(client, pathname) ?? fileResponse(client, join(pathname, "index.html"));
 
-  if (asset && pathname.startsWith("/assets/")) asset.headers.set("cache-control", "public, max-age=31536000, immutable");
+  if (!found) return new Response("Not found", { status: 404 });
+  if (pathname.startsWith(immutable)) found.headers.set("cache-control", "public, max-age=31536000, immutable");
 
-  const found = asset ?? fileResponse(client, join(pathname, "index.html")) ?? fileResponse(client, "/200.html") ?? fileResponse(client, "/index.html");
-
-  return found ?? new Response("Not found", { status: 404 });
+  return found;
 }

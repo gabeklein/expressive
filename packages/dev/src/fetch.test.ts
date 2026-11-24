@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Current, HttpError } from "@expressive/rpc";
 
 import { compose, type FolderRefs } from "./fetch";
+import type { App } from "./settings";
 
 class Taken extends HttpError {
   status = 409;
@@ -43,6 +44,19 @@ describe("compose", () => {
     expect(await json(fetch(post("name", []), { NAME: "prod" } as object))).toEqual({ value: "prod" });
     expect(await json(fetch(post("name", [])))).toEqual({});
     expect((await fetch(new Request("http://localhost/"))).status).toBe(404);
+  });
+
+  it("will serve pages from env.ASSETS by default, with the shell for a page route", async () => {
+    const ASSETS = { fetch: vi.fn(async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 })) };
+    let app!: App;
+    const { fetch } = compose({ target: "fetch", host: composed => ((app = composed), {}) }, [], [], { patterns: ["/blog/:slug"] });
+    const blog = new Request("http://localhost/blog/a");
+
+    expect(await (await fetch(blog, { ASSETS } as object)).text()).toBe("shell");
+    expect(await (await app(blog, { env: { ASSETS } as object, assets: { fetch: async () => new Response("own") } })).text()).toBe("own");
+    expect((await fetch(blog, { ASSETS: {} } as object)).status).toBe(404);
+    expect((await app(blog)).status).toBe(404);
+    expect(ASSETS.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("will reply a thrown error class with its status", async () => {

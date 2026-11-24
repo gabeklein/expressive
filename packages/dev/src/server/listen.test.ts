@@ -81,7 +81,7 @@ describe("listen", () => {
     vi.restoreAllMocks();
   });
 
-  it("will serve a prerendered page, else the 200.html shell", async () => {
+  it("will serve a prerendered page, else the 200.html shell by the page rule", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     mkdirSync(join(dir, "about"));
@@ -89,16 +89,25 @@ describe("listen", () => {
     writeFileSync(join(dir, "200.html"), "shell");
     writeFileSync(join(dir, "about", "index.html"), "about");
 
-    const server = listen({ settings: { port: 0 }, client: dir });
+    const server = listen({ settings: { port: 0 }, client: dir, pages: { patterns: ["/", "/about", "/blog/:slug"], assetsDir: "static" } });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const text = async (path: string) => (await fetch(base + path)).text();
+    const html = { accept: "text/html" };
+    const get = async (path: string, init?: RequestInit) => {
+      const reply = await fetch(base + path, init);
+      return `${reply.status} ${await reply.text()}`;
+    };
 
-    expect(await text("/")).toBe("home");
-    expect(await text("/about")).toBe("about");
-    expect(await text("/about/")).toBe("about");
-    expect(await text("/blog/one")).toBe("shell");
+    expect(await get("/")).toBe("200 home");
+    expect(await get("/about")).toBe("200 about");
+    expect(await get("/about/")).toBe("200 about");
+    expect(await get("/blog/one")).toBe("200 shell");
+    expect(await get("/nope", { headers: html })).toBe("404 shell");
+    expect(await get("/nope")).toBe("404 Not found");
+    expect(await get("/static/gone.js", { headers: html })).toBe("404 Not found");
+    expect(await get("/blog/one", { method: "POST", headers: html })).toBe("404 Not found.");
+    expect(await get("/about", { method: "POST" })).toBe("404 Not found.");
 
     server.closeAllConnections();
     server.close();
@@ -134,7 +143,7 @@ describe("listen", () => {
     };
 
     const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
-    const server = listen({ settings, client: dir, sidecars: [{ pattern: ["tally"], exports } as any] });
+    const server = listen({ settings, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], pages: { patterns: ["/invite/:code"] } });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;

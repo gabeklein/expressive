@@ -441,12 +441,13 @@ describe("vite host", () => {
     await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("only modules in app/tally/ and below may call it");
   });
 
-  async function buildBoth(files: Record<string, string>, options: { env?: boolean } = {}) {
+  async function buildBoth(files: Record<string, string>, { assetsDir, ...options }: { env?: boolean; assetsDir?: string } = {}) {
     const root = project(files);
     const quiet = (config: InlineConfig) => {
       config.configFile = false;
       config.logLevel = "silent";
       config.resolve = SOURCES;
+      if (assetsDir) config.build!.assetsDir = assetsDir;
       config.build!.rollupOptions = { ...config.build!.rollupOptions, external: ["@expressive/dev", "@expressive/dev/server"] };
       return config;
     };
@@ -469,6 +470,7 @@ describe("vite host", () => {
     });
 
     expect(server).toMatch(/pattern: \["blog", ":slug"\]/);
+    expect(server).toMatch(/"patterns": \["\/", "\/blog\/:slug"\]/);
     expect(server).toContain("a + b");
     expect(server).not.toContain("secret");
 
@@ -670,10 +672,22 @@ describe("vite host", () => {
     await server.listen(0);
 
     const page = await fetch(new URL("/", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
+    const unknown = await fetch(new URL("/nope", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
     const html = await page.text();
 
     expect(html).toContain("<p>mine</p>");
     expect(html).toContain('<div id="root"></div>');
+    expect([page.status, unknown.status]).toEqual([200, 404]);
+    expect(await unknown.text()).toContain("<p>mine</p>");
+  });
+
+  it("will answer every navigation with the shell as 200 in a single-file project", async () => {
+    const server = await serve(project({ "app.tsx": "export default () => null" }));
+    await server.listen(0);
+
+    const page = await fetch(new URL("/deep/link", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
+
+    expect([page.status, page.headers.get("vary")]).toEqual([200, "Accept"]);
   });
 
   it("will leave requests that are not for a page to Vite", async () => {
@@ -725,6 +739,22 @@ describe("vite host", () => {
     expect(sent).toEqual([{ type: "full-reload" }, { type: "full-reload" }]);
   });
 
+  it("will rescan page routes after a change under app/, and after a scan that failed", async () => {
+    const root = realpathSync(project({ "app/index.tsx": PAGE }));
+    const server = await serve(root);
+    await server.listen(0);
+    const status = async (path: string) => (await fetch(new URL(path, server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } })).status;
+
+    expect(await status("/about")).toBe(404);
+
+    writeFileSync(join(root, "app/(about).tsx"), "export function Page( {");
+    server.watcher.emit("add", join(root, "app/(about).tsx"));
+    expect(await status("/about")).toBe(500);
+
+    writeFileSync(join(root, "app/(about).tsx"), PAGE);
+    expect(await status("/about")).toBe(200);
+  });
+
   it("will reload the page when an edit changes the route tree", async () => {
     const root = realpathSync(project({
       "app/index.tsx": PAGE,
@@ -759,10 +789,11 @@ describe("vite host", () => {
     expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain("Layout as RootLayout");
   });
 
-  it("builds the node service for a single-file project", async () => {
-    const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" });
+  it("builds the node service for a single-file project, with no page patterns", async () => {
+    const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" }, { assetsDir: "static/" });
 
     expect(server).toContain('from "@expressive/dev/server"');
+    expect(server).toContain(`pages: { "assetsDir": "static" }`);
   });
 
   const FETCH = {
@@ -821,6 +852,11 @@ describe("vite host", () => {
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod" });
     expect((await handler.fetch(new Request("http://localhost/"), env, ctx)).headers.get("x-handled")).toBe("1");
+
+    const ASSETS = { fetch: async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 }) };
+    const page = (path: string) => handler.fetch(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }), { ...env, ASSETS }, ctx);
+
+    expect([(await page("/shop")).status, (await page("/nope")).status, await (await page("/nope")).text()]).toEqual([200, 404, "shell"]);
     expect(Object.keys(handler).sort()).toEqual(["cron", "fetch"]);
     expect(handler.cron(env)).toEqual(["prod", "function"]);
     expect(Object.keys(named)).toEqual(["Counter"]);
@@ -861,14 +897,15 @@ describe("vite host", () => {
     expect([refused.status, (await refused.json()).message]).toEqual([500, "no session"]);
     expect(await (await fetch(at("/hello"))).json()).toEqual({ name: null });
     expect(await shell.text()).toMatch(/\/@vite\/client[^]*<div id="root"><\/div>/);
-    expect(shell.headers.get("x-handled")).toBe("1");
+    expect([shell.status, shell.headers.get("x-handled")]).toEqual([404, "1"]);
+    expect((await fetch(at("/shop"), { headers: { accept: "text/html" } })).status).toBe(200);
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
     expect([missing.status, missing.headers.get("x-handled"), missing.headers.has("x-expressive-fell")]).toEqual([404, "1", false]);
 
     for (const path of ["/@vite/client", "/app/index.tsx", "/index.ts?import", "/.expressive/main.tsx"]) await fetch(at(path));
 
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
-    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/robots.txt"]);
+    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt"]);
     delete (globalThis as any).hostCurrent;
     delete (globalThis as any).handled;
   });
