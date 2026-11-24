@@ -975,12 +975,11 @@ describe("vite host", () => {
     delete (globalThis as any).handled;
   });
 
-  it("will skip handle outside base, under a proxy, for Vite's flags and for source files outside public/ and api/", async () => {
+  it("will skip handle outside base, under a proxy, for Vite's flags and for source files outside public/", async () => {
     const root = realpathSync(project({
       "index.ts": "export default { handle({ request }: any) { ((globalThis as any).handled ??= []).push(new URL(request.url).pathname + new URL(request.url).search); return new Response('handled'); } };",
       "app/index.tsx": PAGE,
       "public/robots.txt": "robots",
-      "api/hook.ts": "export {};",
       "src/util.ts": "export {};",
     }));
     (globalThis as any).handled = [];
@@ -998,10 +997,10 @@ describe("vite host", () => {
     await server.listen(0);
     const origin = new URL(server.resolvedUrls!.local[0]).origin;
 
-    for (const path of ["/outside", "/proxied/a", "/re/b", "/base/src/util.ts", "/base/x?url", "/base/x?raw=", "/base/robots.txt", "/base/api/hook.ts", "/base/x?url=https://a", "/base/%E0", "/base/page"])
+    for (const path of ["/outside", "/proxied/a", "/re/b", "/base/src/util.ts", "/base/x?url", "/base/x?raw=", "/base/robots.txt", "/base/x?url=https://a", "/base/%E0", "/base/page"])
       await fetch(origin + path).catch(() => {});
 
-    expect((globalThis as any).handled.splice(0)).toEqual(["/base/robots.txt", "/base/api/hook.ts", "/base/x?url=https://a", "/base/%E0", "/base/page"]);
+    expect((globalThis as any).handled.splice(0)).toEqual(["/base/robots.txt", "/base/x?url=https://a", "/base/%E0", "/base/page"]);
     delete (globalThis as any).handled;
   });
 
@@ -1059,10 +1058,10 @@ describe("vite host", () => {
     error.mockRestore();
   });
 
-  it("will pass a shell that fails to transform under handle to Vite's error handler", async () => {
+  it("will pass a shell that fails to transform under handle to Vite's error handler, or log it under a reply of handle's own", async () => {
     const boom = { name: "boom", transformIndexHtml() { throw new Error("boom"); } };
     const server = await createServer({
-      root: project({ "index.ts": "export default { handle: () => {} };", "app/index.tsx": PAGE }),
+      root: project({ "index.ts": "export default { async handle({ request, next }: any) { const reply = await next(); if (request.headers.has('x-own')) return new Response('own'); } };", "app/index.tsx": PAGE }),
       configFile: false,
       logLevel: "silent",
       plugins: [expressive(), boom],
@@ -1073,7 +1072,20 @@ describe("vite host", () => {
     servers.push(server);
     await server.listen(0);
 
+    const error = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
+
     expect((await fetch(new URL("/", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } })).status).toBe(500);
+    expect(await (await fetch(new URL("/", server.resolvedUrls!.local[0]), { headers: { accept: "text/html", "x-own": "1" } })).text()).toBe("own");
+    expect(error).toHaveBeenCalledWith("Error: boom");
+  });
+
+  it("will serve Vite's own requests while index.ts fails its check", async () => {
+    const server = await serve(project({ "index.ts": "export default { around: (next: any) => next() };", "app/index.tsx": PAGE }));
+    await server.listen(0);
+    const at = (path: string) => new URL(path, server.resolvedUrls!.local[0]);
+
+    expect((await fetch(at("/@vite/client"))).status).toBe(200);
+    expect((await fetch(at("/"), { headers: { accept: "text/html" } })).status).toBe(500);
   });
 
   it("will refuse a seat or a pooled class under the fetch target", async () => {

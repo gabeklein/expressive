@@ -174,6 +174,19 @@ describe("handle", () => {
     expect(() => late()).toThrow("next() was called after handle returned - await it inside handle.");
   });
 
+  it("will resolve next with an error reply for a reply it cannot copy", async () => {
+    const statuses: number[] = [];
+    const app = compose({
+      async handle({ next }) {
+        statuses.push((await next()).status);
+        return new Response("own");
+      },
+    });
+
+    expect(await (await app(page("/"), { assets: { fetch: async () => Response.error() } })).text()).toBe("own");
+    expect(statuses).toEqual([500]);
+  });
+
   it("will throw for a return value other than a Response or nothing", async () => {
     const app = compose({ handle: (() => "hello") as never });
 
@@ -231,7 +244,7 @@ describe("handle", () => {
     expect(await (await compose({ handle })(page("/"), { assets })).json()).toEqual({ message: "Internal error." });
     expect(await (await compose({ handle }, { dev: true })(page("/"), { assets })).json()).toEqual({ message: "no session" });
     expect(await (await compose({ handle }, { sidecars })(call("add", [1, 1]))).json()).toEqual({ message: "Internal error." });
-    expect(error).toHaveBeenCalledWith(new Error("no session"));
+    expect(error).toHaveBeenCalledTimes(3);
   });
 
   it("will give handle the host's env and ctx, with stand-ins for what the host lacks", async () => {

@@ -24,11 +24,11 @@ export function compose<E extends Exports>(settings: Settings = {}, { sidecars =
     const below = async (forward: Request): Promise<Response> => {
       bind(forward, env as Env, filled);
 
-      if (isCall(forward)) return dispatch(forward, sidecars, dev, seats, tier).catch(error => failure(error, sidecars(), dev));
+      if (isCall(forward)) return dispatch(forward, sidecars, dev, seats, tier).then(mutable).catch(error => failure(error, sidecars(), dev));
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {
-        return await assets.fetch(forward);
+        return mutable(await assets.fetch(forward));
       } catch (error) {
         return refuse(error, dev);
       }
@@ -39,7 +39,10 @@ export function compose<E extends Exports>(settings: Settings = {}, { sidecars =
     try {
       return await around(handle, { request, env: env as Env, ctx: filled }, below);
     } catch (error) {
-      return isCall(request) ? failure(error, sidecars(), dev) : refuse(error, dev);
+      if (!isCall(request)) return refuse(error, dev);
+      if (!(error instanceof HttpError)) console.error(error);
+
+      return failure(error, sidecars(), dev);
     }
   };
 }
@@ -48,7 +51,7 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
   let taken: Promise<Response> | undefined;
   let returned = false;
 
-  const take = (request: Request) => (taken = below(request).then(mutable));
+  const take = (request: Request) => (taken = below(request));
 
   const next = (request?: Request) => {
     if (returned) throw new Error("next() was called after handle returned - await it inside handle.");
@@ -67,12 +70,12 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
     if (result === undefined) return await (taken ?? take(args.request));
     if (!(result instanceof Response)) throw new TypeError(`handle returned ${kind(result)} - return a Response, or nothing to pass.`);
 
-    void taken?.then(reply => discard(reply, result));
+    void taken?.then(reply => discard(reply, result), noop);
 
     return result;
   } catch (error) {
     returned = true;
-    void taken?.then(reply => discard(reply));
+    void taken?.then(reply => discard(reply), noop);
     throw error;
   }
 }

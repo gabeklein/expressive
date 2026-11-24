@@ -17,7 +17,7 @@ export interface FolderRefs {
 /**
  * Entry plumbing, not app API: the `target: "fetch"` bundle's default export, which the generated entry builds.
  *
- * `settings.host`'s value given the app, with a default `fetch(request, env, ctx)` where it has none.
+ * `settings.host`'s value given the app - an object without a `fetch` method gets the default `fetch(request, env, ctx)`; a class is exported as is.
  * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */
 export function compose(settings: Settings, modules: Record<string, unknown>[], manifest: FolderRefs[]): { fetch(request: Request, env?: Env, ctx?: Partial<ExecutionCtx>): Promise<Response> } {
@@ -39,8 +39,11 @@ export function compose(settings: Settings, modules: Record<string, unknown>[], 
 
   const composed = app(settings, { sidecars: () => sidecars });
 
-  return {
-    fetch: (request: Request, env?: Env, ctx?: Partial<ExecutionCtx>) => composed(request, { env, ctx }),
-    ...settings.host?.(composed),
-  };
+  const fetch = (request: Request, env?: Env, ctx?: Partial<ExecutionCtx>) => composed(request, { env, ctx });
+  const exported = settings.host?.(composed) as { fetch?: unknown } | undefined;
+
+  if (!exported) return { fetch };
+  if (typeof exported == "function" || typeof exported.fetch == "function") return exported as ReturnType<typeof compose>;
+
+  return Object.assign(exported, { fetch });
 }

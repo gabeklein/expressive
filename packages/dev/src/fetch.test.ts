@@ -81,6 +81,19 @@ describe("compose", () => {
     expect(compose({ target: "fetch", host: () => own }, [], []).fetch).toBe(own.fetch);
   });
 
+  it("will keep host's value itself - its prototype, or a class as is", () => {
+    class Worker {
+      scheduled() {}
+    }
+    class Entry {}
+    const worker = new Worker();
+    const exported = compose({ target: "fetch", host: () => worker }, [], []) as Worker & { fetch: unknown };
+
+    expect(exported).toBe(worker);
+    expect(typeof exported.fetch).toBe("function");
+    expect(compose({ target: "fetch", host: () => Entry }, [], [])).toBe(Entry);
+  });
+
   it("will throw on creation if a ref names no export", () => {
     expect(() => compose({}, [tally], [{ pattern: ["shop"], calls: { price: [1, "price"] }, classes: {} }]))
       .toThrow("/shop has no export price.");

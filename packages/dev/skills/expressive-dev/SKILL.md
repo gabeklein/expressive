@@ -188,6 +188,9 @@ export default config({
     const reply = await next();
     if (reply.status !== 404 || !env.ASSETS || request.method !== "GET") return reply;
 
+    const found = await env.ASSETS.fetch(request);
+    if (found.status !== 404) return found;
+
     for (const shell of ["/200", "/"]) {
       const page = await env.ASSETS.fetch(new URL(shell, request.url));
       if (page.ok) return page;

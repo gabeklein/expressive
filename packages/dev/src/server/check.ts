@@ -16,6 +16,7 @@ export function check(settings: unknown, exports: Iterable<string> = []): Settin
   for (const [key, value] of Object.entries(settings)) {
     if (KEYS.has(key)) continue;
     if (key === "fetch" || key === "around") fail("`fetch` and `around` became `handle`.");
+    if (key === "env") fail("`env` is set in index.dev.ts, never index.ts.");
     if (typeof value == "function") fail(`\`${key}\` goes in \`host\`.`);
 
     fail(`\`${key}\` is not a setting.`);

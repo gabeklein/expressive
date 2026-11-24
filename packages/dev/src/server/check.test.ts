@@ -14,6 +14,7 @@ describe("check", () => {
     expect(() => check({ around() {} })).toThrow("`fetch` and `around` became `handle`.");
     expect(() => check({ scheduled() {} })).toThrow("`scheduled` goes in `host`.");
     expect(() => check({ ports: 1 })).toThrow("`ports` is not a setting.");
+    expect(() => check({ env: () => ({}) })).toThrow("`env` is set in index.dev.ts, never index.ts.");
   });
 
   it("will throw for a bindings export, pointing at index.dev.ts", () => {

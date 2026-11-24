@@ -38,7 +38,7 @@ export interface Settings {
    * Requests keep no state between them - a remote that default-exports a seat or exports a Model class fails the build.
    */
   target?: "node" | "fetch";
-  /** Port to listen on, on Node and in dev - production defaults to 3000, dev to Vite's. `--port` wins. */
+  /** Port to listen on, on Node and in dev - production defaults to 3000, dev to Vite's, where `--port` wins. */
   port?: number;
   /** `opaque: false` keeps readable call names in a build, for clients that must outlive a deploy. Default hashed per build. */
   remote?: { opaque?: boolean };

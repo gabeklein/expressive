@@ -297,9 +297,12 @@ export function host(dotenv: boolean): Plugin<Host> {
           if (isStream(request)) return await send(res, stream(request));
 
           const call = isCall(request);
+
+          if (!call && skipped(request)) return next();
+
           const settings = await api.config();
 
-          if (!call && (!settings.handle || skipped(request))) return next();
+          if (!call && !settings.handle) return next();
 
           let fell: { request: Request; error?: unknown } | undefined;
 
@@ -327,7 +330,10 @@ export function host(dotenv: boolean): Plugin<Host> {
           const app = compose(settings, { sidecars: endpoints, seats: seatsOf(host, project), tier: twins, dev: true });
           const reply = await app(request, { ctx, assets });
 
-          if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) return await send(res, unmarked(reply));
+          if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) {
+            if (fell?.error) server.config.logger.error(`${fell.error}`);
+            return await send(res, unmarked(reply));
+          }
           if (fell.error) return next(fell.error);
 
           reply.headers.forEach((value, name) => KEPT.has(name) || res.setHeader(name, value));
@@ -501,26 +507,28 @@ function unmarked(reply: Response): Response {
 /** Requests that are Vite's own - its modules, a plugin's endpoints, a proxy, source files - and skip `handle`. */
 function skipList(server: ViteDevServer): (request: Request) => boolean {
   const { root, base, publicDir, server: { proxy = {} } } = server.config;
-  const own = [publicDir, join(root, "api")].filter(Boolean).map(dir => dir + sep);
-  const proxied = Object.keys(proxy).map(key => (key.startsWith("^") ? (path: string) => new RegExp(key).test(path) : (path: string) => path.startsWith(key)));
+  const proxied = Object.keys(proxy).map(key => {
+    const pattern = key.startsWith("^") && new RegExp(key);
+    return (url: string) => (pattern ? pattern.test(url) : url.startsWith(key));
+  });
 
   const source = (path: string) => {
     try {
       const file = join(root, decodeURIComponent(path));
-      return file.startsWith(root + sep) && !own.some(dir => file.startsWith(dir)) && statSync(file).isFile();
+      return file.startsWith(root + sep) && !(publicDir && file.startsWith(publicDir + sep)) && statSync(file).isFile();
     } catch {
       return false;
     }
   };
 
   return request => {
-    const { pathname, searchParams } = new URL(request.url);
+    const { pathname, search, searchParams } = new URL(request.url);
 
     if (!pathname.startsWith(base)) return true;
 
     const path = pathname.slice(base.length - 1);
 
-    return VITE.some(prefix => path.startsWith(prefix)) || proxied.some(match => match(pathname)) || FLAGS.some(flag => searchParams.get(flag) === "") || source(path);
+    return VITE.some(prefix => path.startsWith(prefix)) || proxied.some(match => match(pathname + search)) || FLAGS.some(flag => searchParams.get(flag) === "") || source(path);
   };
 }
 
@@ -532,7 +540,7 @@ async function replica(req: IncomingMessage, request: Request): Promise<Incoming
   return Object.assign(Readable.from(body, { objectMode: false }), {
     method: request.method,
     url: pathname + search,
-    headers: Object.fromEntries(request.headers),
+    headers: { ...Object.fromEntries(request.headers), "content-length": `${body[0]?.length ?? 0}` },
     httpVersion: req.httpVersion,
     socket: req.socket,
   }) as unknown as IncomingMessage;
