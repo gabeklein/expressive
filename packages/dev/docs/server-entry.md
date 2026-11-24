@@ -35,7 +35,7 @@ config({ target: "fetch", remote: { opaque: false }, bindings: async () => (awai
 
 host(() => ({
   scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
-}) satisfies ExportedHandler<Env>);
+}));
 
 export default () => {
   const { env, next } = Current.get();
@@ -138,7 +138,7 @@ Removed or renamed: `AppConfig` → `Settings`, `Scope` (gone), `serve` → `lis
   - A 101 (WebSocket upgrade) passes through unjoined, since rebuilding it drops the socket.
 - **`host(build)`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export.
   - Without it, the default export is `{ fetch: (request, env, ctx) => app(request, { env, ctx }) }`. A returned object without `fetch` gets that one, so `host` is only needed for what dev doesn't model.
-  - Platform handlers (`scheduled`, `queue`, `email`) are the app's code, typed by the app: `satisfies ExportedHandler<Env>`. They run outside any request, so they read the platform's `env` argument, not `Current`.
+  - Platform handlers (`scheduled`, `queue`, `email`) are the app's code, typed by the app. They run outside any request, so they read the platform's `env` argument, not `Current`.
   - Dev never calls `build`, so there is no cron in dev, as today.
   - On the Node target, `host` fails the build and the dev server. Node has no module host to hand an export to.
 - **`index.ts`'s named exports** are still re-exported from the fetch bundle (Durable Object and Workflow classes). A named `bindings` export fails the dev server and the build, pointing at `config({ bindings })`, so a half-migrated one can't ride into the Worker with its imports. The default stays the root gate, never re-exported.
@@ -465,7 +465,7 @@ host(() => ({
   scheduled(event: ScheduledController, bound: Env, ctx: ExecutionContext) {
     ctx.waitUntil(db.session(() => sweep(new Date(event.scheduledTime)), d1(bound.DB)));
   },
-}) satisfies ExportedHandler<Env>);
+}));
 
 export default () => {
   const { env, request, url, next } = Current.get();
