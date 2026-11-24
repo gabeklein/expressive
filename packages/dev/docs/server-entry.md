@@ -183,6 +183,7 @@ Every forwarded request runs in one request scope, so `Current`, `Cookies` and `
 - `ArrayBuffer`, typed arrays, `DataView`, `Blob`, `FormData`, `URLSearchParams`, `ReadableStream`: as `Response` takes them;
 - any other async iterable of strings or bytes (a Node `Readable`, an async generator): streamed through `ReadableStream.from`, or a small wrapper where a runtime lacks it;
 - no body: 204 unless a status is given. Status otherwise defaults to 200. A body with 204, 304 or a 1xx status throws.
+- a function, returned only (`send` throws): a fetch handler, called as `fn(request, env, ctx)`, its result taken as the return value (a function again throws). See Dropping in a fetch handler.
 
 **Streaming and pipes** use the platform's streams rather than a `write`/`end` API:
 
@@ -285,19 +286,16 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 
 ### Dropping in a fetch handler
 
-A library or app with the platform's fetch signature, `(request, env, ctx) => Response` (Hono, an auth library's `handler`, a tRPC fetch adapter), mounts in a catch-all by returning its reply:
+A library or app with the platform's fetch signature, `(request, env, ctx) => Response` (Hono, an auth library's `handler`, a tRPC fetch adapter), mounts in a catch-all by returning the handler:
 
 ```ts
 // api/legacy/[...].ts
 const legacy = new Hono().basePath("/api/legacy").get("/users/:id", c => c.json(...));
 
-export default () => {
-  const { request, env, ctx } = Current.get();
-  return legacy.fetch(request, env, ctx);
-};
+export default () => legacy.fetch;
 ```
 
-As the root gate, falling through to the app where it has no route:
+The handler is called detached, so a `fetch` that needs `this` (a prototype method; Hono's is an instance arrow) is returned bound: `() => app.fetch.bind(app)`. An object with a `fetch` member still goes as JSON. Its 404 answers, so as the root gate, falling through to the app where it has no route, call it yourself:
 
 ```ts
 export default async () => {
@@ -486,7 +484,7 @@ Each has a recommendation; sign-off on these unblocks PR 1.
 8. **Body cap.** Recommend 1 MB by default. Raising it needs a setting (`config({ body: { limit } })`), which is new surface; recommend adding it only when asked.
 9. **A throw below a wrapping gate.** Recommend resolving `next()` with the error reply, as calls already do, so a wrapper treats a failed call and a failed route alike. The alternative, rejecting `next()`, lets `db.session` roll back on a route's throw, but then calls would need to reject too to match.
 10. **Trunk.** Recommend landing the PRs below on a `feat/dev-serve` trunk cut from this branch and releasing once. Publishing 0.6 with the root gate but without `api/` would make apps port twice. The trunk isn't released between PRs, so a gap one PR leaves for a later one is tolerated there (named below).
-11. **Positional arguments.** Calling every gate and route with `(request, env, ctx)` would make any fetch handler a module default as is (`export default legacy.fetch`), while house style keeps reading `Current`. Recommend against for now: a gate given the platform triple reads as a fetch handler, so returning its 404 answers instead of passing, which the root-gate case above handles by hand; and two ways to read the request split examples and docs. Revisit if wrappers like the one above become common.
+11. **Positional arguments.** Settled: gates and routes stay parameter-free; a returned function is called as a fetch handler instead (Dropping in a fetch handler), so `export default () => legacy.fetch` mounts one without a second way to read the request.
 
 ## PR split
 
