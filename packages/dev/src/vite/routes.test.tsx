@@ -154,32 +154,11 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('import { Page as Root } from "../app/index.tsx";');
   });
 
-  it("will hand a folder's remote default to its Route", async () => {
-    const out = await generate({ "index.tsx": PAGE, "tally/index.tsx": PAGE, "tally/remote.ts": SCOPE });
+  it("will leave a remote module out of the tree, its default class or not", async () => {
+    const out = await generate({ "index.tsx": PAGE, "tally/index.tsx": PAGE, "tally/remote.ts": SCOPE, "remote.ts": "export async function add() {}" });
 
-    expect(out).toContain('import TallyRemote from "../app/tally/remote.ts";');
-    expect(out).not.toContain("<Component for={TallyRemote}>");
-    expect(out).toMatch(/<Route to="tally" remote=\{TallyRemote\}>\s*<Route as=\{Tally\} \/>/);
-  });
-
-  it("will hand a remote default to the Route outside the folder's own layout and scope", async () => {
-    const out = await generate({ "index.tsx": PAGE, "tally/index.tsx": `${PAGE}\n${LAYOUT}\n${SCOPE}`, "tally/remote/index.ts": SCOPE });
-
-    expect(out).toContain('import TallyRemote from "../app/tally/remote/index.ts";');
-    expect(out).toContain("const TallyScoped = props => <TallyScope><TallyLayout {...props} /></TallyScope>;");
-    expect(out).toContain('<Route to="tally" as={TallyScoped} remote={TallyRemote}>');
-  });
-
-  it("will hand the root's remote default to the root Route", async () => {
-    const out = await generate({ "index.tsx": PAGE, "remote.ts": SCOPE });
-
-    expect(out).toContain('import RootRemote from "../app/remote.ts";');
-    expect(out).toMatch(/<Route remote=\{RootRemote\} NotFound=\{NotFound\}>\s*<Route as=\{Root\} \/>/);
-  });
-
-  it("will not provide a remote module without a default class", async () => {
-    const out = await generate({ "index.tsx": PAGE, "tally/index.tsx": PAGE, "tally/remote.ts": "export async function add() {}" });
-    expect(out).not.toContain("Remote");
+    expect(out).not.toContain("remote");
+    expect(out).toContain('<Route to="tally" as={Tally} />');
   });
 
   it("will not route a remote/ folder", async () => {
@@ -328,16 +307,6 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "index.tsx": PAGE, "a/index.tsx": `${PAGE}\n${LAYOUT}`, "a/layout/index.tsx": PAGE });
     expect(out).toContain('const ALayout = () => import("../app/a/index.tsx").then(m => m.Layout);');
     expect(out).toContain('const ALayout_ = () => import("../app/a/layout/index.tsx").then(m => m.Page);');
-  });
-
-  it("will suffix a remote's alias another route already took", async () => {
-    const out = await generate({
-      "index.tsx": PAGE,
-      "(x-remote).tsx": PAGE,
-      "x/index.tsx": PAGE,
-      "x/remote.ts": "import { Model } from '@expressive/mvc'; export default class S extends Model {}",
-    });
-    expect(out).toContain('<Route to="x" remote={XRemote_}>');
   });
 
   it("will import a lone default and provide it around the children", async () => {
