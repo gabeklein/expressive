@@ -97,9 +97,12 @@ export default config({
 - A thrown `HttpError` answers its status - on a call as the call's error, else JSON `{ message }`
   (`Redirect` sets `Location`). Anything else is logged and answered with a 500 whose message shows
   in dev only.
-- Below `handle`: a remote call, else the page or file - on Node, the file, `<path>/index.html` or the
-  shell from `dist/client`, else 404; in dev, a `public/` file, else the shell for a navigation; on
-  the `fetch` target, 404 (static files are the host's, below).
+- Below `handle`: a remote call, else the page or file - on Node, the file or `<path>/index.html` from
+  `dist/client`; on the `fetch` target, from `assets` (`env.ASSETS` by default); in dev, a `public/`
+  file. Else the shell (`200.html`, else `index.html`) for a GET or HEAD outside `build.assetsDir`:
+  with 200 on a path a page route matches, with 404 for a navigation (`accept` has `text/html`) no
+  route matches, so the router's `NotFound` renders. Anything else is a bare 404, so a stale chunk
+  never comes back as HTML.
 - In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
   `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
@@ -138,8 +141,8 @@ a server.
   the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
-Cloudflare Workers with static assets, for example - a cron, a session per request on a D1 binding,
-and pages from the `ASSETS` binding with the shell for client routes:
+Cloudflare Workers with static assets, for example - a cron and a session per request on a D1
+binding:
 
 ```ts
 // index.ts
@@ -148,31 +151,18 @@ import { db } from "./db";   // SQLiteConnection.new(types) - no source
 import { d1 } from "./d1";   // the app's adapter from a D1 binding to sql's Engine
 import { sweep } from "./jobs";
 
-declare module "@expressive/dev" { interface Env { ASSETS?: Fetcher; DB: D1Database } }
+declare module "@expressive/dev" { interface Env { DB: D1Database } }
 
 export default config({
   target: "fetch",
-  handle: ({ request, env, next }) => db.session(async () => {
-    const reply = await next();
-    if (reply.status !== 404 || !env.ASSETS || request.method !== "GET") return reply;
-
-    const found = await env.ASSETS.fetch(request);
-    if (found.status !== 404) return found;
-
-    for (const shell of ["/200", "/"]) {
-      const page = await env.ASSETS.fetch(new URL(shell, request.url));
-      if (page.ok) return page;
-    }
-
-    return reply;
-  }, d1(env.DB)),
+  handle: ({ env, next }) => db.session(next, d1(env.DB)),
   host: () => ({
     scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
   }),
 });
 ```
 
-`next()` answers the calls; the 404 below it falls to the assets. `scheduled` runs outside any
+Pages and files come from the `ASSETS` binding, the shell included. `scheduled` runs outside any
 request, so it reads the platform's `env` argument and opens its own session.
 
 `wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
