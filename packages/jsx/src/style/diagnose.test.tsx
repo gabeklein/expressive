@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
-import { renderToString } from '@expressive/dom/server';
 import { jsx } from '@expressive/jsx/jsx-runtime';
 import { Component } from '@expressive/mvc';
 
 import { style } from './stylesheet';
-import { mockWarn, place, useHost } from '../../test.setup';
+import { mockWarn, place, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 const warn = mockWarn();
 
@@ -84,7 +82,7 @@ describe('unmatched flags', () => {
     expect(warn.mock.calls).toEqual([['"_primray" matches no rule in Toolbar. Did you mean "_primary"?']]);
   });
 
-  it('will not warn for a component placed outside the dev runtime', async () => {
+  it('will not warn for a component placed outside the dev runtime', () => {
     function Badge(props: object) {
       return <i {...props} />;
     }
@@ -102,10 +100,9 @@ describe('unmatched flags', () => {
     style(Footer, { color: 'gray' });
 
     place(<Header />);
-    await renderToString(<Header />);
     expect(warn).not.toHaveBeenCalled();
 
-    await renderToString(<Footer />);
+    place(<Footer />);
     expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Footer. Did you mean "_small"?']]);
   });
 

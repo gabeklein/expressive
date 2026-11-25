@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Model, pending, set } from '@expressive/mvc';
 
-import { Portal, render } from '../index';
-import { flushMicrotasks, lazy, mockPromise, mount, place, until } from '../../test.setup';
+import { Portal, render, style } from '../index';
+import { attached, flushMicrotasks, lazy, mockPromise, mockWarn, mount, place, until } from '../../test.setup';
 
 if (false) {
   // @ts-expect-error @expressive/dom uses className, not the class attribute name.
@@ -150,7 +150,7 @@ describe('element', () => {
     const pointerDown = vi.fn();
     const clicked = vi.fn();
     const values: string[] = [];
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     render(
       <>
@@ -327,7 +327,7 @@ describe('element', () => {
     }
 
     const detached = place(<input autofocus />);
-    const [editor, root] = mount(Editor, {}, document.body.appendChild(document.createElement('main')));
+    const [editor, root] = mount(Editor, {}, attached());
 
     expect(document.activeElement).not.toBe(detached.querySelector('input'));
 
@@ -371,7 +371,7 @@ describe('element', () => {
         }
       }
 
-      const [app, root] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+      const [app, root] = mount(App, {}, attached());
 
       pending(() => (app.nav.page = 'next'));
 
@@ -419,7 +419,7 @@ describe('element', () => {
       }
     }
 
-    const root = place(<Name />, document.body.appendChild(document.createElement('main')));
+    const root = place(<Name />, attached());
     const input = root.querySelector('input')!;
 
     input.value = 'abcd';
@@ -458,7 +458,7 @@ describe('element', () => {
       }
     }
 
-    const root = place(<Name />, document.body.appendChild(document.createElement('main')));
+    const root = place(<Name />, attached());
     const input = root.querySelector('input')!;
     const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!;
 
@@ -497,7 +497,7 @@ describe('element', () => {
       }
     }
 
-    const root = place(<Form />, document.body.appendChild(document.createElement('main')));
+    const root = place(<Form />, attached());
     const [box, field] = root.querySelectorAll('input');
 
     box.checked = true;
@@ -518,7 +518,7 @@ describe('element', () => {
   });
 
   it('will keep a controlled field without a handler on its value', async () => {
-    const root = place(<><input value="fixed" /><input type="checkbox" checked={false} /><input /><input type="range" value={150} max={200} /><select value="b"><option value="a" /><option value="b" /></select></>, document.body.appendChild(document.createElement('main')));
+    const root = place(<><input value="fixed" /><input type="checkbox" checked={false} /><input /><input type="range" value={150} max={200} /><select value="b"><option value="a" /><option value="b" /></select></>, attached());
     const [text, box, free, range] = root.querySelectorAll('input');
     const select = root.querySelector('select')!;
 
@@ -544,6 +544,42 @@ describe('element', () => {
   });
 });
 
+describe('styles', () => {
+  const warn = mockWarn();
+
+  it('will warn for a flag that matches no rule', () => {
+    function Badge() {
+      return <i _smal />;
+    }
+
+    style(Badge, { _small: { color: 'red' } });
+    place(<Badge />);
+
+    expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Badge. Did you mean "_small"?']]);
+  });
+
+  it('will throw for a subcomponent key on an element', () => {
+    function Card() {
+      return <div {...{ _Title: true }} />;
+    }
+
+    expect(() => place(<Card />)).toThrow('"_Title" is reserved for subcomponents in style() maps.');
+  });
+
+  it('will keep the author of children through an unstyled wrapper', () => {
+    function Wrap({ children }: { children?: Component.Node }) {
+      return <div>{children}</div>;
+    }
+
+    function Author() {
+      return <Wrap><p _note /></Wrap>;
+    }
+
+    style(Author, { _note: { color: 'green' } });
+
+    expect(place(<Author />).querySelector('p')!.className).toBe('Author_note');
+  });
+});
 
 describe('svg', () => {
   it('will render SVG, fragments and primitive updates', async () => {
@@ -617,7 +653,7 @@ describe('behind a boundary', () => {
       }
     }
 
-    const [app, root] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+    const [app, root] = mount(App, {}, attached());
 
     app.nav.page = 'next';
     await flushMicrotasks();
@@ -663,7 +699,7 @@ describe('behind a boundary', () => {
       }
     }
 
-    const [app] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+    const [app] = mount(App, {}, attached());
 
     pending(() => (app.nav.page = 'b'));
     await until(() => expect(seen).toEqual(['ref true', 'effect true']));
