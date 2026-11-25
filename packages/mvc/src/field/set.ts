@@ -79,7 +79,7 @@ function set<T>(
  * Arity selects this form - the function must declare a parameter; `set(() => x)` is a one-shot
  * factory. Receives the instance as `this` and first argument - arrow functions work. Computes on
  * first read. Enumerable and read-only, like a getter. A subclass may narrow its type with `declare`,
- * which a getter does not allow. A throw on first compute rethrows to the reader; later throws report to
+ * which a getter does not allow. A throw on first compute warns and rethrows; later throws report to
  * `catch` as `getter`.
  *
  * @example
