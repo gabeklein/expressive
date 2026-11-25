@@ -632,7 +632,15 @@ const fixed = at => !at.some(part => part[0] === ":" || part === "*");
 const PATH = Symbol.for("@expressive/dev#path");
 
 export { define };
-export const call = async (at, name, args) => send(fixed(at) ? "/" + at.join("/") : pathOf(at, name, globalThis[PATH]), name, args);
+const entering = (at, name) => {
+  try {
+    return pathOf(at, name, globalThis[PATH]);
+  } catch {
+    return pathOf(at, name);
+  }
+};
+
+export const call = async (at, name, args) => send(fixed(at) ? "/" + at.join("/") : entering(at, name), name, args);
 `;
 
 const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });

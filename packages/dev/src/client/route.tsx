@@ -3,6 +3,8 @@
 import { set, type Component } from "@expressive/mvc";
 import { Route as Base } from "@expressive/router";
 
+import { entering } from "./router";
+
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
 type Verdict = string | void | null;
@@ -46,6 +48,7 @@ export class Route extends Base {
 }
 
 const REFUSED = new Set<Route>();
+const WATCHED = new WeakSet<Route>();
 
 function arm(route: Route, hook: EntryHook | undefined) {
   const refused = (error: unknown) => {
@@ -53,17 +56,23 @@ function arm(route: Route, hook: EntryHook | undefined) {
       return redirected(error);
     } catch (error) {
       REFUSED.add(route);
-      route.set(null, () => void REFUSED.delete(route));
+
+      if (!WATCHED.has(route)) {
+        WATCHED.add(route);
+        route.set(null, () => void REFUSED.delete(route));
+      }
 
       throw error;
     }
   };
 
+  const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
+
   route.redirect = hook && (() => {
     try {
-      const verdict = hook(route);
+      const verdict = enter(hook);
 
-      return verdict instanceof Promise ? verdict.catch(refused) : verdict;
+      return verdict instanceof Promise ? verdict.then(next => (typeof next == "function" ? enter(next as EntryHook) : next)).catch(refused) : verdict;
     } catch (error) {
       return refused(error);
     }

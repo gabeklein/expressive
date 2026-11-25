@@ -2,6 +2,22 @@ import { BrowserRouter } from "@expressive/router";
 
 const PATH = Symbol.for("@expressive/dev#path");
 
+/** Run an entering route's entry hook with the path it enters left for the call module, for the hook's synchronous run. */
+export function entering<T>(path: string, run: () => T): T {
+  if (typeof window == "undefined") return run();
+
+  const shared = globalThis as Record<symbol, unknown>;
+  const before = shared[PATH];
+
+  shared[PATH] = path;
+
+  try {
+    return run();
+  } finally {
+    shared[PATH] = before;
+  }
+}
+
 /** The app's `BrowserRouter` - `Router.get().navigating` is true while a navigation holds the current page. */
 export class Router extends BrowserRouter {
   protected next(url: string, replace?: boolean) {
@@ -10,8 +26,4 @@ export class Router extends BrowserRouter {
     return super.next(url, replace);
   }
 
-  protected locate(url: string) {
-    super.locate(url);
-    (globalThis as Record<symbol, unknown>)[PATH] = this.path;
-  }
 }
