@@ -198,7 +198,7 @@ describe("handle", () => {
     expect(statuses).toEqual([200]);
   });
 
-  it("will warn in dev when the app fails after a handle that returned nothing", async () => {
+  it("will warn once in dev when the app fails after a handle that returned nothing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const failing = { fetch: async () => Promise.reject(new Error("no session")) };
     const handle = () => {};
@@ -208,8 +208,13 @@ describe("handle", () => {
       await compose({ handle }, { dev: true })(page("/"), { assets });
       expect(warn).not.toHaveBeenCalled();
 
-      expect((await compose({ handle }, { dev: true })(page("/"), { assets: failing })).status).toBe(500);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("must return next() inside the wrapper"));
+      const app = compose({ handle }, { dev: true });
+      const unavailable = { fetch: async () => new Response("down", { status: 503 }) };
+
+      expect((await app(page("/"), { assets: unavailable })).status).toBe(503);
+      expect((await app(page("/"), { assets: failing })).status).toBe(500);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("If handle wraps the app in something (a session, a transaction), it must return next() inside the wrapper"));
     } finally {
       warn.mockRestore();
     }
