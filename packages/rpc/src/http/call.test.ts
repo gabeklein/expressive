@@ -125,6 +125,52 @@ describe("call dispatch", () => {
     expect(await as("none", { "x-expressive-get": "default" })).toEqual(missing);
   });
 
+  describe("gate check", () => {
+    const check = (url: string) => request(url, undefined, "[]", "application/json", { "x-expressive-get": "" });
+    const folders: Endpoint[] = [
+      ...endpoints,
+      { pattern: ["shop", ":id"], exports: async () => ({ calls: {}, classes: {} }) },
+    ];
+
+    it("will answer an empty value after the gates down to its folder, with their headers", async () => {
+      const seen: unknown[] = [];
+      const seats: Seats = async pattern => () => {
+        seen.push([pattern.join("/"), Current.get().params]);
+        Current.get().setHeader("x-seen", String(pattern.length));
+      };
+      const response = await dispatch(fetched(check("/shop/a%20b")), () => folders, false, seats);
+
+      expect([response.status, await response.json()]).toEqual([200, {}]);
+      expect(response.headers.get("x-seen")).toBe("2");
+      expect(seen).toEqual([["", {}], ["shop", {}], ["shop/:id", {}]]);
+    });
+
+    it("will reply a gate's refusal as a call's error", async () => {
+      expect(await send(folders, check("/tally"), false, async pattern => (pattern.length ? () => { throw new Limit(2); } : undefined)))
+        .toEqual({ status: 409, body: { error: "/shared#Limit", message: "Over 2", limit: 2, status: 409 } });
+      expect(await send(folders, check("/tally"), false, async () => { throw new Error("No gate."); })).toEqual({ status: 500, body: { message: "Internal error." } });
+    });
+
+    it("will reply a gate's redirect as a Redirect error, keeping its cookies, and other answers as is", async () => {
+      const moved = (status: number) => async () => () => new Response(null, { status, headers: { location: "/login", "set-cookie": "a=1" } });
+      const redirect = await dispatch(fetched(check("/tally")), () => folders, false, moved(303));
+      const unmoved = await dispatch(fetched(check("/tally")), () => folders, false, async () => () => new Response("no", { status: 401 }));
+      const bare = await dispatch(fetched(check("/tally")), () => folders, false, async () => () => new Response(null, { status: 304 }));
+
+      expect([redirect.status, await redirect.json()]).toEqual([500, { error: "http:Redirect", message: "/login", location: "/login", status: 303 }]);
+      expect(redirect.headers.getSetCookie()).toEqual(["a=1"]);
+      expect([unmoved.status, await unmoved.text()]).toEqual([401, "no"]);
+      expect(bare.status).toBe(304);
+    });
+
+    it("will reply 404 to a folder with no endpoint, and to a named get", async () => {
+      const missing = { status: 404, body: { message: "Not found." } };
+
+      expect(await send(folders, check("/nowhere"))).toEqual(missing);
+      expect(await send(folders, request("/tally", undefined, "[]", "application/json", { "x-expressive-get": "default" }))).toEqual(missing);
+    });
+  });
+
   it("will identify a call by method, name header and JSON body", () => {
     expect(isCall(fetched(request("/tally", "add", "[]")))).toBe(true);
     expect(isCall(fetched(request("/tally", undefined, "[]")))).toBe(false);

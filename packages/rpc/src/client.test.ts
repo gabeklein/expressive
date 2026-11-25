@@ -78,6 +78,30 @@ describe("call", () => {
   });
 });
 
+describe("gate check", () => {
+  it("will POST an unnamed get to the path, resolving nothing once the gates pass", async () => {
+    const fetch = serve({ body: {} });
+
+    expect(await call("/shop/1", "", [])).toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith("/shop/1", expect.objectContaining({ headers: { "content-type": "application/json", "x-expressive-get": "" } }));
+  });
+
+  it("will throw a refusal, rebuilt as a call's error", async () => {
+    const Limit = define("/tally#Limit", "Limit");
+    serve({ body: { error: "/tally#Limit", message: "Over 3", status: 409 }, status: 409 });
+
+    await expect(call("/", "", [])).rejects.toBeInstanceOf(Limit);
+  });
+
+  it("will pass a reply that isn't the codec's, and a network failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Gated.", { status: 401 })));
+    expect(await call("/", "", [])).toBeUndefined();
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    expect(await call("/", "", [])).toBeUndefined();
+  });
+});
+
 describe("api", () => {
   it("will call by place in the tree - the path its nodes, the name its last", async () => {
     const fetch = serve({ body: { value: 1 } }, { body: { value: 2 } });
