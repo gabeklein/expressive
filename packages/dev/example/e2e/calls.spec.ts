@@ -24,6 +24,13 @@ test("calls a sidecar's functions on the server", async ({ page, open }, { proje
   await expect(output).toHaveText(project.name == "dev" ? "Nope" : "Internal error.");
 });
 
+test("calls the root sidecar from a nested page", async ({ page, open }) => {
+  await open("/blog/hello");
+
+  await page.getByRole("button", { name: "Where" }).click();
+  await expect(page.locator("output")).toHaveText("/");
+});
+
 test("rebuilds a sidecar's http error subclass as an HttpError", async ({ page, open }) => {
   await open("/tally");
 

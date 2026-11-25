@@ -311,7 +311,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         case callId:
           if (prerendering) return PRERENDER_CALL;
 
-          return `export { call, define } from "@expressive/rpc";`;
+          return CALL_MODULE;
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
@@ -591,6 +591,16 @@ const FETCH: UserConfig = {
   environments: { ssr: { resolve: { noExternal: true } } },
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
+
+const CALL_MODULE = `\
+import { call as send, client, define } from "@expressive/rpc";
+
+const { pathOf } = client();
+const fixed = at => !at.some(part => part[0] === ":" || part === "*");
+
+export { define };
+export const call = async (at, name, args) => send(fixed(at) ? "/" + at.join("/") : pathOf(at, name), name, args);
+`;
 
 const STATELESS = "The fetch target does not run folder gates - export functions only, no default.";
 

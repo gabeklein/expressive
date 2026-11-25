@@ -313,10 +313,23 @@ describe("vite host", () => {
     await expect(server.transformRequest("/app/shop/remote.ts")).rejects.toThrow("Cart is a class but not an Error");
   });
 
-  it("will serve the browser a call module of rpc's client", async () => {
+  it("will post a call to its sidecar's path from any page", async () => {
     const server = await serve(project({ "app/index.tsx": PAGE }));
+    const { call } = await server.ssrLoadModule("/.expressive/call.ts");
+    const posted: string[] = [];
 
-    expect((await server.transformRequest("/.expressive/call.ts"))?.code).toMatch(/export \{ call, define \} from "[^"]*rpc[^"]*"/);
+    vi.stubGlobal("location", { pathname: "/blog/hello/comments", href: "http://localhost/blog/hello/comments" });
+    vi.stubGlobal("fetch", async (url: string) => (posted.push(url), new Response('{"value":1}', { headers: { "content-type": "application/json; codec=expressive" } })));
+
+    try {
+      expect([await call([], "root", []), await call(["blog", ":slug"], "like", [])]).toEqual([1, 1]);
+      expect(await call(["tally"], "add", [])).toBe(1);
+      await expect(call(["shop", ":id"], "buy", [])).rejects.toThrow("buy() belongs to /shop/:id and cannot be called from /blog/hello/comments.");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(posted).toEqual(["/", "/blog/hello", "/tally"]);
   });
 
   it("will serve an exported subclass of an http error to the browser as an error", async () => {
