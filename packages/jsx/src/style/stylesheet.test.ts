@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
 import { Component } from '@expressive/mvc';
 
 import { createElement } from '../node/vnode';
+import type { Host } from '../render/host';
+import { render as renderWith } from '../render/render';
 import { Css } from './css';
 import { Style, style } from './stylesheet';
-import { render, useHost } from '../../test.setup';
+import { attached, render, rules, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 class Sides extends Style {
   readonly $wide = '@media (min-width: 600px)';
@@ -143,7 +144,7 @@ describe('style map types', () => {
 });
 
 function place(node: any) {
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
   render(node, root);
   return root;
 }
@@ -301,13 +302,9 @@ describe('Style', () => {
     });
 
     const node = place(createElement(Panel, {})).querySelector('div')!;
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
-    const rules = [...sheet!.cssRules]
-      .map((rule) => rule.cssText.replace(/\s+/g, ' '))
-      .filter((rule) => rule.includes('.Panel'));
 
     expect(node.className).toBe('Panel_grid-hover Panel-media_max-width_300px Panel-media_max-width_300px-hover');
-    expect(rules).toEqual([
+    expect(rules('.Panel')).toEqual([
       '@media (max-width: 300px) { .Panel-media_max-width_300px { padding: 4px; } }',
       '@media (max-width: 300px) { .Panel-media_max-width_300px-hover:where(:hover) { color: red; } }',
       '.Panel_grid-hover:where(:hover) { opacity: 0.5; }'
@@ -543,6 +540,33 @@ describe('Style', () => {
   });
 });
 
+describe('hashed sheets', () => {
+  it('will name a rule by its content, the same in every document', () => {
+    const hashed: Host = { ...styled, styles: (target) => ({ ...styled.styles!(target), hashed: true }) };
+    const tag = (color: string) => {
+      const Tag = () => createElement('b', {});
+
+      style(Tag, { color });
+      return Tag;
+    };
+
+    const Red = tag('red');
+    const Blue = tag('blue');
+
+    const names = [1, 2].map(() => {
+      const root = document.implementation.createHTMLDocument().body.appendChild(document.createElement('main'));
+
+      renderWith(createElement('div', { children: [createElement(Red, { key: 1 }), createElement(Blue, { key: 2 })] }), root, hashed);
+      return [...root.querySelectorAll('b')].map((node) => node.className);
+    });
+
+    expect(names[0][0]).toMatch(/^Tag-[0-9a-z]+$/);
+    expect(names[0][1]).toMatch(/^Tag-[0-9a-z]+$/);
+    expect(names[0][1]).not.toBe(names[0][0]);
+    expect(names[1]).toEqual(names[0]);
+  });
+});
+
 describe('variables', () => {
   class Theme extends Css {
     readonly $inkLight = '#222';
@@ -554,12 +578,6 @@ describe('variables', () => {
   function roots() {
     return [...document.head.querySelectorAll('style[data-expressive=root]')]
       .map((element) => element.textContent!.replace(/\s+/g, ' '));
-  }
-
-  function rules(name: string) {
-    return [...document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!.sheet!.cssRules]
-      .map((rule) => rule.cssText.replace(/\s+/g, ' '))
-      .filter((rule) => rule.includes(`.${name}`));
   }
 
   it('will type variables, conditions and tokens', () => {
@@ -594,7 +612,7 @@ describe('variables', () => {
     Theme.use()(Shade, { $inkLight: 'red', $wide: { $line: '9px' } });
     place(createElement(Shade, {}));
 
-    expect(rules('Shade')).toEqual([
+    expect(rules('.Shade')).toEqual([
       '.Shade { --ink-light: red; }',
       '@media (min-width: 600px) { .Shade-media_min-width_600px { --theme-line: 9px; } }'
     ]);
@@ -708,7 +726,7 @@ describe('variables', () => {
     kept(Dot, ($) => ({ color: $.keptHue }));
     place(createElement(Dot, {}));
 
-    document.head.querySelector('style[data-expressive=dom]')!.remove();
+    document.head.querySelector('style[data-expressive=sheet]')!.remove();
 
     const Again = () => createElement('b', {});
 

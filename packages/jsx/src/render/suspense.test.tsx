@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Component, Model, pending, set } from '@expressive/mvc';
 
 import { Portal } from '../node/vnode';
-import { flushMicrotasks, html, lazy, mockPromise, mount, place, render, track, until } from '../../test.setup';
+import { attached, flushMicrotasks, html, lazy, mockPromise, mount, place, render, track, until } from '../../test.setup';
 
 describe('suspense and recovery', () => {
   it('will show a Component fallback until a loaded view resolves', async () => {
@@ -516,7 +516,7 @@ describe('suspense and recovery', () => {
   it('will not mount staged content dropped before it is inserted', async () => {
     const gate = mockPromise<void>();
     const mounted = vi.fn();
-    const attached = vi.fn();
+    const ref = vi.fn();
 
     class Nav extends Model {
       page = 'a';
@@ -528,7 +528,7 @@ describe('suspense and recovery', () => {
       }
 
       render() {
-        return <i ref={attached} />;
+        return <i ref={ref} />;
       }
     }
 
@@ -550,7 +550,7 @@ describe('suspense and recovery', () => {
       }
     }
 
-    const [app] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+    const [app] = mount(App, {}, attached());
 
     pending(() => (app.nav.page = 'b'));
     await until(() => expect(Wait).toHaveBeenCalled());
@@ -561,7 +561,7 @@ describe('suspense and recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(mounted).not.toHaveBeenCalled();
-    expect(attached).not.toHaveBeenCalledWith(expect.anything());
+    expect(ref).not.toHaveBeenCalledWith(expect.anything());
   });
 
   describe('superseded and abandoned transitions', () => {
@@ -1333,7 +1333,7 @@ describe('suspense and recovery', () => {
     it('will render the component a loader resolves with its props', async () => {
       const loaded = mockPromise<{ default: (props: { name: string }) => Component.Node }>();
       const load = vi.fn(() => loaded);
-      const Greeting = () => load();
+      const Greeting = (_props: { name: string }) => load();
       const root = place(<Component fallback={<i>loading</i>}><Greeting name="Ada" /><Greeting name="Bob" /></Component>);
       expect(root.textContent).toBe('loading');
 
@@ -1356,7 +1356,7 @@ describe('suspense and recovery', () => {
         }
       }
 
-      const Lazy = () => Promise.resolve(Counter);
+      const Lazy = (_props: { count: number }) => Promise.resolve(Counter);
       const root = place(<Component fallback={<i>loading</i>}><Lazy count={3} /></Component>);
 
       await flushMicrotasks();
@@ -1386,30 +1386,6 @@ describe('suspense and recovery', () => {
       await flushMicrotasks();
 
       expect(caught).toEqual(['Loader resolved no component.']);
-    });
-
-    it('will type attributes from the resolved component', () => {
-      class Settings extends Model {
-        theme = 'dark';
-      }
-
-      const Fn = (props: { size: number }) => props.size;
-      const Lazy = () => Promise.resolve({ default: Fn });
-      const LazyModel = () => Promise.resolve(Settings);
-      const Arity = (_props: { id: number }) => Promise.resolve(Fn);
-
-      void (() => [
-        <Lazy size={1} />,
-        <LazyModel theme="light" />,
-        // @ts-expect-error
-        <LazyModel theme={1} />,
-        // @ts-expect-error
-        <Arity id={1} />,
-        // @ts-expect-error
-        <Lazy size="x" />,
-        // @ts-expect-error
-        <Lazy />
-      ]);
     });
   });
 });

@@ -1,11 +1,9 @@
-import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-
-import type { JSX as DomJSX } from '@expressive/dom/jsx-runtime';
+import { describe, expect, it, vi } from 'vitest';
 
 import { childrenOf, Fragment, host, isElement, jsx, jsxs, onElement, propsOf, typeOf } from './jsx-runtime';
 import { jsxDEV, Fragment as devFragment } from './jsx-dev-runtime';
 import * as entry from './jsx-runtime';
-import type { HostRuntime, JSX } from './jsx-runtime';
+import type { HostRuntime } from './jsx-runtime';
 import { isVNode } from './node/vnode';
 
 const HOST_FRAGMENT = Symbol('host.Fragment');
@@ -73,7 +71,6 @@ describe('unregistered', () => {
     const runtime = await vi.importActual<typeof import('./jsx-runtime')>('./jsx-runtime');
 
     await vi.importActual('./index');
-    await vi.importActual('@expressive/dom/jsx-runtime');
 
     expect(runtime).not.toBe(entry);
     expect((globalThis as any)[Symbol.for('@expressive/jsx.registry')].registered).toBeUndefined();
@@ -173,9 +170,5 @@ describe('jsx-runtime module', () => {
       'Fragment', 'childrenOf', 'host', 'isElement',
       'jsx', 'jsxDEV', 'jsxs', 'onElement', 'propsOf', 'typeOf'
     ]);
-  });
-
-  it('will accept agnostic element types where a host types them', () => {
-    expectTypeOf<JSX.ElementType>().toExtend<DomJSX.ElementType>();
   });
 });

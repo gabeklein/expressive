@@ -8,11 +8,11 @@ import { hydrate, Portal, render, style } from './index';
 import { renderToString } from './server';
 import { hydration } from './hydrate';
 import { dom } from './host';
-import { flushMicrotasks, mockPromise } from '../test.setup';
+import { attached, flushMicrotasks, mockPromise } from '../test.setup';
 
 async function served(node: () => any) {
   const { html } = await renderToString(node());
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
 
   root.innerHTML = html;
   return root;
@@ -267,7 +267,7 @@ describe('hydrate', () => {
       }
     }
 
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     root.innerHTML = '<!--fragment--><!--component--><b>stale</b><!--/component--><!--/fragment-->';
     hydrate(<Widget />, root);
@@ -333,7 +333,7 @@ describe('hydrate', () => {
   });
 
   it('will drop server children and attributes the client does not render', () => {
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     root.innerHTML = '<!--fragment--><ul class="stale" title="x" style="color: red;"><li>a</li></ul><!--/fragment-->';
     hydrate(<ul data-n={1}>{[]}</ul>, root);
@@ -390,7 +390,7 @@ describe('hydrate', () => {
     sheet.textContent = css;
 
     const early = document.body.appendChild(document.createElement('div'));
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     render(<Other />, early);
     root.innerHTML = html;
@@ -412,7 +412,7 @@ describe('hydrate', () => {
     style(Box, { color: 'red' });
 
     const { html } = await renderToString(<Box />, { inline: true });
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     root.innerHTML = html;
 
@@ -439,7 +439,7 @@ describe('hydrate', () => {
       }
     }
 
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     root.innerHTML = '<!--fragment--><!--component--><b>xy</b><!--/component--><!--/fragment-->';
 
@@ -469,7 +469,7 @@ describe('hydrate', () => {
   it('will replace an interpolated title and wait for a stylesheet to load', async () => {
     const node = () => <div><title>Post {3} | Site</title><link rel="stylesheet" href="data:text/css," /></div>;
     const { head, html } = await renderToString(node());
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     document.head.insertAdjacentHTML('afterbegin', head);
     root.innerHTML = html;
@@ -502,7 +502,7 @@ describe('hydrate', () => {
   it('will replace the server copy of a head element', async () => {
     const node = () => <div><title>Page</title><meta name="description" content="about" /></div>;
     const { head, html } = await renderToString(node());
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     document.head.insertAdjacentHTML('afterbegin', head);
     root.innerHTML = html;

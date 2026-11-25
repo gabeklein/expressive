@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { dom } from '@expressive/dom/host';
 import { Component, Model } from '@expressive/mvc';
 
 import { style } from '../style/stylesheet';
 import { hot } from './hot';
-import { flushMicrotasks, render, useHost } from '../../test.setup';
+import { flushMicrotasks, render, rules, styled, useHost } from '../../test.setup';
 
-useHost(dom);
+useHost(styled);
 
 let count = 0;
 const module = () => `module-${count++}`;
@@ -122,9 +121,6 @@ describe('hot', () => {
     hot(id, { View: version('blue') });
     await flushMicrotasks();
 
-    const { sheet } = document.head.querySelector<HTMLStyleElement>('style[data-expressive=dom]')!;
-    const rule = [...sheet!.cssRules].find((rule) => rule.cssText.startsWith(`.${node.className}`))!;
-
-    expect(rule.cssText).toContain('blue');
+    expect(rules().find((rule) => rule.startsWith(`.${node.className}`))).toContain('blue');
   });
 });
