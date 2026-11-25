@@ -43,11 +43,11 @@ describe('mount', () => {
   });
 
   it('will name a portal made by another copy of the package', () => {
-    const Portal = () => vnode(Symbol('@expressive/dom.portal'), {});
+    const Portal = () => vnode(Symbol('@expressive/jsx.portal'), {});
     const root = document.createElement('main');
 
     expect(() => render(<Portal />, root)).toThrow(
-      'Cannot use a portal from another copy of @expressive/dom as an element type in Portal. Is the package loaded twice?'
+      'Cannot use a portal from another copy of @expressive/jsx as an element type in Portal. Is the package loaded twice?'
     );
   });
 
