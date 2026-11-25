@@ -14,7 +14,7 @@ import { compose, routed, type Pages } from "../server/compose";
 import { layered } from "../server/env";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { Exposure, type Exposed } from "./remote";
-import { generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
+import { CALL, generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
 import { isCall, send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
@@ -28,7 +28,6 @@ const ROUTES = "routes.tsx";
 const SERVER = "server.ts";
 const PRERENDER = "prerender.tsx";
 const DOM_SERVER = "@expressive/dom/server";
-const CALL = "call.ts";
 const SETTINGS = "settings.ts";
 const INDEX = "settings-index.ts";
 const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
@@ -228,8 +227,16 @@ export function host(dotenv: boolean): Plugin<Host> {
         builds.set(root, (exposure = new Exposure(salt)));
 
         for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
-          const { error } = gateError(remote);
+          const { gate, error } = gateError(remote);
           if (error) this.error(error);
+          if (!gate) continue;
+
+          const sources = sourcesOf(async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
+          const { problems, ...scanned } = await scanRemote(remote, readFileSync(remote.file, "utf8"), sources, remoteAt);
+
+          if (problems.length) this.error(`${relative(root, remote.file)}: ${problems.join(" ")}`);
+
+          exposure.modules.set(remote.file, { ...remote, ...scanned, calls: [] });
         }
 
         const errors = existsSync(apiDir) ? await apiErrors(root) : [];
@@ -401,8 +408,21 @@ export function host(dotenv: boolean): Plugin<Host> {
       server.watcher.on("unlinkDir", moved);
       server.watcher.on("add", saved);
       server.watcher.on("change", saved);
+      server.watcher.on("change", file => {
+        const remote = remoteAt(file);
 
-      const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
+        try {
+          if (remote && !remote.module && hasGate(file)) server.ws.send({ type: "custom", event: "expressive:gates" });
+        } catch {}
+      });
+
+      const endpoints = () => {
+        const exposed = exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
+        const known = new Set(exposed.map(({ pattern }) => pattern.join("/")));
+        const bare = gated(project).filter(({ pattern }) => !known.has(pattern.join("/")));
+
+        return [...exposed, ...bare.map(remote => gateOnly(host, exposure, remote))];
+      };
       const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
       const shell = (url: string) => server.transformIndexHtml(url, readShell());
       const replayed = new WeakSet<object>();
@@ -569,6 +589,18 @@ function endpointOf(host: ModuleRunner, root: string, exposure: Exposure, group:
   return {
     pattern: group[0].pattern,
     exports: () => exposure.exports(group, file => host.import(file), (file, exports) => verify(relative(root, file), exports)),
+  };
+}
+
+function gateOnly(host: ModuleRunner, exposure: Exposure, remote: Remote): Endpoint {
+  return {
+    pattern: remote.pattern,
+    async exports() {
+      const module = await host.import(remote.file);
+      const errors = Object.entries(module).filter(([, value]) => typeof value == "function" && value.prototype instanceof Error);
+
+      return { calls: {}, classes: Object.fromEntries(errors.map(([name, Type]) => [exposure.classId(remote, name), Type])) };
+    },
   };
 }
 

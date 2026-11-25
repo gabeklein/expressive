@@ -62,6 +62,9 @@ describe("app/ routing (codegen)", () => {
       "shop/index.tsx": PAGE,
       "shop/cart/index.tsx": PAGE,
       "shop/remote/index.ts": SCOPE,
+      "vault/index.tsx": PAGE,
+      "vault/[id].tsx": PAGE + "; export const paths = () => [];",
+      "vault/remote.ts": "export default () => {}",
     };
 
     for (const [path, src] of Object.entries(files)) {
@@ -75,7 +78,7 @@ describe("app/ routing (codegen)", () => {
     expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx", "tally/[id].tsx"]);
     expect((await pagePatterns(appDir, scanExports)).sort()).toEqual([
       "/", "/about", "/blog/:slug", "/blog/:slug/edit", "/docs", "/docs/guide/setup", "/docs/intro",
-      "/files/*", "/paths", "/shop", "/shop/cart", "/tally", "/tally/:id", "/tally/sub",
+      "/files/*", "/paths", "/shop", "/shop/cart", "/tally", "/tally/:id", "/tally/sub", "/vault", "/vault/:id",
     ]);
   });
 
@@ -197,6 +200,37 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "admin/index.tsx": `${PAGE}\n${LAYOUT}\n${ENTER}`, "admin/[id].tsx": PAGE });
     expect(out).toContain('const AdminEnter = route => import("../app/admin/index.tsx").then(m => m.default(route));');
     expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnter}>/);
+  });
+
+  it("will wrap a gated folder's entry in the gate check, loading its module beside it", async () => {
+    const GATE = "export default () => {}";
+    const out = await generate({
+      "index.tsx": PAGE,
+      "admin/index.tsx": `${PAGE}\n${ENTER}`,
+      "admin/remote.ts": GATE,
+      "admin/users/index.tsx": PAGE,
+      "admin/users/remote/index.ts": GATE,
+      "shop/[id]/index.tsx": `${PAGE}\n${LOADING}`,
+      "shop/[id]/remote.ts": GATE,
+      "tally/index.tsx": PAGE,
+      "tally/remote.ts": "export async function add() {}",
+      "notes/index.tsx": PAGE,
+      "notes/remote": "",
+    });
+
+    expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
+    expect(out).toContain('import { call } from "./call.ts";');
+    expect(out).toContain('const checked = gateCheck(call, ["/admin","/admin/users","/shop/:id"], import.meta.hot);');
+    expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
+    expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
+    expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
+    expect(out).toContain('<Route to="tally" as={Tally} />');
+  });
+
+  it("will gate the root and skip gated folders when rendering ahead", async () => {
+    const out = await generate({ "index.tsx": PAGE, "remote.ts": "export default () => {}" });
+
+    expect(out).toContain('<Route NotFound={NotFound} enter={checked()}>');
   });
 
   it("a module with a default loads on first entry", async () => {

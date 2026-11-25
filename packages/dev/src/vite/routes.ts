@@ -2,11 +2,14 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative, sep } from "node:path";
 
 import { importRel } from "./project";
+import { hasGate } from "./scan";
 
 const ROUTE_EXT = new Set([".tsx", ".jsx", ".ts", ".js"]);
 const REMOTE = "remote";
 const REMOTE_FILE = /^remote\.[cm]?[jt]s$/;
 const REMOTE_MODULE = /\.[cm]?[jt]s$/;
+const REMOTE_INDEX = /^index\.[cm]?[jt]s$/;
+export const CALL = "call.ts";
 
 const ROLES = [
   "Page",
@@ -36,6 +39,7 @@ interface RouteNode {
   label?: string;
   children: RouteNode[];
   isLeaf: boolean;
+  gated: boolean;
   alias: Partial<Record<Role, string>>;
 }
 
@@ -46,8 +50,10 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   const { imports, loaders } = collectImports(root, outDir);
   const wrappers = collectWrappers(root);
-  const tree = emitNode(root, true, 2, "null").join("\n");
+  const tree = emitNode(root, true, 2, "null", outDir).join("\n");
+  const gates = gatedPatterns(root);
   const pageImports = `{ ${[
+    gates.length && "gateCheck",
     !root.exports.has("NotFound") && "NotFound",
     "Route",
     !root.exports.has("Router") && "Router",
@@ -57,14 +63,28 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   return [
     `import ${pageImports} from "@expressive/dev";`,
     ...(provides ? ['import { Component } from "@expressive/mvc";'] : []),
+    ...(gates.length ? [`import { call } from "./${CALL}";`] : []),
     "",
     ...imports,
+    ...(gates.length ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
     "",
     "const App = (props) => (\n  <Router {...props}>", tree, "  </Router>\n);\n",
     "export default App;\n",
   ].join("\n");
+}
+
+function gatedPatterns(root: RouteNode): string[] {
+  const patterns: string[] = [];
+
+  (function walk(node: RouteNode, path: string) {
+    if (node.gated) patterns.push(path || "/");
+
+    for (const child of node.children) walk(child, `${path}/${child.segment}`);
+  })(root, "");
+
+  return patterns;
 }
 
 /** Every page route's pattern, as the router matches it - `/blog/:slug`, `/docs/*`. */
@@ -83,12 +103,14 @@ export async function pagePatterns(appDir: string, scan: ExportScanner): Promise
 /**
  * Pages a build tries to render ahead. Fixed paths are listed;
  * below a `:param` or `*`, modules exporting `paths()` are returned to list their own.
+ * Gated folders are skipped.
  */
 export async function staticPaths(appDir: string, scan: ExportScanner): Promise<{ paths: string[]; sources: string[] }> {
   const paths: string[] = [];
   const sources: string[] = [];
 
   (function walk(node: RouteNode, path: string, dynamic: boolean) {
+    if (node.gated) return;
     if (dynamic && node.exports.has("paths")) sources.push(node.file!);
     if (!dynamic && node.exports.has("Page")) paths.push(path || "/");
 
@@ -100,7 +122,7 @@ export async function staticPaths(appDir: string, scan: ExportScanner): Promise<
 }
 
 function newNode(fields: Partial<RouteNode>): RouteNode {
-  return { segment: "", name: "", exports: new Set(), classDefault: false, children: [], isLeaf: false, alias: {}, ...fields };
+  return { segment: "", name: "", exports: new Set(), classDefault: false, children: [], isLeaf: false, gated: false, alias: {}, ...fields };
 }
 
 async function scanDir(dir: string, segment: string, name: string, scan: ExportScanner): Promise<RouteNode> {
@@ -109,6 +131,10 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
 
   if (entries.includes(REMOTE) && entries.some(entry => REMOTE_FILE.test(entry)))
     throw new Error(`${dir} has both a remote module and a remote/ folder - pick one.`);
+
+  const entry = remoteEntry(dir, entries);
+
+  node.gated = !!entry && hasGate(entry);
 
   for (const entry of entries) {
     const full = join(dir, entry);
@@ -157,6 +183,17 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
   node.children.sort((a, b) => precedence(a.segment) - precedence(b.segment));
 
   return node;
+}
+
+function remoteEntry(dir: string, entries: string[]): string | undefined {
+  const file = entries.find(entry => REMOTE_FILE.test(entry));
+
+  if (file) return join(dir, file);
+  if (!entries.includes(REMOTE) || !statSync(join(dir, REMOTE)).isDirectory()) return;
+
+  const index = readdirSync(join(dir, REMOTE)).find(entry => REMOTE_INDEX.test(entry));
+
+  return index && join(dir, REMOTE, index);
 }
 
 function precedence(segment: string) {
@@ -283,11 +320,13 @@ function collectWrappers(root: RouteNode): string[] {
   return wrappers;
 }
 
-function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string): string[] {
+function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string, outDir: string): string[] {
   const pad = "  ".repeat(depth);
   const { Page, Layout, Loading, Catch, NotFound, default: def } = node.alias;
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
-  const enter = node.classDefault ? undefined : def;
+  const hook = node.classDefault ? undefined : def;
+  const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
+  const enter = node.gated ? `checked(${hook ?? (load && "undefined")}${load})` : hook;
   const scope = node.classDefault ? def : undefined;
 
   const own = Loading ? `<${Loading} />` : undefined;
@@ -302,7 +341,7 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string)
   if (Page) inner.push(...route(pad + "  ", { as: Page, fallback: childSlot }));
 
   for (const child of node.children)
-    inner.push(...emitNode(child, false, depth + 1, childSlot));
+    inner.push(...emitNode(child, false, depth + 1, childSlot, outDir));
 
   if (!inner.length) return [];
 

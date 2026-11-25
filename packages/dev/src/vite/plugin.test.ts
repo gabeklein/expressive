@@ -303,6 +303,48 @@ describe("vite host", () => {
     expect(await post("/bad/inner")).toEqual([500, expect.stringContaining("app/bad/remote.ts: A remote default is its folder's gate - a function")]);
   });
 
+  it("will answer a gate check for a folder the client has not loaded, with its error classes' fields", async () => {
+    const root = project({
+      "app/index.tsx": PAGE,
+      "app/vault/index.tsx": PAGE,
+      "app/vault/remote.ts": `
+        export class SignIn extends Error { status = 302; location = "/login"; }
+        export const limit = 3;
+        export default () => { if ((globalThis as any).vaultCurrent.get().request.headers.has("x-deny")) throw new SignIn("Sign in."); };
+      `,
+    });
+    (globalThis as any).vaultCurrent = Current;
+    const server = await serve(root, expressive(), hostMvc(root));
+    await server.listen(0);
+
+    const check = async (deny: boolean) => {
+      const headers = { "content-type": "application/json", "x-expressive-get": "", ...(deny && { "x-deny": "1" }) };
+      const res = await fetch(new URL("/vault", server.resolvedUrls!.local[0]), { method: "POST", headers, body: "[]" });
+      return [res.status, await res.json()];
+    };
+
+    expect(await check(false)).toEqual([200, {}]);
+    expect(await check(true)).toEqual([500, { error: "/vault#SignIn", message: "Sign in.", status: 302, location: "/login" }]);
+    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain('gateCheck(call, ["/vault"], import.meta.hot)');
+  });
+
+  it("will tell the browser when a gate is edited, so its passes clear", async () => {
+    const root = realpathSync(project({
+      "app/index.tsx": PAGE,
+      "app/vault/remote.ts": "export default () => {}",
+      "app/tally/remote.ts": "export async function add() { return 1; }",
+      "app/tally/more.ts": "export const x = 1;",
+      "app/broken/remote.ts": "export default (",
+    }));
+    const server = await serve(root);
+    const sent: unknown[] = [];
+    server.ws.send = ((payload: { type: string }) => void (payload.type == "custom" && sent.push(payload))) as any;
+
+    for (const file of ["app/vault/remote.ts", "app/tally/remote.ts", "app/tally/more.ts", "app/broken/remote.ts", "elsewhere.ts"]) server.watcher.emit("change", join(root, file));
+
+    expect(sent).toEqual([{ type: "custom", event: "expressive:gates" }]);
+  });
+
   it("will throw if a sidecar exports what the client cannot call", async () => {
     const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add", "app/tally/remote.ts": "export const add = 1" });
     const server = await serve(root);
@@ -494,6 +536,22 @@ describe("vite host", () => {
     });
 
     expect(server).toMatch(/gates: \[\{\s*pattern: \[\],\s*gate: site\s*\}, \{\s*pattern: \["tally"\],\s*gate: tally\s*\}\]/);
+  });
+
+  it("builds a gated folder the client never imports as an endpoint, with its error classes and no calls", async () => {
+    const { server } = await buildBoth({
+      "index.ts": "export default { remote: { opaque: false } };",
+      "app/index.tsx": PAGE,
+      "app/vault/index.tsx": PAGE,
+      "app/vault/denied.ts": "export class Denied extends Error {}",
+      "app/vault/remote.ts": `import { Denied } from "./denied"; export class SignIn extends Denied {} export default () => {}; export async function secret() { return 1; }`,
+    });
+
+    expect(server).toMatch(/pattern: \["vault"\],\s*async exports\(\) \{\s*return \{\s*calls: \{\},\s*classes: \{ "\/vault#SignIn": SignIn \}/);
+  });
+
+  it("will check a gated folder's remote entry at build, imported by the client or not", async () => {
+    await expect(buildBoth({ "app/index.tsx": PAGE, "app/vault/remote.ts": "export default () => {}; export const limit = 3;" })).rejects.toThrow("app/vault/remote.ts: limit");
   });
 
   it("will check every remote entry's default at build, imported by the client or not", async () => {
