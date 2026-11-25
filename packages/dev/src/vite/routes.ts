@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, extname, join, relative, sep } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 
 import { importRel } from "./project";
 import { hasGate } from "./scan";
@@ -49,7 +49,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   assignAliases(root, new Set());
 
-  const { imports, loaders } = collectImports(root, outDir);
+  const { imports, loaders } = collectImports(root, outDir, dirname(appDir));
   const wrappers = collectWrappers(root);
   const tree = emitNode(root, true, 2, "null", outDir).join("\n");
   const gates = gateTree(root, true);
@@ -70,7 +70,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     "",
     ...imports,
     ...(scoped ? ["", "const wrap = (Type, children) => Component.is(Type) ? <Type>{children}</Type> : Model.is(Type) ? <Component for={Type}>{children}</Component> : children;"] : []),
-    ...(either ? ["const hook = value => Model.is(value) ? undefined : value;"] : []),
+    ...(either ? [`const hook = (value, file) => {\n  if (Model.is(value)) return;\n  if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component.");\n  return value;\n};`] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
@@ -255,7 +255,7 @@ function unique(alias: string, used: Set<string>): string {
   return alias;
 }
 
-function collectImports(root: RouteNode, outDir: string) {
+function collectImports(root: RouteNode, outDir: string, project: string) {
   const imports: string[] = [];
   const loaders: string[] = [];
 
@@ -268,7 +268,10 @@ function collectImports(root: RouteNode, outDir: string) {
       if (lazy(node)) loaders.push(...roles.map(role => loaderFor(node, role, spec)));
       else imports.push(importFor(node, roles, spec, router));
 
-      if (node.hook) loaders.push(`const ${node.hook} = ${lazy(node) ? `() => import(${spec}).then(m => hook(m.default))` : `hook(${node.alias.default})`};`);
+      if (node.hook) {
+        const file = JSON.stringify(relative(project, node.file).split(sep).join("/"));
+        loaders.push(`const ${node.hook} = ${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `hook(${node.alias.default}, ${file})`};`);
+      }
     }
 
     node.children.forEach(walk);
