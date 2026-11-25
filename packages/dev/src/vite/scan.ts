@@ -12,16 +12,17 @@ export const scanExports: ExportScanner = async (source, path) => {
   await init;
 
   const entries = parse(code)[1];
-  const entry = entries.find(entry => entry.n === "default");
-  const local = entry && (entry.ln ?? /^\s+([\w$]+)\s*(?:;|$)/m.exec(code.slice(entry.e))?.[1]);
-  const classDefault = local
-    ? new RegExp(`\\bclass\\s+${local}\\b`).test(code)
-    : /\bexport\s+default\s+(abstract\s+)?class\b/.test(code);
+  const classDefault = entries.some(entry => entry.n === "default") ? kindOf(moduleOf(path, source).exports.get("default")) : false;
 
   const label = labelOf(code, entries.find(entry => entry.n === "label")?.ln);
 
   return { exports: entries.map(entry => entry.n), classDefault, label };
 };
+
+function kindOf(value: Value): boolean | undefined {
+  if (value?.type === "ClassDeclaration" || value?.type === "ClassExpression") return true;
+  if (isGate(value)) return false;
+}
 
 function labelOf(code: string, local: string | undefined): string | undefined {
   if (!local) return;

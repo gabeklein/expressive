@@ -190,7 +190,10 @@ describe('Route', () => {
       ['will let a first-declared literal win', '/posts/new', <Route>{literal}{dynamic}</Route>, 'literal'],
       ['will let a first-declared :param shadow a later catch-all', '/posts/foo', <Route>{dynamic}<Route to="*" as={text('catch-all')} /></Route>, 'dynamic'],
       ['will let a last catch-all catch what earlier siblings miss', '/anything/at/all', <Route><Route to="/" as={text('home')} /><Route to="*" as={text('not-found')} /></Route>, 'not-found'],
-      ['will let the first of equal matches win', '/posts/foo', <Route><Route to="/posts/:a" as={text('a')} /><Route to="/posts/:b" as={text('b')} /></Route>, 'a']
+      ['will let the first of equal matches win', '/posts/foo', <Route><Route to="/posts/:a" as={text('a')} /><Route to="/posts/:b" as={text('b')} /></Route>, 'a'],
+      ['will let an index shadow a later catch-all at its path', '/', <Route><Route as={text('index')} /><Route to="*" as={text('rest')} /></Route>, 'index'],
+      ['will let a catch-all take what an index beside it misses', '/x', <Route><Route as={text('index')} /><Route to="*" as={text('rest')} /></Route>, 'rest'],
+      ['will let a catch-all take its own path without an index', '/', <Route><Route to="about" as={text('about')} /><Route to="*" as={text('rest')} /></Route>, 'rest']
     ])('%s', async (_, path, ui, expected) => {
       expect(await at(path, ui)).toBe(expected);
     });

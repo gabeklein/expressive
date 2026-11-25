@@ -8,6 +8,7 @@ interface Schedulable {
   update(passive: boolean): PromiseLike<unknown> | void;
   probe?(): PromiseLike<unknown> | void;
   empty?(): boolean;
+  bounds?(): [Node, Node];
 }
 
 const urgent = new Set<Schedulable>();
@@ -63,7 +64,10 @@ function flushPassive() {
     if (waiting) return defer(batch, waiting, scope);
   }
 
-  batch.sort((a, b) => Number(!!b.empty?.()) - Number(!!a.empty?.()));
+  const leaving = batch.filter((scope) => scope.probed && blank(scope.probed.output));
+  const rank = new Map(batch.map((scope) => [scope, leaving.some((outer) => encloses(outer, scope)) ? 2 : scope.empty?.() ? 0 : 1]));
+
+  batch.sort((a, b) => rank.get(a)! - rank.get(b)!);
 
   for (let index = 0; index < batch.length; index++) {
     const scope = batch[index];
@@ -85,6 +89,19 @@ function flushPassive() {
     if (waiting) return defer(batch.slice(index + 1), waiting, scope);
     unblock(scope);
   }
+}
+
+function blank(output: unknown) {
+  return output == null || typeof output == 'boolean';
+}
+
+function encloses(outer: Schedulable, inner: Schedulable) {
+  if (outer === inner || !outer.bounds || !inner.bounds) return false;
+
+  const [start, end] = outer.bounds();
+  const [node] = inner.bounds();
+
+  return !!(start.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(end.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING);
 }
 
 function defer(scopes: Schedulable[], waiting: PromiseLike<unknown>, source: Schedulable) {

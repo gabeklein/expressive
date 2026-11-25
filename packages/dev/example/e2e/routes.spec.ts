@@ -47,6 +47,16 @@ test("an entry hook redirects until it allows the route", async ({ page, open })
   await expect(page.getByRole("heading")).toHaveText("Admin area");
 });
 
+test("leaves a [...] page whose none route redirects for a static page beside it", async ({ page, open }) => {
+  await open("/desk");
+  await expect(page).toHaveURL("/desk/claim");
+  await expect(page.getByRole("heading")).toHaveText("Claim");
+
+  await page.getByRole("link", { name: "File a report" }).click();
+  await expect(page.getByRole("heading")).toHaveText("Report");
+  await expect(page).toHaveURL("/desk/report");
+});
+
 test("falls through to the 404 page", async ({ page, open }) => {
   await open("/nowhere");
   await expect(page.getByRole("heading")).toHaveText("404");

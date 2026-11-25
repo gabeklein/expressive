@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, extname, join, relative, sep } from "node:path";
+import { basename, dirname, extname, join, relative, sep } from "node:path";
 
 import { importRel } from "./project";
 import { hasGate } from "./scan";
@@ -35,12 +35,13 @@ interface RouteNode {
   name: string;
   file?: string;
   exports: Set<string>;
-  classDefault: boolean;
+  classDefault: boolean | undefined;
   label?: string;
   children: RouteNode[];
   isLeaf: boolean;
   gated: boolean;
   alias: Partial<Record<Role, string>>;
+  hook?: string;
 }
 
 export async function generateRoutes(appDir: string, outDir: string, scan: ExportScanner): Promise<string> {
@@ -48,7 +49,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   assignAliases(root, new Set());
 
-  const { imports, loaders } = collectImports(root, outDir);
+  const { imports, loaders } = collectImports(root, outDir, dirname(appDir));
   const wrappers = collectWrappers(root);
   const tree = emitNode(root, true, 2, "null", outDir).join("\n");
   const gates = gateTree(root, true);
@@ -59,14 +60,17 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     "Route",
     !root.exports.has("Router") && "Router",
   ].filter(Boolean).join(", ")} }`;
-  const provides = [...loaders, ...wrappers].some(line => line.includes("<Component for="));
+  const scoped = some(root, node => !!scopeOf(node));
+  const either = some(root, node => !!node.hook);
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...(provides ? ['import { Component } from "@expressive/mvc";'] : []),
+    ...(scoped ? ['import { Component, Model } from "@expressive/mvc";'] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
+    ...(scoped ? ["", "const wrap = (Type, children) => Component.is(Type) ? <Type>{children}</Type> : Model.is(Type) ? <Component for={Type}>{children}</Component> : children;"] : []),
+    ...(either ? [`const hook = (value, file) => {\n  if (Model.is(value)) return;\n  if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component.");\n  return value;\n};`] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
@@ -121,6 +125,8 @@ export async function staticPaths(appDir: string, scan: ExportScanner): Promise<
   return { paths, sources };
 }
 
+const some = (node: RouteNode, test: (node: RouteNode) => boolean): boolean => test(node) || node.children.some(child => some(child, test));
+
 function newNode(fields: Partial<RouteNode>): RouteNode {
   return { segment: "", name: "", exports: new Set(), classDefault: false, children: [], isLeaf: false, gated: false, alias: {}, ...fields };
 }
@@ -155,8 +161,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
 
     const scanned = await scan(readFileSync(full, "utf8"), full);
     const exports = new Set(scanned.exports);
-    const classDefault = !!scanned.classDefault;
-    const { label } = scanned;
+    const { classDefault, label } = scanned;
 
     if (exports.has("label") && typeof label != "string")
       throw new Error(`${full} exports a label that is not a string literal.`);
@@ -233,19 +238,24 @@ function assignAliases(node: RouteNode, used: Set<string>): void {
   for (const role of ROLES) {
     if (!node.exports.has(role)) continue;
 
-    const defaultSuffix = node.classDefault ? "Scope" : "Enter";
-    const suffix = role === "default" ? defaultSuffix : role;
-    let alias = role === "Page" ? base : base + suffix;
-    while (used.has(alias)) alias += "_";
+    const suffix = role !== "default" ? role : node.classDefault === false ? "Enter" : "Scope";
 
-    used.add(alias);
-    node.alias[role] = alias;
+    node.alias[role] = unique(role === "Page" ? base : base + suffix, used);
   }
+
+  if (node.alias.default && node.classDefault === undefined) node.hook = unique(base + "Enter", used);
 
   for (const child of node.children) assignAliases(child, used);
 }
 
-function collectImports(root: RouteNode, outDir: string) {
+function unique(alias: string, used: Set<string>): string {
+  while (used.has(alias)) alias += "_";
+  used.add(alias);
+
+  return alias;
+}
+
+function collectImports(root: RouteNode, outDir: string, project: string) {
   const imports: string[] = [];
   const loaders: string[] = [];
 
@@ -257,6 +267,11 @@ function collectImports(root: RouteNode, outDir: string) {
       const spec = JSON.stringify(importRel(outDir, node.file));
       if (lazy(node)) loaders.push(...roles.map(role => loaderFor(node, role, spec)));
       else imports.push(importFor(node, roles, spec, router));
+
+      if (node.hook) {
+        const file = JSON.stringify(relative(project, node.file).split(sep).join("/"));
+        loaders.push(`const ${node.hook} = ${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `hook(${node.alias.default}, ${file})`};`);
+      }
     }
 
     node.children.forEach(walk);
@@ -269,8 +284,8 @@ const isRoot = (node: RouteNode): boolean => !node.name;
 const lazy = (node: RouteNode): boolean => !isRoot(node) && !node.alias.Loading && !node.alias.Catch;
 
 function loaderFor(node: RouteNode, role: Role, spec: string): string {
-  const load = role === "default" && node.classDefault
-    ? `() => import(${spec}).then(m => props => <Component for={m.default}>{props.children}</Component>)`
+  const load = role === "default" && scopeOf(node)
+    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children))`
     : `() => import(${spec}).then(m => m.${role})`;
 
   return `const ${node.alias[role]} = ${load};`;
@@ -287,16 +302,20 @@ function importFor(node: RouteNode, roles: Role[], spec: string, router: boolean
 
 const renders = (node: RouteNode): boolean => !!node.alias.Page || node.children.some(renders);
 
-function scopedOf(node: RouteNode): string | undefined {
-  const { Layout, default: def } = node.alias;
+const scopeOf = (node: RouteNode): string | undefined => (node.classDefault === false ? undefined : node.alias.default);
 
-  if (node.classDefault && def && (Layout || !lazy(node))) return def + "d";
+const hookOf = (node: RouteNode): string | undefined => (node.classDefault === false ? node.alias.default : node.hook);
+
+function scopedOf(node: RouteNode): string | undefined {
+  const scope = scopeOf(node);
+
+  if (scope && (node.alias.Layout || !lazy(node))) return scope + "d";
 }
 
 function provide(node: RouteNode, alias: string, content: string): string {
   return lazy(node)
     ? `<${alias}>${content}</${alias}>`
-    : `<Component for={${alias}}>${content}</Component>`;
+    : `wrap(${alias}, ${content})`;
 }
 
 function collectWrappers(root: RouteNode): string[] {
@@ -307,12 +326,11 @@ function collectWrappers(root: RouteNode): string[] {
 
     if (!renders(node)) return;
 
-    const { Layout, default: def } = node.alias;
-    const scope = node.classDefault ? def : undefined;
+    const { Layout } = node.alias;
     const scoped = scopedOf(node);
 
     if (scoped)
-      wrappers.push(`const ${scoped} = props => ${provide(node, scope!, Layout ? `<${Layout} {...props} />` : "{props.children}")};`);
+      wrappers.push(`const ${scoped} = props => ${provide(node, scopeOf(node)!, Layout ? `<${Layout} {...props} />` : "props.children")};`);
   })(root);
 
   return wrappers;
@@ -322,12 +340,12 @@ const caught = (node: RouteNode) => node.children.some(child => child.segment ==
 
 function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string, outDir: string, contend = false): string[] {
   const pad = "  ".repeat(depth);
-  const { Page, Layout, Loading, Catch, NotFound, default: def } = node.alias;
+  const { Page, Layout, Loading, Catch, NotFound } = node.alias;
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
-  const hook = node.classDefault ? undefined : def;
+  const hook = hookOf(node);
   const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
   const enter = node.gated ? `checked(${hook ?? (load && "undefined")}${load})` : hook;
-  const scope = node.classDefault ? def : undefined;
+  const scope = scopeOf(node);
 
   const own = Loading ? `<${Loading} />` : undefined;
   const isScope = isRoot || node.children.length > 0 || !!Layout || !!NotFound || !!scope;

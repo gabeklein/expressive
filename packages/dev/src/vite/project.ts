@@ -89,6 +89,7 @@ export function prerenderEntry(appImport: string, sources: string[]): string {
 
   return `\
 import { renderToString } from "@expressive/dom/server";
+import { Model } from "@expressive/mvc";
 import { Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import { scope } from "./call.ts";
@@ -110,20 +111,39 @@ export async function paths() {
   return found;
 }
 
+const pages = new WeakMap();
+
+Model.on({
+  setup(self) {
+    pages.set(self, scope.getStore());
+  },
+  catch(error, kind) {
+    if (kind == "dead" || kind == "unused") return error;
+
+    const mark = pages.get(this);
+
+    if (mark && !mark.done) mark.failed ??= [error];
+    else console.warn((mark ? mark.path : "A Model") + " failed after its page rendered at build: " + (error?.message ?? error));
+  },
+});
+
 export default async function page(path) {
   let router;
   const stop = Router.on({ setup(self) { router = self; } });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
-  const mark = { called: false, abort };
+  const mark = { called: false, abort, path };
 
   try {
     const output = await scope.run(mark, () => renderToString(jsx(App, { path }), { signal: abort.signal }));
-    return mark.called ? null : { ...output, path: router ? router.path : path };
+    if (mark.called) return null;
+    if (mark.failed) throw mark.failed[0];
+    return { ...output, path: router ? router.path : path };
   } catch (error) {
     if (mark.called) return null;
     throw error;
   } finally {
+    mark.done = true;
     clearTimeout(timer);
     stop();
   }

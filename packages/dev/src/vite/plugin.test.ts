@@ -865,6 +865,19 @@ describe("vite host", () => {
     expect(await unknown.text()).toContain("<p>mine</p>");
   });
 
+  it("will resolve a shell's relative links from the root on a nested path", async () => {
+    const shell = `<html><head><link rel="stylesheet" href="./src/x.css"></head><body></body></html>`;
+
+    for (const files of [{}, { "index.ts": "export default {};" }] as Record<string, string>[]) {
+      const server = await serve(project({ "app/index.tsx": PAGE, "index.html": shell, "src/x.css": "p {}", ...files }));
+      await server.listen(0);
+
+      const page = await fetch(new URL("/a/b", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
+
+      expect(await page.text()).toContain('href="/src/x.css"');
+    }
+  });
+
   it("will serve a public/ folder's index.html for its path without handle", async () => {
     const server = await serve(project({ "app/index.tsx": PAGE, "public/map/index.html": "map" }));
     await server.listen(0);

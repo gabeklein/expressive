@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { launch } from "./render";
 
@@ -128,6 +128,47 @@ describe("launch", { timeout: 30_000 }, () => {
     await expect(renderer.render("/broke")).rejects.toThrow("broke");
     await new Promise(resolve => setTimeout(resolve, 20));
     renderer.close();
+  });
+
+  it("will reject a page whose root default fails its async new()", async () => {
+    const root = project({
+      "app/index.tsx": `
+        import { Model } from "@expressive/mvc";
+        export default class Session extends Model { async new() { throw new Error("no session"); } }
+        export const Page = () => <p>home</p>;
+      `,
+    });
+    const renderer = await launch(root);
+
+    await expect(renderer.render("/")).rejects.toThrow("no session");
+    renderer.close();
+  });
+
+  it("will warn of a default failing its async new() after its page rendered, failing no later page", async () => {
+    const root = project({
+      "app/index.tsx": `export const Page = () => <p>index</p>;`,
+      "app/home/index.tsx": `
+        import { Model } from "@expressive/mvc";
+        export default class Session extends Model {
+          async new() {
+            await new Promise(resolve => (globalThis.failLate = resolve));
+            throw new Error("too late");
+          }
+        }
+        export const Page = () => <p>home</p>;
+      `,
+      "app/(about).tsx": `export const Page = () => { globalThis.failLate?.(); return <p>about</p>; };`,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const renderer = await launch(root);
+
+    expect((await renderer.render("/home"))?.html).toContain("<p>home</p>");
+    expect((await renderer.render("/about"))?.html).toContain("<p>about</p>");
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith("/home failed after its page rendered at build: too late"));
+
+    renderer.close();
+    warn.mockRestore();
+    delete (globalThis as any).failLate;
   });
 
   it("will render a single-file app and list no paths", async () => {

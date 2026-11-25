@@ -441,6 +441,8 @@ export function scopeResolves(children: Component.Node, base: string, path: stri
 type Contender = {
   /** Absolute path this Route claims. */
   path: string;
+  /** Its own pattern - an index and a catch-all beside it claim one path. */
+  to: string;
   /** Whether it claims (matches) a given path. */
   matches: (path: string) => boolean;
 };
@@ -454,12 +456,13 @@ function cedes(parent: Route, child: Route, path: () => string): boolean {
   if (exempt(child)) return false;
 
   const rivals = possible(parent.props.children, scopeBase(parent));
-  if (rivals.length < 2 || !rivals.some((r) => r.path === child.path)) return false;
+  const own = (rival: Contender) => rival.path === child.path && rival.to === child.to;
+  if (rivals.length < 2 || !rivals.some(own)) return false;
 
   const at = path();
   for (const rival of rivals)
     if (rival.matches(at))
-      return rival.path !== child.path;
+      return !own(rival);
 
   return true;
 }
@@ -474,6 +477,7 @@ function possible(children: Component.Node, base: string): Contender[] {
     .filter(({ props }) => props.as && !exempt(props))
     .map(({ props, to }) => ({
       path: base + patternSegment(to),
+      to,
       matches: allRoutes(props.children)
         ? (path: string) => scopeResolves(props.children, base + patternSegment(to), path)
         : (path: string) => matchPattern(fullPattern(base, to), path) !== null,
