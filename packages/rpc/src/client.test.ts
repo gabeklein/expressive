@@ -79,11 +79,11 @@ describe("call", () => {
 });
 
 describe("gate check", () => {
-  it("will POST an unnamed get to the path, resolving nothing once the gates pass", async () => {
+  it("will POST a gates get to the path, resolving true once the gates pass", async () => {
     const fetch = serve({ body: {} });
 
-    expect(await call("/shop/1", "", [])).toBeUndefined();
-    expect(fetch).toHaveBeenCalledWith("/shop/1", expect.objectContaining({ headers: { "content-type": "application/json", "x-expressive-get": "" } }));
+    expect(await call("/shop/1", "", [])).toBe(true);
+    expect(fetch).toHaveBeenCalledWith("/shop/1", expect.objectContaining({ headers: { "content-type": "application/json", "x-expressive-get": "gates" } }));
   });
 
   it("will throw a refusal, rebuilt as a call's error", async () => {
@@ -93,12 +93,15 @@ describe("gate check", () => {
     await expect(call("/", "", [])).rejects.toBeInstanceOf(Limit);
   });
 
-  it("will pass a reply that isn't the codec's, and a network failure", async () => {
+  it("will resolve false for a reply that isn't the codec's, a codec 404 and a network failure", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Gated.", { status: 401 })));
-    expect(await call("/", "", [])).toBeUndefined();
+    expect(await call("/", "", [])).toBe(false);
+
+    serve({ body: { message: "Not found." }, status: 404 });
+    expect(await call("/", "", [])).toBe(false);
 
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
-    expect(await call("/", "", [])).toBeUndefined();
+    expect(await call("/", "", [])).toBe(false);
   });
 });
 

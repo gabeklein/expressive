@@ -85,7 +85,7 @@ describe("call dispatch", () => {
     expect(statuses).toEqual([200, 200]);
   });
 
-  it("will give a call its folder's params, decoded, and its gates none", async () => {
+  it("will give a call and its gates the folder's params, decoded", async () => {
     const seen: Record<string, string>[] = [];
     const params = async () => Current.get().params;
     const folders: Endpoint[] = [
@@ -96,7 +96,7 @@ describe("call dispatch", () => {
 
     expect(await send(folders, request("/blog/a%20b/c/d", "params", "[]"), false, async pattern => (pattern.length == 1 ? gate : undefined))).toEqual({ status: 200, body: { value: { slug: "a b", "*": "c/d" } } });
     expect(await send(folders, request("/raw/%E0", "params", "[]"))).toEqual({ status: 200, body: { value: { id: "%E0" } } });
-    expect(seen).toEqual([{}]);
+    expect(seen).toEqual([{ slug: "a b", "*": "c/d" }]);
   });
 
   it("will reply 404 to a pull, a seat method or a pool method", async () => {
@@ -126,7 +126,7 @@ describe("call dispatch", () => {
   });
 
   describe("gate check", () => {
-    const check = (url: string) => request(url, undefined, "[]", "application/json", { "x-expressive-get": "" });
+    const check = (url: string) => request(url, undefined, "[]", "application/json", { "x-expressive-get": "gates" });
     const folders: Endpoint[] = [
       ...endpoints,
       { pattern: ["shop", ":id"], exports: async () => ({ calls: {}, classes: {} }) },
@@ -142,7 +142,7 @@ describe("call dispatch", () => {
 
       expect([response.status, await response.json()]).toEqual([200, {}]);
       expect(response.headers.get("x-seen")).toBe("2");
-      expect(seen).toEqual([["", {}], ["shop", {}], ["shop/:id", {}]]);
+      expect(seen).toEqual([["", { id: "a b" }], ["shop", { id: "a b" }], ["shop/:id", { id: "a b" }]]);
     });
 
     it("will reply a gate's refusal as a call's error", async () => {
@@ -151,14 +151,15 @@ describe("call dispatch", () => {
       expect(await send(folders, check("/tally"), false, async () => { throw new Error("No gate."); })).toEqual({ status: 500, body: { message: "Internal error." } });
     });
 
-    it("will reply a gate's redirect as a Redirect error, keeping its cookies, and other answers as is", async () => {
-      const moved = (status: number) => async () => () => new Response(null, { status, headers: { location: "/login", "set-cookie": "a=1" } });
+    it("will reply a gate's redirect as a Redirect error with status 400, keeping its headers, and other answers as is", async () => {
+      const moved = (status: number) => async () => () => new Response(null, { status, headers: { location: "/login", "set-cookie": "a=1", "cache-control": "no-store" } });
       const redirect = await dispatch(fetched(check("/tally")), () => folders, false, moved(303));
       const unmoved = await dispatch(fetched(check("/tally")), () => folders, false, async () => () => new Response("no", { status: 401 }));
       const bare = await dispatch(fetched(check("/tally")), () => folders, false, async () => () => new Response(null, { status: 304 }));
 
-      expect([redirect.status, await redirect.json()]).toEqual([500, { error: "http:Redirect", message: "/login", location: "/login", status: 303 }]);
+      expect([redirect.status, await redirect.json()]).toEqual([400, { error: "http:Redirect", message: "/login", location: "/login", status: 303 }]);
       expect(redirect.headers.getSetCookie()).toEqual(["a=1"]);
+      expect([redirect.headers.get("cache-control"), redirect.headers.get("location")]).toEqual(["no-store", null]);
       expect([unmoved.status, await unmoved.text()]).toEqual([401, "no"]);
       expect(bare.status).toBe(304);
     });
@@ -213,8 +214,11 @@ describe("call dispatch", () => {
     });
   });
 
-  it("will keep a status outside 4xx and 5xx to 500", async () => {
+  it("will keep a status outside 3xx, 4xx and 5xx to 500, and a 3xx to 400", async () => {
+    calls.moved = async () => { throw Object.assign(new Strange("Moved"), { status: 302 }); };
+
     expect((await send(endpoints, request("/tally", "strange", "[]"))).status).toBe(500);
+    expect((await send(endpoints, request("/tally", "moved", "[]"))).status).toBe(400);
   });
 });
 

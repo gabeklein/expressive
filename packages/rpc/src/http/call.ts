@@ -90,7 +90,7 @@ export async function dispatch<E extends Exports>(request: Request, endpoints: (
   const list = endpoints();
   const { pathname } = new URL(request.url);
   const at = pathname.split("/").filter(Boolean).slice(skip);
-  const check = request.headers.get("x-expressive-get") === "";
+  const check = request.headers.get("x-expressive-get") === "gates";
   const name = request.headers.has("x-expressive-get") ? undefined : request.headers.get("x-expressive-call") ?? undefined;
   const { found, exports, fn } = await locate(list, at, name);
   const incoming = { request, list, at, pathname, found, exports, dev, seats };
@@ -144,10 +144,12 @@ async function gateCheck(incoming: Incoming): Promise<Response> {
 
   const moved = await failure(new Redirect(location, answer.status), list, dev);
 
-  for (const cookie of answer.headers.getSetCookie()) moved.headers.append("set-cookie", cookie);
+  answer.headers.forEach((value, name) => KEPT.has(name) || moved.headers.append(name, value));
 
   return moved;
 }
+
+const KEPT = new Set(["content-type", "content-length", "location"]);
 
 async function readArgs(request: Request): Promise<unknown[] | undefined> {
   try {
@@ -169,6 +171,8 @@ function respond(outcome: Outcome, headers?: Record<string, string>): Response {
 }
 
 function statusOf(status?: number): number {
+  if (status !== undefined && status >= 300 && status < 400) return 400;
+
   return status !== undefined && status >= 400 && status < 600 ? status : 500;
 }
 

@@ -299,7 +299,7 @@ async function walk<T>(frame: Frame, steps: (string | undefined)[], from: number
 
   const { at, fn } = gate;
 
-  return join(await stage(frame, fn, below => walk(below, steps, at, run, seats, fail), EMPTY, fail, true));
+  return join(await stage(frame, fn, below => walk(below, steps, at, run, seats, fail), frame.params ?? EMPTY, fail, true));
 }
 
 const noop = () => {};

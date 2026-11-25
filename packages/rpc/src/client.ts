@@ -112,16 +112,17 @@ export function client<T = any>(initial: ClientOptions = {}) {
 
     const error = rebuild(body);
 
-    REFUSED.add(error);
+    if (res.status !== 404) REFUSED.add(error);
     throw error;
   }
 
   async function call(path: string, name: string, args: unknown[], options?: CallOptions): Promise<unknown> {
     if (!name)
-      return send(path, { "x-expressive-get": "" }, args, options).then(
-        () => undefined,
+      return send(path, { "x-expressive-get": "gates" }, args, options).then(
+        () => true,
         error => {
           if (REFUSED.has(error)) throw error;
+          return false;
         },
       );
 
