@@ -162,17 +162,21 @@ export default () => {
 // api/account/me.ts
 export const GET = () => Session.get().user;
 
-// api/legacy/[...].ts - mount a fetch handler (Hono, an auth library)
+// api/legacy/[...].ts - mount a fetch handler (Hono, an auth library) on /api/legacy/*
 export default () => legacy.fetch;
+
+// api/legacy/index.ts - /api/legacy itself
+export const GET = () => legacy.fetch;
 ```
 
-- `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` answer that method on the module's path. Returned value: `Response` as is, object/array as JSON, string as text, nothing 204. HEAD runs `GET` without the body. Other methods: 405 with `Allow`.
-- `default` outside a folder `index.ts`: catch-all for every method on its path. A returned function is a fetch handler, called with `(request, env, ctx)` - bind one that needs `this`.
+- `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` answer that method on the module's path. Returned value: `Response` as is, object/array as JSON, string as text, nothing 204. HEAD runs `GET` without the body. Other methods: 405 with `Allow`. OPTIONS is never synthesised - CORS and preflight go in `handle` or a folder gate.
+- `default` outside a folder `index.ts`: catch-all for every method on its path. Routes take no arguments, so return the handler - a returned function (from a verb too) is called with `(request, env, ctx)`. The path is not rewritten - give the mounted app its base path (`basePath("/api/legacy")`). Bind a `fetch` that needs `this`.
 - `default` in a folder `index.ts`: the folder's gate, before every route below, outermost first, on unmatched paths too. Finish to pass, throw to refuse (`HttpError` → its status as JSON `{ message }`, else logged 500), return a `Response` or fetch handler to answer, `Current.get().next()` to wrap. Its Models are `X.get()`-able below until the request ends. Sees its own folder's params; routes see the full match's.
 - No module for the path, or an `index.ts` with only a gate: JSON 404, never the shell.
-- Exact, case-sensitive; fixed beats `[param]` beats `[...]`, no backtracking - `/api/admin/users` 404s under `api/admin/` without `users`, even beside `api/[org]/users.ts`. Params decode after the match; a bad `%` escape is 400, an empty segment never matches.
-- Fail dev and the build: no verbs and no `default` (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports (types fine; `api/index.ts`'s reserved); `(name)` files/folders, a `[...]` folder, two `[param]`s in a folder, two modules on one path (`api/dev.ts` + `api/dev/index.ts`); `app/api/`, `app/api.tsx`, `app/(api).tsx`, `public/api/` beside `api/`; a client import from `api/`.
-- Dev loads routes per request on the module runner - edits and added files land on the next one. Never prerendered.
+- Exact, case-sensitive, on decoded segments (`/api/caf%C3%A9` → `api/café.ts`); fixed beats `[param]` beats `[...]`, no backtracking - `/api/admin/users` 404s under `api/admin/` without `users`, even beside `api/[org]/users.ts`. A bad `%` escape is 400; an empty segment never matches, except inside `[...]`'s rest after its first.
+- Params arrive decoded, slashes included - never join one onto a file path.
+- Fail dev and the build: no verbs and no `default` (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports (types fine; `api/index.ts`'s reserved); `(name)` files/folders, a `[...]` folder, `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*`, two `[param]`s in a folder, two modules on one path (`api/dev.ts` + `api/dev/index.ts`); `app/api/`, `app/api.tsx`, `app/(api).tsx`, `public/api/` beside `api/`, any case; a client import from `api/`, aliases included.
+- Dev loads routes per request on the module runner - edits and added files land on the next one. A save logs these errors; a broken route's requests answer a 500 naming it. Never prerendered.
 
 ## env and index.dev.ts
 

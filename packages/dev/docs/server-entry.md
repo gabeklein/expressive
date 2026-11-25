@@ -340,17 +340,19 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 
 **Other rules:**
 
-- Matching is exact and case-sensitive, on raw segments of the path `handle` forwards; params are decoded after the match. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`, with no backtracking: once a fixed folder matches a segment, a sibling `[param]` never takes the path, so `/api/admin/users` stays under `api/admin/index.ts`'s gate and 404s there if `admin/` lacks `users`.
+- Matching is exact and case-sensitive, on the decoded segments of the path `handle` forwards, so an escape (`/api/%61dmin`) cannot route around a fixed folder and its gate. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`, with no backtracking: once a fixed folder matches a segment, a sibling `[param]` never takes the path, so `/api/admin/users` stays under `api/admin/index.ts`'s gate and 404s there if `admin/` lacks `users`.
 - `api/` is server-only. A client module importing from it fails the build, as it would for another folder's sidecar.
 - When a root `api/` exists, `app/api/`, `app/api.tsx`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
 - `api/` routes are not prerendered.
 
 **Settled in PR 6:**
 
-- 404 and 405 replies are JSON `{ message }`; only the 405 carries `Allow` (a 404 has no methods to list). The 404 names the path and says `/api` belongs to `api/`.
-- A trailing slash is an empty segment, so `/api/logout/` is a 404. A `[...]` param is the rest of the path joined with `/`, decoded, under `"*"`.
-- Naming errors beyond the note's: a `(name)` folder, a `[...]` folder (it takes the rest - a file only), and two `[param]` names in one folder (`[id].ts` beside `[slug]/`), which would take the same segment.
-- A runtime export check at load backs the build's static one: a class `default` in a folder `index.ts` (imported or not) and a verb or `default` that isn't a function fail as the module loads - in dev that request answers a 500 naming the file; a Node build throws before listening; a fetch build at module load. A naming error in dev fails every `/api` request the same way until fixed; the reservations fail the dev server at start.
+- 404 and 405 replies are JSON `{ message }`; only the 405 carries `Allow` (a 404 has no methods to list). The 404 names the path and says `/api` belongs to `api/`. A HEAD reply never has a body, error replies included.
+- Only the six verbs dispatch; another method token (`default`, say) is a 405. OPTIONS is never synthesised - CORS and preflight go in `handle` or a folder gate.
+- A trailing slash is an empty segment, so `/api/logout/` is a 404. A `[...]` param is the decoded rest of the path joined with `/`, under `"*"`; its first segment must be non-empty, later empty ones are kept (`/api/files/a//b` gives `a//b`), which suits a mounted app.
+- Naming errors beyond the note's: a `(name)` folder, a `[...]` folder (it takes the rest - a file only), `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*` (the table reads those as params), and two `[param]` names in one folder (`[id].ts` beside `[slug]/`), which would take the same segment. The `/api` reservations compare case-insensitively.
+- Export rules are checked by the build (statically, after types are stripped) and in dev as each module loads, which also catches an imported class gate and a verb or `default` that isn't a function - that request answers a 500 naming the file, and each save under `api/` logs the folder's errors. Built hosts don't re-check, so none of it ships in a bundle; an imported class gate in a build fails at its first request. A naming error in dev fails every `/api` request until fixed; the reservations fail the dev server at start.
+- The client import guard checks every client import's resolved id, so an alias into `api/` is caught too.
 - The prefix is `base` + `api`, carried by each generated entry.
 - Generated tables: Node's `listen({ ..., api: { prefix, routes: [{ name, path, index, module }] } })`, and `/fetch`'s `compose(settings, sidecars, manifest, apiModules, apiRefs, pages)` with `apiRefs` `{ prefix, routes: [{ name, path, index }] }` in `apiModules`' order (`null` without `api/`), its type exported beside `FolderRefs` as entry plumbing.
 
@@ -365,7 +367,7 @@ const legacy = new Hono().basePath("/api/legacy").get("/users/:id", c => c.json(
 export default () => legacy.fetch;
 ```
 
-The handler is called detached, so a `fetch` that needs `this` (a prototype method; Hono's is an instance arrow) is returned bound: `() => app.fetch.bind(app)`. An app returned without `.fetch` throws (the body rule). The handler reads the body through the cache, its reply gets the headers and cookies gates set, and Models gates activated resolve inside it.
+The handler is called detached, so a `fetch` that needs `this` (a prototype method; Hono's is an instance arrow) is returned bound: `() => app.fetch.bind(app)`. An app returned without `.fetch` throws (the body rule). The handler reads the body through the cache, its reply gets the headers and cookies gates set, and Models gates activated resolve inside it. Routes take no arguments, hence the arrow returning the handler. The path is not rewritten, so the mounted app keeps its base path, and `/api/legacy` itself is `api/legacy/index.ts`'s `export const GET = () => legacy.fetch` - a verb may return a handler too.
 
 Around the whole app it goes in `handle`, which takes one object, so `handle: legacy.fetch` fails to type-check (and throws on the first request untyped) instead of silently answering every path. The 404 decision is written out:
 

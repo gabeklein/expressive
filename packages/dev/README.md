@@ -162,17 +162,24 @@ export async function POST() {
 - `GET`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS` answer that method on the module's own path.
   A returned value is the reply: a `Response` as is, a plain object or array as JSON, a string as
   text, nothing as 204. HEAD runs `GET` and drops the body. Another method gets 405 with `Allow`.
+  Nothing answers OPTIONS for you - CORS and preflight go in `handle` or a folder gate.
 - A `default` export answers every method on its path - a catch-all, and the place to mount a
-  fetch handler. Return the handler and it is called with `(request, env, ctx)`:
+  fetch handler. Routes take no arguments, so the default is an arrow that returns the handler,
+  which is then called with `(request, env, ctx)`:
 
   ```ts
-  // api/legacy/[...].ts
-  const legacy = new Hono().basePath("/api/legacy").get("/users/:id", c => c.json({ id: c.req.param("id") }));
+  // server/legacy.ts
+  export const legacy = new Hono().basePath("/api/legacy").get("/users/:id", c => c.json({ id: c.req.param("id") }));
 
+  // api/legacy/[...].ts - /api/legacy/*
   export default () => legacy.fetch;
+
+  // api/legacy/index.ts - /api/legacy itself; a verb may return a handler too
+  export const GET = () => legacy.fetch;
   ```
 
-  A `fetch` that needs `this` goes bound: `() => app.fetch.bind(app)`.
+  The path is not rewritten: the handler sees `/api/legacy/users/1`, so the mounted app needs its
+  base path. A `fetch` that needs `this` goes bound: `() => app.fetch.bind(app)`.
 - In a folder's `index.ts`, `default` is instead the folder's gate. It runs before every route in the
   folder and below, outermost first - for paths no route matches too, so a refused caller gets the
   same answer either way. Finish to pass; throw to refuse (an `HttpError` answers its status as JSON
@@ -193,10 +200,12 @@ export async function POST() {
 
   A gate sees its own folder's params; a route sees the full match's.
 - A path no module serves, or a folder `index.ts` with only a gate, is a JSON 404 - never the shell.
-- Matching is exact and case-sensitive. A fixed name beats a `[param]`, which beats `[...]`, and a
-  segment never backtracks: once `api/admin/` matches `admin`, `/api/admin/users` is a 404 if
-  `admin/` lacks `users`, even beside `api/[org]/users.ts`. Params are decoded after the match; a
-  malformed `%` escape is a 400 and an empty segment (`//`, a trailing `/`) never matches.
+- Matching is exact and case-sensitive, on decoded segments - `/api/caf%C3%A9` reaches `api/café.ts`.
+  A fixed name beats a `[param]`, which beats `[...]`, and a segment never backtracks: once
+  `api/admin/` matches `admin`, `/api/admin/users` is a 404 if `admin/` lacks `users`, even beside
+  `api/[org]/users.ts`. A malformed `%` escape is a 400. An empty segment (`//`, a trailing `/`)
+  never matches, except inside the rest `[...]` takes - its first segment must be non-empty.
+- Params arrive decoded, slashes included (`%2F` is `/`) - never join one onto a file path.
 
 The dev server and the build fail on:
 
@@ -204,14 +213,16 @@ The dev server and the build fail on:
   `default` beside verbs outside an `index.ts`, or a class as a folder's `default` - a function that
   activates the Model covers it;
 - any other runtime export (type exports are fine) - `api/index.ts`'s are reserved;
-- `(name)` files or folders, a `[...]` folder, two `[param]`s in one folder, and two modules on one
+- `(name)` files or folders, a `[...]` folder, a named rest (`[...slug]` - use `[...]` or
+  `[slug]`), a name starting with `:` or `*`, two `[param]`s in one folder, and two modules on one
   path (`api/dev.ts` beside `api/dev/index.ts`);
-- `app/api/`, `app/api.tsx`, `app/(api).tsx` or `public/api/` beside `api/` - `/api` belongs to the
-  folder. Without `api/`, the app may own `/api` itself;
+- `app/api/`, `app/api.tsx`, `app/(api).tsx` or `public/api/` beside `api/`, in any case - `/api`
+  belongs to the folder. Without `api/`, the app may own `/api` itself;
 - a client module importing from `api/` - it is server-only.
 
 In dev, routes load on the module runner per request, so an edit lands on the next one; a file added
-or removed under `api/` is picked up as well. `api/` routes are never prerendered.
+or removed under `api/` is picked up as well. A save under `api/` logs these errors, and a request
+to a broken route answers a 500 naming the file. `api/` routes are never prerendered.
 
 ### env and index.dev.ts
 
