@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route } from ".";
+import { entered } from "./router";
 
 function Boom(): any {
   throw new Error("kaboom");
@@ -340,7 +341,7 @@ describe("default entry hook via `enter`", () => {
   it("will run the hook a loader resolves, with the path it enters left for calls", async () => {
     let seen: unknown;
     const hook = () => Promise.resolve(() => {
-      seen = (globalThis as any)[Symbol.for("@expressive/dev#path")];
+      seen = entered();
       return "/login";
     });
     const Tree = () => (
@@ -355,7 +356,7 @@ describe("default entry hook via `enter`", () => {
     await settle();
 
     expect(seen).toBe("/secret");
-    expect((globalThis as any)[Symbol.for("@expressive/dev#path")]).toBeUndefined();
+    expect(entered()).toBeUndefined();
     expect(root.textContent).toBe("login");
   });
 

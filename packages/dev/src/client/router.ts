@@ -1,20 +1,26 @@
 import { BrowserRouter } from "@expressive/router";
 
-const PATH = Symbol.for("@expressive/dev#path");
+let path: string | undefined;
+
+/**
+ * Entry plumbing, not app API: the path an entering route's hook runs for, read by the call module.
+ *
+ * Set only during the hook's synchronous run, and only where there is a `window` - else `undefined`.
+ */
+export const entered = () => path;
 
 /** Run an entering route's entry hook with the path it enters left for the call module, for the hook's synchronous run. */
-export function entering<T>(path: string, run: () => T): T {
+export function entering<T>(next: string, run: () => T): T {
   if (typeof window == "undefined") return run();
 
-  const shared = globalThis as Record<symbol, unknown>;
-  const before = shared[PATH];
+  const before = path;
 
-  shared[PATH] = path;
+  path = next;
 
   try {
     return run();
   } finally {
-    shared[PATH] = before;
+    path = before;
   }
 }
 

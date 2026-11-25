@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { entering, Router } from "./router";
+import { entered, entering, Router } from "./router";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -17,15 +17,13 @@ it("will move without history where there is no window", async () => {
 });
 
 it("will leave the entering path for a hook's synchronous run, and none without a window", () => {
-  const read = () => (globalThis as any)[Symbol.for("@expressive/dev#path")];
-
-  expect(entering("/a", read)).toBeUndefined();
+  expect(entering("/a", entered)).toBeUndefined();
 
   vi.stubGlobal("window", {});
 
-  expect(entering("/a", () => [read(), entering("/b", read), read()])).toEqual(["/a", "/b", "/a"]);
+  expect(entering("/a", () => [entered(), entering("/b", entered), entered()])).toEqual(["/a", "/b", "/a"]);
   expect(() => entering("/c", () => { throw new Error("Broke."); })).toThrow("Broke.");
-  expect(read()).toBeUndefined();
+  expect(entered()).toBeUndefined();
 });
 
 it("will push history in a browser", async () => {

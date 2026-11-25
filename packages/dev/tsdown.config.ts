@@ -11,6 +11,7 @@ export default defineConfig({
     settings: 'src/settings.ts',
     'server/index': 'src/server/index.ts',
     fetch: 'src/fetch.ts',
+    routes: 'src/routes.ts',
     cli: 'src/cli.ts',
     'jsx-runtime': 'src/jsx-runtime.ts',
     'jsx-dev-runtime': 'src/jsx-dev-runtime.ts',

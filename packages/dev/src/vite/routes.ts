@@ -54,7 +54,6 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const gates = gateTree(root, true);
   const gated = JSON.stringify(gates).includes('"gate"');
   const pageImports = `{ ${[
-    gated && "gateCheck",
     !root.exports.has("NotFound") && "NotFound",
     "Route",
     !root.exports.has("Router") && "Router",
@@ -64,10 +63,10 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   return [
     `import ${pageImports} from "@expressive/dev";`,
     ...(provides ? ['import { Component } from "@expressive/mvc";'] : []),
-    ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
+    ...(gated ? ['import { gateCheck } from "@expressive/dev/routes";', 'import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
-    ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
+    ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot, import.meta.env.BASE_URL);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
     ...(tree.includes("as={Through}") ? ["", "const Through = props => props.children;"] : []),

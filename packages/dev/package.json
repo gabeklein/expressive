@@ -39,6 +39,10 @@
       "types": "./dist/fetch.d.ts",
       "default": "./dist/fetch.js"
     },
+    "./routes": {
+      "types": "./dist/routes.d.ts",
+      "default": "./dist/routes.js"
+    },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
       "default": "./dist/jsx-runtime.js"
