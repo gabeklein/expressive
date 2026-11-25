@@ -112,7 +112,9 @@ A gate runs on the server for every call under the folder, and in the browser be
 
 ### Good to know
 
-- Throw while deciding what to show: while rendering, or in `new()` before any `await`. A decision that needs to wait goes in a field the page reads (`set(fn, true)`), and throws from there. In a click handler, navigate with `Route.get().goto("/somewhere")` - a throw there is just an error.
+- A `default` class guards in `new()`, and may `await` first - the route builds it before showing anything, so the current screen stays up while it decides.
+- A page throws while rendering - a missing record, say. The folder's fallback shows until the next screen is ready.
+- In a click handler, navigate with `Route.get().goto("/somewhere")` - a throw there is just an error.
 - `new()` runs once. A guard there doesn't re-run on sign-out; a page that must react to it reads the session while rendering.
 - A redirect followed straight away by another shows `Catch` rather than looping.
 
@@ -148,29 +150,39 @@ dev's `Route` (already a subclass of the router's) overrides `catch()` and check
 
 `replace` is only right on a cold load: during an in-app navigation `BrowserRouter.next` writes history after the hold, so the entry under the redirect is still the page the user came from, and replacing it would lose that page from Back.
 
-### Where they are caught
+### Two places a route decides
 
-Checked on dom and React: a Route's `catch()` receives a descendant's render throw and a synchronous throw from `new()`.
+**Before render: the `default`.** The route builds its `default` class itself, before rendering anything below, during the navigation's hold - the moment the old entry hook ran (dev's `enter` step, which the gate check already uses). Control and context flow are unchanged:
 
-- **Render**, and a **synchronous throw in `new()`** or in a required `set(fn, true)` factory - construction runs inside render.
-- **An async decision.** Readiness never gates render, so a throw from `new()` after an `await` comes too late: the page has already committed and loaded behind it. Guards throw before the first `await`. A decision that must wait is a required field the page reads - the read suspends, and a rejection with `Redirect` reaches the boundary.
-- **A required factory nobody reads.** mvc reports its rejection to `Model.on({ catch })` with kind `setup`, before destroying the instance; `this.get(Route, false)` finds its route there. dev's policy hands a `Redirect` or `NotFound` from such a report to that route. A route that already received the same error through its boundary ignores the report - each error is handled once.
+- built with `Default.new(Context.get(route))`, so it is homed in the route's context and its `get()` instructions resolve from above, as when the tree constructs it;
+- the route waits for it to be ready, so `new()` may `await` before deciding;
+- a `Redirect` or `NotFound` thrown or rejected from `new()` reaches the route directly - nothing rendered, no boundary, nothing logged, and the held screen stays up;
+- once it passes, the route provides it below: a Model through `<Component for={instance}>`, a Component placed as `{instance}` with `Layout`/`Page` as its `children`. `X.get()` finds it from everything below, as now;
+- the route destroys it when the route is left.
+
+Checked on dom and on React, with and without `StrictMode`: the context resolves, a guard throw is caught before render and its lazy loads never run, a Component `default` renders around its children, and the instance is destroyed with the route. Under preact compat a Model `default` works but a Component placed as `{instance}` renders nothing (open question 1).
+
+A `default`'s required `set(fn, true)` factories hold its `ready`, so they decide before render too.
+
+**During render: everything else.** A page - a `Page` export, or a leaf's function `default` - and anything below it throws while rendering. That reaches the route's boundary (`Component.catch()`), as does a synchronous throw from a component constructed during render. Checked on dom and React. Here the boundary's fallback shows until the next screen is ready (below), and a throw from `new()` after an `await` comes too late - the page has committed - so a component built during render throws before its first `await`, or decides in a required field the page reads.
 
 Not caught: effects after mount and event handlers. They act rather than decide; a throw there is an error, and navigation stays `Route.get().goto()`.
 
 A nearer boundary intercepts first. Order, outside in: the folder Route (`Catch`) › `default` › `Layout` › the page Route (`Loading`) › the page. A `default` Component with its own `catch` sees `Redirect` and `NotFound` before the folder's `Catch`, so an app `catch` rejects what it doesn't handle. `Catch` renders outside `default`, so `Me.get()` isn't available inside it.
 
+mvc reports an async `new()` rejection to `Model.on({ catch })` with kind `setup`; unhandled, it escapes. dev's policy marks a `setup` report carrying `Redirect` or `NotFound` handled - the route has already acted on it - so nothing escapes or logs.
+
 ### Redirect, and what the screen shows meanwhile
 
 The route's `catch()` calls `goto` and returns a promise that settles when the redirect's navigation leaves the route - `router.path` changes, or the router's next navigation resolves. A route stays mounted across navigation (an unmatched one renders `null`), so "destroyed" never comes.
 
-While the target loads, the screen shows the boundary's fallback - blank, or `Loading`. An error isn't a suspension: dom runs `recover()` at once and draws the fallback, and React commits the error boundary, so the old screen doesn't hold through a redirect. Accepted for now; holding it needs a host seam (follow-up, below).
+A `default` that redirects before render leaves the held screen up until the target is ready. A page that throws during render shows the boundary's fallback - blank, or `Loading` - while the target loads. An error isn't a suspension: dom runs `recover()` at once and draws the fallback, and React commits the error boundary, so the old screen doesn't hold through a render-time redirect. Accepted for now; holding it needs a host seam (follow-up, below).
 
 A redirect caught straight after another redirect goes to `Catch` - a loop guard by sequence, not by folder, so an index page redirecting into its own child (`/settings` → `/settings/profile`) works.
 
 ### Self-gating
 
-A `default` or page class gates itself in `new()`, before any `await`. mvc's async `set()` factories run lazily, on first read; a synchronous throw in `new()` stops construction before render, so it prevents every load behind it - the state never guards itself.
+A `default` class gates itself in `new()`. The route builds it before render and waits for it, so the guard may `await`, and its lazy `set()` factories - which run on first read - never run behind a redirect. The state never guards itself.
 
 The recipe relies on #832 (mvc): factory fields become writable without a no-op callback, so the page can patch `profile` after a save. #832 keeps factories lazy - a write before the first read skips the factory - so the gate still runs first.
 
@@ -221,6 +233,8 @@ The router stays HTTP-free - not browser-only, let alone dom-only, so "404" isn'
 ## Implementation notes
 
 - **The gate check keeps `enter`.** Apps lose the entry hook, but dev's gate check is built on it: `enter`, `arm`, `REFUSED` and `retry` in `client/route.tsx`, `checked()` in `check.ts`, and `hookOf`/`hook` in `vite/routes.ts`. `enter` stays as internal plumbing for gated folders; only the app-facing function `default` goes. `stay(error)` strips `location` from a refused gate's redirect to force `Catch`, but the error is still `instanceof Redirect` - the `Redirect` branch checks `error.location` too.
+- **Placing a pre-built `default`.** A Component instance placed as `{instance}` gets its `children` written with `instance.set({ props: { children } })` when the route's content changes - never from the route's `render()`, which loops. The route's `new()` returns its cleanup synchronously; awaiting readiness happens inside it.
+- **Console noise.** Render-time throws reach a boundary, and React logs what boundaries catch: dev's React root filters `Redirect` and `NotFound` through `onCaughtError`. mvc logs a failed factory directly (`Generating initial value... failed`); an upstream mvc proposal routes factory failures through `Model.on({ catch })`, so a handled report prints nothing.
 - **Calls from the entering tree.** `pathOf` fills params from `location.pathname`, which is still the old URL during a hold; `entering()` covered hooks only. Calls fill from `Router.path` instead.
 - **Codegen keyed on `Page`.** `pagePatterns` (the server's 404), `staticPaths`, `renders` and the gate tree in `vite/routes.ts` all count a leaf `default` as a page. `wrap()` renders a function `default` as a component, not bare `children`. A leaf whose `default` is a Model and which has no `Page` renders nothing - generation warns.
 - **Hot reload.** An edit to `new()` reloads the instance rather than patching it, so a guard edit reloads the route. A hot update settles a route's caught error, so a fixed page replaces its `Catch`.
@@ -246,7 +260,7 @@ Neither package is in the app's `package.json`. A direct import resolves only th
 
 | Before | After |
 | --- | --- |
-| `export default (route) => "/login"` (entry hook) | `throw new Redirect("/login")` in the page, or in the `default`'s `new()` before any `await` |
+| `export default (route) => "/login"` (entry hook) | `throw new Redirect("/login")` in the `default`'s `new()` (it may `await`), or in the page while rendering |
 | hook returning `null` | `throw new NotFound()` |
 | `<Redirect to="/x" />` | `throw new Redirect("/x")` |
 | `<Redirect when={x} to="/x" />` | `if (x) throw new Redirect("/x")` |
@@ -268,13 +282,13 @@ A function `default` can't be told apart from a 0.5 entry hook by shape - a wrap
 
 ## Open questions
 
-1. **Hosts.** The behaviour above was checked on dom and React; preact compat is untested.
+1. **Preact compat and a pre-built Component.** A Component instance placed as `{instance}` renders nothing under compat; a Model `default` works. Fix in the adapter, or build a Component `default` in the tree under compat.
 2. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
 3. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
-4. **Console noise.** A factory that throws logs `Generating initial value... failed`, and React logs each caught error.
 
 ## New public surface
 
 - `Redirect`, `NotFound` and the `HttpError` family re-exported from `@expressive/dev` and `@expressive/dev/server`.
 - `@expressive/router`: a `Redirect` error; the `<Redirect>` component removed.
-- Behaviour: route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the app-facing entry hook and the `NotFound` route export removed; dev's `Route` catches `Redirect` and `NotFound`, and a `Model.on({ catch })` policy routes `setup` reports carrying them.
+- mvc (upstream, its own PR): factory failures reported through `Model.on({ catch })` rather than logged directly.
+- Behaviour: the route builds its `default` before render; route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the app-facing entry hook and the `NotFound` route export removed; dev's `Route` catches `Redirect` and `NotFound`, and a `Model.on({ catch })` policy routes `setup` reports carrying them.
