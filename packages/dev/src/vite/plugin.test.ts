@@ -1337,18 +1337,17 @@ describe("vite host", () => {
       expect([(await at("/api/admin/me")).status, await (await at("/api/admin/me", { headers: { "x-admin": "1" } })).text()]).toEqual([403, "root"]);
       expect([missing.status, missing.headers.get("content-type"), (await missing.json()).message]).toEqual([404, "application/json", "No route in api/ serves /api/nope - paths under /api belong to api/."]);
       expect((await at("/api/(hello).ts")).status).toBe(404);
-      expect((await at("/api/admin/store", { headers: { "x-admin": "1" } })).status).toBe(404);
+      const helper = await at("/api/admin/store", { headers: { "x-admin": "1" } });
+
+      expect([helper.status, (await helper.json()).message]).toEqual([404, "api/admin/store.ts is a helper - rename it api/admin/(store).ts to serve /api/admin/store."]);
 
       writeFileSync(join(root, "api/(late).ts"), "export const GET = () => 'late';");
+      writeFileSync(join(root, "api/broken.ts"), "export const GET = (");
       server.watcher.emit("add", join(root, "api/(late).ts"));
+      server.watcher.emit("add", join(root, "api/broken.ts"));
       server.watcher.emit("add", join(root, "elsewhere.ts"));
       expect(await (await at("/api/late")).text()).toBe("late");
-
-      writeFileSync(join(root, "api/admin/store.ts"), "export const GET = () => 1; export default 'root';");
-      server.watcher.emit("change", join(root, "api/admin/store.ts"));
-      const broken = await at("/api/hello");
-
-      expect([broken.status, (await broken.json()).message]).toEqual([500, "api/admin/store.ts: exports GET, but a bare-named file is a helper, not a route - rename it api/admin/(store).ts to serve it."]);
+      expect(await (await at("/api/hello")).json()).toEqual({ hello: "world" });
 
       writeFileSync(join(root, "api/admin/store.ts"), "export default 'admin';");
       server.watcher.emit("change", join(root, "api/admin/store.ts"));
@@ -1359,6 +1358,9 @@ describe("vite host", () => {
       const misnamed = await at("/api/hello");
 
       expect([misnamed.status, (await misnamed.json()).message]).toEqual([500, "api/(:x).ts: a name starting with : or * reads as a param - name a param [name], the rest of a path [...]."]);
+
+      rmSync(join(root, "api/(:x).ts"));
+      expect(await (await at("/api/hello")).json()).toEqual({ hello: "world" });
     });
 
     it("will leave /api to the app without an api/ folder", async () => {

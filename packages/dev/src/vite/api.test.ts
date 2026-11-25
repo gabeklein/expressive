@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 import { Model } from "@expressive/mvc";
 
-import { apiErrors, problems, reservedApi, scanApi, verifyApi } from "./api";
+import { apiErrors, helperAt, problems, reservedApi, scanApi, verifyApi } from "./api";
 
 const dirs: string[] = [];
 
@@ -55,7 +55,7 @@ describe("scanApi", () => {
       ["api/photo/[id].tsx", ["photo", ":id"], false],
     ]);
     expect(routes[0].file).toBe(join(root, "api/(logout).ts"));
-    expect(helpers).toEqual([{ name: "api/account/store.ts", file: join(root, "api/account/store.ts") }]);
+    expect(helpers).toEqual([{ name: "api/account/store.ts", file: join(root, "api/account/store.ts"), path: ["account", "store"] }]);
   });
 
   it("will refuse groups, a [...] folder, two modules on one path and two params in a folder", () => {
@@ -71,10 +71,12 @@ describe("scanApi", () => {
       "api/item/[slug]/(x).ts": GET,
       "api/:x.ts": GET,
       "api/(*).ts": GET,
+      "api/().ts": GET,
       "api/[...rest].ts": GET,
     }));
 
     expect(problems).toEqual([
+      "api/().ts: a leaf needs a name - (name).ts.",
       "api/(*).ts: a name starting with : or * reads as a param - name a param [name], the rest of a path [...].",
       "api/([id]).ts: (name).ts takes a plain name - a param is [name].ts, the rest of a path [...].ts.",
       "api/(group): api/ has no groups - name the folder group/.",
@@ -105,16 +107,39 @@ describe("apiErrors", () => {
     ]);
   });
 
-  it("will refuse a helper exporting a verb, but not one exporting anything else", async () => {
+  it("will refuse a helper exporting a verb handler, but not other exports, verb-named values or re-exports", async () => {
     const root = project({
       "api/(ok).ts": "import { db } from './store'; export const GET = () => db;",
       "api/store.ts": "export const db = {}; export default db; export class Row {}",
-      "api/users/hello.tsx": "export const GET = () => 1; export function POST() {}",
+      "api/methods.ts": "export const DELETE = 'DELETE'; export { GET } from './(ok)';",
+      "api/users/hello.tsx": "export const GET = () => 1; export async function POST() {} const put = function () {}; export { put as PUT };",
     });
 
     expect(await apiErrors(root)).toEqual([
-      "api/users/hello.tsx: exports GET, POST, but a bare-named file is a helper, not a route - rename it api/users/(hello).tsx to serve it.",
+      "api/users/hello.tsx: exports GET, POST, PUT, but a bare-named file is a helper, not a route - rename it api/users/(hello).tsx to serve it.",
     ]);
+  });
+
+  it("will name a helper that does not parse, without throwing", async () => {
+    expect(await apiErrors(project({ "api/broken.ts": "export const x = (" }))).toEqual([expect.stringMatching(/^api\/broken\.ts: \S/)]);
+  });
+
+  it("will say a route without a handler re-exports with export *", async () => {
+    expect(await apiErrors(project({ "api/(x).ts": "export * from './store';", "api/(y).ts": "export * as all from './store'; export type * from './store';", "api/store.ts": GET.replace("GET", "get") }))).toEqual([
+      "api/(x).ts: re-exports with `export *` - list the verbs by name: export { GET } from \"...\".",
+      "api/(y).ts: `all` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and move helpers to a bare-named file beside it, like helpers.ts. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.",
+    ]);
+  });
+});
+
+describe("helperAt", () => {
+  it("will find the helper a path would reach as a leaf, params matching any segment", () => {
+    const helpers = scanApi(project({ "api/webhook.ts": "", "api/photo/[id]/store.ts": "" })).helpers;
+
+    expect(helperAt(helpers, ["webhook"])?.name).toBe("api/webhook.ts");
+    expect(helperAt(helpers, ["photo", "7", "store"])?.name).toBe("api/photo/[id]/store.ts");
+    expect(helperAt(helpers, ["photo", "7"])).toBeUndefined();
+    expect(helperAt(helpers, ["hook"])).toBeUndefined();
   });
 });
 
