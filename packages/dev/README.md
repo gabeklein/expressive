@@ -261,8 +261,6 @@ export default config({
   single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
   the `app/` files exporting `Page` - a deep link into a route the scan can't see (a custom root
   `Router`, a `<Route>` in a `Layout`) gets the shell with 404; a `[...]` page claims those paths.
-- Remote calls and gate checks ignore a non-root Vite `base` for now - they post to the app's
-  paths from `/`.
 - In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
   `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
@@ -530,8 +528,8 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
-for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
+A call is `POST` to the folder's path under Vite's `base`, with its params filled from the current
+location below it (`/blog/a` for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
 `feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
 Only the folder and those below it may import its sidecar. A call an entry hook makes before its
 first `await` fills params from the path being entered; after it, from the current location.
@@ -684,6 +682,8 @@ adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CL
 `config` comes from the root. Server-only API - `compose`, `Current` - is `@expressive/dev/server`;
 the generated server entry imports `listen` from there. Under `target: "fetch"` it calls
 `@expressive/dev/fetch`'s `compose` instead - entry plumbing, not an API to call by hand.
+`@expressive/dev/routes` is the same for the browser: the gate check and the path being entered,
+imported by the generated route tree and call module.
 
 ### Prerendering
 
