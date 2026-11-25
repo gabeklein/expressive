@@ -37,7 +37,7 @@ function walk(node: GateNode, at: string[], i: number, path: string[], gate: str
   for (const child of node.in!) {
     const to = child.to!;
     const rest = to === "*";
-    const fits = i < at.length && (rest || to.startsWith(":") || to.toLowerCase() === at[i].toLowerCase());
+    const fits = rest || (i < at.length && (to.startsWith(":") || to.toLowerCase() === at[i].toLowerCase()));
 
     if (!fits) continue;
 

@@ -533,6 +533,23 @@ describe("app/ routing (runtime)", () => {
     });
   });
 
+  it("will render the index alone at /, a [...] page beside it below, and a static page over both", async () => {
+    const Rest = () => <p>rest:{Route.get().match!["*"]}</p>;
+    const Tree = () => (
+      <Route as={RootLayout}>
+        <Route as={Home} />
+        <Route to="about" as={BlogIndex} />
+        <Route to="*" as={Rest} />
+      </Route>
+    );
+
+    for (const [path, text] of [["/", "home"], ["/x", "rest:x"], ["/about", "blog-index"]]) {
+      document.body.replaceChildren();
+      location(path);
+      expect((await mount(Tree)).querySelector("[data-root]")?.textContent).toBe(text);
+    }
+  });
+
   it("will let a static page shadow a param folder beside it, as the tree passes it through", async () => {
     const Through = (props: { children?: any }) => props.children;
     const Room = () => <p>room:{Route.get().match!.id}</p>;

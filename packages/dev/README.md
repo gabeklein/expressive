@@ -12,7 +12,7 @@ app/                  file-based routes
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the "/blog" page
   blog/[slug].tsx     /blog/:slug  param leaf
-  docs/[...].tsx      /docs/*      catch-all
+  docs/[...].tsx      /docs/*      catch-all - zero segments or more; docs/index.tsx wins /docs
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth, index optional
 app.tsx | src/app.tsx single root component instead of app/ (default export)
