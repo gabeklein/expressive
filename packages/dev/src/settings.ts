@@ -58,7 +58,7 @@ export interface Settings {
    * Dev only, set in `index.dev.ts`: what the host would pass as `env`, such as a local database for `DB`.
    *
    * Called once per dev server, again after it throws - a change to it needs a restart.
-   * `process.env`, then `.env` files, win over its keys - its strings are fallbacks. `null` or `undefined` binds nothing.
+   * Its live objects always come through; `process.env` and `.env` override its strings. `null` or `undefined` binds nothing.
    * Set in `index.ts`, it fails the dev server and the build.
    *
    * @example
@@ -73,7 +73,7 @@ export interface Settings {
    * A thrown `HttpError` answers its status, anything else a logged 500 - on a call, as a call's error.
    *
    * @example
-   * config({ handle: ({ next }) => db.session(next) });
+   * config({ handle: ({ next }) => db.session(() => next()) });
    */
   handle?(args: HandleArgs): Response | void | Promise<Response | void>;
   /**

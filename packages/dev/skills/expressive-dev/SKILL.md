@@ -127,18 +127,19 @@ Nothing is written into the project - the shell, entry and route tree are virtua
 ```ts
 // index.ts - db is SQLiteConnection.new(types, "app.db"), skill expressive-sql
 export default config({
-  handle: ({ next }) => db.session(next),
+  handle: ({ next }) => db.session(() => next()),
 });
 ```
 
 - Nothing returned: `next()`'s reply if called, else `next()` is called - after `handle` returned, outside anything it wrapped. Other return values throw. `next()` once, and only until `handle` returns.
-- Returning nothing is for a `handle` that doesn't wrap the app (a check, a log). A wrapping `handle` returns the wrapper with `return next()` inside: `({ next }) => db.session(() => next())`. Never `async ({ next }) => { await db.session(...); }` - the app then runs after the session closed and fails with its error; dev warns on a 500 after a `handle` that returned nothing.
+- Returning nothing is for a `handle` that doesn't wrap the app (a check, a log). A wrapping `handle` returns the wrapper with `return next()` inside: `({ next }) => db.session(() => next())`. Never `async ({ next }) => { await db.session(...); }` - `next()` is never called inside the session, so the app runs after it closed and fails with its error; dev warns once on a 5xx after a `handle` that returned nothing.
 - `next(request)` forwards a rewrite; a non-`Request` argument throws - wrap callbacks: `db.transaction(() => next())`. Read the body through `request.clone()` to still pass it on.
 - `next()` resolves a `Response` with mutable headers (101 as is); a throw below resolves its error reply. A discarded reply's body is cancelled.
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
 - Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: from `public/`. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
 - Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
+- Remote calls and gate checks ignore a non-root Vite `base` for now - they post from `/`.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request. Navigations get the shell first - a `vite.config.ts` plugin serving pages from its `configureServer` middleware needs `enforce: "pre"`.
 
 `env` - the request's bindings, below.
@@ -185,7 +186,7 @@ export const GET = () => legacy.fetch;
 
 `handle`'s `env` and `Current.get().env`:
 - `fetch` target: the host's `env` object as is.
-- Node and dev: read-only - `process.env`, then `.env` files, then `index.dev.ts`'s `env()` (dev); the first with the key wins. Shell and `.env` override `env()`'s strings (wrangler's production `vars`); live objects only `env()` has (`DB`) come through.
+- Node and dev: read-only over `process.env`, `.env` files and `index.dev.ts`'s `env()` (dev). Live objects from `env()` (`DB`) always come through; strings from the shell or `.env` override `env()`'s strings (wrangler's production `vars`); `process.env` beats `.env`.
 
 `expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists; the build never does, so its imports reach no bundle. It imports `./index` (no extension - no tsconfig flag), sets `settings.env`, default-exports the settings. `env` set in `index.ts`, a `bindings` export, or no default export in `index.dev.ts` fails dev and the build.
 
@@ -215,7 +216,7 @@ declare module "@expressive/dev" { interface Env { DB: D1Database } }
 
 export default config({
   target: "fetch",
-  handle: ({ env, next }) => db.session(next, d1(env.DB)),
+  handle: ({ env, next }) => db.session(() => next(), d1(env.DB)),
   host: () => ({
     scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
   }),

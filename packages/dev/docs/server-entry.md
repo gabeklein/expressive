@@ -44,7 +44,7 @@ declare module "@expressive/dev" {
 export default config({
   target: "fetch",
   remote: { opaque: false },
-  handle: ({ env, next }) => db.session(next, d1(env.DB)),
+  handle: ({ env, next }) => db.session(() => next(), d1(env.DB)),
   host: () => ({
     scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
   }),
@@ -176,12 +176,12 @@ Apps augment `Env` through `@expressive/dev`, which re-exports rpc's interface; 
 - **`config`** returns its argument. Dev reads `index.ts`'s default export while Vite configures and when it composes the app. Node's entry needs `port` at runtime. Unknown keys fail the dev server and the build by name, the 0.5 ones included: "`fetch` and `around` became `handle`", "`scheduled` goes in `host`".
 - **`handle`** runs for every request the host forwards: remote calls, `/api/*`, and pages and static files. A host that answers static files itself first (Workers assets without `run_worker_first`) never forwards those.
   - Without it, every request goes straight to the app.
-  - Its reply is its returned `Response`. Returning nothing passes: through `next()`'s reply if it was called, else by calling it - after `handle` returned, so outside anything it wrapped. A wrapping `handle` returns the wrapper with `return next()` inside it; dev warns when a 500 follows a `handle` that returned nothing. Another return value throws. A second `next()`, or one after `handle` returned, throws. A `next()` reply `handle` discards has its body cancelled.
+  - Its reply is its returned `Response`. Returning nothing passes: through `next()`'s reply if it was called, else by calling it - after `handle` returned, so outside anything it wrapped. A wrapping `handle` returns the wrapper with `return next()` inside it; dev warns once when a 5xx follows a `handle` that returned nothing. Another return value throws. A second `next()`, or one after `handle` returned, throws. A `next()` reply `handle` discards has its body cancelled.
   - `next(request)` forwards a rewritten request; an argument that isn't a `Request` throws, so a wrapper that calls back with its own value (`db.transaction(next)`) fails loudly. To read the body and still pass it on, read `request.clone()`.
   - `next()` resolves a `Response` with mutable headers (re-wrapped where needed, 101 excepted), so `reply.headers.set(...)` works on an `assets` reply too.
-  - It runs outside the request scope, so `Current`, `Cookies` and `get(Model)` throw there, and the request scope starts inside `next()`: `db.session(next, …)` puts all of it inside the session. Cookies go out on the `Response` it returns; work after the reply goes through `ctx.waitUntil`.
+  - It runs outside the request scope, so `Current`, `Cookies` and `get(Model)` throw there, and the request scope starts inside `next()`: `db.session(() => next(), …)` puts all of it inside the session. Cookies go out on the `Response` it returns; work after the reply goes through `ctx.waitUntil`.
   - A thrown `HttpError` answers its status (codec-shaped on a call request, JSON `{ message }` otherwise); anything else is logged and answered with a 500 whose message shows in dev only.
-  - Nothing passes from `handle` into the scope implicitly. Two channels: a header on `next(request)`, or the app's own `AsyncLocalStorage` around `next`, as `db.session(next)` does. `Current.get().request` is one object for the whole scope, so memoizing on it works in every gate and route, but not on `handle`'s `request`.
+  - Nothing passes from `handle` into the scope implicitly. Two channels: a header on `next(request)`, or the app's own `AsyncLocalStorage` around `next`, as `db.session(() => next())` does. `Current.get().request` is one object for the whole scope, so memoizing on it works in every gate and route, but not on `handle`'s `request`.
   - A 101 (WebSocket upgrade) from below passes through untouched; in dev, Vite's connect middleware never sees an upgrade, so this is fetch-target only.
 - **`index.dev.ts`** is optional. When present, `expressive dev` reads its default export in place of `index.ts`'s. `env` set anywhere else (in `index.ts`, so in a build) fails the dev server and the build, pointing at `index.dev.ts`.
 - **`host`** is optional, and only for the fetch target. It gets the composed app, and its return value becomes the bundle's default export.
@@ -234,7 +234,7 @@ Every request below `handle` runs in one request scope, so `Current`, `Cookies` 
 
 **After a decided reply**, a second `send` or `setHeader` throws, a `Cookies.set` is dropped with a dev warning, and a return value other than `undefined` is ignored with a dev warning. Awaiting `next()` decides nothing, so a wrapping gate can still reply with what it got and keep working, as above.
 
-**After-work.** Code after `send` runs once the reply has left. On the fetch target, the rest of the layer's promise goes to the host's `ctx.waitUntil`; on Node and in dev it just runs. A throw there is logged. The layer's own scope stays open until its function settles, so `Current`, `Cookies` and `get(Model)` still work, but `handle` may have returned: a wrapper like `db.session(next)` has closed. After-work and a lazily produced stream body still inherit that wrapper's `AsyncLocalStorage` store, a closed session included, so they open their own explicitly (`db.session(work, d1(env.DB))`, not a nested call that may join the ambient one). rpc's request frame (held seats, gated Models) is released once every layer has settled and every body produced in it has closed or been cancelled (question 9).
+**After-work.** Code after `send` runs once the reply has left. On the fetch target, the rest of the layer's promise goes to the host's `ctx.waitUntil`; on Node and in dev it just runs. A throw there is logged. The layer's own scope stays open until its function settles, so `Current`, `Cookies` and `get(Model)` still work, but `handle` may have returned: a wrapper like `db.session(() => next())` has closed. After-work and a lazily produced stream body still inherit that wrapper's `AsyncLocalStorage` store, a closed session included, so they open their own explicitly (`db.session(work, d1(env.DB))`, not a nested call that may join the ambient one). rpc's request frame (held seats, gated Models) is released once every layer has settled and every body produced in it has closed or been cancelled (question 9).
 
 **Headers.** `setHeader` and `Cookies` join the reply of the layer that set them, when that reply is decided, so the `Response` `next()` resolves with already carries them; a passing gate's join the reply below. A gate that swaps the reply starts from the new one's headers. Order, lowest first: the body rule's content type, `setHeader`, a `Response`'s own headers (as `withHeaders` does today). The cookie flush re-arms per layer and diffs against what inner layers already emitted, so `Session.set()` after `await next()` reaches the outer reply once. `handle` sees the joined reply and sets its own headers on what it returns.
 
@@ -388,7 +388,7 @@ handle: async ({ request, env, ctx, next }) => {
 
 There is no Model every request gets, and none is needed:
 - **Auth session:** a `Cookies` subclass (lazy, per request, readable anywhere in scope) plus an async `user()` memoized on `Current.get().request`; refusal in the folder gates that need it.
-- **Tenant, locale:** plain functions over `Current`. A per-tenant database goes in `handle` (`db.session(next, tenantDb(env, host))`), a `lang` rewrite on `next()`'s reply.
+- **Tenant, locale:** plain functions over `Current`. A per-tenant database goes in `handle` (`db.session(() => next(), tenantDb(env, host))`), a `lang` rewrite on `next()`'s reply.
 - **Database session or transaction:** `handle` around `next`, since it must enclose the scope; per-call transactions are a gate with `next`.
 - **Request id, timing, logging:** `handle`, shipping with `ctx.waitUntil`; read in scope through the app's own `AsyncLocalStorage` around `next` or a forwarded header.
 - **Rate limiting:** by IP in `handle` (`throw new TooManyRequests()`), by user in a folder gate after the session; the counter is a module-scope service.
@@ -475,7 +475,7 @@ Outside a build, no remotes or api routes are composed, so this tests `handle`'s
 ### `env`
 
 `handle`'s `env` and `Current.get().env` read what the host bound. Off the fetch target, dev binds a layered view rather than the raw bindings:
-- **Node and dev:** `process.env`, then `.env` files, then what the host passed (in dev, `index.dev.ts`'s `env()`); the first that has a key wins. The shell and `.env` override `env()`'s strings - with `getPlatformProxy`, wrangler's production `vars` (a production URL) would otherwise shadow them and could not be overridden - while live objects only `env()` has, such as `DB`, come through. Node passes nothing, so its order is unchanged.
+- **Node and dev:** what the host passed (in dev, `index.dev.ts`'s `env()`), `process.env` and `.env` files. Live objects the host passed, such as `DB`, always come through; strings from the shell or `.env` override the host's strings - with `getPlatformProxy`, wrangler's production `vars` (a production URL) would otherwise shadow them and could not be overridden; `process.env` beats `.env`. Node passes nothing, so its order is unchanged.
 - **Fetch target:** the host's `env` object as is, so a library handed it (Hono's `c.env`) sees the platform's bindings. No file layer, so `node:fs`, `node:path` and `node:util` stay out of the bundle. The README's claim that it imports only `node:async_hooks` and `node:crypto` holds.
 
 Outside a request (module scope, `scheduled`) there is no `Current`: handlers there take the platform's `env` argument, and Node code may use the root `env` (`@expressive/env`'s files-only reader shared with the client, unchanged). Reading `Current` there or in `handle` throws, and its message changes from "resolves only within a call" to "resolves only within a request"; dev adds the `handle` hint where it catches it.
@@ -493,7 +493,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | `import { config } from "@expressive/dev/server"` | `from "@expressive/dev"` |
 | `export default config({ port, target, remote })` | unchanged |
 | `export async function bindings()` | `settings.env = …` in `index.dev.ts` |
-| `around: (next, { env }) => db.session(next, …)` | `handle: ({ env, next }) => db.session(next, …)` |
+| `around: (next, { env }) => db.session(next, …)` | `handle: ({ env, next }) => db.session(() => next(), …)` |
 | `fetch(request, env, ctx, next)` answering paths | an `api/` route, or `handle` around `next()` |
 | `fetch` returning nothing to fall through | `handle` returning nothing |
 | `fetch` forwarding to `env.ASSETS` + shell fallback | nothing: `assets` defaults to `env.ASSETS` |
@@ -507,7 +507,7 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | Node's `Current.get().env` as `{}` | the layered view (`env`, below) |
 | `bindings` on the fetch target only, in dev | `index.dev.ts` on either target |
 | `declare module "@expressive/rpc" { interface Env }` | `declare module "@expressive/dev"` |
-| `db.session(next, d1(env.DB))` | unchanged: `@expressive/sql`'s `session` takes an `Engine`, and `d1` is the app's adapter |
+| `db.session(next, d1(env.DB))` | `db.session(() => next(), d1(env.DB))` - `next` takes only a `Request`; otherwise unchanged: `@expressive/sql`'s `session` takes an `Engine`, and `d1` is the app's adapter |
 | `AppConfig` | `Settings` |
 | `serve` from `/server` (generated entries only) | `listen` |
 | `fetchHandler` from `/fetch` (generated entries only) | `compose` |
@@ -604,6 +604,11 @@ All answered in review.
 7. **A throw below a wrapper** resolves `next()` with the error reply, as calls already do, so a wrapper treats a failed call and a failed route alike.
 8. **Trunk.** PRs 2 to 7 land on a `feat/dev-serve` trunk cut from this branch, released once. Publishing 0.6 with `handle` but without `api/` would make apps port twice. The trunk isn't released between PRs, so a gap one PR leaves for a later one is tolerated there (named below).
 9. **Streams and scope.** The request frame is held until the body closes or is cancelled, and each pull runs in the request's store, so `Session.get()` inside a generator works as it does in after-work.
+
+## Open items
+
+- **Vite `base`.** Remote calls and gate checks ignore a non-root `base`: a stub posts to `/` plus its folder's path, not under `base`. Left as is; the README and skill say so.
+- **A param folder's call during a held navigation.** A stub fills `:param` segments from `location`, which still shows the old page while an entry hook runs, so such a call throws. Filling from the router's pending path needs the route tree (PR 7).
 
 ## PR split
 

@@ -89,7 +89,7 @@ import { config } from "@expressive/dev";
 import { db } from "./db";
 
 export default config({
-  handle: ({ next }) => db.session(next),
+  handle: ({ next }) => db.session(() => next()),
 });
 ```
 
@@ -98,13 +98,14 @@ export default config({
 - Returning nothing suits a `handle` that doesn't wrap the app - a check, a log line. A `handle`
   that wraps it (a session, a transaction) must `return next()` inside the wrapper and return the
   wrapper's result. Otherwise the app runs after the wrapper has closed, and fails with the
-  wrapper's own error (dev warns when a 500 follows a `handle` that returned nothing):
+  wrapper's own error (dev warns once when a 5xx follows a `handle` that returned nothing):
 
   ```ts
   // right - the app runs inside the session, which stays open until the reply
   handle: ({ next }) => db.session(() => next()),
 
-  // wrong - nothing returned, so the app runs after handle, outside the session
+  // wrong - next() is never called inside the session, and nothing is returned, so the app
+  // runs after handle returned, once the session has closed
   handle: async ({ next }) => {
     await db.session(async () => audit());
   },
@@ -115,7 +116,7 @@ export default config({
 - `next()` resolves a `Response` with mutable headers (a 101 upgrade as is); a throw below resolves
   its error reply rather than rejecting. A reply `handle` discards has its body cancelled.
 - `handle` runs outside the request's scope: `Current`, `Cookies` and `get(Model)` throw there, and
-  work inside `next()` - `db.session(next)` encloses all of it. Cookies go out on the `Response` it
+  work inside `next()` - `db.session(() => next())` encloses all of it. Cookies go out on the `Response` it
   returns; work after the reply goes through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - on a call as the call's error, else JSON `{ message }`
   (`Redirect` sets `Location`). Anything else is logged and answered with a 500 whose message shows
@@ -129,6 +130,8 @@ export default config({
   single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
   the `app/` files exporting `Page` - a deep link into a route the scan can't see (a custom root
   `Router`, a `<Route>` in a `Layout`) gets the shell with 404; a `[...]` page claims those paths.
+- Remote calls and gate checks ignore a non-root Vite `base` for now - they post to the app's
+  paths from `/`.
 - In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
   `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
@@ -271,12 +274,12 @@ to a broken route answers a 500 naming the file. `api/` routes are never prerend
 `handle`'s `env` and `Current.get().env` hold the request's bindings:
 
 - On the `fetch` target: the host's `env` object, as is.
-- On Node and in dev: a read-only view - `process.env`, then the `.env` files, then (in dev) what
-  `index.dev.ts`'s `env()` returns. The first that has a key wins.
+- On Node and in dev: a read-only view over `process.env`, the `.env` files and (in dev) what
+  `index.dev.ts`'s `env()` returns.
 
-So the shell and `.env` override any string `env()` returns - a production URL in wrangler's `vars`,
-say - while live objects only `env()` has, such as a local database standing in for a host binding,
-still come through. The keys `expressive env` writes to `env.d.ts` type `env` too.
+Live objects from `env()`, such as a local database standing in for a host binding, always come
+through. Strings from the shell or `.env` override `env()`'s strings - a production URL in
+wrangler's `vars`, say - and `process.env` wins over `.env`. The keys `expressive env` writes to `env.d.ts` type `env` too.
 
 `expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists. It imports `./index`
 (no extension, so the app's tsconfig needs no extra flag), sets `settings.env` and default-exports
@@ -326,7 +329,7 @@ declare module "@expressive/dev" { interface Env { DB: D1Database } }
 
 export default config({
   target: "fetch",
-  handle: ({ env, next }) => db.session(next, d1(env.DB)),
+  handle: ({ env, next }) => db.session(() => next(), d1(env.DB)),
   host: () => ({
     scheduled: (event: ScheduledController, bound: Env) => db.session(() => sweep(), d1(bound.DB)),
   }),
@@ -367,7 +370,7 @@ prerendered home page for client routes.
 | 0.5 | 0.6 |
 | --- | --- |
 | `import { config } from "@expressive/dev/server"` | `from "@expressive/dev"` |
-| `around: (next, { env }) => db.session(next, …)` | `handle: ({ env, next }) => db.session(next, …)` |
+| `around: (next, { env }) => db.session(next, …)` | `handle: ({ env, next }) => db.session(() => next(), …)` |
 | `fetch(request, env, ctx, next)` answering paths | an `api/` route, or `handle` returning a `Response` |
 | `fetch` returning nothing to fall through | `handle` returning nothing |
 | `scheduled` (and other members) | `host`'s return value |
