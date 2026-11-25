@@ -8,7 +8,7 @@ import { set } from '@expressive/mvc';
 
 Instruction for managed slots: defaults, placeholders, lazy/async factories, validation callbacks.
 
-All `set()` forms are **non-enumerable** - hidden from `Object.keys()`, spread, and `ref(this)`, unlike plain assignment (`name = 'foo'`) - except the [computed](#computed-reactive) form, enumerable to match a getter. All forms are writable except the computed one; declare a field `readonly` to keep a factory read-only - TypeScript enforces it.
+All `set()` forms are **non-enumerable** - hidden from `Object.keys()`, spread, and `ref(this)`, unlike plain assignment (`name = 'foo'`) - except the [computed](#computed-reactive) form, enumerable to match a getter. All forms are writable except the computed one; a `readonly` field rejects direct assignment at compile time - constructor args and `set({...})` still write it.
 
 ## Overloads
 
@@ -84,7 +84,7 @@ class Account extends Model {
 }
 ```
 
-A write takes over from the factory: before first access the factory never runs; while pending its result is discarded, suspended readers settle to the written value, a later rejection is dropped and a required factory's hold releases. A constructor arg (`Account.new({ profile })`) seeds the field the same way, so a required factory is skipped.
+A write takes over from the factory - before it runs, it never does; while pending, its result is discarded. A constructor arg (`Account.new({ profile })`) counts, so it skips a required factory.
 
 - Async factories (any thenable result) throw suspense on access until resolved; the field types as the `Awaited` value.
 - A thenable Model not yet active (`new Job()`) activates owned by the instance and is destroyed once it settles - kept if it resolves to itself (a loaded entity).
@@ -110,7 +110,7 @@ class AppState extends Model {
 }
 ```
 
-Writable. Callback runs on factory resolution and on manual assignment.
+Runs on activation, not first read. Callback runs on factory resolution and on manual assignment. An async result overwrites a value assigned while pending - the reverse of the bare factory.
 
 ### Computed (Reactive)
 

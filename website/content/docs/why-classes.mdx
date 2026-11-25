@@ -25,7 +25,7 @@ class UserSettings extends Model {
   // suspends if accessed early - never undefined
   userId = set<string>();
 
-  // async factory - runs on first access, suspends until ready.
+  // async factory - runs on activation, reads suspend until ready.
   // Writable, so save() can reset it.
   initial = set(async () => {
     const res = await fetch(`/api/users/${this.userId}`);
@@ -33,7 +33,7 @@ class UserSettings extends Model {
     this.name = data.name;
     this.email = data.email;
     return { name: data.name, email: data.email };
-  });
+  }, true);
 
   // computed - tracks what it reads, always up to date
   get dirty() {

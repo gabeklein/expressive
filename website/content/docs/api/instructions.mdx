@@ -26,7 +26,7 @@ For reactive computed values, a normal class getter usually reads best - getters
 | `= "foo"` (plain)        | yes        | yes      | Normal data property                      |
 | `= set("foo")`           | no         | yes      | Managed default, hidden from `Object.keys()` |
 | `= set("foo", cb)`       | no         | yes      | Managed with setter callback              |
-| `= set(() => "foo")`     | no         | yes      | Factory; `readonly` to lock it            |
+| `= set(() => "foo")`     | no         | yes      | Factory, lazy                             |
 | `= set(() => "foo", cb)` | no         | yes      | Factory with setter callback              |
 | `= set(self => ...)`     | yes        | no       | Reactive computed via instruction         |
 | `get foo() { ... }`      | yes        | no       | Reactive computed, included in snapshots  |
@@ -81,7 +81,7 @@ config = set(() => loadConfig());
 data = set(async () => fetchData()); // async, suspends on access
 ```
 
-Zero-argument function. Runs on first access. Writable - a write before first access skips the factory, and a write while async discards its result. Declare the field `readonly` to keep it read-only.
+Zero-argument function. Runs on first access. Writable - a write before first access skips the factory, and a write while async discards its result. A `readonly` field rejects direct assignment at compile time.
 
 ### `set(factory, true)` - eager factory
 
