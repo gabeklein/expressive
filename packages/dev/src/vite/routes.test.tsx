@@ -238,7 +238,7 @@ describe("app/ routing (codegen)", () => {
 
     expect(out).toContain('import { NotFound, Route, Router } from "@expressive/dev";\nimport { gateCheck } from "@expressive/dev/routes";');
     expect(out).toContain('import { call } from "@expressive/rpc";');
-    expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot, import.meta.env.BASE_URL);');
+    expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
     expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
     expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
     expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');

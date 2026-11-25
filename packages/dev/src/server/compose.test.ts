@@ -55,15 +55,6 @@ describe("compose", () => {
     expect((await compose()(call("add", [1, 2]))).status).toBe(404);
   });
 
-  it("will answer calls under base and none outside it, a base not starting with / counting as /", async () => {
-    const at = (path: string) => new Request(`http://localhost${path}`, call("add", [2, 3]));
-    const app = compose({}, { sidecars, base: "/app/" });
-
-    expect(await (await app(at("/app/tally"))).json()).toEqual({ value: 5 });
-    expect((await app(at("/tally"))).status).toBe(404);
-    expect(await (await compose({}, { sidecars, base: "./" })(at("/tally"))).json()).toEqual({ value: 5 });
-  });
-
   it("will bind env and ctx for the request's scope", async () => {
     const waitUntil = vi.fn();
     const app = compose({}, { sidecars });

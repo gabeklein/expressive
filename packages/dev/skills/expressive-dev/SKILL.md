@@ -68,7 +68,7 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-- A call POSTs to the folder's path under Vite's `base`, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`). An entry hook's call before its first `await` fills from the path being entered.
+- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`). An entry hook's call before its first `await` fills from the path being entered.
 - Only the folder and those below it may import its sidecar - the build throws otherwise.
 - A `remote/` folder holds several; every module in it belongs to the parent folder and is never a route.
 - Module rules, errors (`HttpError` family from `@expressive/rpc`), ids and `opaque` are rpc's - `expressive-rpc`. Turn off hashed ids with `config({ remote: { opaque: false } })` in `index.ts`.
@@ -145,6 +145,7 @@ export default config({
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
 - Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: from `public/`. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
 - Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
+- A non-root Vite `base` is not supported yet: pages don't route under it, the built servers serve files from `/`, and calls and gate checks ignore it. `/api` routes already sit under it.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request. Navigations get the shell first - a `vite.config.ts` plugin serving pages from its `configureServer` middleware needs `enforce: "pre"`.
 
 `env` - the request's bindings, below.

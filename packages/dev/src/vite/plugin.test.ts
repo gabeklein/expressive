@@ -47,10 +47,9 @@ describe("vite host", () => {
     return root;
   }
 
-  async function serve(root: string, host = expressive(), resolve = SOURCES, base?: string) {
+  async function serve(root: string, host = expressive(), resolve = SOURCES) {
     const server = await createServer({
       root,
-      base,
       configFile: false,
       logLevel: "silent",
       plugins: [host],
@@ -386,56 +385,6 @@ describe("vite host", () => {
     expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments", "/shop/7", "/blog/hello"]);
   });
 
-  it("will post a call under a non-root base, filling params from the path below it", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE }), expressive(), SOURCES, "/app/");
-    const { call } = await server.ssrLoadModule("/.expressive/call.ts");
-    const { entering } = await server.ssrLoadModule(ROUTER);
-    const posted: string[] = [];
-
-    vi.stubGlobal("location", { pathname: "/app/blog/hello", href: "http://localhost/app/blog/hello" });
-    vi.stubGlobal("fetch", async (url: string) => (posted.push(url), new Response('{"value":1}', { headers: { "content-type": "application/json; codec=expressive" } })));
-
-    try {
-      await call([], "root", []);
-      await call(["tally"], "add", []);
-      await call(["blog", ":slug"], "like", []);
-      vi.stubGlobal("window", {});
-      await entering("/app/shop/7", () => call(["shop", ":id"], "buy", []));
-    } finally {
-      vi.unstubAllGlobals();
-    }
-
-    expect(posted).toEqual(["/app/", "/app/tally", "/app/blog/hello", "/app/shop/7"]);
-  });
-
-  it("will answer calls and gate checks under a non-root base, and none outside it", async () => {
-    const root = project({
-      "app/index.tsx": "import { hi } from './remote'; export const Page = () => hi",
-      "app/remote.ts": "export async function hi() { return 'root'; }",
-      "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add",
-      "app/tally/remote.ts": SIDECAR,
-      "app/blog/[slug]/index.tsx": "import { slug } from './remote'; export const Page = () => slug",
-      "app/blog/[slug]/remote.ts": "export async function slug() { return 'blog'; }",
-      "app/vault/index.tsx": PAGE,
-      "app/vault/remote.ts": "export default () => {}",
-    });
-    const server = await serve(root, expressive(), SOURCES, "/app/");
-
-    for (const file of ["/app/remote.ts", "/app/tally/remote.ts", "/app/blog/[slug]/remote.ts"]) await server.transformRequest(file);
-    await server.listen(0);
-
-    const post = async (at: string, headers: Record<string, string>, body = "[]") => {
-      const res = await fetch(new URL(at, server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", ...headers }, body });
-      return [res.status, res.headers.get("content-type")?.includes("json") ? await res.json() : undefined];
-    };
-
-    expect(await post("/app/", { "x-expressive-call": "hi" })).toEqual([200, { value: "root" }]);
-    expect(await post("/app/tally", { "x-expressive-call": "add" }, "[2, 3]")).toEqual([200, { value: 5 }]);
-    expect(await post("/app/blog/hello", { "x-expressive-call": "slug" })).toEqual([200, { value: "blog" }]);
-    expect(await post("/app/vault", { "x-expressive-get": "gates" })).toEqual([200, {}]);
-    expect((await post("/tally", { "x-expressive-call": "add" }, "[2, 3]"))[0]).toBe(404);
-  });
-
   it("will serve an exported subclass of an http error to the browser as an error", async () => {
     const remote = `import { HttpError } from "@expressive/rpc";
       export class Payment extends HttpError { status = 402; }
@@ -558,13 +507,12 @@ describe("vite host", () => {
     await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("only modules in app/tally/ and below may call it");
   });
 
-  async function buildBoth(files: Record<string, string>, { assetsDir, base, ...options }: { env?: boolean; assetsDir?: string; base?: string } = {}) {
+  async function buildBoth(files: Record<string, string>, { assetsDir, ...options }: { env?: boolean; assetsDir?: string } = {}) {
     const root = project(files);
     const quiet = (config: InlineConfig) => {
       config.configFile = false;
       config.logLevel = "silent";
       config.resolve = SOURCES;
-      config.base = base;
       if (assetsDir) config.build!.assetsDir = assetsDir;
       config.build!.rollupOptions = { ...config.build!.rollupOptions, external: ["@expressive/dev", "@expressive/dev/server"] };
       return config;
@@ -623,13 +571,6 @@ describe("vite host", () => {
     expect(await bundle({ ...app, "app/vault/index.tsx": PAGE })).not.toContain("expressive:gates");
     expect(await bundle({ ...app, "app/vault/remote.ts": calls })).not.toContain("expressive:gates");
     expect(await bundle({ ...app, "app/vault/remote.ts": `export default () => {}; ${calls}` })).toContain("expressive:gates");
-  });
-
-  it("builds the node service and the client's calls and gate check under a non-root base", async () => {
-    const { client, server } = await buildBoth({ "app/index.tsx": PAGE, "app/vault/index.tsx": CALLER, "app/vault/remote.ts": `export default () => {}; ${SIDECAR}` }, { base: "/app/" });
-
-    expect(server).toMatch(/"base": "\/app\/"/);
-    expect(client).toMatch(/[`"]\/app\/[`"]\)/);
   });
 
   it("builds a gated folder the client never imports as an endpoint, with its error classes and no calls", async () => {
@@ -1166,24 +1107,6 @@ describe("vite host", () => {
     expect(code).not.toMatch(/node:(fs|path|util)/);
     expect(code).not.toMatch(/\/\/#region \S*(router|dom|env)\/src\/|\/\/#region \S*dev\/src\/client\//);
     delete (globalThis as any).hostEnv;
-  });
-
-  it("builds the fetch entry answering calls under a non-root base", async () => {
-    const root = project({
-      "index.ts": `export default { target: "fetch", remote: { opaque: false } };`,
-      "app/index.tsx": PAGE,
-      "app/blog/[slug]/index.tsx": "import { add } from './remote'; export const Page = () => add",
-      "app/blog/[slug]/remote.ts": SIDECAR,
-    });
-    const quiet = (config: InlineConfig) => ({ ...config, base: "/app/", configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
-
-    await build(quiet(clientBuild(root)));
-    await build(quiet(serverBuild(root)));
-
-    const { default: handler } = await import(join(root, "dist/server/index.js"));
-
-    expect(await (await handler.fetch(post("/app/blog/hello", "add", "[2, 3]"))).json()).toEqual({ value: 5 });
-    expect((await handler.fetch(post("/blog/hello", "add", "[2, 3]"))).status).toBe(404);
   });
 
   it("will fail a build and the dev server on a 0.5 setting or a bindings export, by name", async () => {

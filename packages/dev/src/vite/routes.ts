@@ -66,7 +66,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     ...(gated ? ['import { gateCheck } from "@expressive/dev/routes";', 'import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
-    ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot, import.meta.env.BASE_URL);`] : []),
+    ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
     ...(tree.includes("as={Through}") ? ["", "const Through = props => props.children;"] : []),

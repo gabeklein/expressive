@@ -46,13 +46,6 @@ describe("compose", () => {
     expect((await fetch(new Request("http://localhost/"))).status).toBe(404);
   });
 
-  it("will answer calls under the build's base", async () => {
-    const { fetch } = compose({ target: "fetch" }, [tally, shop], manifest, [], null, { base: "/app/" });
-
-    expect(await json(fetch(post("price", [], "/app/shop/a")))).toEqual({ value: 3 });
-    expect((await fetch(post("add", [2, 3]))).status).toBe(404);
-  });
-
   it("will serve pages from env.ASSETS by default, with the shell for a page route", async () => {
     const ASSETS = { fetch: vi.fn(async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 })) };
     let app!: App;

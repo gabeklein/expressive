@@ -261,6 +261,8 @@ export default config({
   single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
   the `app/` files exporting `Page` - a deep link into a route the scan can't see (a custom root
   `Router`, a `<Route>` in a `Layout`) gets the shell with 404; a `[...]` page claims those paths.
+- A non-root Vite `base` is not supported yet: pages don't route under it, the built servers
+  serve files from `/`, and calls and gate checks ignore it. `/api` routes already sit under it.
 - In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
   `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
@@ -528,8 +530,8 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-A call is `POST` to the folder's path under Vite's `base`, with its params filled from the current
-location below it (`/blog/a` for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
+A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
+for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
 `feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
 Only the folder and those below it may import its sidecar. A call an entry hook makes before its
 first `await` fills params from the path being entered; after it, from the current location.
