@@ -32,7 +32,8 @@ page's waits show its slot's `Loading`.
 The `default` export is read by kind. A function is the entry hook: it runs with the Route before
 it renders, and a returned string redirects (`null` falls through to the 404). A class - Model or
 Component - renders around the route's content and is provided to everything below it; with a
-`Layout`, it wraps the `Layout`.
+`Layout`, it wraps the `Layout`. A Component's `render()` places that content as `props.children`.
+A default imported from another module is told apart when the route loads.
 
 `Loading` is the placeholder for the content slot of the `Layout` beside it: any page rendered
 there that cannot show anything yet - its code, its entry hook or its data still pending - shows

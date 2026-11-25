@@ -48,7 +48,7 @@ Bare-named files under `app/` are support modules. Siblings match static before 
 - `Router` - root `index.tsx` only: a subclass of `Router` from `@expressive/dev` (not router's `BrowserRouter`), mounted in its place - override `navigate()`, add methods. `Router.get()` and the subclass's `get()` both find it. Prerendering constructs it and runs `new()` without `window` - guard what touches it there.
 - `default`, read by kind:
   - a function is the entry hook: runs with the Route before render, may be async; a returned string redirects, `null` falls through to the 404. A thrown error with a 3xx `status` and `location` redirects; any other reaches `Catch`.
-  - a Model or Component class renders around the content (around `Layout` if present) and is provided below.
+  - a Model or Component class renders around the content (around `Layout` if present) and is provided below - a Component's `render()` gets that content as `props.children`. Declared in the module or imported, either works.
 - `paths` - below a `[param]` or `[...]`, the absolute paths a prerendering build renders; may be async. Bundled with the client - no Node APIs; use static imports, `import.meta.glob` or an absolute-URL `fetch`.
 
 Each module is its own chunk, loaded on first entry, unless it is the root or exports `Loading` or `Catch`.
