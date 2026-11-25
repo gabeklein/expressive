@@ -1,8 +1,6 @@
 import { Component, set } from "@expressive/mvc";
 
-import { member, welcome } from "./remote";
-
-export default async () => ((await member()) ? undefined : "/login");
+import { welcome } from "./remote";
 
 export class Page extends Component {
   name = set(() => welcome());

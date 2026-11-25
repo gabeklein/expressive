@@ -10,7 +10,10 @@ export function Layout(props: { children?: Component.Node }) {
         <Link to="/blog/hello">Hello post</Link> {" | "}
         <Link to="/about">About</Link> {" | "}
         <Link to="/tally">Tally</Link> {" | "}
-        <Link to="/gate">Gate</Link>
+        <Link to="/gate">Gate</Link> {" | "}
+        <Link to="/room/1">Room 1</Link> {" | "}
+        <Link to="/room/locked">Locked room</Link> {" | "}
+        <Link to="/room/old">Old room</Link>
       </nav>
       {props.children}
     </main>
