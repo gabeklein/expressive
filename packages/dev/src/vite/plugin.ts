@@ -18,7 +18,7 @@ import { generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, typ
 import { isCall, send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
-import { fileResponse } from "../server/listen";
+import { staticFile } from "../server/listen";
 import { install } from "../server/install";
 import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
 import { apiErrors, reservedApi, scanApi, verifyApi, type ApiFile } from "./api";
@@ -311,7 +311,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         case callId:
           if (prerendering) return PRERENDER_CALL;
 
-          return `export { call, define } from "@expressive/rpc";`;
+          return CALL_MODULE;
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
@@ -462,7 +462,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           const assets = {
             async fetch(forward: Request) {
               const { pathname, search } = new URL(forward.url);
-              const file = server.config.publicDir && fileResponse(server.config.publicDir, pathname);
+              const file = server.config.publicDir && staticFile(server.config.publicDir, pathname);
               const navigation = (forward.method === "GET" || forward.method === "HEAD") && !!forward.headers.get("accept")?.includes("text/html");
 
               if (file) return file;
@@ -508,9 +508,14 @@ export function host(dotenv: boolean): Plugin<Host> {
 
       return () => {
         server.middlewares.use(async (req, res, next) => {
-          if (req.method !== "GET" || !req.headers.accept?.includes("text/html")) return next();
+          const read = req.method === "GET" || req.method === "HEAD";
+          const file = read && server.config.publicDir && staticFile(server.config.publicDir, new URL(req.url!, "http://x").pathname);
+
+          if (!file && (req.method !== "GET" || !req.headers.accept?.includes("text/html"))) return next();
 
           try {
+            if (file) return await send(res, file);
+
             const html = await shell(req.originalUrl!);
             res.statusCode = await pageStatus(new URL(req.originalUrl!, "http://x").pathname);
             res.setHeader("Content-Type", "text/html");
@@ -591,6 +596,16 @@ const FETCH: UserConfig = {
   environments: { ssr: { resolve: { noExternal: true } } },
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
+
+const CALL_MODULE = `\
+import { call as send, client, define } from "@expressive/rpc";
+
+const { pathOf } = client();
+const fixed = at => !at.some(part => part[0] === ":" || part === "*");
+
+export { define };
+export const call = async (at, name, args) => send(fixed(at) ? "/" + at.join("/") : pathOf(at, name), name, args);
+`;
 
 const STATELESS = "The fetch target does not run folder gates - export functions only, no default.";
 

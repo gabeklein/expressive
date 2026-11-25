@@ -36,7 +36,7 @@ function match(pattern: string[], at: string[]): string[] | undefined {
 }
 
 const rank = (part: string) => (part === "*" ? 0 : part.startsWith(":") ? 1 : 2);
-const specificity = (pattern: string[]) => pattern.map(rank).join("");
+const specificity = (pattern: string[]) => pattern.map(rank).join("") + "3";
 
 export function resolve<E extends Exports>(endpoints: Endpoint<E>[], at: string[]): Match<E> | undefined {
   const matches: Match<E>[] = [];

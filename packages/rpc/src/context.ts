@@ -449,10 +449,11 @@ function stage<T>(parent: Frame, run: () => unknown, below: ((frame: Frame) => P
  *
  * With `below`, `run` is a gate: `Current.get().next` runs `below`, and returning nothing passes.
  * Without, `run` is a route: its returned value is the body. `params` is what `Current.get().params`
- * reads in `run`. A throw answers its `HttpError` status, else a logged 500. Throws outside a request.
+ * reads in `run`. A throw answers its `HttpError` status, else a logged 500 - its message with `dev`.
+ * Throws outside a request.
  */
-export function layer(run: () => unknown, below?: () => Promise<Response>, params: Record<string, string> = EMPTY): Promise<Response> {
-  return stage(frame(), run, below && (() => below()), params, refusal, true);
+export function layer(run: () => unknown, below?: () => Promise<Response>, params: Record<string, string> = EMPTY, dev = false): Promise<Response> {
+  return stage(frame(), run, below && (() => below()), params, error => refusal(error, dev), true);
 }
 
 export function pass<T>(run: () => T): Promise<Awaited<T> | undefined> {

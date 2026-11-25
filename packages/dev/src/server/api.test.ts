@@ -180,6 +180,20 @@ describe("api routes", () => {
     expect([reply.status, (await reply.json()).message]).toEqual([500, "syntax"]);
   });
 
+  it("will show a route's or gate's thrown message in dev, but not in a build", async () => {
+    const routes = [
+      route(["broken"], { GET: () => { throw new Error("no session"); } }),
+      route(["gated"], { default: () => { throw new Error("gate down"); } }, true),
+      route(["gated", "me"], { GET: () => "me" }),
+    ];
+    const built = compose({}, { api: { prefix: "/api", routes: () => routes } });
+
+    expect(await (await serve(routes)("/api/broken")).json()).toEqual({ message: "no session" });
+    expect(await (await serve(routes)("/api/gated/me")).json()).toEqual({ message: "gate down" });
+    expect(await (await built(new Request("http://localhost/api/broken"))).json()).toEqual({ message: "Internal error." });
+    expect(error).toHaveBeenCalledTimes(3);
+  });
+
   it("will match a fixed name against the decoded segment, so an escape cannot skip its gate", async () => {
     const fetch = serve([
       route(["admin"], { default: () => { throw new Forbidden("Admins only."); } }, true),

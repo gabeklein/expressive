@@ -78,7 +78,7 @@ export function withHeaders(response: Response, extra?: Headers): Response {
 
 const hasAny = (headers: Headers) => !headers.keys().next().done;
 
-export function refusal(error: unknown): Response {
+export function refusal(error: unknown, dev = false): Response {
   const json = (status: number, message: string, headers?: Record<string, string>) =>
     new Response(JSON.stringify({ message }), { status, headers: { ...headers, "content-type": "application/json; charset=utf-8" } });
 
@@ -86,5 +86,5 @@ export function refusal(error: unknown): Response {
   if (error instanceof HttpError && error.status >= 400 && error.status < 600) return json(error.status, error.message);
 
   console.error(error);
-  return json(500, "Internal error.");
+  return json(500, dev && error instanceof Error ? error.message : "Internal error.");
 }

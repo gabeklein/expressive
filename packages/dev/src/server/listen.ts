@@ -63,6 +63,11 @@ export function fileResponse(dir: string, pathname: string): Response | undefine
   return new Response(body, { headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" } });
 }
 
+/** A file under `dir`, else its `<path>/index.html` - as `ASSETS` and the built server resolve them. */
+export function staticFile(dir: string, pathname: string): Response | undefined {
+  return fileResponse(dir, pathname) ?? fileResponse(dir, join(pathname, "index.html"));
+}
+
 export interface ListenOptions {
   settings: Settings;
   client: string;
@@ -114,7 +119,7 @@ export function listen({ settings, client, sidecars = [], gates = [], api, pages
 
 function files(client: string, { url }: Request, immutable: string): Response {
   const { pathname } = new URL(url);
-  const found = fileResponse(client, pathname) ?? fileResponse(client, join(pathname, "index.html"));
+  const found = staticFile(client, pathname);
 
   if (!found) return new Response("Not found", { status: 404 });
   if (pathname.startsWith(immutable)) found.headers.set("cache-control", "public, max-age=31536000, immutable");

@@ -313,10 +313,24 @@ describe("vite host", () => {
     await expect(server.transformRequest("/app/shop/remote.ts")).rejects.toThrow("Cart is a class but not an Error");
   });
 
-  it("will serve the browser a call module of rpc's client", async () => {
+  it("will post a call to its sidecar's path from any page", async () => {
     const server = await serve(project({ "app/index.tsx": PAGE }));
+    const { call } = await server.ssrLoadModule("/.expressive/call.ts");
+    const posted: string[] = [];
 
-    expect((await server.transformRequest("/.expressive/call.ts"))?.code).toMatch(/export \{ call, define \} from "[^"]*rpc[^"]*"/);
+    vi.stubGlobal("location", { pathname: "/blog/hello/comments", href: "http://localhost/blog/hello/comments" });
+    vi.stubGlobal("fetch", async (url: string) => (posted.push(url), new Response('{"value":1}', { headers: { "content-type": "application/json; codec=expressive" } })));
+
+    try {
+      expect([await call([], "root", []), await call(["blog", ":slug"], "like", [])]).toEqual([1, 1]);
+      expect(await call(["tally"], "add", [])).toBe(1);
+      expect(await call(["blog", "*"], "rest", [])).toBe(1);
+      await expect(call(["shop", ":id"], "buy", [])).rejects.toThrow("buy() belongs to /shop/:id and cannot be called from /blog/hello/comments.");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments"]);
   });
 
   it("will serve an exported subclass of an http error to the browser as an error", async () => {
@@ -694,7 +708,7 @@ describe("vite host", () => {
     await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default 1;", "index.dev.ts": `export default {};` }), number);
 
     await expect(misplaced.api!.config()).rejects.toThrow("index.ts: `env` is set in index.dev.ts, never index.ts.");
-    await expect(bindings.api!.config()).rejects.toThrow("index.dev.ts: `bindings` became `config.env`, set in index.dev.ts.");
+    await expect(bindings.api!.config()).rejects.toThrow("index.dev.ts: `bindings` became `settings.env`, set in index.dev.ts.");
     await expect(number.api!.config()).rejects.toThrow("index.ts: the default export is not config({ ... }).");
   });
 
@@ -714,7 +728,7 @@ describe("vite host", () => {
 
   const SEEN = "export default { handle: ({ env }: any) => { const g = globalThis as any; const same = g.seenEnv === env; g.seenEnv = env; return Response.json({ db: env.DB, name: env.DEV_NAME, calls: g.envCalls, same }); } };";
 
-  it("will bind env() over process.env and .env in dev, once per server and again after a throw", async () => {
+  it("will bind env() under process.env and .env in dev, once per server and again after a throw", async () => {
     (globalThis as any).envCalls = 0;
     vi.stubEnv("DEV_NAME", "process");
     const root = project({
@@ -724,7 +738,7 @@ describe("vite host", () => {
         import settings from "./index";
         (settings as any).env = async () => {
           if (++(globalThis as any).envCalls === 1) throw new Error("not yet");
-          return { DB: "local", DEV_NAME: undefined };
+          return { DB: "local", DEV_NAME: "bound" };
         };
         export default settings;
       `,
@@ -735,8 +749,8 @@ describe("vite host", () => {
     const get = () => fetch(new URL("/", server.resolvedUrls!.local[0]));
 
     expect((await get()).status).toBe(500);
-    expect(await (await get()).json()).toEqual({ db: "local", calls: 2, same: false });
-    expect(await (await get()).json()).toEqual({ db: "local", calls: 2, same: true });
+    expect(await (await get()).json()).toEqual({ db: "local", name: "process", calls: 2, same: false });
+    expect(await (await get()).json()).toEqual({ db: "local", name: "process", calls: 2, same: true });
 
     for (const files of [{ "index.ts": SEEN } as Record<string, string>, { "index.ts": SEEN, "index.dev.ts": `import settings from "./index"; (settings as any).env = () => null; export default settings;` }]) {
       const other = await serve(project({ "app/index.tsx": PAGE, ...files }));
@@ -770,6 +784,17 @@ describe("vite host", () => {
     expect(html).toContain('<div id="root"></div>');
     expect([page.status, unknown.status]).toEqual([200, 404]);
     expect(await unknown.text()).toContain("<p>mine</p>");
+  });
+
+  it("will serve a public/ folder's index.html for its path without handle", async () => {
+    const server = await serve(project({ "app/index.tsx": PAGE, "public/map/index.html": "map" }));
+    await server.listen(0);
+    const at = (path: string, method = "GET") => fetch(new URL(path, server.resolvedUrls!.local[0]), { method, headers: { accept: "text/html" } });
+
+    expect(await (await at("/map/")).text()).toBe("map");
+    expect(await (await at("/map")).text()).toBe("map");
+    expect((await at("/map/", "HEAD")).status).toBe(200);
+    expect((await at("/nope")).status).toBe(404);
   });
 
   it("will answer every navigation with the shell as 200 in a single-file project", async () => {
@@ -918,6 +943,7 @@ describe("vite host", () => {
       export async function bound() { return ((globalThis.hostCurrent ?? Current).get().env as any).NAME; }
     `,
     "public/robots.txt": "robots",
+    "public/map/index.html": "map",
     "api/[id].ts": `import { Current } from "@expressive/rpc"; export const GET = () => (((globalThis as any).hostCurrent ?? Current).get().params);`,
   };
 
@@ -1005,7 +1031,7 @@ describe("vite host", () => {
     await expect(build(quiet(serverBuild(old)))).rejects.toThrow("`fetch` and `around` became `handle`.");
     await expect(build(quiet(clientBuild(misplaced)))).rejects.toThrow("index.ts: `env` is set in index.dev.ts, never index.ts.");
     await serve(bindings, host);
-    await expect(host.api!.config()).rejects.toThrow("`bindings` became `config.env`, set in index.dev.ts.");
+    await expect(host.api!.config()).rejects.toThrow("`bindings` became `settings.env`, set in index.dev.ts.");
   });
 
   it("will run handle in dev around calls, pages and public files, but not Vite's own requests", async () => {
@@ -1033,12 +1059,13 @@ describe("vite host", () => {
     expect([shell.status, shell.headers.get("x-handled")]).toEqual([404, "1"]);
     expect((await fetch(at("/shop"), { headers: { accept: "text/html" } })).status).toBe(200);
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
+    expect(await (await fetch(at("/map/"), { headers: { accept: "text/html" } })).text()).toBe("map");
     expect([missing.status, missing.headers.get("x-handled"), missing.headers.has("x-expressive-fell")]).toEqual([404, "1", false]);
 
     for (const path of ["/@vite/client", "/app/index.tsx", "/index.ts?import", "/.expressive/main.tsx"]) await fetch(at(path));
 
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
-    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt"]);
+    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt", "/map/"]);
     delete (globalThis as any).hostCurrent;
     delete (globalThis as any).handled;
   });

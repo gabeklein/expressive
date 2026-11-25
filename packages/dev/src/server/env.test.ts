@@ -18,17 +18,17 @@ async function layeredIn(files: Record<string, string>) {
   return (await import("./env")).layered;
 }
 
-it("will read what the host bound, then process.env, then .env files", async () => {
+it("will read live bindings, then process.env, then .env files, then bound strings", async () => {
   const layered = await layeredIn({ ".env": "A=file\nB=file\nC=file\n" });
   const db = {};
 
   vi.stubEnv("B", "process");
-  vi.stubEnv("A", "process");
+  vi.stubEnv("DB", "string");
 
-  const env = layered({ A: db, Z: undefined }) as Record<string, unknown>;
+  const env = layered({ A: "bound", B: "bound", DB: db, Z: undefined }) as Record<string, unknown>;
 
-  expect([env.A, env.B, env.C, env.D]).toEqual([db, "process", "file", undefined]);
-  expect(["A", "C", "Z", "D"].map(key => key in env)).toEqual([true, true, true, false]);
+  expect([env.A, env.B, env.C, env.DB, env.D]).toEqual(["file", "process", "file", db, undefined]);
+  expect(["A", "C", "DB", "Z", "D"].map(key => key in env)).toEqual([true, true, true, true, false]);
   expect(env[Symbol.toStringTag as never]).toBeUndefined();
   expect(Object.keys(layered())).toEqual([]);
 });

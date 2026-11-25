@@ -145,4 +145,9 @@ describe("refusal", () => {
     expect(refusal(odd).status).toBe(500);
     expect(error).toHaveBeenCalledTimes(2);
   });
+
+  it("will show a 500's message in dev", async () => {
+    expect(await refusal(new Error("boom"), true).json()).toEqual({ message: "boom" });
+    expect(await refusal("boom", true).json()).toEqual({ message: "Internal error." });
+  });
 });
