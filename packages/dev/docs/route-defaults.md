@@ -21,17 +21,19 @@ default  →  Layout  →  Page
 
 ### A page that needs a signed-in user
 
+`Session` here is the app's signed-in state, provided at the root.
+
 ```tsx
 // app/me/index.tsx
 import { Redirect } from "@expressive/dev";
 import { Component, get, set } from "@expressive/mvc";
 
 import { Session } from "../session";
-import * as auth from "../signin/remote";
+import * as account from "./remote";
 
 export default class Me extends Component {
   session = get(Session);
-  account = set(auth.profile);
+  profile = set(() => account.profile());
 
   protected new() {
     const { me } = this.session;
@@ -41,13 +43,13 @@ export default class Me extends Component {
 }
 
 export function Page() {
-  const { account } = Me.get();
+  const { profile } = Me.get();
 
-  return <h1>Hi, {account.name}</h1>;
+  return <h1>Hi, {profile.name}</h1>;
 }
 ```
 
-`Me` checks the session before anything renders; signed out, it throws `Redirect` and the route sends the visitor to `/signin`. `account` loads on its first read, so a signed-out visitor never requests it. Everything under `/me` reaches the state through `Me.get()`.
+`Me` checks the session before anything renders; signed out, it throws `Redirect` and the route sends the visitor to `/signin`. `profile` loads on its first read, so a signed-out visitor never requests it. Everything under `/me` reaches the state through `Me.get()`.
 
 ### A page whose record might not exist
 
@@ -56,11 +58,12 @@ export function Page() {
 import { NotFound, Route } from "@expressive/dev";
 
 import { Cards } from "../cards";
+import { CardView } from "./CardView";
 
 export default function Card() {
   const { match } = Route.get();
   const cards = Cards.get();
-  const card = cards.find(match.id);
+  const card = cards.find(match!.id);
 
   if (!card) throw new NotFound();
 
@@ -76,7 +79,7 @@ A leaf's `default` is its page. `NotFound` shows the folder's not-found screen; 
 // app/card/index.tsx
 import { NotFound } from "@expressive/dev";
 
-export function Catch({ error, retry }) {
+export function Catch({ error, retry }: { error: Error; retry(): void }) {
   if (error instanceof NotFound) return <p>That card doesn't exist.</p>;
 
   return (
@@ -94,7 +97,7 @@ export function Catch({ error, retry }) {
 
 ```ts
 // app/admin/remote.ts - the folder's gate
-import { Redirect } from "@expressive/dev";
+import { Redirect } from "@expressive/dev/server";
 
 import { Session } from "../session";
 
@@ -109,9 +112,9 @@ A gate runs on the server for every call under the folder, and in the browser be
 
 ### Good to know
 
-- Throw while deciding what to show: in `new()`, in an async `new()` after an `await`, or while rendering. In a click handler, navigate with `Route.get().goto("/somewhere")` - a throw there is just an error.
-- Moving between pages never flashes: the current screen holds while the next page decides, and a redirect goes straight to its target.
-- A redirect back into the same folder shows `Catch` rather than looping.
+- Throw while deciding what to show: while rendering, or in `new()` before any `await`. A decision that needs to wait goes in a field the page reads (`set(fn, true)`), and throws from there. In a click handler, navigate with `Route.get().goto("/somewhere")` - a throw there is just an error.
+- `new()` runs once. A guard there doesn't re-run on sign-out; a page that must react to it reads the session while rendering.
+- A redirect followed straight away by another shows `Catch` rather than looping.
 
 ## Why
 
@@ -128,66 +131,73 @@ Today a route module's `default` is read by kind - a function is an entry hook, 
 - **Redirect and not-found are thrown errors**, caught by the route: `Redirect` navigates, `NotFound` renders the folder's `Catch`. One spelling in pages, `new()`, gates and calls.
 - **The 404 folds into `Catch`.** The `NotFound` route export goes; an unmatched URL throws `NotFound` into the same `Catch`.
 - **dev's `Route` and `Router` recognize the errors**, by extending the router's. The router learns nothing about HTTP; `NotFound` is dev's alone.
-- **No entry hook.** A function `default` is a wrapper (or, in a leaf, the page).
+- **No entry hook for apps.** A function `default` is a wrapper (or, in a leaf, the page).
 - **A dev app imports nothing from `@expressive/rpc` or `@expressive/router`.** Neither is the app's dependency; dev's docs and skill never show those imports.
 
 ## The errors
 
-`Redirect` and `NotFound` are `Error` subclasses - rpc's, which already extend `HttpError`, so a gate or call throwing one answers 302 or 404 today. dev re-exports them.
+`Redirect` and `NotFound` are `Error` subclasses - rpc's, which already extend `HttpError`, so a gate or call throwing one answers 302 or 404 today. dev re-exports them from its root and from `/server`.
 
 dev's `Route` (already a subclass of the router's) overrides `catch()` and checks `instanceof` against those classes; dev depends on rpc, so no brand or shape-matching is needed, and a third-party error carrying a `status` never reads as a 404. No monkeypatching - the subclasses are dev's exports.
 
 | Thrown | Outcome |
 | --- | --- |
-| `Redirect` | `goto(location)`, replacing the entry |
+| `Redirect` with a `location` | `goto(location, replace)` - replacing only when the guarded URL is the committed entry (a cold load), pushing otherwise |
 | `NotFound` | the folder's `Catch`, with the error |
 | anything else | the folder's `Catch`, with `retry`, as now |
 
+`replace` is only right on a cold load: during an in-app navigation `BrowserRouter.next` writes history after the hold, so the entry under the redirect is still the page the user came from, and replacing it would lose that page from Back.
+
 ### Where they are caught
 
-Everything that decides what a route shows:
+Checked on dom and React: a Route's `catch()` receives a descendant's render throw and a synchronous throw from `new()`.
 
-- **Render.** A throw while rendering reaches the route's boundary (`Component.catch()`).
-- **A synchronous throw in `new()`**, or in a required `set(fn, true)` factory - construction runs inside render, so it reaches the boundary too.
-- **An async `new()`, or an async required factory, that rejects.** mvc reports these to `Model.on({ catch })` with kind `setup`, not to a boundary; a component reading the failed instance's fields gets the same error and reaches the boundary, but one nobody reads would escape uncaught. dev installs a `Model.on({ catch })` policy that takes a `setup` report carrying `Redirect` or `NotFound` and hands it to the instance's route, so a guard behaves the same whether or not render reads it.
+- **Render**, and a **synchronous throw in `new()`** or in a required `set(fn, true)` factory - construction runs inside render.
+- **An async decision.** Readiness never gates render, so a throw from `new()` after an `await` comes too late: the page has already committed and loaded behind it. Guards throw before the first `await`. A decision that must wait is a required field the page reads - the read suspends, and a rejection with `Redirect` reaches the boundary.
+- **A required factory nobody reads.** mvc reports its rejection to `Model.on({ catch })` with kind `setup`, before destroying the instance; `this.get(Route, false)` finds its route there. dev's policy hands a `Redirect` or `NotFound` from such a report to that route. A route that already received the same error through its boundary ignores the report - each error is handled once.
 
-Not caught: effects after mount and event handlers. They act rather than decide; a throw there is an error, and navigation stays `Route.get().goto()`. A sign-out while on a guarded page re-renders, so a check during render covers it.
+Not caught: effects after mount and event handlers. They act rather than decide; a throw there is an error, and navigation stays `Route.get().goto()`.
 
-### Holding the screen on a redirect
+A nearer boundary intercepts first. Order, outside in: the folder Route (`Catch`) › `default` › `Layout` › the page Route (`Loading`) › the page. A `default` Component with its own `catch` sees `Redirect` and `NotFound` before the folder's `Catch`, so an app `catch` rejects what it doesn't handle. `Catch` renders outside `default`, so `Me.get()` isn't available inside it.
 
-On an in-app navigation the incoming tree renders behind the held screen, swapping in once ready; a suspension extends the hold. For a `Redirect`, the route's `catch()` calls `goto(location, { replace: true })` and returns a promise that settles only when the route is destroyed:
+### Redirect, and what the screen shows meanwhile
 
-- the subtree stays suspended, so the held screen stays up until the redirect's target is ready - no `Catch` flash, no half-built page;
-- the redirected tree is discarded without committing, which destroys the route and settles the promise - nothing outlives it;
-- `replace` keeps the guarded URL out of history, so Back doesn't bounce.
+The route's `catch()` calls `goto` and returns a promise that settles when the redirect's navigation leaves the route - `router.path` changes, or the router's next navigation resolves. A route stays mounted across navigation (an unmatched one renders `null`), so "destroyed" never comes.
 
-A redirect into the folder that threw it goes to `Catch`, as gate checks do.
+What the screen shows between the throw and the target being ready is open - see open question 1. An error isn't a suspension: dom runs `recover()` at once and draws the boundary's fallback, and React commits the error boundary, so today the old screen gives way to the fallback (blank, or `Loading`) until the target loads.
+
+A redirect caught straight after another redirect goes to `Catch` - a loop guard by sequence, not by folder, so an index page redirecting into its own child (`/settings` → `/settings/profile`) works.
 
 ### Self-gating
 
-A `default` or page class gates itself in `new()`. mvc's async `set()` factories run lazily, on first read; `new()` runs before render, so a redirect thrown there prevents every load behind it - the state never guards itself.
+A `default` or page class gates itself in `new()`, before any `await`. mvc's async `set()` factories run lazily, on first read; a synchronous throw in `new()` stops construction before render, so it prevents every load behind it - the state never guards itself.
 
-The recipe's `account = set(auth.profile)` also relies on #832 (mvc): factory fields become writable without a no-op callback, so the page can patch `account` after a save. #832 keeps factories lazy - a write before the first read skips the factory - so the gate still runs first. A required factory's rejection still reports as `setup` until something writes the field, so the policy above still sees a `Redirect` thrown from one.
+The recipe relies on #832 (mvc): factory fields become writable without a no-op callback, so the page can patch `profile` after a save. #832 keeps factories lazy - a write before the first read skips the factory - so the gate still runs first.
+
+A factory is called with its field's key (`value.call(subject, key)`), and an rpc stub passes every argument to the server, so `set(account.profile)` would send `"profile"`. Wrap it: `set(() => account.profile())`.
 
 ### The 404 folds into `Catch`
 
 - A folder's unmatched URL: the route's catch-all child throws `NotFound`, reaching the folder's `Catch`.
 - A page's missing record: the page throws `NotFound`, reaching the same `Catch`.
 - dev's default `Catch` renders a plain not-found page for `NotFound`, so a folder without one still has a 404.
+- Which folders get a catch-all child: the root, and every folder exporting `Catch`.
+- `Catch` makes its module eager (it must be on hand before anything below can fail), so folding `NotFound` into it pulls that index and its imports into the entry chunk. Accepted; a loadable `Catch` is a later optimisation.
 
 ### Leaving not-found
 
 `NotFound` leaves the URL as it was, so links, `goto` and Back work as from any page.
 
-- **A caught error clears when the route's match changes.** The route that caught it is the folder's, which stays mounted across siblings (`/card/1` → `/card/2`, `/card/missing` → `/card`); its `Catch` drops the error on a match change, or the screen would stick. Tested for a sibling move.
+- **A caught error clears on navigation.** A boundary leaves its fallback only when its `catch()` promise settles, and the folder route's own `match` doesn't change between siblings (`matchPattern` is exact). So the route settles its `catch()` promise when `router.path` changes, and restores its `fallback` (to `Loading`) afterwards - dom doesn't put back a fallback that `catch()` overwrote.
 - **Same URL: `retry`.** `Catch` gets `retry` for every error, `NotFound` included; it re-runs the page, which renders if the record exists now or throws again. A reload does the same.
 - **No automatic recovery.** A thrown `NotFound` replaces the page with `Catch`, so nothing watches for the record. Throw it when the URL names nothing - a bad id, a deleted record. When an absence is temporary and the page should notice it ending (data still syncing, a list that will fill), render an empty state instead - an ordinary conditional, not a 404.
 
-### Status
+### Status and prerender
 
 - An unmatched URL keeps its 404 from the server, which sees the path (page patterns in each entry).
 - A page's thrown `NotFound` is a render state on the client - status 200. A formal 404 (or 302) from a page waits for server rendering, later in the product cycle; the thrown value is what that phase reads.
-- Prerender: a page that throws `Redirect` or `NotFound` at build is skipped with a warning and served the shell, so the browser decides.
+- Prerender: on the server the route's `catch()` rejects rather than holds - `renderToString` awaits a held promise until its settle timeout. A thrown `Redirect` takes prerender's existing "redirected at build" branch; a `NotFound` skips the page. Either way the path gets the shell and the browser decides.
+- dev's `setup` policy defers to the prerender entry's own `Model.on({ catch })` while prerendering, so a page's failure still reaches it.
 
 ## The router
 
@@ -196,16 +206,26 @@ The router stays HTTP-free - not browser-only, let alone dom-only, so "404" isn'
 | Where a redirect is decided | `goto` works? |
 | --- | --- |
 | an event handler, an effect after mount | yes - nothing is rendering |
-| `Route`'s `redirect` prop | yes - the router owns the moment |
 | while rendering, or in `new()` | no - a side effect in a tree that may never show |
 
-`<Redirect>` is the last row: it calls `goto` from its own `new()`, so under a held navigation a tree not yet committed navigates. A thrown redirect makes the decision a value the router acts on from its catch.
+`<Redirect>` is the second row: it calls `goto` from its own `new()`, so under a held navigation a tree not yet committed navigates. A thrown redirect makes the decision a value the router acts on from its catch.
 
-- **A router-native `Redirect` error** - navigation only, no status. The router's `Route` catches it with the held redirect above: `goto(location, { replace: true })` and a `catch()` promise settled when the route is destroyed.
-- **The `<Redirect>` component is deleted.** Its one legitimate job, redirecting during render, moves to the throw; `goto` covers the rest. The `redirect` prop calls `goto` directly. Breaking: `minor`, a migration line (`<Redirect to>` → `throw new Redirect(to)`), and the AGENTS.md guardrail names the error instead of the component.
+- **A router-native `Redirect` error** - navigation only, no status. The router's `Route` catches it as dev's does above.
+- **The `<Redirect>` component is deleted.** Its one legitimate job, redirecting during render, moves to the throw; `goto` covers the rest. Breaking: `minor`, with migration lines - `<Redirect to>` → `throw new Redirect(to)`; `when={x}` → an `if`; `replace` → the cold-load rule above.
+- **The `redirect` prop** keeps working: a route's cached verdict fires `goto` once per verdict, not on every re-render of `frame()`.
+- **AGENTS.md's guardrail** names the `redirect` prop; it adds the `Redirect` error, and the component leaves the router's listed contract.
 - **dev's `Route` accepts both** the router's `Redirect` and rpc's, extending the router's catch. dev re-exports rpc's, which works on the server too.
 - **Two classes named `Redirect`, never in one app's imports:** router-only apps import the router's, dev apps import rpc's through dev. rpc can't extend the router's without depending on a client-only package.
 - **Its own PR, against `main`, in either order.** dev handles rpc's `Redirect` in its own `Route` regardless; accepting the router's is additive once that ships.
+
+## Implementation notes
+
+- **The gate check keeps `enter`.** Apps lose the entry hook, but dev's gate check is built on it: `enter`, `arm`, `REFUSED` and `retry` in `client/route.tsx`, `checked()` in `check.ts`, and `hookOf`/`hook` in `vite/routes.ts`. `enter` stays as internal plumbing for gated folders; only the app-facing function `default` goes. `stay(error)` strips `location` from a refused gate's redirect to force `Catch`, but the error is still `instanceof Redirect` - the `Redirect` branch checks `error.location` too.
+- **Calls from the entering tree.** `pathOf` fills params from `location.pathname`, which is still the old URL during a hold; `entering()` covered hooks only. Calls fill from `Router.path` instead.
+- **Codegen keyed on `Page`.** `pagePatterns` (the server's 404), `staticPaths`, `renders` and the gate tree in `vite/routes.ts` all count a leaf `default` as a page. `wrap()` renders a function `default` as a component, not bare `children`. A leaf whose `default` is a Model and which has no `Page` renders nothing - generation warns.
+- **Hot reload.** An edit to `new()` reloads the instance rather than patching it, so a guard edit reloads the route. A hot update settles a route's caught error, so a fixed page replaces its `Catch`.
+- **dev's `Redirect` changes meaning.** The root re-export was the router component; it becomes the error. Rendering `<Redirect to>` from dev fails with a message pointing at `throw new Redirect(to)`.
+- **Docs.** dev README lines 11, 35, 42, 137, 151, 264, 552, 564, 629, 648, 668, 738; dev skill lines 16, 22, 44, 46, 50, 71, 74, 99, 146, 274; router skill lines 21, 29, 309-315. They switch to dev imports and the new exports, and the skill's "two `Redirect`s" warning goes.
 
 ## One import source
 
@@ -214,27 +234,28 @@ rpc and the router are dev's implementation, not the app's dependencies.
 | Need | From |
 | --- | --- |
 | `Route`, `Router`, `Link`, `NavLinks` | `@expressive/dev` (already) |
-| `Redirect`, `NotFound`, `HttpError` and the rest of the family | `@expressive/dev`, re-exported from rpc |
+| `Redirect`, `NotFound`, `HttpError` and the rest of the family | `@expressive/dev` and `@expressive/dev/server`, re-exported from rpc |
 | `Current`, `Cookies` | `@expressive/dev/server` (already) |
 | `Env` augmentation | `@expressive/dev` (already) |
 
-- The trunk's README and skill import `Forbidden` and `Redirect` from `@expressive/rpc` in the api/ and gate-check recipes (README lines 137, 151, 629, 648; skill lines 74, 99). They switch to dev, and the skill's "two `Redirect`s" warning goes.
-- Neither package is in the app's `package.json`. A direct import resolves only through hoisting, and the docs never show one, so no enforcement is planned. `@expressive/mvc` stays the app's peer.
-- `Route.get().match` becomes non-optional - a page only renders when its route matched.
+Neither package is in the app's `package.json`. A direct import resolves only through hoisting, and the docs never show one, so no enforcement is planned. `@expressive/mvc` stays the app's peer.
+
+`Route.get().match` stays `| undefined`: a folder route - what a `default`, `Layout` or `Catch` reads - has no match of its own while rendered. A leaf page reads `match!`.
 
 ## Migration (unreleased trunk, plus 0.5)
 
 | Before | After |
 | --- | --- |
-| `export default (route) => "/login"` (entry hook) | `throw new Redirect("/login")` in the page or the `default`'s `new()` |
+| `export default (route) => "/login"` (entry hook) | `throw new Redirect("/login")` in the page, or in the `default`'s `new()` before any `await` |
 | hook returning `null` | `throw new NotFound()` |
 | `<Redirect to="/x" />` | `throw new Redirect("/x")` |
+| `<Redirect when={x} to="/x" />` | `if (x) throw new Redirect("/x")` |
 | `export function NotFound` in a route module | `Catch` handling `error instanceof NotFound` |
-| `Redirect` / `Forbidden` from `@expressive/rpc` | from `@expressive/dev` |
+| `Redirect` / `Forbidden` from `@expressive/rpc` | from `@expressive/dev` (or `/server`) |
 | a leaf's `export function Page` | `export default` (`Page` still works) |
 | `default` class wrapping `Layout` | unchanged |
 
-A function `default` can't be told apart from a 0.5 entry hook by shape. Generation catches the common case: a function `default` that declares a parameter (a hook's `route`) fails, naming the module and pointing here. `minor`, pre-1.0.
+A function `default` can't be told apart from a 0.5 entry hook by shape - a wrapper declares `props` to place `children`, and a leaf page may take props too. Generation fails only on a parameter named `route`; at runtime, a function `default` returning a string fails, naming the module and pointing here. `minor`, pre-1.0.
 
 ## Queued
 
@@ -243,10 +264,16 @@ A function `default` can't be told apart from a 0.5 entry hook by shape. Generat
 
 ## Open questions
 
-1. **The held redirect on both hosts.** The never-settling `catch()` keeping the hold needs a test under dom's transitions and React's under the compat host.
+1. **The screen during a redirect.** An error isn't a suspension, so a thrown `Redirect` shows the boundary's fallback (blank, or `Loading`) until the target is ready. Either:
+   - **accept it** - the redirect is correct and history is right; the old screen just doesn't hold through the redirect; or
+   - **add a host seam** turning a `catch()` outcome into a suspension in a passive pass, so the held screen stays up. New behaviour in dom and in the React adapter, with its own sign-off.
+2. **Hosts.** The behaviour above was checked on dom and React; preact compat is untested.
+3. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
+4. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
+5. **Console noise.** A factory that throws logs `Generating initial value... failed`, and React logs each caught error.
 
 ## New public surface
 
-- `Redirect`, `NotFound` and the `HttpError` family re-exported from `@expressive/dev`.
+- `Redirect`, `NotFound` and the `HttpError` family re-exported from `@expressive/dev` and `@expressive/dev/server`.
 - `@expressive/router`: a `Redirect` error; the `<Redirect>` component removed.
-- Behaviour: route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the entry hook and the `NotFound` route export removed; `Route.get().match` non-optional; dev's `Route` catches `Redirect` and `NotFound`, and a `Model.on({ catch })` policy routes `setup` reports carrying them.
+- Behaviour: route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the app-facing entry hook and the `NotFound` route export removed; dev's `Route` catches `Redirect` and `NotFound`, and a `Model.on({ catch })` policy routes `setup` reports carrying them.
