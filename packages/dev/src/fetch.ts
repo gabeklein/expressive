@@ -53,7 +53,7 @@ export function compose(settings: Settings, modules: Record<string, unknown>[], 
 
   const routes = apiRefs?.routes.map((ref, i) => ({ ...ref, load: () => apiModules[i] }));
   const api = routes && { prefix: apiRefs!.prefix, routes: () => routes };
-  const inner = app(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), api, pages });
+  const inner = app(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), api, pages, base: pages?.base });
   const composed: App = (request, options = {}) => inner(request, { ...options, assets: options.assets ?? bound(options.env) });
 
   const fetch = (request: Request, env?: Env, ctx?: Partial<ExecutionCtx>) => composed(request, { env, ctx });

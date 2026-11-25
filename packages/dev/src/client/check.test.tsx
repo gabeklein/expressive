@@ -6,8 +6,8 @@ import type { BrowserRouter } from "@expressive/router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
-import { gateCheck, Route } from ".";
-import type { GateNode } from "./check";
+import { Route } from ".";
+import { gateCheck, type GateNode } from "./check";
 
 function Err({ error, retry }: { error: Error; retry: () => void }) {
   return <button onClick={retry}>caught: {error.message}</button>;
@@ -280,9 +280,36 @@ describe("gateCheck", () => {
     expect(root.textContent).toBe("admin");
   });
 
-  it("will check a catch-all folder at the whole path", async () => {
+  it("will match a path under base without it, check it with it, and leave the app for a redirect outside it", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const call = pass().mockRejectedValueOnce(new Moved("/app/login")).mockRejectedValueOnce(new Moved("/login"));
+    const checked = gateCheck(call, { none: 1, in: [{ to: "login", page: 1 }, { to: "admin", gate: 1, page: 1, in: [] }] }, undefined, "/app/");
+    const Tree = () => (
+      <Route fallback={null}>
+        <Route to="app">
+          <Route to="login" as={text("login")} />
+          <Route to="admin" as={text("admin")} enter={checked()} />
+        </Route>
+      </Route>
+    );
+
+    location("/app/admin");
+    const root = await mount(Tree);
+    await flush();
+    expect(root.textContent).toBe("login");
+
+    await goto("/app/admin");
+    expect(assign).toHaveBeenCalledWith("http://localhost/login");
+
+    await goto("/app/login");
+    await goto("/app/admin");
+    expect(root.textContent).toBe("admin");
+    expect(paths(call)).toEqual(["/app/admin", "/app/admin", "/app/admin"]);
+  });
+
+  it("will check a catch-all folder at the whole path, a relative base counting as /", async () => {
     const call = pass();
-    const checked = gateCheck(call, { none: 1, in: [{ to: "docs", in: [{ to: "*", gate: 1, page: 1, in: [] }] }] });
+    const checked = gateCheck(call, { none: 1, in: [{ to: "docs", in: [{ to: "*", gate: 1, page: 1, in: [] }] }] }, undefined, "./");
     const Tree = () => (
       <Route fallback={null}>
         <Route to="docs">

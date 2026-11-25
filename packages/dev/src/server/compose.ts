@@ -11,6 +11,8 @@ export interface Parts {
   gates?: Seats;
   api?: Api;
   pages?: Pages;
+  /** Vite's `base`, which calls are served under - one not starting with `/` counts as `/`. */
+  base?: string;
   dev?: boolean;
 }
 
@@ -25,6 +27,8 @@ export interface Pages {
   patterns?: string[];
   /** `build.assetsDir`, never answered with the shell. Default `"assets"`. */
   assetsDir?: string;
+  /** Vite's `base` when not `/`. */
+  base?: string;
 }
 
 type Assets = NonNullable<AppOptions["assets"]>;
@@ -32,9 +36,12 @@ type Assets = NonNullable<AppOptions["assets"]>;
 const noop = () => {};
 
 /** The app from an entry's settings and the remotes a host composes it with. */
-export function compose(settings: Settings = {}, { sidecars = () => [], gates, api, pages, dev = false }: Parts = {}): App {
+export function compose(settings: Settings = {}, { sidecars = () => [], gates, api, pages, base = "/", dev = false }: Parts = {}): App {
   const { env: _, ...read } = settings;
   const { handle } = check(read);
+  const prefix = segments(base[0] == "/" ? base : "/");
+  const under = (request: Request) => segments(new URL(request.url).pathname).slice(0, prefix.length).join("/") === prefix.join("/");
+  const call = (request: Request) => isCall(request) && under(request);
   let warn = dev;
 
   const failed = (reply: Response) => {
@@ -52,7 +59,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
     const below = async (forward: Request): Promise<Response> => {
       bind(forward, env as Env, filled);
 
-      if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
+      if (call(forward)) return dispatch(forward, sidecars, dev, gates, undefined, prefix.length).then(mutable).catch(error => failure(error, sidecars(), dev));
       if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api, dev).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
       if (!assets) return new Response("Not found.", { status: 404 });
 
@@ -68,7 +75,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
     try {
       return await around(handle, { request, env: env as Env, ctx: filled }, below, failed);
     } catch (error) {
-      if (!isCall(request)) return refuse(error, dev);
+      if (!call(request)) return refuse(error, dev);
       if (!(error instanceof HttpError)) console.error(error);
 
       return failure(error, sidecars(), dev);

@@ -206,17 +206,17 @@ describe("listen", () => {
     vi.restoreAllMocks();
   });
 
-  it("will serve a gated call and a file of unknown type", async () => {
+  it("will serve a gated call under base and a file of unknown type", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "data.bin"), "1");
 
     const exports = async () => ({ calls: { add: async (a: number, b: number) => a + b }, classes: {} });
-    const server = listen({ settings: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], gates: [{ pattern: ["tally"], gate: () => {} }] });
+    const server = listen({ settings: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], gates: [{ pattern: ["tally"], gate: () => {} }], pages: { base: "/app/" } });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const call = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add" }, body: "[2, 3]" });
+    const call = await fetch(`${base}/app/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add" }, body: "[2, 3]" });
     const file = await fetch(`${base}/data.bin`);
 
     expect(await call.json()).toMatchObject({ value: 5 });

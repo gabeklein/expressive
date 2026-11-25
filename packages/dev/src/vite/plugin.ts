@@ -47,6 +47,7 @@ const DEPS = [
   "@expressive/router",
   "@expressive/rpc",
   "@expressive/dev",
+  "@expressive/dev/routes",
   "@expressive/dev/jsx-runtime",
   "@expressive/dev/jsx-dev-runtime",
 ];
@@ -89,6 +90,7 @@ export function host(dotenv: boolean): Plugin<Host> {
   let htmlId: string;
   let apiDir: string;
   let apiPrefix: string;
+  let base: string;
   let vite: ViteDevServer | undefined;
   let layout: string | undefined;
   let runner: ModuleRunner | undefined;
@@ -110,7 +112,7 @@ export function host(dotenv: boolean): Plugin<Host> {
   let assetsDir: string;
   let scanned: Promise<string[]> | undefined;
   const patterns = () => (project.appDir ? (scanned ??= pagePatterns(project.appDir, scanRoute).catch(error => ((scanned = undefined), Promise.reject(error)))) : undefined);
-  const pages = async (): Promise<Pages> => ({ patterns: await patterns(), assetsDir });
+  const pages = async (): Promise<Pages> => ({ patterns: await patterns(), assetsDir, ...(base !== "/" && { base }) });
   const pageStatus = async (pathname: string) => {
     const known = await patterns();
     return !known || routed(known, pathname) ? 200 : 404;
@@ -218,6 +220,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       htmlId = join(root, "index.html");
       apiDir = join(root, "api");
       apiPrefix = `${config.base}api`;
+      base = config.base;
       assetsDir = config.build.assetsDir.replace(/\/+$/, "");
     },
 
@@ -495,7 +498,7 @@ export function host(dotenv: boolean): Plugin<Host> {
             },
           };
 
-          const app = compose(settings, { sidecars: endpoints, gates, api: existsSync(apiDir) ? routing : undefined, dev: true });
+          const app = compose(settings, { sidecars: endpoints, gates, api: existsSync(apiDir) ? routing : undefined, base, dev: true });
           const reply = await app(request, { env: await view(settings), ctx, assets });
 
           if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) {
@@ -625,22 +628,25 @@ const FETCH: UserConfig = {
 };
 
 const CALL_MODULE = `\
+import { entered } from "@expressive/dev/routes";
 import { call as send, client, define } from "@expressive/rpc";
 
 const { pathOf } = client();
 const fixed = at => !at.some(part => part[0] === ":" || part === "*");
-const PATH = Symbol.for("@expressive/dev#path");
+const base = import.meta.env.BASE_URL[0] === "/" ? import.meta.env.BASE_URL : "/";
+const within = path => (path + "/").startsWith(base) ? path.slice(base.length - 1) : path;
+const fill = (at, name, from = globalThis.location?.pathname) => pathOf(at, name, from && within(from));
 
 export { define };
 const entering = (at, name) => {
   try {
-    return pathOf(at, name, globalThis[PATH]);
+    return fill(at, name, entered());
   } catch {
-    return pathOf(at, name);
+    return fill(at, name);
   }
 };
 
-export const call = async (at, name, args) => send(fixed(at) ? "/" + at.join("/") : entering(at, name), name, args);
+export const call = async (at, name, args) => send(base.slice(0, -1) + (fixed(at) ? "/" + at.join("/") : entering(at, name)), name, args);
 `;
 
 const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });

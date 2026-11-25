@@ -90,7 +90,7 @@ export function listen({ settings, client, sidecars = [], gates = [], api, pages
 
   const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
   const routes = api?.routes.map(({ module, ...ref }) => ({ ...ref, load: () => module }));
-  const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), api: routes && { prefix: api!.prefix, routes: () => routes }, pages });
+  const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), api: routes && { prefix: api!.prefix, routes: () => routes }, pages, base: pages.base });
   const assets = { fetch: async (request: Request) => files(client, request, `/${pages.assetsDir ?? "assets"}/`) };
   const env = layered();
 

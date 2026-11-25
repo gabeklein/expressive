@@ -57,8 +57,10 @@ function walk(node: GateNode, at: string[], i: number, path: string[], gate: str
  *
  * Returns a wrapper for a gated folder's entry hook. Entering sends one check to the deepest gated folder on the path
  * unless the last pass covers it; a refusal throws to `Catch`, a 3xx with a `location` redirects.
+ * Paths under `base`, Vite's `BASE_URL`, match the tree without it and are checked with it; a redirect outside it leaves the app.
+ * A `base` not starting with `/` counts as `/`.
  */
-export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryHook, load?: () => unknown) => EntryHook {
+export function gateCheck(call: Call, tree: GateNode, hot?: Hot, base = "/"): (hook?: EntryHook, load?: () => unknown) => EntryHook {
   const idle = { path: "", done: Promise.resolve() as Promise<unknown> };
   let pending = idle;
   let passed: string[] | undefined;
@@ -66,8 +68,13 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
 
   hot?.on("expressive:gates", () => (passed = undefined));
 
-  const deepest = (pathname: string) => walk(tree, segments(pathname), 0, [], undefined, false)!.gate;
-  const routed = (pathname: string) => !!walk(tree, segments(pathname), 0, [], undefined, true);
+  const root = segments(base[0] == "/" ? base : "/");
+  const within = (pathname: string) => {
+    const at = segments(pathname);
+    if (covers(root, at)) return at.slice(root.length);
+  };
+
+  const deepest = (pathname: string) => walk(tree, within(pathname)!, 0, [], undefined, false)!.gate;
 
   const check = (path: string) => {
     if (pending.path !== path) {
@@ -83,7 +90,7 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
 
     const { router } = route;
     const at = deepest(router.path)!;
-    const path = "/" + at.join("/");
+    const path = "/" + [...root, ...at].join("/");
     const current = () => deepest(router.path)?.join("/") === at.join("/");
     const after = hopped === router.path;
 
@@ -108,11 +115,11 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
         if (typeof status != "number" || status < 300 || status >= 400 || typeof to != "string" || !to) throw error;
 
         const url = new URL(to, window.location.href);
-        const local = url.origin === window.location.origin;
+        const local = url.origin === window.location.origin ? within(url.pathname) : undefined;
 
-        if (after || !/^https?:$/.test(url.protocol) || (local && covers(at, segments(url.pathname)))) throw stay(error);
+        if (after || !/^https?:$/.test(url.protocol) || (local && covers(at, local))) throw stay(error);
 
-        if (!local || !routed(url.pathname)) {
+        if (!local || !walk(tree, local, 0, [], undefined, true)) {
           window.location.assign(url.href);
           return new Promise<never>(() => {});
         }
