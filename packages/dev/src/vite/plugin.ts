@@ -424,7 +424,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         return [...exposed, ...bare.map(remote => gateOnly(host, exposure, remote))];
       };
       const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
-      const shell = (url: string) => server.transformIndexHtml(url, readShell());
+      const shell = (url: string) => server.transformIndexHtml("/index.html", readShell(), url);
       const replayed = new WeakSet<object>();
       const skipped = skipList(server);
 
