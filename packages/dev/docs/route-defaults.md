@@ -164,7 +164,7 @@ A nearer boundary intercepts first. Order, outside in: the folder Route (`Catch`
 
 The route's `catch()` calls `goto` and returns a promise that settles when the redirect's navigation leaves the route - `router.path` changes, or the router's next navigation resolves. A route stays mounted across navigation (an unmatched one renders `null`), so "destroyed" never comes.
 
-What the screen shows between the throw and the target being ready is open - see open question 1. An error isn't a suspension: dom runs `recover()` at once and draws the boundary's fallback, and React commits the error boundary, so today the old screen gives way to the fallback (blank, or `Loading`) until the target loads.
+While the target loads, the screen shows the boundary's fallback - blank, or `Loading`. An error isn't a suspension: dom runs `recover()` at once and draws the fallback, and React commits the error boundary, so the old screen doesn't hold through a redirect. Accepted for now; holding it needs a host seam (follow-up, below).
 
 A redirect caught straight after another redirect goes to `Catch` - a loop guard by sequence, not by folder, so an index page redirecting into its own child (`/settings` → `/settings/profile`) works.
 
@@ -262,15 +262,16 @@ A function `default` can't be told apart from a 0.5 entry hook by shape - a wrap
 - **Params as index exports.** `[param]` and `[...]` files folded into the folder's `index` as exports receiving their match, like `Catch`. That makes the index define several pages - `Page`, the param page, the rest page - which is why `Page` stays a full export.
 - **`(route).ts` against `_private.ts`** for marking routes and helpers, across `app/`, `api/` and MDX.
 
+## Follow-up
+
+- **Holding the screen through a redirect.** A host seam turning a `catch()` outcome into a suspension in a passive pass, so a thrown `Redirect` keeps the held screen up until its target is ready instead of showing the fallback. New behaviour in dom and the React adapter, with its own sign-off. Tracked on the board.
+
 ## Open questions
 
-1. **The screen during a redirect.** An error isn't a suspension, so a thrown `Redirect` shows the boundary's fallback (blank, or `Loading`) until the target is ready. Either:
-   - **accept it** - the redirect is correct and history is right; the old screen just doesn't hold through the redirect; or
-   - **add a host seam** turning a `catch()` outcome into a suspension in a passive pass, so the held screen stays up. New behaviour in dom and in the React adapter, with its own sign-off.
-2. **Hosts.** The behaviour above was checked on dom and React; preact compat is untested.
-3. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
-4. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
-5. **Console noise.** A factory that throws logs `Generating initial value... failed`, and React logs each caught error.
+1. **Hosts.** The behaviour above was checked on dom and React; preact compat is untested.
+2. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
+3. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
+4. **Console noise.** A factory that throws logs `Generating initial value... failed`, and React logs each caught error.
 
 ## New public surface
 
