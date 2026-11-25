@@ -1,4 +1,5 @@
 import { Component } from "@expressive/mvc";
+import { Link } from "@expressive/dev";
 
 import { served } from "./remote";
 
@@ -21,6 +22,7 @@ export class Page extends Component {
         <h1>Note</h1>
         <button onClick={where}>Where</button>
         <output>{shown}</output>
+        <Link to="/note/8">Note 8</Link>
       </>
     );
   }

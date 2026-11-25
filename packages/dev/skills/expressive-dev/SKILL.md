@@ -68,7 +68,7 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`).
+- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`). An entry hook's call before its first `await` fills from the path being entered.
 - Only the folder and those below it may import its sidecar - the build throws otherwise.
 - A `remote/` folder holds several; every module in it belongs to the parent folder and is never a route.
 - Module rules, errors (`HttpError` family from `@expressive/rpc`), ids and `opaque` are rpc's - `expressive-rpc`. Turn off hashed ids with `config({ remote: { opaque: false } })` in `index.ts`.

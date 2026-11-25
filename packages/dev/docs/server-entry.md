@@ -413,7 +413,7 @@ A page under a gated folder would otherwise render before anything checked the c
 - **Prerender.** Paths under gated folders are not prerendered, and no check runs without `window`.
 - **A root gate gates every page.** `app/remote.ts`'s `default` makes every page gated: nothing prerenders, and every cold load waits on one check. Use it to refuse; for context only (a session every call can read), use the lazy patterns under Request-wide state.
 - **Hot reload.** An edited gate body clears the remembered passes, so the next navigation checks again. An edit to a helper the gate imports does not clear them.
-- **Gate params.** A remote folder gate reads its folder's params from `Current.get().params`, as calls do (rpc passes the call's params to the gates along its folder).
+- **Gate params.** A remote folder gate reads its own folder's params from `Current.get().params`, as an `api/` gate does: rpc slices the called folder's params at each gate's depth, so `/room/[id]/note/[id]` gives the room gate the room's `id`.
 - **Replaces** a hand-written sign-in check in a page folder's `enter` (`member() ? undefined : "/login"`): the gate throws `Redirect` instead, one round trip fewer.
 
 "Gate check" is the user-facing name, since "preflight" is CORS's.
@@ -609,7 +609,7 @@ All answered in review.
 ## Open items
 
 - **Vite `base`.** Remote calls and gate checks ignore a non-root `base`: a stub posts to `/` plus its folder's path, not under `base`. Left as is; the README and skill say so.
-- **A param folder's call during a held navigation.** Closed in PR 7: dev's `Router` leaves its pending path under `Symbol.for("@expressive/dev#path")` as it locates, and the generated call module fills `:param` segments from it before `location`.
+- **A param folder's call during a held navigation.** Closed in PR 7: while an entering route's entry hook runs synchronously (a loaded hook included), dev leaves the path it enters under `Symbol.for("@expressive/dev#path")`, browser only, and clears it after. The generated call module fills `:param` segments from it when the pattern fits, else from `location`, so calls from the outgoing page keep their own path. Remaining: a call the hook makes after its first `await` fills from `location`.
 
 ## PR split
 

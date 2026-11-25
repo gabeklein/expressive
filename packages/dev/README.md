@@ -402,7 +402,8 @@ import { add } from "./remote";
 A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
 for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
 `feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
-Only the folder and those below it may import its sidecar.
+Only the folder and those below it may import its sidecar. A call an entry hook makes before its
+first `await` fills params from the path being entered; after it, from the current location.
 
 Only what the client imports is callable: the server accepts calls to the stubs the browser loaded in
 dev, and to those the client build generated in production - a helper module in `remote/` is never
@@ -493,7 +494,7 @@ export default () => {
 `Redirect` here is rpc's error class. The `Redirect` exported by `@expressive/dev` is the router's
 component - a different thing.
 
-A gate reads its folder's params from `Current`, as calls do:
+A gate reads its own folder's params from `Current` - a gate above sees only those of its folder:
 
 ```ts
 // app/team/[id]/remote.ts
