@@ -27,6 +27,7 @@ app/                  file-based routes
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth
 app.tsx | src/app.tsx single root component instead of app/ (default export)
+api/                  optional HTTP routes under /api - see api/ routes
 index.ts              optional server entry: export default config({ port, handle, target, host })
 index.dev.ts          optional, dev only: index.ts's settings plus env() - see env and index.dev.ts
 index.html            optional shell (#root and the entry script injected if missing)
@@ -135,13 +136,47 @@ export default config({
 - `next()` resolves a `Response` with mutable headers (101 as is); a throw below resolves its error reply. A discarded reply's body is cancelled.
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
-- Below it: a remote call, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: a `public/` file. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
+- Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: a `public/` file. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
 - Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
-- Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
+- Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
 
 `env` - the request's bindings, below.
 
 Tests: `compose(settings)` from `@expressive/dev/server` - the app without remotes, pages from a stub: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`.
+
+## api/ routes
+
+A root `api/` folder beside `app/` is HTTP routes under `/api`. Location is the path, in `app/`'s syntax, and a bare name is a route: `api/logout.ts` → `/api/logout`, `api/photo/[id].ts` → `/api/photo/:id`, `api/auth/[...].ts` → `/api/auth/*` (one segment or more), `api/index.ts` → `/api`. Every `.ts`/`.tsx`/`.js`/`.jsx` but `*.test.*`, `*.spec.*`, `.d.ts` is a route - helpers live outside `api/`. Routes take no parameters; read the request from `Current`.
+
+```ts
+// api/photo/[id].ts
+import { Current } from "@expressive/dev/server";
+
+export const GET = () => photo(Current.get().params.id);
+
+// api/account/index.ts - the folder's gate
+export default () => {
+  Session.new(); // async new() throws Unauthorized to refuse
+};
+
+// api/account/me.ts
+export const GET = () => Session.get().user;
+
+// api/legacy/[...].ts - mount a fetch handler (Hono, an auth library) on /api/legacy/*
+export default () => legacy.fetch;
+
+// api/legacy/index.ts - /api/legacy itself
+export const GET = () => legacy.fetch;
+```
+
+- `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` answer that method on the module's path. Returned value: `Response` as is, object/array as JSON, string as text, nothing 204. HEAD runs `GET` without the body. Other methods: 405 with `Allow`. OPTIONS is never synthesised - CORS and preflight go in `handle` or a folder gate.
+- `default` outside a folder `index.ts`: catch-all for every method on its path. Routes take no arguments, so return the handler - a returned function (from a verb too) is called with `(request, env, ctx)`. The path is not rewritten - give the mounted app its base path (`basePath("/api/legacy")`). Bind a `fetch` that needs `this`.
+- `default` in a folder `index.ts`: the folder's gate, before every route below, outermost first, on unmatched paths too. Finish to pass, throw to refuse (`HttpError` → its status as JSON `{ message }`, else logged 500), return a `Response` or fetch handler to answer, `Current.get().next()` to wrap. Its Models are `X.get()`-able below until the request ends. Sees its own folder's params; routes see the full match's.
+- No module for the path, or an `index.ts` with only a gate: JSON 404, never the shell.
+- Exact, case-sensitive, on decoded segments (`/api/caf%C3%A9` → `api/café.ts`); fixed beats `[param]` beats `[...]`, no backtracking - `/api/admin/users` 404s under `api/admin/` without `users`, even beside `api/[org]/users.ts`. A bad `%` escape is 400; an empty segment never matches, except inside `[...]`'s rest after its first.
+- Params arrive decoded, slashes included - never join one onto a file path.
+- Fail dev and the build: no verbs and no `default` (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports (types fine; `api/index.ts`'s reserved); `(name)` files/folders, a `[...]` folder, `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*`, two `[param]`s in a folder, two modules on one path (`api/dev.ts` + `api/dev/index.ts`); `app/api/`, `app/api.tsx`, `app/(api).tsx`, `public/api/` beside `api/`, any case; a client import from `api/`, aliases included.
+- Dev loads routes per request on the module runner - edits and added files land on the next one. A save logs these errors; a broken route's requests answer a 500 naming it. Never prerendered.
 
 ## env and index.dev.ts
 

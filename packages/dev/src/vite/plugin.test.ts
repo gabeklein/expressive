@@ -918,6 +918,7 @@ describe("vite host", () => {
       export async function bound() { return ((globalThis.hostCurrent ?? Current).get().env as any).NAME; }
     `,
     "public/robots.txt": "robots",
+    "api/[id].ts": `import { Current } from "@expressive/rpc"; export const GET = () => (((globalThis as any).hostCurrent ?? Current).get().params);`,
   };
 
   const post = (path: string, name: string, body: string) =>
@@ -942,6 +943,8 @@ describe("vite host", () => {
     expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod" });
+    expect(await (await handler.fetch(new Request("http://localhost/api/7"), env, ctx)).json()).toEqual({ id: "7" });
+    expect((await handler.fetch(new Request("http://localhost/api/7/x", { headers: { accept: "text/html" } }), env, ctx)).status).toBe(404);
     expect((await handler.fetch(new Request("http://localhost/"), env, ctx)).headers.get("x-handled")).toBe("1");
 
     const ASSETS = { fetch: async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 }) };
@@ -1169,6 +1172,132 @@ describe("vite host", () => {
     const res = await fetch(new URL("/shop", server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "price" }, body: "[]" });
 
     expect([res.status, (await res.json()).message]).toEqual([500, expect.stringContaining("app/remote.ts: The fetch target does not run folder gates")]);
+  });
+
+  describe("api/", () => {
+    const RPC = "const { Current, Forbidden } = (globalThis as any).hostRpc;";
+
+    const API = {
+      "app/index.tsx": PAGE,
+      "api/hello.ts": "export const GET = () => ({ hello: 'world' }); export type Hello = { hello: string };",
+      "api/echo.ts": `${RPC} export async function POST() { return { echo: await Current.get().json() }; }`,
+      "api/photo/[id].ts": `${RPC} export const GET = () => Current.get().params;`,
+      "api/legacy/[...].ts": "export default () => (request: Request) => Response.json({ path: new URL(request.url).pathname });",
+      "api/admin/index.ts": `${RPC} export default () => { if (!Current.get().request.headers.has('x-admin')) throw new Forbidden('Admins only.'); };`,
+      "api/admin/me.ts": "export const GET = () => 'root';",
+    };
+
+    beforeAll(async () => {
+      (globalThis as any).hostRpc = await import("@expressive/rpc");
+    });
+
+    it("will serve api/ routes in dev on the module runner, without handle", async () => {
+      const root = realpathSync(project(API));
+      const server = await serve(root);
+      await server.listen(0);
+
+      const at = (path: string, init?: RequestInit) => fetch(new URL(path, server.resolvedUrls!.local[0]), init);
+      const refused = await at("/api/hello", { method: "POST" });
+      const missing = await at("/api/nope", { headers: { accept: "text/html" } });
+
+      expect(await (await at("/api/hello")).json()).toEqual({ hello: "world" });
+      expect(await (await at("/api/echo", { method: "POST", headers: { "content-type": "application/json" }, body: '{"a":1}' })).json()).toEqual({ echo: { a: 1 } });
+      expect(await (await at("/api/photo/a%20b")).json()).toEqual({ id: "a b" });
+      expect([refused.status, refused.headers.get("allow")]).toEqual([405, "GET, HEAD"]);
+      expect(await (await at("/api/legacy/x/y")).json()).toEqual({ path: "/api/legacy/x/y" });
+      expect([(await at("/api/admin/me")).status, await (await at("/api/admin/me", { headers: { "x-admin": "1" } })).text()]).toEqual([403, "root"]);
+      expect([missing.status, missing.headers.get("content-type"), (await missing.json()).message]).toEqual([404, "application/json", "No route in api/ serves /api/nope - paths under /api belong to api/."]);
+      expect((await at("/api/hello.ts")).status).toBe(404);
+
+      writeFileSync(join(root, "api/late.ts"), "export const GET = () => 'late';");
+      server.watcher.emit("add", join(root, "api/late.ts"));
+      server.watcher.emit("add", join(root, "elsewhere.ts"));
+      expect(await (await at("/api/late")).text()).toBe("late");
+
+      writeFileSync(join(root, "api/(group).ts"), "export const GET = () => 1;");
+      server.watcher.emit("add", join(root, "api/(group).ts"));
+      const broken = await at("/api/hello");
+
+      expect([broken.status, (await broken.json()).message]).toEqual([500, "api/(group).ts: api/ has no groups - name it group.ts."]);
+    });
+
+    it("will leave /api to the app without an api/ folder", async () => {
+      const server = await serve(project({ "app/index.tsx": PAGE }));
+      await server.listen(0);
+
+      const reply = await fetch(new URL("/api/hello", server.resolvedUrls!.local[0]), { headers: { accept: "text/html" } });
+
+      expect([reply.status, reply.headers.get("content-type")]).toEqual([404, "text/html"]);
+    });
+
+    it("will fail the dev server and the build when something else would serve /api", async () => {
+      const files = { "app/index.tsx": PAGE, "api/hello.ts": "export const GET = () => 1;", "public/api/x.txt": "" };
+
+      await expect(serve(project(files))).rejects.toThrow("public/api would serve /api, which belongs to the api/ folder - move it.");
+      await expect(buildBoth(files)).rejects.toThrow("public/api would serve /api");
+    });
+
+    it("will throw if client code imports from api/, but not crawl it for dependencies", async () => {
+      const root = project({
+        "app/index.tsx": "import 'client-dep'; import { GET } from '../api/hello'; import { api } from '../lib/api'; export const Page = () => [GET, api]",
+        "lib/api.ts": "export const api = '/api';",
+        "api/hello.ts": "import { db } from 'server-only-dep'; export const GET = () => db;",
+        "node_modules/client-dep/package.json": `{ "name": "client-dep", "type": "module", "main": "index.js" }`,
+        "node_modules/client-dep/index.js": "export default 1;",
+      });
+      const config = await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [expressive()], resolve: SOURCES }, "serve");
+      const server = await serve(root);
+
+      expect((await optimizeDeps(config, true)).optimized).toHaveProperty("client-dep");
+      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("app/index.tsx imports api/hello.ts - api/ is server-only; fetch its route, or move what both need outside api/.");
+      expect((await server.environments.ssr.transformRequest("/app/index.tsx"))?.code).toContain("/api/hello.ts");
+    });
+
+    it("will throw if client code imports api/ through an alias", async () => {
+      const root = project({ "app/index.tsx": "import { GET } from '@routes/hello'; export const Page = () => GET", "api/hello.ts": "export const GET = () => 1;" });
+      const server = await serve(root, expressive(), { alias: [{ find: /^@routes\/(.*)$/, replacement: `${root}/api/$1` }, ...(SOURCES!.alias as any[])] });
+
+      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("api/ is server-only");
+    });
+
+    it("will refuse in dev a route whose exports break the rules as it loads, and log a save's errors", async () => {
+      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/hello.ts": "export const helper = () => {};", "api/ok.ts": "export const GET = () => 1;" }));
+      const server = await serve(root);
+      const logged = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
+      const console_ = vi.spyOn(console, "error").mockImplementation(() => {});
+      await server.listen(0);
+
+      const reply = await fetch(new URL("/api/hello", server.resolvedUrls!.local[0]));
+      const message = "api/hello.ts: `helper` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.";
+
+      expect([reply.status, (await reply.json()).message]).toEqual([500, message]);
+
+      server.watcher.emit("change", join(root, "elsewhere.ts"));
+      server.watcher.emit("change", join(root, "api/hello.ts"));
+      await vi.waitFor(() => expect(logged).toHaveBeenCalledWith(message));
+
+      writeFileSync(join(root, "api/ok.ts"), "export const GET = (");
+      server.watcher.emit("change", join(root, "api/ok.ts"));
+      await vi.waitFor(() => expect(logged).toHaveBeenCalledTimes(2));
+
+      console_.mockRestore();
+    });
+
+    it("builds the node service with the api/ table, and fails the build on a module that breaks the rules", async () => {
+      const { client, server } = await buildBoth({ ...API, "app/index.tsx": PAGE });
+
+      expect(server).toMatch(/api: \{\s*prefix: "\/api",\s*routes: \[/);
+      expect(server).toMatch(/name: "api\/photo\/\[id\]\.ts",\s*path: \["photo", ":id"\],\s*index: false,\s*module: /);
+      expect(server).toContain("Admins only.");
+      expect(client).not.toContain("Admins only.");
+      await expect(buildBoth({ "app/index.tsx": PAGE, "api/hello.ts": "export const helper = 1;" })).rejects.toThrow("api/hello.ts: `helper` is not a route export");
+    });
+
+    it("builds the node service without an api/ table when there is no api/ folder", async () => {
+      const { server } = await buildBoth({ "app/index.tsx": PAGE });
+
+      expect(server).not.toContain("api:");
+    });
   });
 
   it("will salt ids when index.ts has no default", async () => {

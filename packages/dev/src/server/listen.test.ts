@@ -217,4 +217,26 @@ describe("listen", () => {
     server.close();
     vi.restoreAllMocks();
   });
+
+  it("will serve api/ routes before files, a HEAD without its body", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), "client-"));
+    mkdirSync(join(dir, "api"));
+    writeFileSync(join(dir, "api", "hello"), "file");
+
+    const routes = [{ name: "api/hello.ts", path: ["hello"], index: false, module: { GET: () => ({ hello: "world" }) } }];
+    const server = listen({ settings: { port: 0 }, client: dir, api: { prefix: "/api", routes } });
+    await new Promise(done => server.once("listening", done));
+
+    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+    const head = await fetch(`${base}/api/hello`, { method: "HEAD" });
+
+    expect(await (await fetch(`${base}/api/hello`)).json()).toEqual({ hello: "world" });
+    expect([head.status, await head.text()]).toEqual([200, ""]);
+    expect((await fetch(`${base}/api/nope`)).status).toBe(404);
+
+    server.closeAllConnections();
+    server.close();
+    vi.restoreAllMocks();
+  });
 });

@@ -60,7 +60,7 @@ Not built yet, but the MVP must not cut against them.
 
 - **Values invariant.** What TypeScript shows as public is readable on the twin with no separate mechanism, and stays fresh. The scan's fields are the allowlist - TS `private` is erased at runtime, so a snapshot of the live instance would leak it. Holds for plain values and owned children; whether references cross is open (Open).
 - **Remount on a replaced context.** Each server layer gets a random token at creation; replies carry the walk's token per depth; a client `Route` whose depth's token changes remounts its subtree, dropping its twins and client state, and seat twins move from re-pointing in place to that remount. Ends the identity-change exposure #508 documents (apps reload on identity change until then). Deferred, not scheduled.
-- **OAuth** - not built, anticipated: an `api/` route (GET, `Set-Cookie`, redirect) for the callback, forwarding to a process-global client - `api/` routes are the server-entry note's PR 6.
+- **OAuth** - not built, anticipated: an `api/` route (GET, `Set-Cookie`, redirect) for the callback, forwarding to a process-global client - `api/` routes landed in the server-entry note's PR 6.
 
 ## RPC (`@expressive/rpc`)
 

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type { Pages } from "../server/compose";
+import type { ApiFile } from "./api";
 import type { Exposed, Exposure } from "./remote";
 import type { Remote } from "./routes";
 
@@ -178,7 +179,17 @@ function injectBeforeBody(html: string, tag: string): string {
     : html + "\n" + tag + "\n";
 }
 
-export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[], pages: Pages): string {
+/** The `api/` folder's modules for an entry, `routes` undefined without one. */
+export interface ApiEntry {
+  prefix: string;
+  routes?: ApiFile[];
+}
+
+const apiImports = (from: string, { routes = [] }: ApiEntry) => routes.map(({ file }, i) => `import * as a${i} from ${JSON.stringify(importRel(from, file))};`);
+
+const apiRef = ({ name, path, index }: ApiFile) => `{ name: ${JSON.stringify(name)}, path: ${JSON.stringify(path)}, index: ${index} }`;
+
+export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[], api: ApiEntry, pages: Pages): string {
   const configSpec = project.configPath && JSON.stringify(importRel(from, project.configPath));
   const files = [...new Set([...exposure.modules.keys(), ...gates.map(gate => gate.file)])];
   const modules = files.map(file => JSON.stringify(importRel(from, file)));
@@ -192,19 +203,21 @@ export function serverEntry(project: Project, from: string, exposure: Exposure, 
     `import { listen } from "@expressive/dev/server";`,
     configSpec ? `import settings from ${configSpec};` : `const settings = {};`,
     ...modules.map((m, i) => `import * as s${i} from ${m};`),
+    ...apiImports(from, api),
     "",
     "listen({",
     "  settings,",
     `  client: fileURLToPath(new URL("../client/", import.meta.url)),`,
     "  sidecars: [", ...entries, "  ],",
     "  gates: [", ...gates.map(gate => `    { pattern: ${JSON.stringify(gate.pattern)}, gate: ${alias(gate.file)}.default },`), "  ],",
+    ...(api.routes ? [`  api: { prefix: ${JSON.stringify(api.prefix)}, routes: [`, ...api.routes.map((route, i) => `    { ...${apiRef(route)}, module: a${i} },`), "  ] },"] : []),
     `  pages: ${JSON.stringify(pages)},`,
     "});",
     "",
   ].join("\n");
 }
 
-export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[], pages: Pages): string {
+export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[], api: ApiEntry, pages: Pages): string {
   const configSpec = JSON.stringify(importRel(from, project.configPath!));
   const files = [...exposure.modules.keys()];
   const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
@@ -220,9 +233,10 @@ export function fetchEntry(project: Project, from: string, exposure: Exposure, n
     `import { compose } from "@expressive/dev/fetch";`,
     `import settings from ${configSpec};`,
     ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
+    ...apiImports(from, api),
     `export { ${named.join(", ")} } from ${configSpec};`,
     "",
-    `export default compose(settings, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)}, ${JSON.stringify(pages)});`,
+    `export default compose(settings, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)}, [${(api.routes ?? []).map((_, i) => `a${i}`).join(", ")}], ${api.routes ? `{ prefix: ${JSON.stringify(api.prefix)}, routes: [${api.routes.map(apiRef).join(", ")}] }` : "null"}, ${JSON.stringify(pages)});`,
     "",
   ].join("\n");
 }

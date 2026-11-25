@@ -49,7 +49,7 @@ describe("compose", () => {
   it("will serve pages from env.ASSETS by default, with the shell for a page route", async () => {
     const ASSETS = { fetch: vi.fn(async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 })) };
     let app!: App;
-    const { fetch } = compose({ target: "fetch", host: composed => ((app = composed), {}) }, [], [], { patterns: ["/blog/:slug"] });
+    const { fetch } = compose({ target: "fetch", host: composed => ((app = composed), {}) }, [], [], [], null, { patterns: ["/blog/:slug"] });
     const blog = new Request("http://localhost/blog/a");
 
     expect(await (await fetch(blog, { ASSETS } as object)).text()).toBe("shell");
@@ -57,6 +57,15 @@ describe("compose", () => {
     expect((await fetch(blog, { ASSETS: {} } as object)).status).toBe(404);
     expect((await app(blog)).status).toBe(404);
     expect(ASSETS.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("will serve api/ routes from the modules in the entry's order", async () => {
+    const hello = { GET: () => ({ hello: Current.get().params.id }) };
+    const gate = { default: () => {} };
+    const { fetch } = compose({}, [], [], [gate, hello], { prefix: "/api", routes: [{ name: "api/index.ts", path: [], index: true }, { name: "api/[id].ts", path: [":id"], index: false }] });
+
+    expect(await json(fetch(new Request("http://localhost/api/a")))).toEqual({ hello: "a" });
+    expect((await fetch(new Request("http://localhost/api/a/b"))).status).toBe(404);
   });
 
   it("will reply a thrown error class with its status", async () => {
