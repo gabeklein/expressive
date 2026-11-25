@@ -112,7 +112,7 @@ export function client<T = any>(initial: ClientOptions = {}) {
 
     const error = rebuild(body);
 
-    if (res.status !== 404) REFUSED.add(error);
+    if (res.status !== 404 || body.error) REFUSED.add(error);
     throw error;
   }
 

@@ -144,12 +144,12 @@ async function gateCheck(incoming: Incoming): Promise<Response> {
 
   const moved = await failure(new Redirect(location, answer.status), list, dev);
 
-  answer.headers.forEach((value, name) => KEPT.has(name) || moved.headers.append(name, value));
+  answer.headers.forEach((value, name) => UNCOPIED.has(name) || moved.headers.append(name, value));
 
   return moved;
 }
 
-const KEPT = new Set(["content-type", "content-length", "location"]);
+const UNCOPIED = new Set(["location", "content-type", "content-length", "content-encoding", "connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer", "proxy-authenticate", "proxy-authorization", "proxy-connection"]);
 
 async function readArgs(request: Request): Promise<unknown[] | undefined> {
   try {

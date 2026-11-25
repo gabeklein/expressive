@@ -116,7 +116,9 @@ export async function inFolder<T>({ request, found, seats }: Folder, run: () => 
   const { endpoint, segments } = found!;
   const along = await seatsAlong(seats, endpoint.pattern);
 
-  return within(request, segments, run, along, fail, paramsOf(endpoint.pattern, segments));
+  const depths = along.map((_, i) => paramsOf(endpoint.pattern.slice(0, i), segments));
+
+  return within(request, segments, run, along, fail, paramsOf(endpoint.pattern, segments), depths);
 }
 
 function paramsOf(pattern: string[], segments: string[]): Record<string, string> {

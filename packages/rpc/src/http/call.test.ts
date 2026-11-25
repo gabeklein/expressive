@@ -85,18 +85,22 @@ describe("call dispatch", () => {
     expect(statuses).toEqual([200, 200]);
   });
 
-  it("will give a call and its gates the folder's params, decoded", async () => {
-    const seen: Record<string, string>[] = [];
+  it("will give a call its folder's params and each gate its own, decoded", async () => {
+    const seen: unknown[] = [];
     const params = async () => Current.get().params;
     const folders: Endpoint[] = [
       { pattern: ["blog", ":slug", "*"], exports: async () => ({ calls: { params }, classes: {} }) },
       { pattern: ["raw", ":id"], exports: async () => ({ calls: { params }, classes: {} }) },
+      { pattern: ["room", ":id", "note", ":id"], exports: async () => ({ calls: { params }, classes: {} }) },
     ];
-    const gate = async () => void seen.push(Current.get().params);
+    const seats: Seats = async pattern => (pattern.length ? () => void seen.push([pattern.join("/"), Current.get().params]) : undefined);
 
-    expect(await send(folders, request("/blog/a%20b/c/d", "params", "[]"), false, async pattern => (pattern.length == 1 ? gate : undefined))).toEqual({ status: 200, body: { value: { slug: "a b", "*": "c/d" } } });
+    expect(await send(folders, request("/blog/a%20b/c/d", "params", "[]"), false, seats)).toEqual({ status: 200, body: { value: { slug: "a b", "*": "c/d" } } });
     expect(await send(folders, request("/raw/%E0", "params", "[]"))).toEqual({ status: 200, body: { value: { id: "%E0" } } });
-    expect(seen).toEqual([{ slug: "a b", "*": "c/d" }]);
+    expect(seen.splice(0)).toEqual([["blog", {}], ["blog/:slug", { slug: "a b" }], ["blog/:slug/*", { slug: "a b", "*": "c/d" }]]);
+
+    expect(await send(folders, request("/room/1/note/2", "params", "[]"), false, seats)).toEqual({ status: 200, body: { value: { id: "2" } } });
+    expect(seen).toEqual([["room", {}], ["room/:id", { id: "1" }], ["room/:id/note", { id: "1" }], ["room/:id/note/:id", { id: "2" }]]);
   });
 
   it("will reply 404 to a pull, a seat method or a pool method", async () => {
@@ -142,7 +146,7 @@ describe("call dispatch", () => {
 
       expect([response.status, await response.json()]).toEqual([200, {}]);
       expect(response.headers.get("x-seen")).toBe("2");
-      expect(seen).toEqual([["", { id: "a b" }], ["shop", { id: "a b" }], ["shop/:id", { id: "a b" }]]);
+      expect(seen).toEqual([["", {}], ["shop", {}], ["shop/:id", { id: "a b" }]]);
     });
 
     it("will reply a gate's refusal as a call's error", async () => {
@@ -152,14 +156,14 @@ describe("call dispatch", () => {
     });
 
     it("will reply a gate's redirect as a Redirect error with status 400, keeping its headers, and other answers as is", async () => {
-      const moved = (status: number) => async () => () => new Response(null, { status, headers: { location: "/login", "set-cookie": "a=1", "cache-control": "no-store" } });
+      const moved = (status: number) => async () => () => new Response(null, { status, headers: { location: "/login", "set-cookie": "a=1", "cache-control": "no-store", connection: "close", "content-encoding": "gzip" } });
       const redirect = await dispatch(fetched(check("/tally")), () => folders, false, moved(303));
       const unmoved = await dispatch(fetched(check("/tally")), () => folders, false, async () => () => new Response("no", { status: 401 }));
       const bare = await dispatch(fetched(check("/tally")), () => folders, false, async () => () => new Response(null, { status: 304 }));
 
       expect([redirect.status, await redirect.json()]).toEqual([400, { error: "http:Redirect", message: "/login", location: "/login", status: 303 }]);
       expect(redirect.headers.getSetCookie()).toEqual(["a=1"]);
-      expect([redirect.headers.get("cache-control"), redirect.headers.get("location")]).toEqual(["no-store", null]);
+      expect(["cache-control", "location", "connection", "content-encoding"].map(name => redirect.headers.get(name))).toEqual(["no-store", null, null, null]);
       expect([unmoved.status, await unmoved.text()]).toEqual([401, "no"]);
       expect(bare.status).toBe(304);
     });

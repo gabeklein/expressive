@@ -86,11 +86,14 @@ describe("gate check", () => {
     expect(fetch).toHaveBeenCalledWith("/shop/1", expect.objectContaining({ headers: { "content-type": "application/json", "x-expressive-get": "gates" } }));
   });
 
-  it("will throw a refusal, rebuilt as a call's error", async () => {
+  it("will throw a refusal, rebuilt as a call's error - a gate's NotFound included", async () => {
     const Limit = define("/tally#Limit", "Limit");
     serve({ body: { error: "/tally#Limit", message: "Over 3", status: 409 }, status: 409 });
 
     await expect(call("/", "", [])).rejects.toBeInstanceOf(Limit);
+
+    serve({ body: { error: "http:NotFound", message: "No such room.", status: 404 }, status: 404 });
+    await expect(call("/", "", [])).rejects.toBeInstanceOf(shared.NotFound);
   });
 
   it("will resolve false for a reply that isn't the codec's, a codec 404 and a network failure", async () => {
