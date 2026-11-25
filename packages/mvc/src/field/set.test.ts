@@ -48,7 +48,6 @@ describe('property descriptors', () => {
 
     const test = Test.new();
 
-    expectTypeOf(test).toHaveProperty('value');
     // @ts-expect-error
     test.value = 'bar';
   });
@@ -876,6 +875,68 @@ describe('write to factory', () => {
     expect(() => test.value).toThrow(error);
 
     test.value = 'bar';
+    expect(test.value).toBe('bar');
+  });
+
+  it('will not re-run a suspended factory after a write', async () => {
+    const factory = vi.fn(function (this: Test) {
+      return this.source + '!';
+    });
+
+    class Test extends Model {
+      source = set<string>();
+      value = set(factory);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    test.value = 'bar';
+    await suspense;
+    test.source = 'foo';
+    await flushMicrotasks();
+
+    expect(factory).toBeCalledTimes(1);
+    expect(test.value).toBe('bar');
+  });
+
+  it('will keep a value the factory writes while running', async () => {
+    const promise = mockPromise<string | undefined>();
+
+    class Test extends Model {
+      value = set(async function (this: Test) {
+        this.value = undefined;
+        return promise;
+      });
+    }
+
+    const test = Test.new();
+
+    expect(test.value).toBeUndefined();
+
+    promise.resolve('foo');
+    await flushMicrotasks();
+
+    expect(test.value).toBeUndefined();
+  });
+
+  it('will release ready when a required factory writes itself', async () => {
+    const ready = vi.fn();
+
+    class Test extends Model {
+      value = set(async function (this: Test) {
+        this.value = 'bar';
+        return mockPromise<string>();
+      }, true);
+    }
+
+    Test.on({ ready });
+
+    const test = Test.new();
+
+    await test.set();
+
+    expect(ready).toBeCalledTimes(1);
     expect(test.value).toBe('bar');
   });
 

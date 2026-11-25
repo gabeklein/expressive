@@ -34,7 +34,7 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
 /**
  * Value from a factory, run once - lazily on first read, or on activation if `required` is `true`.
  *
- * Writable and non-enumerable - declare it `readonly` to keep it read-only. A write before the factory
+ * Writable and non-enumerable - `readonly` rejects direct assignment only. A write before the factory
  * runs skips it; a write while async discards the result, settles suspended reads, drops a rejection
  * and releases a hold. `this` is the instance. The factory must declare no parameters -
  * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
@@ -136,6 +136,8 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
     // One-shot factory
     if (typeof value == 'function') {
       const factory = () => {
+        if (!owned) return;
+
         const output = value.call(subject, key);
         return output instanceof Model && thenable(output) ? interim(subject, output) : output;
       };
@@ -154,7 +156,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           throw err;
         }
 
-        config.get = argument !== false;
+        if (owned) config.get = argument !== false;
 
         function assign(next: any, silent?: boolean) {
           if (typeof argument == 'function') subject[key] = next;
@@ -171,6 +173,8 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
               throw error;
             };
           });
+
+          if (!owned) return argument ? undefined : subject[key];
 
           if (argument === true)
             return Promise.race([
