@@ -18,11 +18,12 @@ async function layeredIn(files: Record<string, string>) {
   return (await import("./env")).layered;
 }
 
-it("will read process.env, then .env files, then what the host bound", async () => {
+it("will read live bindings, then process.env, then .env files, then bound strings", async () => {
   const layered = await layeredIn({ ".env": "A=file\nB=file\nC=file\n" });
   const db = {};
 
   vi.stubEnv("B", "process");
+  vi.stubEnv("DB", "string");
 
   const env = layered({ A: "bound", B: "bound", DB: db, Z: undefined }) as Record<string, unknown>;
 
