@@ -96,7 +96,12 @@ export async function profile() {
 }
 ```
 
-- Gate check: entering a gated folder's pages sends one call to the deepest gated folder on the path, answered `{}` once its gates pass - before the folder's entry hook and code. A pass covers the folder at that concrete path and those above; moving inside it sends nothing, a param change checks again. A refusal reaches `Catch` (`retry` checks again); a 3xx `status` with `location`, or a 3xx `Response` from the gate, redirects - another origin through `location.assign`, a path inside the refusing folder to `Catch`. A network failure or non-rpc reply passes. A newer navigation drops an in-flight verdict. Not security - calls still run the gates, so gates must be idempotent. Gated folders are not prerendered; a root gate gates every page. In dev, editing a gate clears remembered passes. Replaces a sign-in check in an entry hook: throw a `Redirect` from the gate.
+- Gate check: a folder's gate also guards its pages - the browser runs the gates before showing a page under the folder. Recipe: `export default () => { if (!AppCookies.get().session) throw new Redirect("/login"); }` with `Redirect` from `@expressive/rpc` (dev's root `Redirect` is the router component). Gates read their folder's params: `Current.get().params.id`.
+  - One request to the deepest gated folder on the path, answered `{}` on a pass. A pass covers the folder and those above until a param changes; moving inside it sends nothing.
+  - Refusal reaches `Catch`; `retry` checks again. A 3xx `status` with `location`, or a 3xx `Response` from the gate, redirects: a path a page route matches through the router; another path or `http(s):` origin through `location.assign`; into the refusing folder, a second hop in a row, or another scheme - `Catch`.
+  - A network failure or non-rpc reply lets the page in, remembering nothing. A newer navigation drops an in-flight verdict.
+  - Not security - calls still run the gates, so gates must be idempotent. Gated folders are not prerendered; a root gate gates every page.
+  - In dev, editing a gated remote entry clears remembered passes; editing a helper it imports does not.
 - `key()`/`ttl` belong to rpc's class gates (`expressive-rpc/SKILL.md`); dev no longer reads them.
 - `Cookies` (from `@expressive/dev/server`, as in rpc): a subclass declares cookies as fields; `AppCookies.get()` reads this request's and `AppCookies.set({ ... })` sends `Set-Cookie` with the reply. `Current` is the lower level: `.request`, `.url`, `.cookies`, read-only, and `setHeader(name, value)`.
 - Process-wide state: a module-level `X.new(Context.root)`, found by `get()` from any call.

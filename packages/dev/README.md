@@ -426,23 +426,56 @@ A refused call rejects with the gate's error.
 
 ### Gate check
 
-Before entering a gated folder's pages, the browser runs its gates once: a gate check, a call
-request to the deepest gated folder on the path that answers `{}` after the gates pass. A refusal
-reaches the nearest `Catch`, whose `retry` checks again. An error with a 3xx `status` and a
-`location` - or a 3xx `Response` the gate returns - redirects: a path through the router, another
-origin through `location.assign`, and a path inside the refusing folder to `Catch` instead of
-looping. A network failure, or a reply that isn't rpc's, passes - the page's own calls still meet
-the gates.
+A folder's gate also guards its pages: before the browser shows a page under a gated folder, it
+asks the server to run the gates, and shows the page only if they pass.
 
-- One check per gated folder entered at a concrete path: a pass covers the folder and those above
-  it until a param changes. Moving inside it, or leaving gated folders, sends nothing. A refusal
-  is not remembered.
+```ts
+// app/account/remote.ts
+import { Redirect } from "@expressive/rpc";
+import { Cookies } from "@expressive/dev/server";
+
+class AppCookies extends Cookies {
+  session?: string = undefined;
+}
+
+export default () => {
+  if (!AppCookies.get().session) throw new Redirect("/login");
+};
+```
+
+`Redirect` here is rpc's error class. The `Redirect` exported by `@expressive/dev` is the router's
+component - a different thing.
+
+A gate reads its folder's params from `Current`, as calls do:
+
+```ts
+// app/team/[id]/remote.ts
+import { Forbidden } from "@expressive/rpc";
+import { Current } from "@expressive/dev/server";
+
+export default async () => {
+  const { id } = Current.get().params;
+  if (!(await isMember(id))) throw new Forbidden("Not on this team.");
+};
+```
+
+- The check is one request to the deepest gated folder on the path, answered `{}` once its gates
+  pass. A pass covers that folder and those above it until a param changes; moving inside it, or
+  leaving gated folders, sends nothing.
+- A refusal reaches the nearest `Catch`, whose `retry` checks again.
+- An error with a 3xx `status` and a `location`, or a 3xx `Response` the gate returns, redirects.
+  A path some page route matches goes through the router; any other path (a server route such as
+  `/api/auth/start`) and another `http:` or `https:` origin load through `location.assign`. A
+  redirect into the refusing folder, a second redirect in a row, or another scheme reaches `Catch`.
+- A network failure, or a reply that isn't rpc's, lets the page in without remembering a pass - the
+  page's own calls still meet the gates.
 - A newer navigation drops an in-flight check's verdict; its cookies still land.
 - The folder's entry hook, and its module's code, run after the pass.
 - Not security: every call still runs its gates. Gates run for checks and calls alike, possibly
   concurrently, so they must be idempotent; rate limits and logs count checks too.
 - Gated folders are not prerendered, and a root gate (`app/remote.ts`) gates every page.
-- In dev, editing a gate clears the passes the browser remembered.
+- In dev, editing a remote entry with a gate clears the passes the browser remembered. Editing a
+  helper the gate imports does not - navigate after a reload to check again.
 
 `Current` (from `@expressive/dev/server`) is the request in progress, readable from any server
 Model or function in a call: `Current.get().url`, `.cookies`, `.request` (a Web `Request`), and `setHeader` for
