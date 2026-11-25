@@ -8,7 +8,7 @@ function checks(page: Page) {
   const sent: string[] = [];
 
   page.on("request", request => {
-    if (request.headers()["x-expressive-get"] === "") sent.push(new URL(request.url()).pathname);
+    if (request.headers()["x-expressive-get"] === "gates") sent.push(new URL(request.url()).pathname);
   });
 
   return sent;
@@ -98,6 +98,36 @@ test("sends one check on entry, none inside the folder, and one on a param chang
   await page.getByRole("link", { name: "Room 2" }).click();
   await expect(page.getByRole("heading")).toHaveText("Room 2");
   expect(sent).toEqual(["/room/1", "/room/2"]);
+});
+
+test("sends no check for a static page beside a gated param folder", async ({ page, open }) => {
+  const sent = checks(page);
+
+  await open("/room/new");
+  await expect(page.getByRole("heading")).toHaveText("New room");
+
+  expect(sent).toEqual([]);
+});
+
+test("enters on a failed check without remembering it", async ({ page, open }) => {
+  const sent = checks(page);
+  let failed = false;
+
+  await page.route(url => url.pathname == "/room/1", async route => {
+    if (route.request().method() != "POST" || failed) return route.continue();
+
+    failed = true;
+    await route.abort();
+  });
+
+  await open("/");
+  await page.getByRole("link", { name: "Room 1" }).click();
+  await expect(page.getByRole("heading")).toHaveText("Room 1");
+
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("link", { name: "Room 1" }).click();
+  await expect(page.getByRole("heading")).toHaveText("Room 1");
+  await expect.poll(() => sent).toEqual(["/room/1", "/room/1"]);
 });
 
 test("sends no check outside gated folders", async ({ page, open }) => {

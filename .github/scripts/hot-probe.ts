@@ -1469,7 +1469,7 @@ export function Catch({ error }: { error: Error }) {
       const fetch = window.fetch;
       window.__checks = 0;
       window.__probe = 'alive';
-      window.fetch = (url, init) => (init?.headers?.['x-expressive-get'] === '' && window.__checks++, fetch(url, init));
+      window.fetch = (url, init) => (init?.headers?.['x-expressive-get'] === 'gates' && window.__checks++, fetch(url, init));
     })()`);
 
     await go('/vault');
