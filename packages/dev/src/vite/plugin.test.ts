@@ -931,6 +931,7 @@ describe("vite host", () => {
       export async function bound() { return ((globalThis.hostCurrent ?? Current).get().env as any).NAME; }
     `,
     "public/robots.txt": "robots",
+    "public/map/index.html": "map",
     "api/[id].ts": `import { Current } from "@expressive/rpc"; export const GET = () => (((globalThis as any).hostCurrent ?? Current).get().params);`,
   };
 
@@ -1046,12 +1047,13 @@ describe("vite host", () => {
     expect([shell.status, shell.headers.get("x-handled")]).toEqual([404, "1"]);
     expect((await fetch(at("/shop"), { headers: { accept: "text/html" } })).status).toBe(200);
     expect(await (await fetch(at("/robots.txt"))).text()).toBe("robots");
+    expect(await (await fetch(at("/map/"), { headers: { accept: "text/html" } })).text()).toBe("map");
     expect([missing.status, missing.headers.get("x-handled"), missing.headers.has("x-expressive-fell")]).toEqual([404, "1", false]);
 
     for (const path of ["/@vite/client", "/app/index.tsx", "/index.ts?import", "/.expressive/main.tsx"]) await fetch(at(path));
 
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
-    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt"]);
+    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt", "/map/"]);
     delete (globalThis as any).hostCurrent;
     delete (globalThis as any).handled;
   });

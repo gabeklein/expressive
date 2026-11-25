@@ -18,7 +18,7 @@ import { generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, typ
 import { isCall, send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
-import { fileResponse } from "../server/listen";
+import { staticFile } from "../server/listen";
 import { install } from "../server/install";
 import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
 import { apiErrors, reservedApi, scanApi, verifyApi, type ApiFile } from "./api";
@@ -462,7 +462,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           const assets = {
             async fetch(forward: Request) {
               const { pathname, search } = new URL(forward.url);
-              const file = server.config.publicDir && fileResponse(server.config.publicDir, pathname);
+              const file = server.config.publicDir && staticFile(server.config.publicDir, pathname);
               const navigation = (forward.method === "GET" || forward.method === "HEAD") && !!forward.headers.get("accept")?.includes("text/html");
 
               if (file) return file;

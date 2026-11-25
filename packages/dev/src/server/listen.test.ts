@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { HandleArgs } from "../settings";
-import { fileResponse, listen } from "./listen";
+import { fileResponse, listen, staticFile } from "./listen";
 
 describe("static files", () => {
   const dir = mkdtempSync(join(tmpdir(), "client-"));
@@ -40,6 +40,15 @@ describe("static files", () => {
     expect(fileResponse(dir, "/../" + dir.split("/").pop() + "/index.html")).toBeUndefined();
     expect(fileResponse(join(dir, "assets"), "/../index.html")).toBeUndefined();
     expect(fileResponse(dir, "/%E0%A4%A")).toBeUndefined();
+  });
+
+  it("will serve a folder's index.html for its path", async () => {
+    mkdirSync(join(dir, "map"));
+    writeFileSync(join(dir, "map", "index.html"), "map");
+
+    expect(await staticFile(dir, "/map/")!.text()).toBe("map");
+    expect(await staticFile(dir, "/map")!.text()).toBe("map");
+    expect(staticFile(dir, "/nope")).toBeUndefined();
   });
 });
 
