@@ -38,6 +38,14 @@ test("calls a param folder's sidecar from its own page, params filled", async ({
   await expect(page.locator("output")).toHaveText("/note/7");
 });
 
+test("calls a param folder's sidecar from its entry hook during an in-app navigation", async ({ page, open }) => {
+  await open("/");
+  await page.getByRole("link", { name: "Note 7" }).click();
+
+  await expect(page.getByRole("heading")).toHaveText("Note");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("rebuilds a sidecar's http error subclass as an HttpError", async ({ page, open }) => {
   await open("/tally");
 

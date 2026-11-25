@@ -13,6 +13,7 @@ it("will move without history where there is no window", async () => {
   await Promise.resolve();
 
   expect(router.path).toBe("/next");
+  expect((globalThis as any)[Symbol.for("@expressive/dev#path")]).toBe("/next");
   router.set(null);
 });
 

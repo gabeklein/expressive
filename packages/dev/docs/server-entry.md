@@ -609,7 +609,7 @@ All answered in review.
 ## Open items
 
 - **Vite `base`.** Remote calls and gate checks ignore a non-root `base`: a stub posts to `/` plus its folder's path, not under `base`. Left as is; the README and skill say so.
-- **A param folder's call during a held navigation.** A stub fills `:param` segments from `location`, which still shows the old page while an entry hook runs, so such a call throws. Filling from the router's pending path needs the route tree (PR 7).
+- **A param folder's call during a held navigation.** Closed in PR 7: dev's `Router` leaves its pending path under `Symbol.for("@expressive/dev#path")` as it locates, and the generated call module fills `:param` segments from it before `location`.
 
 ## PR split
 

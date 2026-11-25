@@ -2,6 +2,10 @@ import { Component } from "@expressive/mvc";
 
 import { served } from "./remote";
 
+export default async () => {
+  await served();
+};
+
 export class Page extends Component {
   shown = "";
 

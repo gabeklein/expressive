@@ -372,11 +372,15 @@ describe("vite host", () => {
       expect(await call(["tally"], "add", [])).toBe(1);
       expect(await call(["blog", "*"], "rest", [])).toBe(1);
       await expect(call(["shop", ":id"], "buy", [])).rejects.toThrow("buy() belongs to /shop/:id and cannot be called from /blog/hello/comments.");
+
+      (globalThis as any)[Symbol.for("@expressive/dev#path")] = "/shop/7";
+      expect(await call(["shop", ":id"], "buy", [])).toBe(1);
     } finally {
+      delete (globalThis as any)[Symbol.for("@expressive/dev#path")];
       vi.unstubAllGlobals();
     }
 
-    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments"]);
+    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments", "/shop/7"]);
   });
 
   it("will serve an exported subclass of an http error to the browser as an error", async () => {
