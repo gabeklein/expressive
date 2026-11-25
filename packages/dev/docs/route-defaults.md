@@ -167,6 +167,8 @@ A redirect into the folder that threw it goes to `Catch`, as gate checks do.
 
 A `default` or page class gates itself in `new()`. mvc's async `set()` factories run lazily, on first read; `new()` runs before render, so a redirect thrown there prevents every load behind it - the state never guards itself.
 
+The recipe's `account = set(auth.profile)` also relies on #832 (mvc): factory fields become writable without a no-op callback, so the page can patch `account` after a save. #832 keeps factories lazy - a write before the first read skips the factory - so the gate still runs first. A required factory's rejection still reports as `setup` until something writes the field, so the policy above still sees a `Redirect` thrown from one.
+
 ### The 404 folds into `Catch`
 
 - A folder's unmatched URL: the route's catch-all child throws `NotFound`, reaching the folder's `Catch`.
