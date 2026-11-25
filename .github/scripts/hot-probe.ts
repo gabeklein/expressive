@@ -1418,6 +1418,17 @@ export const GET = () => label + ' old';
   return ok ? 0 : 1;
 }
 
+const rpcSource = (): Plugin => ({
+  name: 'rpc-source',
+  enforce: 'pre',
+  resolveId(id, importer, options) {
+    const [, sub] = /^@expressive\/rpc(?:\/(.+))?$/.exec(id) ?? [];
+
+    if (sub) return this.resolve(`${src('rpc')}/${sub}`, importer, options);
+    if (id == '@expressive/rpc') return join(src('rpc'), options.ssr ? 'server.ts' : 'client.ts');
+  }
+});
+
 async function gates() {
   const dir = join(ROOT, 'gates');
   const packages = ['mvc', 'dom', 'router', 'env', 'inspect', 'dev'];
@@ -1448,7 +1459,7 @@ export function Catch({ error }: { error: Error }) {
     root: dir,
     logLevel: 'silent',
     cacheDir: join(ROOT, '.vite-gates'),
-    plugins: [expressive()],
+    plugins: [rpcSource(), expressive()],
     resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
     optimizeDeps: { noDiscovery: true, include: [] },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
