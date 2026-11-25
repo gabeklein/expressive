@@ -868,7 +868,7 @@ describe("vite host", () => {
   it("will resolve a shell's relative links from the root on a nested path", async () => {
     const shell = `<html><head><link rel="stylesheet" href="./src/x.css"></head><body></body></html>`;
 
-    for (const files of [{}, { "index.ts": "export default {};" }]) {
+    for (const files of [{}, { "index.ts": "export default {};" }] as Record<string, string>[]) {
       const server = await serve(project({ "app/index.tsx": PAGE, "index.html": shell, "src/x.css": "p {}", ...files }));
       await server.listen(0);
 
