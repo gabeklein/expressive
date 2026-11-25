@@ -3,6 +3,8 @@
 import { set, type Component } from "@expressive/mvc";
 import { Route as Base } from "@expressive/router";
 
+import { entering } from "./router";
+
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
 type Verdict = string | void | null;
@@ -22,19 +24,9 @@ export class Route extends Base {
    * Entry hook - a function `default` export, run with the Route before render.
    *
    * A returned string redirects and `null` falls through to the 404. It may be async.
-   * A thrown error with a 3xx `status` and a `location` redirects there; any other reaches `Catch`.
+   * A thrown error with a 3xx `status` and a `location` redirects there; any other reaches `Catch`, whose `retry` runs the hook again.
    */
-  enter = set<EntryHook | undefined>(undefined, hook => {
-    this.redirect = hook && (() => {
-      try {
-        const verdict = hook(this);
-
-        return verdict instanceof Promise ? verdict.catch(redirected) : verdict;
-      } catch (error) {
-        return redirected(error);
-      }
-    });
-  });
+  enter = set<EntryHook | undefined>(undefined, hook => arm(this, hook));
 
   /** Error UI for this route - `retry` re-renders the content. */
   Catch?: CatchUI = undefined;
@@ -55,6 +47,38 @@ export class Route extends Base {
   }
 }
 
+const REFUSED = new Set<Route>();
+const WATCHED = new WeakSet<Route>();
+
+function arm(route: Route, hook: EntryHook | undefined) {
+  const refused = (error: unknown) => {
+    try {
+      return redirected(error);
+    } catch (error) {
+      REFUSED.add(route);
+
+      if (!WATCHED.has(route)) {
+        WATCHED.add(route);
+        route.set(null, () => void REFUSED.delete(route));
+      }
+
+      throw error;
+    }
+  };
+
+  const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
+
+  route.redirect = hook && (() => {
+    try {
+      const verdict = enter(hook);
+
+      return verdict instanceof Promise ? verdict.then(next => (typeof next == "function" ? enter(next as EntryHook) : next)).catch(refused) : verdict;
+    } catch (error) {
+      return refused(error);
+    }
+  });
+}
+
 function redirected(error: unknown): string {
   const { status, location } = Object(error) as { status?: unknown; location?: unknown };
 
@@ -69,7 +93,13 @@ Object.defineProperty(Route.prototype, "catch", {
 
     if (!Boundary) return undefined;
 
-    return (error: Error) => new Promise<void>(retry => {
+    return (error: Error) => new Promise<void>(resolve => {
+      const retry = () => {
+        REFUSED.forEach(route => arm(route, route.enter));
+        REFUSED.clear();
+        resolve();
+      };
+
       this.fallback = <Boundary error={error} retry={retry} />;
     });
   }

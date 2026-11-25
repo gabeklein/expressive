@@ -279,15 +279,18 @@ describe("vite host", () => {
     expect(await res.json()).toEqual({ value: "site" });
   });
 
-  it("will refuse a call whose gate throws or activates a Model whose new() fails", async () => {
+  it("will refuse a call whose gate throws, activates a Model whose new() fails, or is not a function", async () => {
     const root = project({
       "app/index.tsx": PAGE,
       "app/deny/remote.ts": `export default () => { throw new Error("No entry"); }; export async function open() { return 1; }`,
       "app/fail/remote.ts": `${HOST} class Session extends Model { new() { throw new Error("Sign in"); } } export default () => void Session.new(); export async function open() { return 1; }`,
+      "app/bad/remote.ts": "export default class Bad {}",
+      "app/bad/inner/remote.ts": "export async function open() { return 1; }",
     });
     const server = await serve(root, expressive(), hostMvc(root));
     await server.transformRequest("/app/deny/remote.ts");
     await server.transformRequest("/app/fail/remote.ts");
+    await server.transformRequest("/app/bad/inner/remote.ts");
     await server.listen(0);
 
     const post = async (at: string) => {
@@ -297,6 +300,49 @@ describe("vite host", () => {
 
     expect(await post("/deny")).toEqual([500, "No entry"]);
     expect(await post("/fail")).toEqual([500, "Sign in"]);
+    expect(await post("/bad/inner")).toEqual([500, expect.stringContaining("app/bad/remote.ts: A remote default is its folder's gate - a function")]);
+  });
+
+  it("will answer a gate check for a folder the client has not loaded, with its error classes' fields", async () => {
+    const root = project({
+      "app/index.tsx": PAGE,
+      "app/vault/index.tsx": PAGE,
+      "app/vault/remote.ts": `
+        export class SignIn extends Error { status = 302; location = "/login"; }
+        export const limit = 3;
+        export default () => { if ((globalThis as any).vaultCurrent.get().request.headers.has("x-deny")) throw new SignIn("Sign in."); };
+      `,
+    });
+    (globalThis as any).vaultCurrent = Current;
+    const server = await serve(root, expressive(), hostMvc(root));
+    await server.listen(0);
+
+    const check = async (deny: boolean) => {
+      const headers = { "content-type": "application/json", "x-expressive-get": "gates", ...(deny && { "x-deny": "1" }) };
+      const res = await fetch(new URL("/vault", server.resolvedUrls!.local[0]), { method: "POST", headers, body: "[]" });
+      return [res.status, await res.json()];
+    };
+
+    expect(await check(false)).toEqual([200, {}]);
+    expect(await check(true)).toEqual([400, { error: "/vault#SignIn", message: "Sign in.", status: 302, location: "/login" }]);
+    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toMatch(/"to": "vault",\s*"gate": 1/);
+  });
+
+  it("will tell the browser when a gate is edited, so its passes clear", async () => {
+    const root = realpathSync(project({
+      "app/index.tsx": PAGE,
+      "app/vault/remote.ts": "export default () => {}",
+      "app/tally/remote.ts": "export async function add() { return 1; }",
+      "app/tally/more.ts": "export const x = 1;",
+      "app/broken/remote.ts": "export default (",
+    }));
+    const server = await serve(root);
+    const sent: unknown[] = [];
+    server.ws.send = ((payload: { type: string }) => void (payload.type == "custom" && sent.push(payload))) as any;
+
+    for (const file of ["app/vault/remote.ts", "app/tally/remote.ts", "app/tally/more.ts", "app/broken/remote.ts", "elsewhere.ts"]) server.watcher.emit("change", join(root, file));
+
+    expect(sent).toEqual([{ type: "custom", event: "expressive:gates" }]);
   });
 
   it("will throw if a sidecar exports what the client cannot call", async () => {
@@ -326,11 +372,16 @@ describe("vite host", () => {
       expect(await call(["tally"], "add", [])).toBe(1);
       expect(await call(["blog", "*"], "rest", [])).toBe(1);
       await expect(call(["shop", ":id"], "buy", [])).rejects.toThrow("buy() belongs to /shop/:id and cannot be called from /blog/hello/comments.");
+
+      (globalThis as any)[Symbol.for("@expressive/dev#path")] = "/shop/7";
+      expect(await call(["shop", ":id"], "buy", [])).toBe(1);
+      expect(await call(["blog", ":slug"], "like", [])).toBe(1);
     } finally {
+      delete (globalThis as any)[Symbol.for("@expressive/dev#path")];
       vi.unstubAllGlobals();
     }
 
-    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments"]);
+    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments", "/shop/7", "/blog/hello"]);
   });
 
   it("will serve an exported subclass of an http error to the browser as an error", async () => {
@@ -506,10 +557,38 @@ describe("vite host", () => {
     expect(server).toMatch(/gates: \[\{\s*pattern: \[\],\s*gate: site\s*\}, \{\s*pattern: \["tally"\],\s*gate: tally\s*\}\]/);
   });
 
+  it("bundles the gate check only into an app with a gated folder", async () => {
+    const bundle = async (files: Record<string, string>) => {
+      const config = clientBuild(project(files), { write: false });
+      const out: any = await build({ ...config, configFile: false, logLevel: "silent", resolve: SOURCES });
+
+      return out.output.map((o: any) => o.code ?? "").join("\n");
+    };
+    const app = { "app/index.tsx": PAGE, "app/vault/index.tsx": PAGE };
+
+    expect(await bundle(app)).not.toContain("expressive:gates");
+    expect(await bundle({ ...app, "app/vault/remote.ts": "export default () => {}" })).toContain("expressive:gates");
+  });
+
+  it("builds a gated folder the client never imports as an endpoint, with its error classes and no calls", async () => {
+    const { server } = await buildBoth({
+      "index.ts": "export default { remote: { opaque: false } };",
+      "app/index.tsx": PAGE,
+      "app/vault/index.tsx": PAGE,
+      "app/vault/denied.ts": "export class Denied extends Error {}",
+      "app/vault/remote.ts": `import { Denied } from "./denied"; export class SignIn extends Denied {} export default () => {}; export async function secret() { return 1; }`,
+    });
+
+    expect(server).toMatch(/pattern: \["vault"\],\s*async exports\(\) \{\s*return \{\s*calls: \{\},\s*classes: \{ "\/vault#SignIn": SignIn \}/);
+  });
+
+  it("will check a gated folder's remote entry at build, imported by the client or not", async () => {
+    await expect(buildBoth({ "app/index.tsx": PAGE, "app/vault/remote.ts": "export default () => {}; export const limit = 3;" })).rejects.toThrow("app/vault/remote.ts: limit");
+  });
+
   it("will check every remote entry's default at build, imported by the client or not", async () => {
     const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote, "app/site.ts": "export default () => {}" });
 
-    await expect(buildBoth(files(`export default { target: "fetch" };`, "export default () => {}"))).rejects.toThrow("app/remote.ts: The fetch target does not run folder gates");
     await expect(buildBoth(files("export default {};", `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: A remote default is its folder's gate - a function");
     await expect(buildBoth(files("export default {};", `export { default } from "./site";`))).rejects.toThrow("a re-exported one is not checked");
   });
@@ -935,6 +1014,10 @@ describe("vite host", () => {
     "hello.ts": "export const hello = (env: any) => Response.json({ name: env.NAME ?? null });",
     "counter.ts": "export class Counter {}",
     "app/index.tsx": PAGE,
+    "app/remote.ts": `
+      import { Current, Unauthorized } from "@expressive/rpc";
+      export default () => { if ((globalThis.hostCurrent ?? Current).get().request.headers.has("x-deny")) throw new Unauthorized("Sign in"); };
+    `,
     "app/shop/index.tsx": "import { price } from './remote'; export const Page = () => price",
     "app/shop/remote.ts": "export async function price() { return 3; }",
     "app/tally/index.tsx": "import { add, bound } from './remote'; export const Page = () => [add, bound]",
@@ -947,10 +1030,10 @@ describe("vite host", () => {
     "api/[id].ts": `import { Current } from "@expressive/rpc"; export const GET = () => (((globalThis as any).hostCurrent ?? Current).get().params);`,
   };
 
-  const post = (path: string, name: string, body: string) =>
-    new Request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body });
+  const post = (path: string, name: string, body: string, deny = false) =>
+    new Request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name, ...(deny && { "x-deny": "1" }) }, body });
 
-  it("builds the fetch entry: settings, remotes and named exports composed, host's value exported, every dependency bundled", async () => {
+  it("builds the fetch entry: settings, remotes, gates and named exports composed, host's value exported, every dependency bundled", async () => {
     const root = project(FETCH);
     const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
 
@@ -966,6 +1049,8 @@ describe("vite host", () => {
 
     expect(await (await handler.fetch(post("/tally", "add", "[2, 3]"), env, ctx)).json()).toEqual({ value: 5 });
     expect(await (await handler.fetch(post("/shop", "price", "[]"), env, ctx)).json()).toEqual({ value: 3 });
+    const denied = await handler.fetch(post("/shop", "price", "[]", true), env, ctx);
+    expect([denied.status, await denied.json()]).toEqual([401, expect.objectContaining({ message: "Sign in" })]);
     expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod" });
@@ -1183,22 +1268,25 @@ describe("vite host", () => {
     expect((await fetch(at("/"), { headers: { accept: "text/html" } })).status).toBe(500);
   });
 
-  it("will refuse a remote default under the fetch target, imported or not", async () => {
+  it("will run folder gates under the fetch target in dev", async () => {
     const server = await serve(project({
       "index.ts": `export default { target: "fetch" };`,
       "app/index.tsx": PAGE,
       "app/remote.ts": "export default () => {}",
-      "app/shop/remote.ts": "export async function price() { return 3; }",
-      "app/tally/remote.ts": GATED,
+      "app/shop/remote.ts": `export default () => { throw new Error("Sign in"); }; export async function price() { return 3; }`,
+      "app/tally/remote.ts": "export async function add(a: number, b: number) { return a + b; }",
     }));
     await server.listen(0);
-
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("app/tally/remote.ts: The fetch target does not run folder gates");
+    const call = async (at: string, name: string, body: string) => {
+      const res = await fetch(new URL(at, server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body });
+      return [res.status, await res.json()];
+    };
 
     await server.transformRequest("/app/shop/remote.ts");
-    const res = await fetch(new URL("/shop", server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "price" }, body: "[]" });
+    await server.transformRequest("/app/tally/remote.ts");
 
-    expect([res.status, (await res.json()).message]).toEqual([500, expect.stringContaining("app/remote.ts: The fetch target does not run folder gates")]);
+    expect(await call("/tally", "add", "[2, 3]")).toEqual([200, { value: 5 }]);
+    expect(await call("/shop", "price", "[]")).toEqual([500, expect.objectContaining({ message: "Sign in" })]);
   });
 
   describe("api/", () => {

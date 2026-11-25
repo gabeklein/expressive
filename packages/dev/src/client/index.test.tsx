@@ -337,6 +337,28 @@ describe("default entry hook via `enter`", () => {
     expect(root.textContent).toBe("login");
   });
 
+  it("will run the hook a loader resolves, with the path it enters left for calls", async () => {
+    let seen: unknown;
+    const hook = () => Promise.resolve(() => {
+      seen = (globalThis as any)[Symbol.for("@expressive/dev#path")];
+      return "/login";
+    });
+    const Tree = () => (
+      <Route>
+        <Route to="login" as={Login} />
+        <Route to="secret" as={Secret} enter={hook as never} fallback={null} />
+      </Route>
+    );
+
+    location("/secret");
+    const root = await mount(Tree);
+    await settle();
+
+    expect(seen).toBe("/secret");
+    expect((globalThis as any)[Symbol.for("@expressive/dev#path")]).toBeUndefined();
+    expect(root.textContent).toBe("login");
+  });
+
   it("will redirect where a hook's thrown 3xx error points", async () => {
     const hook = (): undefined => {
       throw new Moved("/login");

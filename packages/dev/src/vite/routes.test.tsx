@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // @vitest-environment-options { "url": "http://localhost/" }
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -62,6 +62,9 @@ describe("app/ routing (codegen)", () => {
       "shop/index.tsx": PAGE,
       "shop/cart/index.tsx": PAGE,
       "shop/remote/index.ts": SCOPE,
+      "vault/index.tsx": PAGE,
+      "vault/[id].tsx": PAGE + "; export const paths = () => [];",
+      "vault/remote.ts": "export default () => {}",
     };
 
     for (const [path, src] of Object.entries(files)) {
@@ -75,7 +78,7 @@ describe("app/ routing (codegen)", () => {
     expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx", "tally/[id].tsx"]);
     expect((await pagePatterns(appDir, scanExports)).sort()).toEqual([
       "/", "/about", "/blog/:slug", "/blog/:slug/edit", "/docs", "/docs/guide/setup", "/docs/intro",
-      "/files/*", "/paths", "/shop", "/shop/cart", "/tally", "/tally/:id", "/tally/sub",
+      "/files/*", "/paths", "/shop", "/shop/cart", "/tally", "/tally/:id", "/tally/sub", "/vault", "/vault/:id",
     ]);
   });
 
@@ -92,31 +95,32 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "index.tsx": PAGE });
     expect(out).toContain('import { NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { Page as Root } from "../app/index.tsx";');
-    expect(out).toMatch(/<Route NotFound={NotFound}>\s*<Route as={Root} \/>/);
+    expect(out).toMatch(/<Route>\s*<Route as={Root} \/>\s*<Route none as={NotFound} \/>\s*<\/Route>/);
   });
 
   it("a user NotFound suppresses the implicit 404 (no NotFound import)", async () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${NOTFOUND}` });
     expect(out).toContain('import { Route, Router } from "@expressive/dev";');
     expect(out).not.toContain("{ NotFound, Route, Router }");
-    expect(out).toContain("<Route NotFound={RootNotFound}>");
+    expect(out).toContain("<Route none as={RootNotFound} />");
   });
 
-  it("Layout makes a scope; index page is a to-less child; NotFound rides as a prop", async () => {
+  it("Layout makes a scope; index page is a to-less child; NotFound is its last child", async () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${LAYOUT}\n${NOTFOUND}` });
     expect(out).toContain("import { Page as Root, Layout as RootLayout, NotFound as RootNotFound }");
-    expect(out).toMatch(/<Route as={RootLayout} NotFound={RootNotFound}>\s*<Route as={Root} \/>/);
+    expect(out).toMatch(/<Route as={RootLayout}>\s*<Route as={Root} \/>\s*<Route none as={RootNotFound} \/>/);
   });
 
   it("Loading fills its scope's slot; Catch rides on the scope", async () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${LOADING}\n${CATCH}` });
     expect(out).toContain("{ Page as Root, Loading as RootLoading, Catch as RootCatch }");
-    expect(out).toMatch(/<Route NotFound={NotFound} Catch={RootCatch}>\s*<Route as={Root} fallback={<RootLoading \/>} \/>/);
+    expect(out).toMatch(/<Route Catch={RootCatch}>\s*<Route as={Root} fallback={<RootLoading \/>} \/>/);
   });
 
   it("every route owns a boundary - empty where no Loading applies", async () => {
     const out = await generateRaw({ "index.tsx": PAGE, "(about).tsx": PAGE });
-    expect(out).toContain("<Route NotFound={NotFound} fallback={null}>");
+    expect(out).toContain("<Route fallback={null}>");
+    expect(out).toContain("<Route none as={NotFound} fallback={null} />");
     expect(out).toContain("<Route as={Root} fallback={null} />");
     expect(out).toContain('<Route to="about" as={About} fallback={null} />');
   });
@@ -132,7 +136,8 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('<Route to="projects" as={ProjectsLayout} fallback={null}>');
     expect(out).toContain("<Route as={Projects} fallback={<ProjectsLoading />} />");
     expect(out).toContain('<Route to=":id" as={ProjectsId} fallback={<ProjectsLoading />} />');
-    expect(out).toContain('<Route to="archive" fallback={<ProjectsLoading />}>');
+    expect(out).toContain('<Route to="archive" as={Through} fallback={<ProjectsLoading />}>');
+    expect(out).toContain("const Through = props => props.children;");
     expect(out).toContain('<Route to=":year" as={ProjectsArchiveYear} fallback={<ProjectsLoading />} />');
   });
 
@@ -189,14 +194,61 @@ describe("app/ routing (codegen)", () => {
 
   it("default entry hook rides as the `enter` prop on a leaf", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\n${ENTER}` });
-    expect(out).toContain('const AdminEnter = route => import("../app/(admin).tsx").then(m => m.default(route));');
+    expect(out).toContain('const AdminEnter = () => import("../app/(admin).tsx").then(m => m.default);');
     expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnter} />');
   });
 
   it("default entry hook gates a section (rides on the scope)", async () => {
     const out = await generate({ "admin/index.tsx": `${PAGE}\n${LAYOUT}\n${ENTER}`, "admin/[id].tsx": PAGE });
-    expect(out).toContain('const AdminEnter = route => import("../app/admin/index.tsx").then(m => m.default(route));');
+    expect(out).toContain('const AdminEnter = () => import("../app/admin/index.tsx").then(m => m.default);');
     expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnter}>/);
+  });
+
+  it("will place a folder's NotFound as its last child, and none beside a [...] page, with a warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = await generate({
+      "index.tsx": PAGE,
+      "[slug].tsx": PAGE,
+      "docs/index.tsx": `${PAGE}\n${NOTFOUND}`,
+      "help/index.tsx": `${PAGE}\n${NOTFOUND}`,
+      "help/[...].tsx": PAGE,
+    });
+
+    expect(out).toMatch(/<Route to="docs" as={Through}>\s*<Route as={Docs} \/>\s*<Route none as={DocsNotFound} \/>\s*<\/Route>/);
+    expect(out).toMatch(/<Route to="help" as={Through}>\s*<Route as={Help} \/>\s*<Route to="\*" as={HelpCatchall} \/>\s*<\/Route>/);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("help/index.tsx: NotFound is never shown"));
+    warn.mockRestore();
+  });
+
+  it("will wrap a gated folder's entry in the gate check, loading its module beside it", async () => {
+    const GATE = "export default () => {}";
+    const out = await generate({
+      "index.tsx": PAGE,
+      "admin/index.tsx": `${PAGE}\n${ENTER}`,
+      "admin/remote.ts": GATE,
+      "admin/users/index.tsx": PAGE,
+      "admin/users/remote/index.ts": GATE,
+      "shop/[id]/index.tsx": `${PAGE}\n${LOADING}`,
+      "shop/[id]/remote.ts": GATE,
+      "tally/index.tsx": PAGE,
+      "tally/remote.ts": "export async function add() {}",
+      "notes/index.tsx": PAGE,
+      "notes/remote": "",
+    });
+
+    expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
+    expect(out).toContain('import { call } from "@expressive/rpc";');
+    expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
+    expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
+    expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
+    expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
+    expect(out).toContain('<Route to="tally" as={Tally} />');
+  });
+
+  it("will gate the root and skip gated folders when rendering ahead", async () => {
+    const out = await generate({ "index.tsx": PAGE, "remote.ts": "export default () => {}" });
+
+    expect(out).toContain('<Route enter={checked()}>');
   });
 
   it("a module with a default loads on first entry", async () => {
@@ -339,7 +391,7 @@ describe("app/ routing (codegen)", () => {
       "(new).tsx": `${PAGE}\nexport const label = "New \\"one\\"";`,
       "you/index.tsx": `${PAGE}\nconst named = "You"; export { named as label };`,
     });
-    expect(out).toContain('<Route label={"Home"} NotFound={NotFound}>');
+    expect(out).toContain('<Route label={"Home"}>');
     expect(out).toContain('<Route to="me" label={"Me"}>');
     expect(out).toContain('<Route to="new" label={"New \\"one\\""} as={New} />');
     expect(out).toContain('<Route to="edit" as={MeEdit} />');
@@ -410,6 +462,94 @@ describe("app/ routing (runtime)", () => {
   it("/nope → NotFound", async () => {
     location("/nope");
     expect(await rootText()).toBe("not-found");
+  });
+
+  describe("a folder's NotFound", () => {
+    const Through = (props: { children?: any }) => props.children;
+    const Missing = () => <p>docs-missing</p>;
+    const DocsLayout = (props: { children?: any }) => <section>docs:{props.children}</section>;
+    const Slug = () => <p>slug:{Route.get().match!.slug}</p>;
+    const Rest = () => <p>rest:{Route.get().match!["*"]}</p>;
+    const text = async (Tree: () => any) => (await mount(Tree)).querySelector("[data-root]")?.textContent;
+
+    it("will show under a pass-through folder beside a param page", async () => {
+      const Tree = () => (
+        <Route as={RootLayout}>
+          <Route to="docs" as={Through}>
+            <Route as={BlogIndex} />
+            <Route none as={Missing} fallback={null} />
+          </Route>
+          <Route to=":slug" as={Slug} />
+          <Route none as={NotFound} fallback={null} />
+        </Route>
+      );
+
+      location("/docs/missing");
+      expect(await text(Tree)).toBe("docs-missing");
+      document.body.replaceChildren();
+      location("/hello");
+      expect(await text(Tree)).toBe("slug:hello");
+    });
+
+    it("will show under a Layout beside a sibling page", async () => {
+      const Tree = () => (
+        <Route as={RootLayout}>
+          <Route to="about" as={Home} />
+          <Route to="docs" as={DocsLayout}>
+            <Route as={BlogIndex} />
+            <Route none as={Missing} fallback={null} />
+          </Route>
+          <Route none as={NotFound} fallback={null} />
+        </Route>
+      );
+
+      location("/docs/missing");
+      expect(await text(Tree)).toBe("docs:docs-missing");
+    });
+
+    it("will leave a folder's paths to its [...] page, and the rest to a [...] beside it", async () => {
+      const Tree = () => (
+        <Route as={RootLayout}>
+          <Route to="docs" as={Through}>
+            <Route as={BlogIndex} />
+            <Route to="*" as={Rest} />
+          </Route>
+          <Route to="help" as={Through}>
+            <Route as={BlogIndex} />
+            <Route none as={Missing} fallback={null} />
+          </Route>
+          <Route to="*" as={Rest} />
+        </Route>
+      );
+
+      location("/docs/a/b");
+      expect(await text(Tree)).toBe("rest:a/b");
+      document.body.replaceChildren();
+      location("/help/x");
+      expect(await text(Tree)).toBe("docs-missing");
+      document.body.replaceChildren();
+      location("/else");
+      expect(await text(Tree)).toBe("rest:else");
+    });
+  });
+
+  it("will let a static page shadow a param folder beside it, as the tree passes it through", async () => {
+    const Through = (props: { children?: any }) => props.children;
+    const Room = () => <p>room:{Route.get().match!.id}</p>;
+    const Rooms = () => (
+      <Route as={RootLayout}>
+        <Route to="room">
+          <Route to="new" as={() => <p>new</p>} />
+          <Route to=":id" as={Through}>
+            <Route as={Room} />
+            <Route to="notes" as={() => <p>notes</p>} />
+          </Route>
+        </Route>
+      </Route>
+    );
+
+    location("/room/new");
+    expect((await mount(Rooms)).querySelector("[data-root]")?.textContent).toBe("new");
   });
 });
 

@@ -1418,6 +1418,89 @@ export const GET = () => label + ' old';
   return ok ? 0 : 1;
 }
 
+async function gates() {
+  const dir = join(ROOT, 'gates');
+  const packages = ['mvc', 'dom', 'router', 'env', 'inspect', 'dev'];
+  let ok = false;
+
+  write(dir, {
+    'app/index.tsx': `import { Component } from '@expressive/mvc';
+import { Link } from '@expressive/dev';
+
+export function Layout(props: { children?: Component.Node }) {
+  return <main><Link to="/">Home</Link><Link to="/vault">Vault</Link>{props.children}</main>;
+}
+
+export const Page = () => <h1>Home</h1>;
+
+export function Catch({ error }: { error: Error }) {
+  return <p id="caught">{error.message}</p>;
+}
+`,
+    'app/vault/index.tsx': `export const Page = () => <h1>Vault</h1>;
+`,
+    'app/vault/remote.ts': `export default () => {};
+`
+  });
+
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-gates'),
+    plugins: [expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+
+  await vite.listen();
+
+  const { port } = vite.httpServer!.address() as { port: number };
+  const browser = new Browser();
+  const go = (path: string) => browser.eval(`document.querySelector('a[href="${path}"]').click()`);
+  const checks = () => browser.eval('window.__checks') as Promise<number>;
+  const heading = (text: string) => until(async () => (await browser.text('h1')) == text);
+
+  try {
+    await browser.open(`http://127.0.0.1:${port}/`, join(ROOT, '.chrome-gates'));
+    await until(() => browser.text('h1'), 20000);
+    await browser.eval(`(() => {
+      const fetch = window.fetch;
+      window.__checks = 0;
+      window.__probe = 'alive';
+      window.fetch = (url, init) => (init?.headers?.['x-expressive-get'] === 'gates' && window.__checks++, fetch(url, init));
+    })()`);
+
+    await go('/vault');
+    await heading('Vault');
+    await go('/');
+    await go('/vault');
+    await heading('Vault');
+    if ((await checks()) != 1) throw new Error(`expected one check before the edit, saw ${await checks()}`);
+
+    await Bun.write(join(dir, 'app/vault/remote.ts'), "export default () => { throw new Error('Closed for the night.'); };\n");
+    await sleep(500);
+    await go('/');
+    await heading('Home');
+    await go('/vault');
+    await until(async () => (await browser.text('#caught')) == 'Closed for the night.');
+
+    if ((await checks()) != 2) throw new Error(`expected a second check after the edit, saw ${await checks()}`);
+    if ((await browser.eval('window.__probe')) != 'alive') throw new Error('the gate edit reloaded the page');
+
+    ok = true;
+    console.log('PASS [dev] gate edit clears the passes the client remembered, without a reload');
+  } catch (error) {
+    console.log(`FAIL [dev] gate edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await browser.close();
+    await vite.close();
+  }
+
+  return ok ? 0 : 1;
+}
+
 let failed = 0;
 
 try {
@@ -1425,8 +1508,10 @@ try {
   failed += await settings();
   failed += await api();
 
-  if (chrome) for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
-  else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);
+  if (chrome) {
+    failed += await gates();
+    for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
+  } else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);
 } finally {
   rmSync(ROOT, { recursive: true, force: true });
 }

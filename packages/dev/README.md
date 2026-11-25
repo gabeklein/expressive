@@ -311,8 +311,6 @@ a server.
   `export *`; export types with `export type`.
 - `index.ts` also loads in Node, at build and in dev - import a module only the host resolves lazily,
   and list it in `build.rollupOptions.external` of `vite.config.ts`. Resolve conditions go there too.
-- Folder gates do not run there: a remote entry with a default fails the build, and in dev fails
-  the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto` (rpc's request scope).
 
 Cloudflare Workers with static assets, for example - a cron and a session per request on a D1
@@ -404,7 +402,8 @@ import { add } from "./remote";
 A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
 for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
 `feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
-Only the folder and those below it may import its sidecar.
+Only the folder and those below it may import its sidecar. A call an entry hook makes before its
+first `await` fills params from the path being entered; after it, from the current location.
 
 Only what the client imports is callable: the server accepts calls to the stubs the browser loaded in
 dev, and to those the client build generated in production - a helper module in `remote/` is never
@@ -466,20 +465,65 @@ class Account extends Model {
 
 export default () => void Account.new();
 
-export async function admin() {
-  return Account.get().user!.admin;
+export async function profile() {
+  return Account.get().user;
 }
 ```
 
-```tsx
-// app/account/index.tsx
-import { admin } from "./remote";
+A refused call rejects with the gate's error.
 
-export default async () => ((await admin()) ? undefined : "/");
+### Gate check
+
+A folder's gate also guards its pages: before the browser shows a page under a gated folder, it
+asks the server to run the gates, and shows the page only if they pass.
+
+```ts
+// app/account/remote.ts
+import { Redirect } from "@expressive/rpc";
+import { Cookies } from "@expressive/dev/server";
+
+class AppCookies extends Cookies {
+  session?: string = undefined;
+}
+
+export default () => {
+  if (!AppCookies.get().session) throw new Redirect("/login");
+};
 ```
 
-A refused call rejects with the gate's error: from an entry hook, one carrying a 3xx `status` and a
-`location` redirects there, and anything else reaches the nearest `Catch`.
+`Redirect` here is rpc's error class. The `Redirect` exported by `@expressive/dev` is the router's
+component - a different thing.
+
+A gate reads its own folder's params from `Current` - a gate above sees only those of its folder:
+
+```ts
+// app/team/[id]/remote.ts
+import { Forbidden } from "@expressive/rpc";
+import { Current } from "@expressive/dev/server";
+
+export default async () => {
+  const { id } = Current.get().params;
+  if (!(await isMember(id))) throw new Forbidden("Not on this team.");
+};
+```
+
+- The check is one request to the deepest gated folder on the path, answered `{}` once its gates
+  pass. A pass covers that folder and those above it until a param changes; moving inside it, or
+  leaving gated folders, sends nothing.
+- A refusal reaches the nearest `Catch`, whose `retry` checks again.
+- An error with a 3xx `status` and a `location`, or a 3xx `Response` the gate returns, redirects.
+  A path some page route matches goes through the router; any other path (a server route such as
+  `/api/auth/start`) and another `http:` or `https:` origin load through `location.assign`. A
+  redirect into the refusing folder, a second redirect in a row, or another scheme reaches `Catch`.
+- A network failure, or a reply that isn't rpc's, lets the page in without remembering a pass - the
+  page's own calls still meet the gates.
+- A newer navigation drops an in-flight check's verdict; its cookies still land.
+- The folder's entry hook, and its module's code, run after the pass.
+- Not security: every call still runs its gates. Gates run for checks and calls alike, possibly
+  concurrently, so they must be idempotent; rate limits and logs count checks too.
+- Gated folders are not prerendered, and a root gate (`app/remote.ts`) gates every page.
+- In dev, editing a remote entry with a gate clears the passes the browser remembered. Editing a
+  helper the gate imports does not - navigate after a reload to check again.
 
 `Current` (from `@expressive/dev/server`) is the request in progress, readable from any server
 Model or function in a call: `Current.get().url`, `.cookies`, `.request` (a Web `Request`), and `setHeader` for

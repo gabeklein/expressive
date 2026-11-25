@@ -68,7 +68,7 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`).
+- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`). An entry hook's call before its first `await` fills from the path being entered.
 - Only the folder and those below it may import its sidecar - the build throws otherwise.
 - A `remote/` folder holds several; every module in it belongs to the parent folder and is never a route.
 - Module rules, errors (`HttpError` family from `@expressive/rpc`), ids and `opaque` are rpc's - `expressive-rpc`. Turn off hashed ids with `config({ remote: { opaque: false } })` in `index.ts`.
@@ -96,6 +96,12 @@ export async function profile() {
 }
 ```
 
+- Gate check: a folder's gate also guards its pages - the browser runs the gates before showing a page under the folder. Recipe: `export default () => { if (!AppCookies.get().session) throw new Redirect("/login"); }` with `Redirect` from `@expressive/rpc` (dev's root `Redirect` is the router component). Gates read their folder's params: `Current.get().params.id`.
+  - One request to the deepest gated folder on the path, answered `{}` on a pass. A pass covers the folder and those above until a param changes; moving inside it sends nothing.
+  - Refusal reaches `Catch`; `retry` checks again. A 3xx `status` with `location`, or a 3xx `Response` from the gate, redirects: a path a page route matches through the router; another path or `http(s):` origin through `location.assign`; into the refusing folder, a second hop in a row, or another scheme - `Catch`.
+  - A network failure or non-rpc reply lets the page in, remembering nothing. A newer navigation drops an in-flight verdict.
+  - Not security - calls still run the gates, so gates must be idempotent. Gated folders are not prerendered; a root gate gates every page.
+  - In dev, editing a gated remote entry clears remembered passes; editing a helper it imports does not.
 - `key()`/`ttl` belong to rpc's class gates (`expressive-rpc/SKILL.md`); dev no longer reads them.
 - `Cookies` (from `@expressive/dev/server`, as in rpc): a subclass declares cookies as fields; `AppCookies.get()` reads this request's and `AppCookies.set({ ... })` sends `Set-Cookie` with the reply. `Current` is the lower level: `.request`, `.url`, `.cookies`, read-only, and `setHeader(name, value)`.
 - Process-wide state: a module-level `X.new(Context.root)`, found by `get()` from any call.
@@ -202,7 +208,6 @@ export const GET = () => legacy.fetch;
 - `env` is the host's second `fetch` argument - in `handle` and `Current.get().env` - with no `process.env` or `.env` layer.
 - Named exports of `index.ts` are re-exported - listed ones, not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
-- Folder gates do not run: a remote entry with a default fails the build, and in dev the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.
 - No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 

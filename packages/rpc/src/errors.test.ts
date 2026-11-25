@@ -110,12 +110,12 @@ describe("Redirect", () => {
     expect(new Redirect("/moved", 301)).toMatchObject({ status: 301, location: "/moved" });
   });
 
-  it("will reply 500 with its status and location, and rebuild as a Redirect", async () => {
+  it("will reply 400 with its status and location, and rebuild as a Redirect", async () => {
     serve(throws(new Redirect("/login", 303)));
 
     const response = await fetch("/shop", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "fn" }, body: "[]" });
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "http:Redirect", message: "/login", status: 303, location: "/login" });
 
     const error = await caught(throws(new Redirect("/login", 303)));

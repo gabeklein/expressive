@@ -247,7 +247,7 @@ function close(exchange: Exchange) {
  * with `fail`'s reply, by default rejecting. A gate's answer - `send`, a returned `Response` or
  * function - resolves with that `Response` instead of `run`'s value.
  */
-export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = [], fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>> = rethrow, params?: Record<string, string>): Promise<Awaited<T>> {
+export async function within<T>(request: Request, segments: string[], run: () => T, seats: (Seat | Gate | undefined)[] = [], fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>> = rethrow, params?: Record<string, string>, depths: Record<string, string>[] = []): Promise<Awaited<T>> {
   const parent = store.getStore();
   const nested = parent?.exchange.origin === originOf(request);
   const exchange = nested ? parent!.exchange : open(request);
@@ -256,14 +256,14 @@ export async function within<T>(request: Request, segments: string[], run: () =>
   exchange.open++;
 
   try {
-    return await store.run(frame, () => walk(frame, [undefined, ...segments], 0, run, seats, fail)) as Awaited<T>;
+    return await store.run(frame, () => walk(frame, [undefined, ...segments], 0, run, seats, fail, depths)) as Awaited<T>;
   } finally {
     if (!nested) exchange.leave();
     close(exchange);
   }
 }
 
-async function walk<T>(frame: Frame, steps: (string | undefined)[], from: number, run: () => T, seats: (Seat | Gate | undefined)[], fail: (error: unknown) => unknown): Promise<unknown> {
+async function walk<T>(frame: Frame, steps: (string | undefined)[], from: number, run: () => T, seats: (Seat | Gate | undefined)[], fail: (error: unknown) => unknown, depths: Record<string, string>[]): Promise<unknown> {
   const { exchange } = frame;
   const join = (reply: unknown) => (reply instanceof Response ? withHeaders(reply, headersOf(exchange.origin)) : reply);
   let gate: { at: number; fn: Gate } | undefined;
@@ -299,7 +299,7 @@ async function walk<T>(frame: Frame, steps: (string | undefined)[], from: number
 
   const { at, fn } = gate;
 
-  return join(await stage(frame, fn, below => walk(below, steps, at, run, seats, fail), EMPTY, fail, true));
+  return join(await stage(frame, fn, below => walk(below, steps, at, run, seats, fail, depths), depths[at - 1] ?? EMPTY, fail, true));
 }
 
 const noop = () => {};
