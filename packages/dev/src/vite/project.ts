@@ -111,27 +111,41 @@ export async function paths() {
   return found;
 }
 
+const pages = new WeakMap();
+
+Model.on({
+  setup(self) {
+    pages.set(self, scope.getStore());
+  },
+  catch(error, kind) {
+    if (kind == "dead" || kind == "unused") return error;
+
+    const mark = pages.get(this);
+
+    if (mark && !mark.done) mark.failed ??= [error];
+    else console.warn((mark ? mark.path : "A Model") + " failed after its page rendered at build: " + (error?.message ?? error));
+  },
+});
+
 export default async function page(path) {
   let router;
-  let failed;
   const stop = Router.on({ setup(self) { router = self; } });
-  const unfail = Model.on({ catch(error, kind) { if (kind == "dead" || kind == "unused") return error; failed ??= [error]; } });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
-  const mark = { called: false, abort };
+  const mark = { called: false, abort, path };
 
   try {
     const output = await scope.run(mark, () => renderToString(jsx(App, { path }), { signal: abort.signal }));
     if (mark.called) return null;
-    if (failed) throw failed[0];
+    if (mark.failed) throw mark.failed[0];
     return { ...output, path: router ? router.path : path };
   } catch (error) {
     if (mark.called) return null;
     throw error;
   } finally {
+    mark.done = true;
     clearTimeout(timer);
     stop();
-    unfail();
   }
 }
 `;

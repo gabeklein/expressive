@@ -723,8 +723,9 @@ loads its data on render does not.
 - An entry hook or `Layout` that calls the server leaves every page below it to the browser.
 - A `paths()` that calls the server lists nothing.
 
-A page that redirects, renders nothing, throws - a failed async `new()` included - or takes over 30
-seconds is skipped with a warning.
+A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
+An async `new()` that rejects while its page renders counts as a throw; one rejecting after the page
+rendered keeps the page and warns.
 
 `new()` runs during the render and effects never do, so DOM listeners and browser-only reads
 belong in effects; `typeof window` tells the build apart, since `import.meta.env.SSR` is false
