@@ -18,8 +18,8 @@ describe("check", () => {
   });
 
   it("will throw for a bindings export, pointing at index.dev.ts", () => {
-    expect(() => check({}, ["default", "bindings"])).toThrow("`bindings` became `config.env`, set in index.dev.ts.");
-    expect(() => check({}, ["default", "bindings"], "index.dev.ts")).toThrow("index.dev.ts: `bindings` became `config.env`");
+    expect(() => check({}, ["default", "bindings"])).toThrow("`bindings` became `settings.env`, set in index.dev.ts.");
+    expect(() => check({}, ["default", "bindings"], "index.dev.ts")).toThrow("index.dev.ts: `bindings` became `settings.env`");
   });
 
   it("will read env from index.dev.ts only", () => {

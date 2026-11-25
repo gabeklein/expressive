@@ -707,7 +707,7 @@ describe("vite host", () => {
     await serve(project({ "app/index.tsx": PAGE, "index.ts": "export default 1;", "index.dev.ts": `export default {};` }), number);
 
     await expect(misplaced.api!.config()).rejects.toThrow("index.ts: `env` is set in index.dev.ts, never index.ts.");
-    await expect(bindings.api!.config()).rejects.toThrow("index.dev.ts: `bindings` became `config.env`, set in index.dev.ts.");
+    await expect(bindings.api!.config()).rejects.toThrow("index.dev.ts: `bindings` became `settings.env`, set in index.dev.ts.");
     await expect(number.api!.config()).rejects.toThrow("index.ts: the default export is not config({ ... }).");
   });
 
@@ -1019,7 +1019,7 @@ describe("vite host", () => {
     await expect(build(quiet(serverBuild(old)))).rejects.toThrow("`fetch` and `around` became `handle`.");
     await expect(build(quiet(clientBuild(misplaced)))).rejects.toThrow("index.ts: `env` is set in index.dev.ts, never index.ts.");
     await serve(bindings, host);
-    await expect(host.api!.config()).rejects.toThrow("`bindings` became `config.env`, set in index.dev.ts.");
+    await expect(host.api!.config()).rejects.toThrow("`bindings` became `settings.env`, set in index.dev.ts.");
   });
 
   it("will run handle in dev around calls, pages and public files, but not Vite's own requests", async () => {

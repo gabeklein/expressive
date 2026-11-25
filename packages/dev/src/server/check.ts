@@ -12,7 +12,7 @@ export function check(settings: unknown, exports: Iterable<string> = [], file: "
   if (settings === undefined && file === "index.dev.ts") return fail("no default export - export the settings, `export default settings`.");
   if (typeof settings != "object" || settings === null) return fail("the default export is not config({ ... }).");
 
-  for (const name of exports) if (name === "bindings") fail("`bindings` became `config.env`, set in index.dev.ts.");
+  for (const name of exports) if (name === "bindings") fail("`bindings` became `settings.env`, set in index.dev.ts.");
 
   for (const [key, value] of Object.entries(settings)) {
     if (KEYS.has(key)) continue;
