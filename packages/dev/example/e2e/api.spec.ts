@@ -40,3 +40,9 @@ test("answers an unmatched /api path with a JSON 404, never the shell", async ({
   expect([reply.status(), reply.headers()["content-type"]]).toEqual([404, "application/json"]);
   expect(await reply.json()).toEqual({ message: "No route in api/ serves /api/nope - paths under /api belong to api/." });
 });
+
+test("serves no route for a bare-named helper beside the routes", async ({ request }) => {
+  const reply = await request.get("/api/greeting");
+
+  expect(reply.status()).toBe(404);
+});
