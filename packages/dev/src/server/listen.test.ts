@@ -233,7 +233,7 @@ describe("listen", () => {
     mkdirSync(join(dir, "api"));
     writeFileSync(join(dir, "api", "hello"), "file");
 
-    const routes = [{ name: "api/hello.ts", path: ["hello"], index: false, module: { GET: () => ({ hello: "world" }) } }];
+    const routes = [{ name: "api/(hello).ts", path: ["hello"], index: false, module: { GET: () => ({ hello: "world" }) } }];
     const server = listen({ settings: { port: 0 }, client: dir, api: { prefix: "/api", routes } });
     await new Promise(done => server.once("listening", done));
 

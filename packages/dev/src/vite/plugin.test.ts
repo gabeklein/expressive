@@ -1307,12 +1307,13 @@ describe("vite host", () => {
 
     const API = {
       "app/index.tsx": PAGE,
-      "api/hello.ts": "export const GET = () => ({ hello: 'world' }); export type Hello = { hello: string };",
-      "api/echo.ts": `${RPC} export async function POST() { return { echo: await Current.get().json() }; }`,
+      "api/(hello).ts": "export const GET = () => ({ hello: 'world' }); export type Hello = { hello: string };",
+      "api/(echo).ts": `${RPC} export async function POST() { return { echo: await Current.get().json() }; }`,
       "api/photo/[id].ts": `${RPC} export const GET = () => Current.get().params;`,
       "api/legacy/[...].ts": "export default () => (request: Request) => Response.json({ path: new URL(request.url).pathname });",
       "api/admin/index.ts": `${RPC} export default () => { if (!Current.get().request.headers.has('x-admin')) throw new Forbidden('Admins only.'); };`,
-      "api/admin/me.ts": "export const GET = () => 'root';",
+      "api/admin/(me).ts": "import name from './store'; export const GET = () => name;",
+      "api/admin/store.ts": "export const helper = () => {}; export default 'root';",
     };
 
     beforeAll(async () => {
@@ -1335,18 +1336,29 @@ describe("vite host", () => {
       expect(await (await at("/api/legacy/x/y")).json()).toEqual({ path: "/api/legacy/x/y" });
       expect([(await at("/api/admin/me")).status, await (await at("/api/admin/me", { headers: { "x-admin": "1" } })).text()]).toEqual([403, "root"]);
       expect([missing.status, missing.headers.get("content-type"), (await missing.json()).message]).toEqual([404, "application/json", "No route in api/ serves /api/nope - paths under /api belong to api/."]);
-      expect((await at("/api/hello.ts")).status).toBe(404);
+      expect((await at("/api/(hello).ts")).status).toBe(404);
+      expect((await at("/api/admin/store", { headers: { "x-admin": "1" } })).status).toBe(404);
 
-      writeFileSync(join(root, "api/late.ts"), "export const GET = () => 'late';");
-      server.watcher.emit("add", join(root, "api/late.ts"));
+      writeFileSync(join(root, "api/(late).ts"), "export const GET = () => 'late';");
+      server.watcher.emit("add", join(root, "api/(late).ts"));
       server.watcher.emit("add", join(root, "elsewhere.ts"));
       expect(await (await at("/api/late")).text()).toBe("late");
 
-      writeFileSync(join(root, "api/(group).ts"), "export const GET = () => 1;");
-      server.watcher.emit("add", join(root, "api/(group).ts"));
+      writeFileSync(join(root, "api/admin/store.ts"), "export const GET = () => 1; export default 'root';");
+      server.watcher.emit("change", join(root, "api/admin/store.ts"));
       const broken = await at("/api/hello");
 
-      expect([broken.status, (await broken.json()).message]).toEqual([500, "api/(group).ts: api/ has no groups - name it group.ts."]);
+      expect([broken.status, (await broken.json()).message]).toEqual([500, "api/admin/store.ts: exports GET, but a bare-named file is a helper, not a route - rename it api/admin/(store).ts to serve it."]);
+
+      writeFileSync(join(root, "api/admin/store.ts"), "export default 'admin';");
+      server.watcher.emit("change", join(root, "api/admin/store.ts"));
+      await vi.waitFor(async () => expect(await (await at("/api/admin/me", { headers: { "x-admin": "1" } })).text()).toBe("admin"));
+
+      writeFileSync(join(root, "api/(:x).ts"), "export const GET = () => 1;");
+      server.watcher.emit("add", join(root, "api/(:x).ts"));
+      const misnamed = await at("/api/hello");
+
+      expect([misnamed.status, (await misnamed.json()).message]).toEqual([500, "api/(:x).ts: a name starting with : or * reads as a param - name a param [name], the rest of a path [...]."]);
     });
 
     it("will leave /api to the app without an api/ folder", async () => {
@@ -1359,7 +1371,7 @@ describe("vite host", () => {
     });
 
     it("will fail the dev server and the build when something else would serve /api", async () => {
-      const files = { "app/index.tsx": PAGE, "api/hello.ts": "export const GET = () => 1;", "public/api/x.txt": "" };
+      const files = { "app/index.tsx": PAGE, "api/(hello).ts": "export const GET = () => 1;", "public/api/x.txt": "" };
 
       await expect(serve(project(files))).rejects.toThrow("public/api would serve /api, which belongs to the api/ folder - move it.");
       await expect(buildBoth(files)).rejects.toThrow("public/api would serve /api");
@@ -1367,9 +1379,9 @@ describe("vite host", () => {
 
     it("will throw if client code imports from api/, but not crawl it for dependencies", async () => {
       const root = project({
-        "app/index.tsx": "import 'client-dep'; import { GET } from '../api/hello'; import { api } from '../lib/api'; export const Page = () => [GET, api]",
+        "app/index.tsx": "import 'client-dep'; import { db } from '../api/db'; import { api } from '../lib/api'; export const Page = () => [db, api]",
         "lib/api.ts": "export const api = '/api';",
-        "api/hello.ts": "import { db } from 'server-only-dep'; export const GET = () => db;",
+        "api/db.ts": "export { db } from 'server-only-dep';",
         "node_modules/client-dep/package.json": `{ "name": "client-dep", "type": "module", "main": "index.js" }`,
         "node_modules/client-dep/index.js": "export default 1;",
       });
@@ -1377,35 +1389,35 @@ describe("vite host", () => {
       const server = await serve(root);
 
       expect((await optimizeDeps(config, true)).optimized).toHaveProperty("client-dep");
-      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("app/index.tsx imports api/hello.ts - api/ is server-only; fetch its route, or move what both need outside api/.");
-      expect((await server.environments.ssr.transformRequest("/app/index.tsx"))?.code).toContain("/api/hello.ts");
+      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("app/index.tsx imports api/db.ts - api/ is server-only; fetch its route, or move what both need outside api/.");
+      expect((await server.environments.ssr.transformRequest("/app/index.tsx"))?.code).toContain("/api/db.ts");
     });
 
     it("will throw if client code imports api/ through an alias", async () => {
-      const root = project({ "app/index.tsx": "import { GET } from '@routes/hello'; export const Page = () => GET", "api/hello.ts": "export const GET = () => 1;" });
+      const root = project({ "app/index.tsx": "import { GET } from '@routes/(hello)'; export const Page = () => GET", "api/(hello).ts": "export const GET = () => 1;" });
       const server = await serve(root, expressive(), { alias: [{ find: /^@routes\/(.*)$/, replacement: `${root}/api/$1` }, ...(SOURCES!.alias as any[])] });
 
       await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("api/ is server-only");
     });
 
     it("will refuse in dev a route whose exports break the rules as it loads, and log a save's errors", async () => {
-      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/hello.ts": "export const helper = () => {};", "api/ok.ts": "export const GET = () => 1;" }));
+      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/(hello).ts": "export const helper = () => {};", "api/(ok).ts": "export const GET = () => 1;" }));
       const server = await serve(root);
       const logged = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
       const console_ = vi.spyOn(console, "error").mockImplementation(() => {});
       await server.listen(0);
 
       const reply = await fetch(new URL("/api/hello", server.resolvedUrls!.local[0]));
-      const message = "api/hello.ts: `helper` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.";
+      const message = "api/(hello).ts: `helper` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and move helpers to a bare-named file beside it, like helpers.ts. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.";
 
       expect([reply.status, (await reply.json()).message]).toEqual([500, message]);
 
       server.watcher.emit("change", join(root, "elsewhere.ts"));
-      server.watcher.emit("change", join(root, "api/hello.ts"));
+      server.watcher.emit("change", join(root, "api/(hello).ts"));
       await vi.waitFor(() => expect(logged).toHaveBeenCalledWith(message));
 
-      writeFileSync(join(root, "api/ok.ts"), "export const GET = (");
-      server.watcher.emit("change", join(root, "api/ok.ts"));
+      writeFileSync(join(root, "api/(ok).ts"), "export const GET = (");
+      server.watcher.emit("change", join(root, "api/(ok).ts"));
       await vi.waitFor(() => expect(logged).toHaveBeenCalledTimes(2));
 
       console_.mockRestore();
@@ -1418,7 +1430,8 @@ describe("vite host", () => {
       expect(server).toMatch(/name: "api\/photo\/\[id\]\.ts",\s*path: \["photo", ":id"\],\s*index: false,\s*module: /);
       expect(server).toContain("Admins only.");
       expect(client).not.toContain("Admins only.");
-      await expect(buildBoth({ "app/index.tsx": PAGE, "api/hello.ts": "export const helper = 1;" })).rejects.toThrow("api/hello.ts: `helper` is not a route export");
+      await expect(buildBoth({ "app/index.tsx": PAGE, "api/(hello).ts": "export const helper = 1;" })).rejects.toThrow("api/(hello).ts: `helper` is not a route export");
+      await expect(buildBoth({ "app/index.tsx": PAGE, "api/hello.ts": "export const GET = () => 1;" })).rejects.toThrow("api/hello.ts: exports GET, but a bare-named file is a helper");
     });
 
     it("builds the node service without an api/ table when there is no api/ folder", async () => {
