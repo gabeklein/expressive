@@ -688,6 +688,12 @@ describe("layer", () => {
     expect(error).toHaveBeenCalledTimes(1);
   });
 
+  it("will show a 500's message with dev", async () => {
+    const broken = await within(request(), [], () => layer(() => { throw new Error("boom"); }, undefined, {}, true));
+
+    expect([broken.status, await broken.json()]).toEqual([500, { message: "boom" }]);
+  });
+
   it("will refuse with the error of a Model the gate activates", async () => {
     class Session extends Model {
       async new() {

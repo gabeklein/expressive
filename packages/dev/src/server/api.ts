@@ -87,7 +87,7 @@ function match(root: Node, segments: string[]) {
 }
 
 /** Answer a request under the folder: its gates outermost first, then the matching module's verb or catch-all. */
-export async function serveApi(request: Request, api: Api): Promise<Response> {
+export async function serveApi(request: Request, api: Api, dev: boolean): Promise<Response> {
   const { pathname } = new URL(request.url);
   const { method } = request;
   let segments: string[];
@@ -106,7 +106,7 @@ export async function serveApi(request: Request, api: Api): Promise<Response> {
   const handler = exports && ((VERBS.includes(method) && exports[method]) || (method === "HEAD" && exports.GET) || (!route!.index && exports.default));
 
   const last = async (): Promise<Response> => {
-    if (handler) return layer(handler as () => unknown, undefined, params);
+    if (handler) return layer(handler as () => unknown, undefined, params, dev);
     if (!verbs.length) throw new NotFound(`No route in api/ serves ${pathname} - paths under ${api.prefix} belong to api/.`);
 
     const allow = verbs.flatMap(verb => (verb === "GET" ? [verb, "HEAD"] : [verb])).join(", ");
@@ -117,7 +117,7 @@ export async function serveApi(request: Request, api: Api): Promise<Response> {
   };
 
   const chain = (at: number): Promise<Response> =>
-    at < active.length ? layer(active[at].run!, () => chain(at + 1), active[at].params) : last();
+    at < active.length ? layer(active[at].run!, () => chain(at + 1), active[at].params, dev) : last();
 
   return within(request, [], () => chain(0));
 }

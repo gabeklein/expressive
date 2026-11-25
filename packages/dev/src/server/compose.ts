@@ -43,7 +43,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
       bind(forward, env as Env, filled);
 
       if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
-      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
+      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api, dev).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {
