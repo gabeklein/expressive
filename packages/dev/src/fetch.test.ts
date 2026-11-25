@@ -117,6 +117,32 @@ describe("compose", () => {
     expect(compose({ target: "fetch", host: () => Entry }, [], [])).toBe(Entry);
   });
 
+  it("will run each gate above a call, outermost first, refusing by a throw", async () => {
+    const seen: string[] = [];
+    const site = () => void seen.push("site");
+    const deny = () => {
+      seen.push("shop");
+      if (Current.get().request.headers.has("x-deny")) throw new Taken("Sign in");
+    };
+    const { fetch } = compose({}, [tally, shop, { default: site }, { default: deny }], manifest, [], null, undefined, [
+      { pattern: [], gate: [2, "default"] },
+      { pattern: ["shop"], gate: [3, "default"] },
+    ]);
+    const denied = post("price", [], "/shop/a");
+    denied.headers.set("x-deny", "1");
+
+    expect(await json(fetch(post("add", [2, 3])))).toEqual({ value: 5 });
+    expect(await json(fetch(post("price", [], "/shop/a")))).toEqual({ value: 3 });
+    expect(seen.splice(0)).toEqual(["site", "site", "shop"]);
+
+    const refused = await fetch(denied);
+    expect([refused.status, await refused.json()]).toEqual([409, expect.objectContaining({ error: "Taken", message: "Sign in" })]);
+  });
+
+  it("will throw on creation if a gate ref names no export", () => {
+    expect(() => compose({}, [tally], [], [], null, undefined, [{ pattern: ["shop"], gate: [1, "default"] }])).toThrow("/shop has no export default.");
+  });
+
   it("will throw on creation if a ref names no export", () => {
     expect(() => compose({}, [tally], [{ pattern: ["shop"], calls: { price: [1, "price"] }, classes: {} }]))
       .toThrow("/shop has no export price.");

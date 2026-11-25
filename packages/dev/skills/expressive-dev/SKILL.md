@@ -198,7 +198,6 @@ export const GET = () => legacy.fetch;
 - `env` is the host's second `fetch` argument - in `handle` and `Current.get().env` - with no `process.env` or `.env` layer.
 - Named exports of `index.ts` are re-exported - listed ones, not `export *`; types need `export type`.
 - `index.ts` also loads in Node (build, dev) - import host-only modules lazily, list them in `vite.config.ts`'s `build.rollupOptions.external`; resolve conditions go there too.
-- Folder gates do not run: a remote entry with a default fails the build, and in dev the calls below it. Remote functions only.
 - The bundle imports `node:async_hooks` and `node:crypto`.
 - No boot file - `.env` does not fill `process.env`; the host's bindings are the environment.
 

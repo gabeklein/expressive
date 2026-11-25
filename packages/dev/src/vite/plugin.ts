@@ -164,12 +164,8 @@ export function host(dotenv: boolean): Plugin<Host> {
     },
   };
 
-  const target = async () => (build ? settings!.target : (await api.config()).target);
-
-  const gateError = async (remote: Remote) => {
+  const gateError = (remote: Remote) => {
     const { gate, problems } = scanGate(remote, readFileSync(remote.file, "utf8"));
-
-    if (gate && (await target()) === "fetch") problems.push(STATELESS);
 
     return { gate, error: problems.length ? `${relative(root, remote.file)}: ${problems.join(" ")}` : undefined };
   };
@@ -232,7 +228,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         builds.set(root, (exposure = new Exposure(salt)));
 
         for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
-          const { error } = await gateError(remote);
+          const { error } = gateError(remote);
           if (error) this.error(error);
         }
 
@@ -298,7 +294,6 @@ export function host(dotenv: boolean): Plugin<Host> {
         const sources = sourcesOf(async (spec, importer) => (await this.resolve(spec, importer, { skipSelf: true }))?.id.split("?")[0]);
         const { problems, ...scanned } = await scanRemote(remote, readFileSync(file, "utf8"), sources, remoteAt);
 
-        if (scanned.gate && (await target()) === "fetch") problems.push(STATELESS);
         if (problems.length) this.error(`${relative(root, file)}: ${problems.join(" ")}`);
 
         const exposed = { ...remote, ...scanned };
@@ -320,7 +315,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           const api = { prefix: apiPrefix, routes: apiFiles() };
 
           return settings?.target === "fetch"
-            ? fetchEntry(project, generatedDir, exposure, await namedExports(project), api, await pages())
+            ? fetchEntry(project, generatedDir, exposure, await namedExports(project), api, await pages(), gated(project))
             : serverEntry(project, generatedDir, exposure, gated(project), api, await pages());
         }
         case prerenderId: {
@@ -434,7 +429,7 @@ export function host(dotenv: boolean): Plugin<Host> {
 
         if (!remote) return;
 
-        const { gate, error } = await gateError(remote);
+        const { gate, error } = gateError(remote);
 
         if (error) throw new Error(error);
         if (gate) return (await host.import(remote.file)).default;
@@ -591,8 +586,6 @@ const FETCH: UserConfig = {
   environments: { ssr: { resolve: { noExternal: true } } },
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
-
-const STATELESS = "The fetch target does not run folder gates - export functions only, no default.";
 
 const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });
 
