@@ -82,7 +82,7 @@ function gateTree(node: RouteNode, root = false): object {
     ...(!root && { to: node.segment }),
     ...(node.gated && { gate: 1 }),
     ...(node.alias.Page && { page: 1 }),
-    ...((root || node.alias.NotFound) && { none: 1 }),
+    ...((root || node.alias.NotFound) && !caught(node) && { none: 1 }),
     ...(!node.isLeaf && { in: node.children.filter(renders).map(child => gateTree(child)) }),
   };
 }
@@ -269,11 +269,9 @@ const isRoot = (node: RouteNode): boolean => !node.name;
 const lazy = (node: RouteNode): boolean => !isRoot(node) && !node.alias.Loading && !node.alias.Catch;
 
 function loaderFor(node: RouteNode, role: Role, spec: string): string {
-  const load = role !== "default"
-    ? `() => import(${spec}).then(m => m.${role})`
-    : node.classDefault
-      ? `() => import(${spec}).then(m => props => <Component for={m.default}>{props.children}</Component>)`
-      : `route => import(${spec}).then(m => m.default(route))`;
+  const load = role === "default" && node.classDefault
+    ? `() => import(${spec}).then(m => props => <Component for={m.default}>{props.children}</Component>)`
+    : `() => import(${spec}).then(m => m.${role})`;
 
   return `const ${node.alias[role]} = ${load};`;
 }
@@ -320,6 +318,8 @@ function collectWrappers(root: RouteNode): string[] {
   return wrappers;
 }
 
+const caught = (node: RouteNode) => node.children.some(child => child.segment === "*");
+
 function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string, outDir: string, contend = false): string[] {
   const pad = "  ".repeat(depth);
   const { Page, Layout, Loading, Catch, NotFound, default: def } = node.alias;
@@ -350,9 +350,12 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const as = scopedOf(node) ?? scope ?? Layout ?? (contend ? "Through" : undefined);
   const fallbackPage = NotFound ?? (isRoot ? "NotFound" : undefined);
 
+  if (NotFound && caught(node)) console.warn(`${node.file}: NotFound is never shown - the [...] page beside it catches every path below.`);
+  if (fallbackPage && !caught(node)) inner.push(`${pad}  <Route none as={${fallbackPage}} fallback={null} />`);
+
   return route(
     pad,
-    { to: isRoot ? undefined : node.segment, label, as, NotFound: fallbackPage, enter, fallback: slot, Catch },
+    { to: isRoot ? undefined : node.segment, label, as, enter, fallback: slot, Catch },
     inner,
   );
 }
@@ -361,7 +364,6 @@ interface RouteProps {
   to?: string;
   label?: string;
   as?: string;
-  NotFound?: string;
   enter?: string;
   fallback?: string;
   Catch?: string;
