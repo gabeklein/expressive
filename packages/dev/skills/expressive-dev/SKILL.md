@@ -35,7 +35,7 @@ vite.config.ts        optional, merged under the host's
 .env, .env.*          optional - see Environment
 ```
 
-Bare-named files under `app/` are support modules. Siblings match static before `:param` before `*`.
+Bare-named files under `app/` and `api/` are support modules. Siblings match static before `:param` before `*`.
 
 ## Route modules
 
@@ -150,15 +150,19 @@ export default config({
 
 `env` - the request's bindings, below.
 
-Tests: `compose(settings)` from `@expressive/dev/server` - `handle` over a stubbed `assets`, no remotes, no `api/` routes: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`. Test a route's logic as a plain function outside `api/` that the route calls with what it reads from `Current`: `export const GET = () => photo(Current.get().params.id)`, then test `photo("7")`.
+Tests: `compose(settings)` from `@expressive/dev/server` - `handle` over a stubbed `assets`, no remotes, no `api/` routes: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`. Test a route's logic as a plain function in a helper beside it that the route calls with what it reads from `Current`: `export const GET = () => photo(Current.get().params.id)`, then test `photo("7")`.
 
 ## api/ routes
 
-A root `api/` folder beside `app/` is HTTP routes under `/api`. Location is the path, in `app/`'s syntax, and a bare name is a route: `api/logout.ts` → `/api/logout`, `api/photo/[id].ts` → `/api/photo/:id`, `api/auth/[...].ts` → `/api/auth/*` (one segment or more), `api/index.ts` → `/api`. Every `.ts`/`.tsx`/`.js`/`.jsx` but `*.test.*`, `*.spec.*`, `.d.ts` is a route - helpers live outside `api/`. Routes take no parameters; read the request from `Current`.
+A root `api/` folder beside `app/` is HTTP routes under `/api`, named as in `app/`: `api/(logout).ts` → `/api/logout`, `api/photo/[id].ts` → `/api/photo/:id`, `api/auth/[...].ts` → `/api/auth/*` (one segment or more), `api/index.ts` → `/api`. A bare name (`api/photo/store.ts`) is a helper - not a route, exports anything. `*.test.*`, `*.spec.*`, `.d.ts` are skipped. Routes take no parameters; read the request from `Current`.
 
 ```ts
+// api/photo/store.ts - a helper
+export const photo = (id: string) => db.photos.find(id);
+
 // api/photo/[id].ts
 import { Current } from "@expressive/dev/server";
+import { photo } from "./store";
 
 export const GET = () => photo(Current.get().params.id);
 
@@ -167,7 +171,7 @@ export default () => {
   Session.new(); // async new() throws Unauthorized to refuse
 };
 
-// api/account/me.ts
+// api/account/(me).ts
 export const GET = () => Session.get().user;
 
 // api/legacy/[...].ts - mount a fetch handler (Hono, an auth library) on /api/legacy/*
@@ -182,11 +186,11 @@ export const GET = () => legacy.fetch;
 - A throw other than `HttpError` in a route or gate: logged 500, message in dev only.
 - `default` outside a folder `index.ts`: catch-all for every method on its path. Routes take no arguments, so return the handler - a returned function (from a verb too) is called with `(request, env, ctx)`. The path is not rewritten - give the mounted app its base path (`basePath("/api/legacy")`). Bind a `fetch` that needs `this`.
 - `default` in a folder `index.ts`: the folder's gate, before every route below, outermost first, on unmatched paths too. Finish to pass, throw to refuse (`HttpError` → its status as JSON `{ message }`, else logged 500), return a `Response` or fetch handler to answer, `Current.get().next()` to wrap. Its Models are `X.get()`-able below until the request ends. Sees its own folder's params; routes see the full match's.
-- No module for the path, or an `index.ts` with only a gate: JSON 404, never the shell.
-- Exact, case-sensitive, on decoded segments (`/api/caf%C3%A9` → `api/café.ts`); fixed beats `[param]` beats `[...]`, no backtracking - `/api/admin/users` 404s under `api/admin/` without `users`, even beside `api/[org]/users.ts`. A bad `%` escape is 400; an empty segment never matches, except inside `[...]`'s rest after its first.
+- No route for the path, or an `index.ts` with only a gate: JSON 404, never the shell. In dev, a helper where the path would be (`api/webhook.ts` for `/api/webhook`) is named in the 404, with its `(name).ts` rename.
+- Exact, case-sensitive, on decoded segments (`/api/caf%C3%A9` → `api/(café).ts`); fixed beats `[param]` beats `[...]`, no backtracking - `/api/admin/users` 404s under `api/admin/` without `users`, even beside `api/[org]/(users).ts`. A bad `%` escape is 400; an empty segment never matches, except inside `[...]`'s rest after its first.
 - Params arrive decoded, slashes included - never join one onto a file path.
-- Fail dev and the build: no verbs and no `default` (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports (types fine; `api/index.ts`'s reserved); `(name)` files/folders, a `[...]` folder, `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*`, two `[param]`s in a folder, two modules on one path (`api/dev.ts` + `api/dev/index.ts`); `app/api/`, `app/api.tsx`, `app/(api).tsx`, `public/api/` beside `api/`, any case; a client import from `api/`, aliases included.
-- Dev loads routes per request on the module runner - edits and added files land on the next one. A save logs these errors; a broken route's requests answer a 500 naming it. Never prerendered.
+- Fail dev and the build: a route with no verbs and no `default` (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports from a route (types fine; `api/index.ts`'s reserved); `export *` in a route (build only - list verbs by name); a helper exporting a verb-named function (build; dev logs on save) - helpers shouldn't export verb-named handlers, name the file `(name).ts` (values and re-exports not flagged); a nameless `().ts`, `(name)` folders, a `[...]` folder, `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*`, two `[param]`s in a folder, two modules on one path (`api/(dev).ts` + `api/dev/index.ts`); `app/api/`, `app/(api)/`, `app/(api).tsx`, `public/api/` beside `api/`, any case; a client import from `api/`, helpers and aliases included.
+- Dev loads routes per request on the module runner - edits to routes and their helpers, and added, removed or renamed files, land on the next one. A save logs these errors; a broken route's requests answer a 500 naming it; a helper that doesn't parse fails only the routes importing it. Never prerendered.
 
 ## env and index.dev.ts
 

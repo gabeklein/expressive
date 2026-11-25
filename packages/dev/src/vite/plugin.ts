@@ -21,7 +21,7 @@ import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { staticFile } from "../server/listen";
 import { install } from "../server/install";
 import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
-import { apiErrors, reservedApi, scanApi, verifyApi, type ApiFile } from "./api";
+import { apiErrors, helperAt, leafOf, reservedApi, scanApi, verifyApi, type ApiHelper } from "./api";
 
 const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
@@ -125,13 +125,13 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const remoteAt = (file: string) => (project.appDir ? remoteOf(project.appDir, file) : undefined);
 
-  const apiFiles = (): ApiFile[] | undefined => {
+  const apiFiles = () => {
     if (!existsSync(apiDir)) return;
 
-    const { routes, problems } = scanApi(root, apiDir);
+    const { problems, ...files } = scanApi(root, apiDir);
 
     if (problems.length) throw new Error(problems.join("\n"));
-    return routes;
+    return files;
   };
 
   const entries = () => [join(root, "index.ts"), join(root, "index.dev.ts")].map(file => existsSync(file) && file);
@@ -319,7 +319,7 @@ export function host(dotenv: boolean): Plugin<Host> {
         case routesId:
           return (routes = await generate());
         case serverId: {
-          const api = { prefix: apiPrefix, routes: apiFiles() };
+          const api = { prefix: apiPrefix, routes: apiFiles()?.routes };
 
           return settings?.target === "fetch"
             ? fetchEntry(project, generatedDir, exposure, await namedExports(project), api, await pages(), gated(project))
@@ -375,18 +375,31 @@ export function host(dotenv: boolean): Plugin<Host> {
       install();
       watchRoutes(server, project, routesId, async () => routes !== undefined && routes !== await generate(), () => (scanned = undefined));
 
-      let table: ApiRoute[] | undefined;
+      let table: { routes: ApiRoute[]; helpers: ApiHelper[] } | undefined;
+
+      const tableOf = () => {
+        const { routes, helpers } = apiFiles()!;
+
+        return {
+          helpers,
+          routes: routes.map(({ file, ...route }) => ({
+            ...route,
+            async load() {
+              const exports = await host.import(file);
+              verifyApi(route, exports);
+              return exports;
+            },
+          })),
+        };
+      };
 
       const routing: Api = {
         prefix: apiPrefix,
-        routes: () => (table ??= apiFiles()!.map(({ file, ...route }) => ({
-          ...route,
-          async load() {
-            const exports = await host.import(file);
-            verifyApi(route, exports);
-            return exports;
-          },
-        }))),
+        routes: () => (table ??= tableOf()).routes,
+        missing(segments, pathname) {
+          const helper = helperAt((table ??= tableOf()).helpers, segments);
+          return helper && `${helper.name} is a helper - rename it ${leafOf(helper.name)} to serve ${pathname}.`;
+        },
       };
 
       const moved = (file: string) => file.startsWith(apiDir + sep) && (table = undefined);

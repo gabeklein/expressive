@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer as listen } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -1360,11 +1360,14 @@ async function api() {
   let ok = false;
 
   write(dir, {
-    'api/hello.ts': `import { label } from '../server/label';
+    'api/(hello).ts': `import { label } from './label';
+import { suffix } from '../server/suffix';
 
-export const GET = () => label + ' old';
+export const GET = () => label + suffix + ' old';
 `,
-    'server/label.ts': `export const label = 'hello';
+    'api/label.ts': `export const label = 'hello';
+`,
+    'server/suffix.ts': `export const suffix = '';
 `,
     'app/index.tsx': `export const Page = () => <h1>hi</h1>;
 `
@@ -1392,13 +1395,24 @@ export const GET = () => label + ' old';
   try {
     if ((await get('/api/hello')) != '200 hello old') throw new Error(`before the edit: ${await get('/api/hello')}`);
 
-    await Bun.write(join(dir, 'api/hello.ts'), (await Bun.file(join(dir, 'api/hello.ts')).text()).replace("' old'", "' new'"));
+    await Bun.write(join(dir, 'api/(hello).ts'), (await Bun.file(join(dir, 'api/(hello).ts')).text()).replace("' old'", "' new'"));
     await until(async () => (await get('/api/hello')) == '200 hello new');
 
-    await Bun.write(join(dir, 'server/label.ts'), "export const label = 'imported';\n");
-    await until(async () => (await get('/api/hello')) == '200 imported new');
+    await Bun.write(join(dir, 'api/label.ts'), "export const label = 'helper';\n");
+    await until(async () => (await get('/api/hello')) == '200 helper new');
 
-    await Bun.write(join(dir, 'api/hello.ts'), "export const POST = () => 'posted';\n");
+    await Bun.write(join(dir, 'server/suffix.ts'), "export const suffix = '+server';\n");
+    await until(async () => (await get('/api/hello')) == '200 helper+server new');
+
+    if (!(await get('/api/label')).startsWith('404 ')) throw new Error(`helper served: ${await get('/api/label')}`);
+
+    renameSync(join(dir, 'api/(hello).ts'), join(dir, 'api/hello.ts'));
+    await until(async () => (await get('/api/hello')).startsWith('404 ') && (await get('/api/hello')).includes('rename it api/(hello).ts'));
+
+    renameSync(join(dir, 'api/hello.ts'), join(dir, 'api/(hello).ts'));
+    await until(async () => (await get('/api/hello')) == '200 helper+server new');
+
+    await Bun.write(join(dir, 'api/(hello).ts'), "export const POST = () => 'posted';\n");
     await until(async () => (await get('/api/hello')).startsWith('405 '));
 
     await Bun.write(join(dir, 'api/added/index.ts'), "export default () => new Response('gated', { status: 403 });\nexport const GET = () => 'added';\n");
@@ -1408,7 +1422,7 @@ export const GET = () => label + ' old';
     await until(async () => (await get('/api/added')).startsWith('404 '));
 
     ok = true;
-    console.log('PASS [server] api/ route edited, its import edited, a folder gate added and removed');
+    console.log('PASS [server] api/ route edited, its helper and import edited, renamed to a helper and back, a folder gate added and removed');
   } catch (error) {
     console.log(`FAIL [server] api/ edit - ${error instanceof Error ? error.message : error}`);
   } finally {
