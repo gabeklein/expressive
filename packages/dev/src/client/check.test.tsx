@@ -298,6 +298,25 @@ describe("gateCheck", () => {
     expect(paths(call)).toEqual(["/docs/a/b"]);
   });
 
+  it("will check a catch-all folder at its own path", async () => {
+    const call = pass();
+    const checked = gateCheck(call, { none: 1, in: [{ to: "docs", in: [{ to: "*", gate: 1, page: 1, in: [] }] }] });
+    const Tree = () => (
+      <Route fallback={null}>
+        <Route to="docs">
+          <Route to="*" as={text("docs")} enter={checked()} />
+        </Route>
+      </Route>
+    );
+
+    location("/docs");
+    const root = await mount(Tree);
+    await flush();
+
+    expect(root.textContent).toBe("docs");
+    expect(paths(call)).toEqual(["/docs"]);
+  });
+
   it("will pass without a window", async () => {
     const call = pass();
     const hook = vi.fn();

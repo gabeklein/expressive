@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 // @vitest-environment-options { "url": "http://localhost/" }
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 import { Component, Model } from "@expressive/mvc";
+import { Link, Redirect } from "@expressive/router";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route } from "../client";
@@ -253,7 +254,7 @@ describe("app/ routing (codegen)", () => {
 
   it("a module with a default loads on first entry", async () => {
     const out = await generate({ "index.tsx": PAGE, "(account).tsx": `${PAGE}\n${SCOPE}` });
-    expect(out).toContain('const AccountScope = () => import("../app/(account).tsx").then(m => props => <Component for={m.default}>{props.children}</Component>);');
+    expect(out).toContain('const AccountScope = () => import("../app/(account).tsx").then(m => props => wrap(m.default, props.children));');
     expect(out).toContain('const Account = () => import("../app/(account).tsx").then(m => m.Page);');
   });
 
@@ -368,7 +369,19 @@ describe("app/ routing (codegen)", () => {
   it("will import a lone default and provide it around the children", async () => {
     const out = await generate({ "index.tsx": SCOPE, "a/index.tsx": PAGE });
     expect(out).toContain('import RootScope from "../app/index.tsx";');
-    expect(out).toContain("const RootScoped = props => <Component for={RootScope}>{props.children}</Component>;");
+    expect(out).toContain("const RootScoped = props => wrap(RootScope, props.children);");
+    expect(out).not.toContain("const hook =");
+  });
+
+  it("will leave a default it cannot see declared to tell itself apart at runtime", async () => {
+    const IMPORTED = `import { Auth } from "../lib/auth";\nexport default Auth;`;
+    const out = await generate({ "index.tsx": `${PAGE}\n${IMPORTED}`, "(x).tsx": `${PAGE}\nexport { default } from "../lib/auth";` });
+
+    expect(out).toContain('import { Component, Model } from "@expressive/mvc";');
+    expect(out).toContain('const RootEnter = hook(RootScope, "app/index.tsx");');
+    expect(out).toContain('const XEnter = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
+    expect(out).toMatch(/<Route as={RootScoped} enter={RootEnter}>/);
+    expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnter}>\s*<Route as={X} \/>/);
   });
 
   it("will not route a leaf without a page", async () => {
@@ -533,6 +546,75 @@ describe("app/ routing (runtime)", () => {
     });
   });
 
+  it("will render the index alone at /, a [...] page beside it below, and a static page over both", async () => {
+    const Rest = () => <p>rest:{Route.get().match!["*"]}</p>;
+    const Tree = () => (
+      <Route as={RootLayout}>
+        <Route as={Home} />
+        <Route to="about" as={BlogIndex} />
+        <Route to="*" as={Rest} />
+      </Route>
+    );
+
+    for (const [path, text] of [["/", "home"], ["/x", "rest:x"], ["/about", "blog-index"]]) {
+      document.body.replaceChildren();
+      location(path);
+      expect((await mount(Tree)).querySelector("[data-root]")?.textContent).toBe(text);
+    }
+  });
+
+  it("will leave a [...] page without rendering it against the next page's path", async () => {
+    const Claim = () => (
+      <Route>
+        <Route to="claim" as={() => <Link to="/report">report</Link>} />
+        <Route none as={() => <Redirect to="/claim" />} />
+      </Route>
+    );
+    const Report = () => Promise.resolve(() => <h1>report</h1>);
+    const Tree = () => (
+      <Route fallback={null}>
+        <Route to="report" as={Report} fallback={null} />
+        <Route to="*" as={Claim} fallback={null} />
+      </Route>
+    );
+
+    location("/claim");
+    const root = await mount(Tree);
+
+    root.querySelector("a")!.click();
+    await settle();
+    await settle();
+
+    expect(window.location.pathname).toBe("/report");
+    expect(root.textContent).toBe("report");
+  });
+
+  it("will hold a folder's page under a Layout reading the path while the next page loads", async () => {
+    let load!: (page: () => any) => void;
+    const Post = () => new Promise<() => any>(resolve => (load = resolve));
+    const Shell = (props: { children?: any }) => <section data-path={Route.get().router.path}>{props.children}<Link to="/blog/x">x</Link></section>;
+    const Tree = () => (
+      <Route fallback={null}>
+        <Route to="blog" as={Shell} fallback={null}>
+          <Route as={BlogIndex} fallback={null} />
+          <Route to=":slug" as={Post} fallback={null} />
+        </Route>
+      </Route>
+    );
+
+    location("/blog");
+    const root = await mount(Tree);
+
+    root.querySelector("a")!.click();
+    await settle();
+    await settle();
+
+    expect(root.textContent).toBe("blog-indexx");
+
+    load(() => <p>post</p>);
+    await vi.waitFor(() => expect(root.textContent).toBe("postx"));
+  });
+
   it("will let a static page shadow a param folder beside it, as the tree passes it through", async () => {
     const Through = (props: { children?: any }) => props.children;
     const Room = () => <p>room:{Route.get().match!.id}</p>;
@@ -635,6 +717,102 @@ describe("app/ routing (scope)", () => {
     location("/x");
     const root = await mount(Tree);
     expect(root.querySelector("[data-frame]")?.textContent).toBe("inside");
+  });
+});
+
+describe("app/ routing (generated)", () => {
+  browserRouter();
+
+  const dirs: string[] = [];
+  const PRAGMA = "/** @jsxImportSource @expressive/dev */\n";
+  const BUILD = join(import.meta.dirname, "../../build");
+
+  beforeAll(() => mkdirSync(BUILD, { recursive: true }));
+  afterAll(() => rmSync(BUILD, { recursive: true, force: true }));
+
+  afterEach(() => {
+    while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+
+  async function app(files: Record<string, string>, path: string) {
+    const root = mkdtempSync(join(BUILD, "routes-"));
+    const appDir = join(root, "app");
+    const out = join(root, "out", "routes.tsx");
+
+    dirs.push(root);
+
+    for (const [file, src] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), PRAGMA + src);
+    }
+
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, PRAGMA + await generateRoutes(appDir, dirname(out), scanExports));
+
+    location(path);
+
+    const { default: App } = await import(/* @vite-ignore */ out);
+
+    return mount(App);
+  }
+
+  const shows = (read: () => unknown, expected: string) => vi.waitFor(() => expect(read()).toBe(expected));
+
+  const FRAME = `import { Component } from "@expressive/mvc";
+    export class Frame extends Component {
+      title = "frame";
+      render(props) { return <section>{this.title}:{props.children}</section>; }
+    }`;
+  const SESSION = `import { Model } from "@expressive/mvc";
+    export class Session extends Model { user = "ada"; }`;
+  const GUARD = `export const guard = () => "/";`;
+  const PAGE = `export const Page = () => <h1>page</h1>;`;
+  const USER = `import { Session } from "../lib/session"; export const Page = () => <h1>{Session.get().user}</h1>;`;
+
+  it.each([
+    ["at the root", { "app/index.tsx": `import { Frame } from "../lib/frame"; export default Frame; ${PAGE}` }, "/"],
+    ["beside a Layout", { "app/index.tsx": `import { Frame } from "../lib/frame"; export default Frame; ${PAGE} export const Layout = props => <main>{props.children}</main>;` }, "/"],
+    ["on a lazy folder", { "app/index.tsx": PAGE, "app/x/index.tsx": `import { Frame } from "../../lib/frame"; export default Frame; ${PAGE}` }, "/x"],
+    ["on a lazy folder beside a Layout", { "app/index.tsx": PAGE, "app/x/index.tsx": `import { Frame } from "../../lib/frame"; export default Frame; ${PAGE} export const Layout = props => <main>{props.children}</main>;` }, "/x"],
+  ])("will render a default Component imported from elsewhere around the page %s", async (_, files, path) => {
+    const root = await app({ ...files, "lib/frame.tsx": FRAME }, path);
+    await shows(() => root.querySelector("section")?.textContent, "frame:page");
+  });
+
+  it("will render a default Component declared in the module around the page", async () => {
+    const root = await app({ "app/index.tsx": PAGE, "app/(x).tsx": `${FRAME.replace("export class", "export default class")} ${PAGE}` }, "/x");
+    await shows(() => root.querySelector("section")?.textContent, "frame:page");
+  });
+
+  it("will provide a default Model imported from elsewhere", async () => {
+    const root = await app({ "app/index.tsx": `export { Session as default } from "../lib/session"; ${USER}`, "lib/session.ts": SESSION }, "/");
+    await shows(() => root.textContent, "ada");
+  });
+
+  it("will run a default function imported from elsewhere as the entry hook", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(x).tsx": `import { guard } from "../lib/guard"; export default guard; export const Page = () => <h1>x</h1>;`,
+      "lib/guard.ts": GUARD,
+    }, "/x");
+
+    await shows(() => root.textContent, "page");
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("will throw naming the route for a default imported from elsewhere that is a class but not a Model", async () => {
+    await expect(app({ "app/index.tsx": `import { Plain } from "../lib/plain"; export default Plain; ${PAGE}`, "lib/plain.ts": "export class Plain {}" }, "/"))
+      .rejects.toThrow("app/index.tsx: the default export Plain is a class but not a Model or Component.");
+  });
+
+  it("will render the root index alone at /, and a root [...] page below", async () => {
+    const files = { "app/index.tsx": PAGE, "app/[...].tsx": `export const Page = () => <h1>rest</h1>;`, "app/(about).tsx": `export const Page = () => <h1>about</h1>;` };
+
+    for (const [path, text] of [["/", "page"], ["/x", "rest"], ["/about", "about"]]) {
+      document.body.replaceChildren();
+      const root = await app(files, path);
+      await shows(() => root.textContent, text);
+    }
   });
 });
 

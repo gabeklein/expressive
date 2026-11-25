@@ -137,6 +137,7 @@ function probing(fiber: Fiber) {
   const scope = fiber.scope!;
 
   scope.empty = () => !fiber.children.length;
+  scope.bounds = () => [fiber.start, fiber.end];
   scope.probe = () => {
     try {
       scope.probed = { output: consume(fiber, fiber.render!) };

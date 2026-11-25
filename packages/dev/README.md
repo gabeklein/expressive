@@ -12,7 +12,7 @@ app/                  file-based routes
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the "/blog" page
   blog/[slug].tsx     /blog/:slug  param leaf
-  docs/[...].tsx      /docs/*      catch-all
+  docs/[...].tsx      /docs/*      catch-all - zero segments or more; docs/index.tsx wins /docs
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth, index optional
 app.tsx | src/app.tsx single root component instead of app/ (default export)
@@ -32,7 +32,8 @@ page's waits show its slot's `Loading`.
 The `default` export is read by kind. A function is the entry hook: it runs with the Route before
 it renders, and a returned string redirects (`null` falls through to the 404). A class - Model or
 Component - renders around the route's content and is provided to everything below it; with a
-`Layout`, it wraps the `Layout`.
+`Layout`, it wraps the `Layout`. A Component's `render()` places that content as `props.children`.
+A default imported from another module is told apart when the route loads.
 
 `Loading` is the placeholder for the content slot of the `Layout` beside it: any page rendered
 there that cannot show anything yet - its code, its entry hook or its data still pending - shows
@@ -725,6 +726,8 @@ loads its data on render does not.
 - A `paths()` that calls the server lists nothing.
 
 A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
+An async `new()` that rejects while its page renders counts as a throw; one rejecting after the page
+rendered keeps the page and warns.
 
 `new()` runs during the render and effects never do, so DOM listeners and browser-only reads
 belong in effects; `typeof window` tells the build apart, since `import.meta.env.SSR` is false
