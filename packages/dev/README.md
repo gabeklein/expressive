@@ -62,6 +62,13 @@ JSX compiles against `@expressive/dev`'s runtime, which is `@expressive/dom`'s. 
 `"jsxImportSource": "@expressive/dev"` in the app's tsconfig; the types carry dom's `Model`
 augmentation (`Model.get()` and friends), so nothing else is needed.
 
+The tsconfig's `include` must list `api/`, `index.ts` and `index.dev.ts` beside `app/` - nothing
+imports them, so `tsc` checks them only through `include`. Add any folder they import from too:
+
+```json
+{ "include": ["app", "api", "index.ts", "index.dev.ts", "env.d.ts"] }
+```
+
 ## Server
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
@@ -88,6 +95,20 @@ export default config({
 
 - Returning nothing passes through `next()`'s reply if it was called, else calls it. Anything else
   returned throws. `next()` runs once, and only until `handle` returns.
+- Returning nothing suits a `handle` that doesn't wrap the app - a check, a log line. A `handle`
+  that wraps it (a session, a transaction) must `return next()` inside the wrapper and return the
+  wrapper's result. Otherwise the app runs after the wrapper has closed, and fails with the
+  wrapper's own error (dev warns when a 500 follows a `handle` that returned nothing):
+
+  ```ts
+  // right - the app runs inside the session, which stays open until the reply
+  handle: ({ next }) => db.session(() => next()),
+
+  // wrong - nothing returned, so the app runs after handle, outside the session
+  handle: async ({ next }) => {
+    await db.session(async () => audit());
+  },
+  ```
 - `next(request)` forwards a rewritten request. Anything other than a `Request` throws, so a wrapper
   that calls back with its own value (`db.transaction(next)`) fails loudly - wrap it: `() => next()`.
   To read the body and still pass it on, read `request.clone()`.
@@ -100,8 +121,8 @@ export default config({
   (`Redirect` sets `Location`). Anything else is logged and answered with a 500 whose message shows
   in dev only.
 - Below `handle`: a remote call, else an `api/` route under `/api` (below), else the page or file - on Node, the file or `<path>/index.html` from
-  `dist/client`; on the `fetch` target, from `assets` (`env.ASSETS` by default); in dev, a `public/`
-  file. Else the shell (`200.html`, else `index.html`) for a GET or HEAD outside `build.assetsDir`:
+  `dist/client`; on the `fetch` target, from `assets` (`env.ASSETS` by default); in dev, the file
+  or `<path>/index.html` from `public/`. Else the shell (`200.html`, else `index.html`) for a GET or HEAD outside `build.assetsDir`:
   with 200 on a path a page route matches, with 404 for a navigation (`accept` has `text/html`) no
   route matches, so the router's `NotFound` renders. Anything else is a bare 404, so a stale chunk
   never comes back as HTML; a built app answers other methods than GET and HEAD with 404 too. A
@@ -113,11 +134,14 @@ export default config({
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
   the root outside `public/`. Calls and `/api` paths never skip it. A request it passes that is neither a file nor a navigation goes on to
   Vite's middlewares, with the headers `handle` added and the request it forwarded.
+- A navigation never reaches a later middleware - dev answers it with the shell first. A Vite plugin
+  in `vite.config.ts` that serves pages from its own `configureServer` middleware needs
+  `enforce: "pre"` to run ahead of dev's.
 
 `env` is the request's bindings - see env and index.dev.ts, below.
 
-`compose(settings)` from `@expressive/dev/server` builds the app without a server, for tests -
-no remotes; pages come from a stubbed `assets`:
+`compose(settings)` from `@expressive/dev/server` builds the app without a server, for tests of
+`handle` - pages come from a stubbed `assets`:
 
 ```ts
 import { compose } from "@expressive/dev/server";
@@ -125,6 +149,20 @@ import settings from "../index.ts";
 
 const app = compose(settings);
 const page = await app(new Request("http://x/invite/abc"), { assets: { fetch: async () => new Response(shell) } });
+```
+
+It composes no remotes and no `api/` routes. Test a route's logic by moving it into a function of plain arguments outside `api/`, which the
+route calls with what it reads from `Current`:
+
+```ts
+// server/photo.ts
+export const photo = (id: string) => db.photos.find(id);
+
+// api/photo/[id].ts
+export const GET = () => photo(Current.get().params.id);
+
+// server/photo.test.ts
+expect(await photo("7")).toMatchObject({ id: "7" });
 ```
 
 ### api/ routes
@@ -163,6 +201,10 @@ export async function POST() {
   A returned value is the reply: a `Response` as is, a plain object or array as JSON, a string as
   text, nothing as 204. HEAD runs `GET` and drops the body. Another method gets 405 with `Allow`.
   Nothing answers OPTIONS for you - CORS and preflight go in `handle` or a folder gate.
+- HEAD runs `GET` in full, side effects included, and browsers and crawlers prefetch GETs - so
+  keep anything that changes state off `GET`. A logout is `POST` in `api/logout.ts`, not `GET`.
+- A route or gate that throws anything but an `HttpError` answers a logged 500 - its message shows
+  in dev only, as with `handle`.
 - A `default` export answers every method on its path - a catch-all, and the place to mount a
   fetch handler. Routes take no arguments, so the default is an arrow that returns the handler,
   which is then called with `(request, env, ctx)`:
@@ -229,11 +271,12 @@ to a broken route answers a 500 naming the file. `api/` routes are never prerend
 `handle`'s `env` and `Current.get().env` hold the request's bindings:
 
 - On the `fetch` target: the host's `env` object, as is.
-- On Node and in dev: a read-only view - in dev, what `index.dev.ts`'s `env()` returns, then
-  `process.env`, then the `.env` files. The first that has a key wins.
+- On Node and in dev: a read-only view - `process.env`, then the `.env` files, then (in dev) what
+  `index.dev.ts`'s `env()` returns. The first that has a key wins.
 
-So `env()` returns only live objects, such as a local database standing in for a host binding.
-Strings come from `.env`, and the keys `expressive env` writes to `env.d.ts` type `env` too.
+So the shell and `.env` override any string `env()` returns - a production URL in wrangler's `vars`,
+say - while live objects only `env()` has, such as a local database standing in for a host binding,
+still come through. The keys `expressive env` writes to `env.d.ts` type `env` too.
 
 `expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists. It imports `./index`
 (no extension, so the app's tsconfig needs no extra flag), sets `settings.env` and default-exports
@@ -309,8 +352,9 @@ settings.env = async () => (await getPlatformProxy<Env>()).env;
 export default settings;
 ```
 
-`wrangler d1 migrations apply DB --local` creates the local database's tables - dev runs no
-migrations.
+Strings set in the shell or `.env` win over `vars` from `wrangler.jsonc`, so a line in `.env`
+overrides a production URL there for dev. `wrangler d1 migrations apply DB --local` creates the
+local database's tables - dev runs no migrations.
 
 `wrangler.jsonc` sets `"main": "dist/server/index.js"`, `"compatibility_flags": ["nodejs_compat"]`
 and `"assets": { "directory": "dist/client", "binding": "ASSETS", "run_worker_first": ["/*",

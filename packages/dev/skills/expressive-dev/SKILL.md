@@ -11,7 +11,7 @@ App host: `expressive dev` and `expressive dev build` over Vite, rendering with 
 npm install @expressive/dev @expressive/mvc
 ```
 
-tsconfig: `"jsxImportSource": "@expressive/dev"` - dom's runtime and its `Model` augmentation.
+tsconfig: `"jsxImportSource": "@expressive/dev"` - dom's runtime and its `Model` augmentation. `include` must list `api`, `index.ts`, `index.dev.ts` beside `app` - nothing imports them: `["app", "api", "index.ts", "index.dev.ts", "env.d.ts"]`.
 
 `@expressive/dev` exports `Route`, `Router` and `NotFound`, and re-exports `Link`, `NavLinks` and `Redirect` from `expressive-router` and `render`, `style`, `Css`, `Style`, `Portal`, `Fragment`, `createElement` and `JSX` from `expressive-dom`. `Model`, `Component` and instructions come from `@expressive/mvc`. The dev server's inspector is `expressive-inspect`. Per-symbol contracts are JSDoc on hover.
 
@@ -131,18 +131,19 @@ export default config({
 });
 ```
 
-- Nothing returned: `next()`'s reply if called, else `next()` is called. Other return values throw. `next()` once, and only until `handle` returns.
+- Nothing returned: `next()`'s reply if called, else `next()` is called - after `handle` returned, outside anything it wrapped. Other return values throw. `next()` once, and only until `handle` returns.
+- Returning nothing is for a `handle` that doesn't wrap the app (a check, a log). A wrapping `handle` returns the wrapper with `return next()` inside: `({ next }) => db.session(() => next())`. Never `async ({ next }) => { await db.session(...); }` - the app then runs after the session closed and fails with its error; dev warns on a 500 after a `handle` that returned nothing.
 - `next(request)` forwards a rewrite; a non-`Request` argument throws - wrap callbacks: `db.transaction(() => next())`. Read the body through `request.clone()` to still pass it on.
 - `next()` resolves a `Response` with mutable headers (101 as is); a throw below resolves its error reply. A discarded reply's body is cancelled.
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
-- Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: a `public/` file. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
+- Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: from `public/`. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
 - Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
-- Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request.
+- Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request. Navigations get the shell first - a `vite.config.ts` plugin serving pages from its `configureServer` middleware needs `enforce: "pre"`.
 
 `env` - the request's bindings, below.
 
-Tests: `compose(settings)` from `@expressive/dev/server` - the app without remotes, pages from a stub: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`.
+Tests: `compose(settings)` from `@expressive/dev/server` - `handle` over a stubbed `assets`, no remotes, no `api/` routes: `await compose(settings)(new Request("http://x/a"), { assets: { fetch: async () => new Response(shell) } })`. Test a route's logic as a plain function outside `api/` that the route calls with what it reads from `Current`: `export const GET = () => photo(Current.get().params.id)`, then test `photo("7")`.
 
 ## api/ routes
 
@@ -170,6 +171,8 @@ export const GET = () => legacy.fetch;
 ```
 
 - `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` answer that method on the module's path. Returned value: `Response` as is, object/array as JSON, string as text, nothing 204. HEAD runs `GET` without the body. Other methods: 405 with `Allow`. OPTIONS is never synthesised - CORS and preflight go in `handle` or a folder gate.
+- HEAD runs `GET`'s side effects, and GETs get prefetched - nothing that changes state on `GET`. Logout is `POST`.
+- A throw other than `HttpError` in a route or gate: logged 500, message in dev only.
 - `default` outside a folder `index.ts`: catch-all for every method on its path. Routes take no arguments, so return the handler - a returned function (from a verb too) is called with `(request, env, ctx)`. The path is not rewritten - give the mounted app its base path (`basePath("/api/legacy")`). Bind a `fetch` that needs `this`.
 - `default` in a folder `index.ts`: the folder's gate, before every route below, outermost first, on unmatched paths too. Finish to pass, throw to refuse (`HttpError` → its status as JSON `{ message }`, else logged 500), return a `Response` or fetch handler to answer, `Current.get().next()` to wrap. Its Models are `X.get()`-able below until the request ends. Sees its own folder's params; routes see the full match's.
 - No module for the path, or an `index.ts` with only a gate: JSON 404, never the shell.
@@ -182,7 +185,7 @@ export const GET = () => legacy.fetch;
 
 `handle`'s `env` and `Current.get().env`:
 - `fetch` target: the host's `env` object as is.
-- Node and dev: read-only - `index.dev.ts`'s `env()` (dev), then `process.env`, then `.env` files; the first with the key wins. `env()` returns only live objects; strings come from `.env`.
+- Node and dev: read-only - `process.env`, then `.env` files, then `index.dev.ts`'s `env()` (dev); the first with the key wins. Shell and `.env` override `env()`'s strings (wrangler's production `vars`); live objects only `env()` has (`DB`) come through.
 
 `expressive dev` reads `index.dev.ts` in place of `index.ts` when it exists; the build never does, so its imports reach no bundle. It imports `./index` (no extension - no tsconfig flag), sets `settings.env`, default-exports the settings. `env` set in `index.ts`, a `bindings` export, or no default export in `index.dev.ts` fails dev and the build.
 
