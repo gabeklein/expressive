@@ -130,6 +130,20 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
+  it("will reject a page whose root default fails its async new()", async () => {
+    const root = project({
+      "app/index.tsx": `
+        import { Model } from "@expressive/mvc";
+        export default class Session extends Model { async new() { throw new Error("no session"); } }
+        export const Page = () => <p>home</p>;
+      `,
+    });
+    const renderer = await launch(root);
+
+    await expect(renderer.render("/")).rejects.toThrow("no session");
+    renderer.close();
+  });
+
   it("will render a single-file app and list no paths", async () => {
     const renderer = await launch(project({ "app.tsx": `export default () => <p>solo</p>;` }));
 

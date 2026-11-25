@@ -89,6 +89,7 @@ export function prerenderEntry(appImport: string, sources: string[]): string {
 
   return `\
 import { renderToString } from "@expressive/dom/server";
+import { Model } from "@expressive/mvc";
 import { Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import { scope } from "./call.ts";
@@ -112,20 +113,25 @@ export async function paths() {
 
 export default async function page(path) {
   let router;
+  let failed;
   const stop = Router.on({ setup(self) { router = self; } });
+  const unfail = Model.on({ catch(error, kind) { if (kind == "dead" || kind == "unused") return error; failed ??= [error]; } });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
   const mark = { called: false, abort };
 
   try {
     const output = await scope.run(mark, () => renderToString(jsx(App, { path }), { signal: abort.signal }));
-    return mark.called ? null : { ...output, path: router ? router.path : path };
+    if (mark.called) return null;
+    if (failed) throw failed[0];
+    return { ...output, path: router ? router.path : path };
   } catch (error) {
     if (mark.called) return null;
     throw error;
   } finally {
     clearTimeout(timer);
     stop();
+    unfail();
   }
 }
 `;
