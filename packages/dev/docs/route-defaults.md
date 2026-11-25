@@ -175,6 +175,14 @@ The recipe's `account = set(auth.profile)` also relies on #832 (mvc): factory fi
 - A page's missing record: the page throws `NotFound`, reaching the same `Catch`.
 - dev's default `Catch` renders a plain not-found page for `NotFound`, so a folder without one still has a 404.
 
+### Leaving not-found
+
+`NotFound` leaves the URL as it was, so links, `goto` and Back work as from any page.
+
+- **A caught error clears when the route's match changes.** The route that caught it is the folder's, which stays mounted across siblings (`/card/1` → `/card/2`, `/card/missing` → `/card`); its `Catch` drops the error on a match change, or the screen would stick. Tested for a sibling move.
+- **Same URL: `retry`.** `Catch` gets `retry` for every error, `NotFound` included; it re-runs the page, which renders if the record exists now or throws again. A reload does the same.
+- **No automatic recovery.** A thrown `NotFound` replaces the page with `Catch`, so nothing watches for the record. Throw it when the URL names nothing - a bad id, a deleted record. When an absence is temporary and the page should notice it ending (data still syncing, a list that will fill), render an empty state instead - an ordinary conditional, not a 404.
+
 ### Status
 
 - An unmatched URL keeps its 404 from the server, which sees the path (page patterns in each entry).
