@@ -417,20 +417,32 @@ class Account extends Model {
 
 export default () => void Account.new();
 
-export async function admin() {
-  return Account.get().user!.admin;
+export async function profile() {
+  return Account.get().user;
 }
 ```
 
-```tsx
-// app/account/index.tsx
-import { admin } from "./remote";
+A refused call rejects with the gate's error.
 
-export default async () => ((await admin()) ? undefined : "/");
-```
+### Gate check
 
-A refused call rejects with the gate's error: from an entry hook, one carrying a 3xx `status` and a
-`location` redirects there, and anything else reaches the nearest `Catch`.
+Before entering a gated folder's pages, the browser runs its gates once: a gate check, a call
+request to the deepest gated folder on the path that answers `{}` after the gates pass. A refusal
+reaches the nearest `Catch`, whose `retry` checks again. An error with a 3xx `status` and a
+`location` - or a 3xx `Response` the gate returns - redirects: a path through the router, another
+origin through `location.assign`, and a path inside the refusing folder to `Catch` instead of
+looping. A network failure, or a reply that isn't rpc's, passes - the page's own calls still meet
+the gates.
+
+- One check per gated folder entered at a concrete path: a pass covers the folder and those above
+  it until a param changes. Moving inside it, or leaving gated folders, sends nothing. A refusal
+  is not remembered.
+- A newer navigation drops an in-flight check's verdict; its cookies still land.
+- The folder's entry hook, and its module's code, run after the pass.
+- Not security: every call still runs its gates. Gates run for checks and calls alike, possibly
+  concurrently, so they must be idempotent; rate limits and logs count checks too.
+- Gated folders are not prerendered, and a root gate (`app/remote.ts`) gates every page.
+- In dev, editing a gate clears the passes the browser remembered.
 
 `Current` (from `@expressive/dev/server`) is the request in progress, readable from any server
 Model or function in a call: `Current.get().url`, `.cookies`, `.request` (a Web `Request`), and `setHeader` for

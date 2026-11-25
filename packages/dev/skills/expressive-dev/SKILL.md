@@ -96,6 +96,7 @@ export async function profile() {
 }
 ```
 
+- Gate check: entering a gated folder's pages sends one call to the deepest gated folder on the path, answered `{}` once its gates pass - before the folder's entry hook and code. A pass covers the folder at that concrete path and those above; moving inside it sends nothing, a param change checks again. A refusal reaches `Catch` (`retry` checks again); a 3xx `status` with `location`, or a 3xx `Response` from the gate, redirects - another origin through `location.assign`, a path inside the refusing folder to `Catch`. A network failure or non-rpc reply passes. A newer navigation drops an in-flight verdict. Not security - calls still run the gates, so gates must be idempotent. Gated folders are not prerendered; a root gate gates every page. In dev, editing a gate clears remembered passes. Replaces a sign-in check in an entry hook: throw a `Redirect` from the gate.
 - `key()`/`ttl` belong to rpc's class gates (`expressive-rpc/SKILL.md`); dev no longer reads them.
 - `Cookies` (from `@expressive/dev/server`, as in rpc): a subclass declares cookies as fields; `AppCookies.get()` reads this request's and `AppCookies.set({ ... })` sends `Set-Cookie` with the reply. `Current` is the lower level: `.request`, `.url`, `.cookies`, read-only, and `setHeader(name, value)`.
 - Process-wide state: a module-level `X.new(Context.root)`, found by `get()` from any call.
