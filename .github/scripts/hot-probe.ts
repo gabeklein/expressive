@@ -1407,7 +1407,7 @@ export const GET = () => label + suffix + ' old';
     if (!(await get('/api/label')).startsWith('404 ')) throw new Error(`helper served: ${await get('/api/label')}`);
 
     renameSync(join(dir, 'api/(hello).ts'), join(dir, 'api/hello.ts'));
-    await until(async () => (await get('/api/label')).startsWith('500 ') && (await get('/api/label')).includes('rename it api/(hello).ts'));
+    await until(async () => (await get('/api/hello')).startsWith('404 ') && (await get('/api/hello')).includes('rename it api/(hello).ts'));
 
     renameSync(join(dir, 'api/hello.ts'), join(dir, 'api/(hello).ts'));
     await until(async () => (await get('/api/hello')) == '200 helper+server new');

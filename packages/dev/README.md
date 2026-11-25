@@ -383,7 +383,9 @@ export async function POST() {
   ```
 
   A gate sees its own folder's params; a route sees the full match's.
-- A path no module serves, or a folder `index.ts` with only a gate, is a JSON 404 - never the shell.
+- A path no route serves, or a folder `index.ts` with only a gate, is a JSON 404 - never the shell.
+  In dev, when a helper sits where the path would be (`api/webhook.ts` for `/api/webhook`), the 404
+  says so: `api/webhook.ts is a helper - rename it api/(webhook).ts to serve /api/webhook.`
 - Matching is exact and case-sensitive, on decoded segments - `/api/caf%C3%A9` reaches `api/(café).ts`.
   A fixed name beats a `[param]`, which beats `[...]`, and a segment never backtracks: once
   `api/admin/` matches `admin`, `/api/admin/users` is a 404 if `admin/` lacks `users`, even beside
@@ -393,21 +395,26 @@ export async function POST() {
 
 The dev server and the build fail on:
 
-- a module with neither verbs nor a `default` (a folder `index.ts` with only a gate is fine), a
+- a route with neither verbs nor a `default` (a folder `index.ts` with only a gate is fine), a
   `default` beside verbs outside an `index.ts`, or a class as a folder's `default` - a function that
   activates the Model covers it;
-- any other runtime export from a route (type exports are fine) - `api/index.ts`'s are reserved;
-- a helper exporting a verb - it was meant as a route, so name it `(name).ts`;
-- `(name)` folders, a `[...]` folder, a named rest (`[...slug]` - use `[...]` or `[slug]`), a name
-  starting with `:` or `*`, two `[param]`s in one folder, and two modules on one path
-  (`api/(dev).ts` beside `api/dev/index.ts`);
+- any other runtime export from a route (type exports are fine) - `api/index.ts`'s are reserved. A
+  route re-exporting with `export *` fails the build: list the verbs by name, `export { GET } from`;
+- a helper exporting a verb-named handler (`export function GET`, `export const POST = () => …`) -
+  it was meant as a route, so name the file `(name).ts`. The build fails; dev logs it on save.
+  Helpers shouldn't export verb-named handlers; a verb-named value that isn't a function, or a
+  re-export, is not flagged;
+- a `().ts` with no name, `(name)` folders, a `[...]` folder, a named rest (`[...slug]` - use
+  `[...]` or `[slug]`), a name starting with `:` or `*`, two `[param]`s in one folder, and two
+  modules on one path (`api/(dev).ts` beside `api/dev/index.ts`);
 - `app/api/`, `app/(api)/`, `app/(api).tsx` or `public/api/` beside `api/`, in any case - `/api`
   belongs to the folder. Without `api/`, the app may own `/api` itself;
 - a client module importing from `api/`, helpers included - it is server-only.
 
 In dev, routes load on the module runner per request, so an edit to a route or a helper it imports
-lands on the next one; a file added, removed or renamed under `api/` is picked up as well. A save under `api/` logs these errors, and a request
-to a broken route answers a 500 naming the file. `api/` routes are never prerendered.
+lands on the next one; a file added, removed or renamed under `api/` is picked up as well. A save
+under `api/` logs these errors, and a request to a broken route answers a 500 naming the file. A
+helper that doesn't parse fails only the routes importing it. `api/` routes are never prerendered.
 
 ### env and index.dev.ts
 
