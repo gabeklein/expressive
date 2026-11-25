@@ -64,7 +64,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   return [
     `import ${pageImports} from "@expressive/dev";`,
     ...(provides ? ['import { Component } from "@expressive/mvc";'] : []),
-    ...(gated ? [`import { call } from "./${CALL}";`] : []),
+    ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),

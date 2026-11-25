@@ -220,7 +220,7 @@ describe("app/ routing (codegen)", () => {
     });
 
     expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
-    expect(out).toContain('import { call } from "./call.ts";');
+    expect(out).toContain('import { call } from "@expressive/rpc";');
     expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
     expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
     expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');

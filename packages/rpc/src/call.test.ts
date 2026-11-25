@@ -25,6 +25,12 @@ describe("call endpoints", () => {
     expect(resolve([at("docs", "*"), at("docs", ":page")], ["docs", "a"])?.endpoint.pattern).toEqual(["docs", ":page"]);
   });
 
+  it("will prefer a folder to its catch-all sibling for the folder's own path", () => {
+    expect(resolve([at("blog", "*"), at("blog")], ["blog"])?.endpoint.pattern).toEqual(["blog"]);
+    expect(resolve([at("*"), at()], [])?.endpoint.pattern).toEqual([]);
+    expect(resolve([at("*"), at()], ["a"])?.endpoint.pattern).toEqual(["*"]);
+  });
+
   it("will not match a path no sidecar owns", () => {
     expect(resolve(endpoints, ["blog"])).toBeUndefined();
     expect(resolve(endpoints, ["blog", "a", "b"])).toBeUndefined();

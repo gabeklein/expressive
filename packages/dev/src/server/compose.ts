@@ -35,6 +35,16 @@ const noop = () => {};
 export function compose(settings: Settings = {}, { sidecars = () => [], gates, api, pages, dev = false }: Parts = {}): App {
   const { env: _, ...read } = settings;
   const { handle } = check(read);
+  let warn = dev;
+
+  const failed = (reply: Response) => {
+    if (warn && reply.status >= 500) {
+      warn = false;
+      console.warn(UNWRAPPED);
+    }
+
+    return reply;
+  };
 
   return async (request, { env = {}, ctx, assets } = {}) => {
     const filled = fill(ctx);
@@ -43,7 +53,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
       bind(forward, env as Env, filled);
 
       if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
-      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
+      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api, dev).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {
@@ -56,7 +66,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
     if (!handle) return below(request);
 
     try {
-      return await around(handle, { request, env: env as Env, ctx: filled }, below);
+      return await around(handle, { request, env: env as Env, ctx: filled }, below, failed);
     } catch (error) {
       if (!isCall(request)) return refuse(error, dev);
       if (!(error instanceof HttpError)) console.error(error);
@@ -66,7 +76,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
   };
 }
 
-async function around(handle: NonNullable<Settings["handle"]>, args: Omit<HandleArgs, "next">, below: (request: Request) => Promise<Response>): Promise<Response> {
+async function around(handle: NonNullable<Settings["handle"]>, args: Omit<HandleArgs, "next">, below: (request: Request) => Promise<Response>, failed: (reply: Response) => Response): Promise<Response> {
   let taken: Promise<Response> | undefined;
   let returned = false;
 
@@ -86,7 +96,7 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
 
     returned = true;
 
-    if (result === undefined) return await (taken ?? take(args.request));
+    if (result === undefined) return taken ? await taken : failed(await take(args.request));
     if (!(result instanceof Response)) throw new TypeError(`handle returned ${kind(result)} - return a Response, or nothing to pass.`);
 
     void taken?.then(reply => discard(reply, result), noop);
@@ -98,6 +108,8 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
     throw error;
   }
 }
+
+const UNWRAPPED = "handle returned nothing, so the app ran after it, and failed. If handle wraps the app in something (a session, a transaction), it must return next() inside the wrapper - the app otherwise runs outside it.";
 
 const SHELLS = ["/200.html", "/index.html"];
 const CONDITIONAL = ["if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range", "range"];
