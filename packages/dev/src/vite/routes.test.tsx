@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 import { Component, Model } from "@expressive/mvc";
+import { Link, Redirect } from "@expressive/router";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route } from "../client";
@@ -548,6 +549,32 @@ describe("app/ routing (runtime)", () => {
       location(path);
       expect((await mount(Tree)).querySelector("[data-root]")?.textContent).toBe(text);
     }
+  });
+
+  it("will leave a [...] page without rendering it against the next page's path", async () => {
+    const Claim = () => (
+      <Route>
+        <Route to="claim" as={() => <Link to="/report">report</Link>} />
+        <Route none as={() => <Redirect to="/claim" />} />
+      </Route>
+    );
+    const Report = () => Promise.resolve(() => <h1>report</h1>);
+    const Tree = () => (
+      <Route fallback={null}>
+        <Route to="report" as={Report} fallback={null} />
+        <Route to="*" as={Claim} fallback={null} />
+      </Route>
+    );
+
+    location("/claim");
+    const root = await mount(Tree);
+
+    root.querySelector("a")!.click();
+    await settle();
+    await settle();
+
+    expect(window.location.pathname).toBe("/report");
+    expect(root.textContent).toBe("report");
   });
 
   it("will let a static page shadow a param folder beside it, as the tree passes it through", async () => {
