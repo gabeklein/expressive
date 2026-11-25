@@ -127,15 +127,15 @@ Today a route module's `default` is read by kind - a function is an entry hook, 
 - **A leaf's `default` is its page.** `Page` stays for index modules and for leaves whose state and view are separate.
 - **Redirect and not-found are thrown errors**, caught by the route: `Redirect` navigates, `NotFound` renders the folder's `Catch`. One spelling in pages, `new()`, gates and calls.
 - **The 404 folds into `Catch`.** The `NotFound` route export goes; an unmatched URL throws `NotFound` into the same `Catch`.
-- **The router's `<Redirect>` component is deleted**, in the router itself, not only in dev.
+- **dev's `Route` and `Router` recognize the errors**, by extending the router's. The router learns nothing about HTTP; `NotFound` is dev's alone.
 - **No entry hook.** A function `default` is a wrapper (or, in a leaf, the page).
-- **A dev app imports nothing from `@expressive/rpc` or `@expressive/router`.**
+- **A dev app imports nothing from `@expressive/rpc` or `@expressive/router`.** Neither is the app's dependency; dev's docs and skill never show those imports.
 
 ## The errors
 
-`Redirect` and `NotFound` are `Error` subclasses. dev re-exports rpc's - which already extend `HttpError`, so a gate or call throwing one answers 302 or 404 today.
+`Redirect` and `NotFound` are `Error` subclasses - rpc's, which already extend `HttpError`, so a gate or call throwing one answers 302 or 404 today. dev re-exports them.
 
-dev's `Route` is the catch boundary above every page. Its handler:
+dev's `Route` (already a subclass of the router's) overrides `catch()` and checks `instanceof` against those classes; dev depends on rpc, so no brand or shape-matching is needed, and a third-party error carrying a `status` never reads as a 404. No monkeypatching - the subclasses are dev's exports.
 
 | Thrown | Outcome |
 | --- | --- |
@@ -143,9 +143,25 @@ dev's `Route` is the catch boundary above every page. Its handler:
 | `NotFound` | the folder's `Catch`, with the error |
 | anything else | the folder's `Catch`, with `retry`, as now |
 
-Where it is caught: a page's render, a component's `new()` (async included, after an `await`), and a `default`'s `new()`. A throw in an event handler is outside any render; it surfaces as an error, and navigation there stays `Route.get().goto()`.
+### Where they are caught
 
-On an in-app navigation the incoming tree renders behind the held screen, so a caught redirect commits nothing of the page. A redirect into the folder that threw it goes to `Catch`, as gate checks do.
+Everything that decides what a route shows:
+
+- **Render.** A throw while rendering reaches the route's boundary (`Component.catch()`).
+- **A synchronous throw in `new()`**, or in a required `set(fn, true)` factory - construction runs inside render, so it reaches the boundary too.
+- **An async `new()`, or an async required factory, that rejects.** mvc reports these to `Model.on({ catch })` with kind `setup`, not to a boundary; a component reading the failed instance's fields gets the same error and reaches the boundary, but one nobody reads would escape uncaught. dev installs a `Model.on({ catch })` policy that takes a `setup` report carrying `Redirect` or `NotFound` and hands it to the instance's route, so a guard behaves the same whether or not render reads it.
+
+Not caught: effects after mount and event handlers. They act rather than decide; a throw there is an error, and navigation stays `Route.get().goto()`. A sign-out while on a guarded page re-renders, so a check during render covers it.
+
+### Holding the screen on a redirect
+
+On an in-app navigation the incoming tree renders behind the held screen, swapping in once ready; a suspension extends the hold. For a `Redirect`, the route's `catch()` calls `goto(location, { replace: true })` and returns a promise that settles only when the route is destroyed:
+
+- the subtree stays suspended, so the held screen stays up until the redirect's target is ready - no `Catch` flash, no half-built page;
+- the redirected tree is discarded without committing, which destroys the route and settles the promise - nothing outlives it;
+- `replace` keeps the guarded URL out of history, so Back doesn't bounce.
+
+A redirect into the folder that threw it goes to `Catch`, as gate checks do.
 
 ### Self-gating
 
@@ -165,12 +181,12 @@ A `default` or page class gates itself in `new()`. mvc's async `set()` factories
 
 ## The router
 
-The router drops `<Redirect>` and recognizes the same errors - without depending on rpc, which it can't (client-only).
+The router stays HTTP-free: it is not browser-only, let alone dom-only, and "404" isn't its concept. Everything above lives in dev's `Route` and `Router` subclasses.
 
-- **A shared shape, not a shared class.** The router's catch reads any error with a string `location` as a redirect and any with `status === 404` as not found. The router ships minimal `Redirect` and `NotFound` classes carrying those fields, for router-only apps. dev re-exports rpc's, which carry them already. No package imports another's class.
-- **`Route`'s `redirect` prop** stays, calling `goto` directly instead of rendering `<Redirect>`.
-- **Breaking.** `<Redirect>` is in the router's compatibility contract (AGENTS.md guardrails). A `minor` changeset with a migration line (`<Redirect to>` → `throw new Redirect(to)`), and the guardrail updated to name the errors instead of the component.
-- One router PR: the errors, the catch handling, the component deleted.
+Open: the router's own `<Redirect>` component. dev stops re-exporting it either way. Options:
+
+- **Leave the router untouched.** Router-only apps keep `<Redirect>`; its compatibility contract holds.
+- **Replace it with a router-native `Redirect` error.** Navigation is the router's domain, so a thrown redirect fits it; the component is deleted (breaking, `minor`, the AGENTS.md guardrail updated). dev's `Route` then accepts both the router's and rpc's `Redirect`.
 
 ## One import source
 
@@ -184,7 +200,7 @@ rpc and the router are dev's implementation, not the app's dependencies.
 | `Env` augmentation | `@expressive/dev` (already) |
 
 - The trunk's README and skill import `Forbidden` and `Redirect` from `@expressive/rpc` in the api/ and gate-check recipes (README lines 137, 151, 629, 648; skill lines 74, 99). They switch to dev, and the skill's "two `Redirect`s" warning goes.
-- Both packages are hoisted into `node_modules`; dev's plugin warns when an app module imports `@expressive/rpc` or `@expressive/router`, naming the dev export. `@expressive/mvc` stays the app's peer.
+- Neither package is in the app's `package.json`. A direct import resolves only through hoisting, and the docs never show one, so no enforcement is planned. `@expressive/mvc` stays the app's peer.
 - `Route.get().match` becomes non-optional - a page only renders when its route matched.
 
 ## Migration (unreleased trunk, plus 0.5)
@@ -208,13 +224,10 @@ A function `default` can't be told apart from a 0.5 entry hook by shape. Generat
 
 ## Open questions
 
-1. **What mvc's `catch` sees.** Confirm the route's handler receives a descendant's rejected async `new()` and errors from effects after mount, not only render and setup.
-2. **Holding on a thrown redirect.** The held navigation must treat a caught `Redirect` from the incoming tree as "navigate instead", not as an error commit. Confirm with dom's transitions and with React under the compat host.
-3. **Shape-matching false positives.** Any error with `status === 404` reads as not found - a fetch library's 404 error thrown from a page would show the folder's not-found screen. Probably right; a symbol brand would be stricter.
-4. **The plugin warning's strength.** Warn, or fail the build.
+1. **The router's `<Redirect>`.** Leave it, or replace it with a router-native `Redirect` error (above).
+2. **The held redirect on both hosts.** The never-settling `catch()` keeping the hold needs a test under dom's transitions and React's under the compat host.
 
 ## New public surface
 
 - `Redirect`, `NotFound` and the `HttpError` family re-exported from `@expressive/dev`.
-- `Redirect` and `NotFound` error classes in `@expressive/router`; the `<Redirect>` component removed.
-- Behaviour: route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the entry hook and the `NotFound` route export removed; `Route.get().match` non-optional; dev's plugin warns on direct rpc and router imports.
+- Behaviour: route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the entry hook and the `NotFound` route export removed; `Route.get().match` non-optional; dev's `Route` catches `Redirect` and `NotFound`, and a `Model.on({ catch })` policy routes `setup` reports carrying them.
