@@ -3,8 +3,6 @@
 import { set, type Component } from "@expressive/mvc";
 import { Route as Base } from "@expressive/router";
 
-import { LOOPED } from "./check";
-
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
 type Verdict = string | void | null;
@@ -47,14 +45,16 @@ export class Route extends Base {
   }
 }
 
-const REFUSED = new Set<() => void>();
+const REFUSED = new Set<Route>();
 
 function arm(route: Route, hook: EntryHook | undefined) {
   const refused = (error: unknown) => {
     try {
       return redirected(error);
     } catch (error) {
-      REFUSED.add(() => arm(route, hook));
+      REFUSED.add(route);
+      route.set(null, () => void REFUSED.delete(route));
+
       throw error;
     }
   };
@@ -73,7 +73,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
 function redirected(error: unknown): string {
   const { status, location } = Object(error) as { status?: unknown; location?: unknown };
 
-  if (!LOOPED.has(Object(error)) && typeof status == "number" && status >= 300 && status < 400 && typeof location == "string" && location) return location;
+  if (typeof status == "number" && status >= 300 && status < 400 && typeof location == "string" && location) return location;
 
   throw error;
 }
@@ -86,7 +86,7 @@ Object.defineProperty(Route.prototype, "catch", {
 
     return (error: Error) => new Promise<void>(resolve => {
       const retry = () => {
-        REFUSED.forEach(rearm => rearm());
+        REFUSED.forEach(route => arm(route, route.enter));
         REFUSED.clear();
         resolve();
       };

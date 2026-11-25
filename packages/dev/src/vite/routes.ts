@@ -51,9 +51,10 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const { imports, loaders } = collectImports(root, outDir);
   const wrappers = collectWrappers(root);
   const tree = emitNode(root, true, 2, "null", outDir).join("\n");
-  const gates = gatedPatterns(root);
+  const gates = gateTree(root, true);
+  const gated = JSON.stringify(gates).includes('"gate"');
   const pageImports = `{ ${[
-    gates.length && "gateCheck",
+    gated && "gateCheck",
     !root.exports.has("NotFound") && "NotFound",
     "Route",
     !root.exports.has("Router") && "Router",
@@ -63,28 +64,27 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   return [
     `import ${pageImports} from "@expressive/dev";`,
     ...(provides ? ['import { Component } from "@expressive/mvc";'] : []),
-    ...(gates.length ? [`import { call } from "./${CALL}";`] : []),
+    ...(gated ? [`import { call } from "./${CALL}";`] : []),
     "",
     ...imports,
-    ...(gates.length ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
+    ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
+    ...(tree.includes("as={Through}") ? ["", "const Through = props => props.children;"] : []),
     "",
     "const App = (props) => (\n  <Router {...props}>", tree, "  </Router>\n);\n",
     "export default App;\n",
   ].join("\n");
 }
 
-function gatedPatterns(root: RouteNode): string[] {
-  const patterns: string[] = [];
-
-  (function walk(node: RouteNode, path: string) {
-    if (node.gated) patterns.push(path || "/");
-
-    for (const child of node.children) walk(child, `${path}/${child.segment}`);
-  })(root, "");
-
-  return patterns;
+function gateTree(node: RouteNode, root = false): object {
+  return {
+    ...(!root && { to: node.segment }),
+    ...(node.gated && { gate: 1 }),
+    ...(node.alias.Page && { page: 1 }),
+    ...((root || node.alias.NotFound) && { none: 1 }),
+    ...(!node.isLeaf && { in: node.children.filter(renders).map(child => gateTree(child)) }),
+  };
 }
 
 /** Every page route's pattern, as the router matches it - `/blog/:slug`, `/docs/*`. */
@@ -320,7 +320,7 @@ function collectWrappers(root: RouteNode): string[] {
   return wrappers;
 }
 
-function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string, outDir: string): string[] {
+function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string, outDir: string, contend = false): string[] {
   const pad = "  ".repeat(depth);
   const { Page, Layout, Loading, Catch, NotFound, default: def } = node.alias;
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
@@ -340,12 +340,14 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
 
   if (Page) inner.push(...route(pad + "  ", { as: Page, fallback: childSlot }));
 
+  const rivals = node.children.some(child => precedence(child.segment) > 0);
+
   for (const child of node.children)
-    inner.push(...emitNode(child, false, depth + 1, childSlot, outDir));
+    inner.push(...emitNode(child, false, depth + 1, childSlot, outDir, rivals));
 
   if (!inner.length) return [];
 
-  const as = scopedOf(node) ?? scope ?? Layout;
+  const as = scopedOf(node) ?? scope ?? Layout ?? (contend ? "Through" : undefined);
   const fallbackPage = NotFound ?? (isRoot ? "NotFound" : undefined);
 
   return route(

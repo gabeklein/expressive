@@ -135,7 +135,8 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('<Route to="projects" as={ProjectsLayout} fallback={null}>');
     expect(out).toContain("<Route as={Projects} fallback={<ProjectsLoading />} />");
     expect(out).toContain('<Route to=":id" as={ProjectsId} fallback={<ProjectsLoading />} />');
-    expect(out).toContain('<Route to="archive" fallback={<ProjectsLoading />}>');
+    expect(out).toContain('<Route to="archive" as={Through} fallback={<ProjectsLoading />}>');
+    expect(out).toContain("const Through = props => props.children;");
     expect(out).toContain('<Route to=":year" as={ProjectsArchiveYear} fallback={<ProjectsLoading />} />');
   });
 
@@ -220,7 +221,7 @@ describe("app/ routing (codegen)", () => {
 
     expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { call } from "./call.ts";');
-    expect(out).toContain('const checked = gateCheck(call, ["/admin","/admin/users","/shop/:id"], import.meta.hot);');
+    expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
     expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
     expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
     expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
@@ -444,6 +445,25 @@ describe("app/ routing (runtime)", () => {
   it("/nope → NotFound", async () => {
     location("/nope");
     expect(await rootText()).toBe("not-found");
+  });
+
+  it("will let a static page shadow a param folder beside it, as the tree passes it through", async () => {
+    const Through = (props: { children?: any }) => props.children;
+    const Room = () => <p>room:{Route.get().match!.id}</p>;
+    const Rooms = () => (
+      <Route as={RootLayout}>
+        <Route to="room">
+          <Route to="new" as={() => <p>new</p>} />
+          <Route to=":id" as={Through}>
+            <Route as={Room} />
+            <Route to="notes" as={() => <p>notes</p>} />
+          </Route>
+        </Route>
+      </Route>
+    );
+
+    location("/room/new");
+    expect((await mount(Rooms)).querySelector("[data-root]")?.textContent).toBe("new");
   });
 });
 

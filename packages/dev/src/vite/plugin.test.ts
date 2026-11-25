@@ -318,14 +318,14 @@ describe("vite host", () => {
     await server.listen(0);
 
     const check = async (deny: boolean) => {
-      const headers = { "content-type": "application/json", "x-expressive-get": "", ...(deny && { "x-deny": "1" }) };
+      const headers = { "content-type": "application/json", "x-expressive-get": "gates", ...(deny && { "x-deny": "1" }) };
       const res = await fetch(new URL("/vault", server.resolvedUrls!.local[0]), { method: "POST", headers, body: "[]" });
       return [res.status, await res.json()];
     };
 
     expect(await check(false)).toEqual([200, {}]);
-    expect(await check(true)).toEqual([500, { error: "/vault#SignIn", message: "Sign in.", status: 302, location: "/login" }]);
-    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain('gateCheck(call, ["/vault"], import.meta.hot)');
+    expect(await check(true)).toEqual([400, { error: "/vault#SignIn", message: "Sign in.", status: 302, location: "/login" }]);
+    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toMatch(/"to": "vault",\s*"gate": 1/);
   });
 
   it("will tell the browser when a gate is edited, so its passes clear", async () => {
@@ -536,6 +536,19 @@ describe("vite host", () => {
     });
 
     expect(server).toMatch(/gates: \[\{\s*pattern: \[\],\s*gate: site\s*\}, \{\s*pattern: \["tally"\],\s*gate: tally\s*\}\]/);
+  });
+
+  it("bundles the gate check only into an app with a gated folder", async () => {
+    const bundle = async (files: Record<string, string>) => {
+      const config = clientBuild(project(files), { write: false });
+      const out: any = await build({ ...config, configFile: false, logLevel: "silent", resolve: SOURCES });
+
+      return out.output.map((o: any) => o.code ?? "").join("\n");
+    };
+    const app = { "app/index.tsx": PAGE, "app/vault/index.tsx": PAGE };
+
+    expect(await bundle(app)).not.toContain("expressive:gates");
+    expect(await bundle({ ...app, "app/vault/remote.ts": "export default () => {}" })).toContain("expressive:gates");
   });
 
   it("builds a gated folder the client never imports as an endpoint, with its error classes and no calls", async () => {
