@@ -785,6 +785,17 @@ describe("vite host", () => {
     expect(await unknown.text()).toContain("<p>mine</p>");
   });
 
+  it("will serve a public/ folder's index.html for its path without handle", async () => {
+    const server = await serve(project({ "app/index.tsx": PAGE, "public/map/index.html": "map" }));
+    await server.listen(0);
+    const at = (path: string, method = "GET") => fetch(new URL(path, server.resolvedUrls!.local[0]), { method, headers: { accept: "text/html" } });
+
+    expect(await (await at("/map/")).text()).toBe("map");
+    expect(await (await at("/map")).text()).toBe("map");
+    expect((await at("/map/", "HEAD")).status).toBe(200);
+    expect((await at("/nope")).status).toBe(404);
+  });
+
   it("will answer every navigation with the shell as 200 in a single-file project", async () => {
     const server = await serve(project({ "app.tsx": "export default () => null" }));
     await server.listen(0);

@@ -508,9 +508,14 @@ export function host(dotenv: boolean): Plugin<Host> {
 
       return () => {
         server.middlewares.use(async (req, res, next) => {
-          if (req.method !== "GET" || !req.headers.accept?.includes("text/html")) return next();
+          const read = req.method === "GET" || req.method === "HEAD";
+          const file = read && server.config.publicDir && staticFile(server.config.publicDir, new URL(req.url!, "http://x").pathname);
+
+          if (!file && (req.method !== "GET" || !req.headers.accept?.includes("text/html"))) return next();
 
           try {
+            if (file) return await send(res, file);
+
             const html = await shell(req.originalUrl!);
             res.statusCode = await pageStatus(new URL(req.originalUrl!, "http://x").pathname);
             res.setHeader("Content-Type", "text/html");
