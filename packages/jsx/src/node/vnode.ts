@@ -3,7 +3,7 @@ import type { Element as Created } from '../jsx-runtime';
 import type { has, map } from '@expressive/mvc';
 import type { JSX as Runtime } from '../jsx-runtime';
 
-const PORTAL = Symbol('@expressive/dom.portal');
+const PORTAL = Symbol('@expressive/jsx.portal');
 const ELEMENT = Symbol.for('@expressive/mvc.element');
 const authors = new WeakMap<object, object>();
 let author: object | undefined;
