@@ -291,18 +291,19 @@ Below `handle`:
 
 ## `api/`: routes by location
 
-A root `api/` folder sits beside `app/` and is served under a fixed `/api` prefix. It uses `app/`'s path syntax for segments: `api/photo/[id].ts` serves `/api/photo/:id`, `api/auth/[...].ts` serves `/api/auth/*` (one segment or more, so `/api/auth` itself needs `api/auth/index.ts`), and `api/index.ts` serves `/api`. `/api` sits under Vite's `base`.
+A root `api/` folder sits beside `app/` and is served under a fixed `/api` prefix. It uses `app/`'s naming: `api/(logout).ts` serves `/api/logout`, `api/photo/[id].ts` serves `/api/photo/:id`, `api/auth/[...].ts` serves `/api/auth/*` (one segment or more, so `/api/auth` itself needs `api/auth/index.ts`), and `api/index.ts` serves `/api`. `/api` sits under Vite's `base`.
 
-**Location makes a route, never its exports.** Every `.ts`, `.tsx`, `.js` or `.jsx` module under `api/` is a route, except `*.test.*`, `*.spec.*` and `.d.ts`. Unlike `app/`, a bare name is a route (`api/logout.ts` serves `/api/logout`), since `api/` holds no support modules; helpers live outside it, in `server/` for example. A `(name).ts` file, and `api/dev.ts` beside `api/dev/index.ts`, fail the build.
+**Location and name make a route, never its exports.** `index`, `(name)`, `[param]` and `[...]` modules (`.ts`, `.tsx`, `.js` or `.jsx`) are routes. As in `app/`, a bare-named module is a helper (`api/photo/store.ts`): not a route, free to export anything, imported by the routes beside it. `*.test.*`, `*.spec.*` and `.d.ts` are skipped. `api/(dev).ts` beside `api/dev/index.ts` fails the build - both serve `/api/dev`.
 
 **Exports:**
 - **`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`** answer that method on the module's own path. HEAD falls to GET, the host cancels the body, and `Allow` lists HEAD wherever GET is exported.
 - **`default` in a folder's `index.ts` is the folder's gate** (Gates, above). It runs before every route in the folder and below, its own verbs included, outermost first, and for unmatched paths there too, so a refused caller gets the same answer for a route that exists and one that doesn't. A class `default` fails the build (an imported one at load): a function that activates the Model covers it, per request.
 - **`default` in any other module is a catch-all**: it answers every method on its path. Beside verbs it fails the build.
-- **Any other runtime export fails the build**, so `export const Get` or a stray helper is caught rather than ignored. Type exports are fine. `api/index.ts`'s are reserved (question 4).
+- **Any other runtime export from a route fails the build**, so `export const Get` or a stray helper is caught rather than ignored - helpers go in a bare-named module beside it. Type exports are fine. `api/index.ts`'s are reserved (question 4).
+- **A helper exporting a verb fails the build and the dev server**, naming the file and its `(name)` form - `api/hello.ts` exporting `GET` was meant as `api/(hello).ts`. A helper's `default` is not checked.
 - A module with neither verbs nor a catch-all fails the build and the dev server, except a folder `index.ts` with only a gate.
 
-The chain for `/api/account/me`: `handle` → `api/index.ts`'s gate → `api/account/index.ts`'s → `api/account/me.ts`'s verb or catch-all. A gate sees its own folder's params, the prefix it covers, so it reads the same `params.org` on an unmatched path as on a matched one; routes see the full match's. Past the gates: a path no module matches is a 404, a module with no handler for its own path is a 404, and a module whose verbs don't include the method is a 405 with `Allow`.
+The chain for `/api/account/me`: `handle` → `api/index.ts`'s gate → `api/account/index.ts`'s → `api/account/(me).ts`'s verb or catch-all. A gate sees its own folder's params, the prefix it covers, so it reads the same `params.org` on an unmatched path as on a matched one; routes see the full match's. Past the gates: a path no module matches is a 404, a module with no handler for its own path is a 404, and a module whose verbs don't include the method is a 405 with `Allow`.
 
 ```ts
 // api/dev/index.ts - gates /api/dev and everything under it
@@ -315,10 +316,14 @@ export default () => {
   Session.new();
 };
 
-// api/account/me.ts - finds the gate's instance
+// api/account/(me).ts - finds the gate's instance
 export const GET = () => Session.get().user;
 
+// api/photo/store.ts - a helper
+export const photo = (id: string) => db.photos.find(id);
+
 // api/photo/[id].ts
+import { photo } from "./store";
 export const GET = () => photo(Current.get().params.id);
 
 // api/auth/[...].ts - a catch-all
@@ -327,7 +332,7 @@ export default () => {
   return auth(env).handler(request);
 };
 
-// api/hook.ts
+// api/(hook).ts
 export async function POST() {
   const { json, send } = Current.get();
   const event = await json(Event.parse);
@@ -341,8 +346,8 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 **Other rules:**
 
 - Matching is exact and case-sensitive, on the decoded segments of the path `handle` forwards, so an escape (`/api/%61dmin`) cannot route around a fixed folder and its gate. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`, with no backtracking: once a fixed folder matches a segment, a sibling `[param]` never takes the path, so `/api/admin/users` stays under `api/admin/index.ts`'s gate and 404s there if `admin/` lacks `users`.
-- `api/` is server-only. A client module importing from it fails the build, as it would for another folder's sidecar.
-- When a root `api/` exists, `app/api/`, `app/api.tsx`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
+- `api/` is server-only, helpers included. A client module importing from it fails the build, as it would for another folder's sidecar.
+- When a root `api/` exists, `app/api/`, `app/(api)/`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
 - `api/` routes are not prerendered.
 
 **Settled in PR 6:**
@@ -350,8 +355,8 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 - 404 and 405 replies are JSON `{ message }`; only the 405 carries `Allow` (a 404 has no methods to list). The 404 names the path and says `/api` belongs to `api/`. A HEAD reply never has a body, error replies included.
 - Only the six verbs dispatch; another method token (`default`, say) is a 405. OPTIONS is never synthesised - CORS and preflight go in `handle` or a folder gate.
 - A trailing slash is an empty segment, so `/api/logout/` is a 404. A `[...]` param is the decoded rest of the path joined with `/`, under `"*"`; its first segment must be non-empty, later empty ones are kept (`/api/files/a//b` gives `a//b`), which suits a mounted app.
-- Naming errors beyond the note's: a `(name)` folder, a `[...]` folder (it takes the rest - a file only), `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*` (the table reads those as params), and two `[param]` names in one folder (`[id].ts` beside `[slug]/`), which would take the same segment. The `/api` reservations compare case-insensitively.
-- Export rules are checked by the build (statically, after types are stripped) and in dev as each module loads, which also catches an imported class gate and a verb or `default` that isn't a function - that request answers a 500 naming the file, and each save under `api/` logs the folder's errors. Built hosts don't re-check, so none of it ships in a bundle; an imported class gate in a build fails at its first request. A naming error in dev fails every `/api` request until fixed; the reservations fail the dev server at start.
+- Naming errors beyond the note's: a `(name)` folder, a `(name).ts` beside a `name/index.ts`, a `(name)` around a param (`([id]).ts`), a `[...]` folder (it takes the rest - a file only), `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*` (the table reads those as params), and two `[param]` names in one folder (`[id].ts` beside `[slug]/`), which would take the same segment. The `/api` reservations compare case-insensitively.
+- Export rules are checked by the build (statically, after types are stripped) and in dev as each module loads, which also catches an imported class gate and a verb or `default` that isn't a function - that request answers a 500 naming the file, and each save under `api/` logs the folder's errors. Built hosts don't re-check, so none of it ships in a bundle; an imported class gate in a build fails at its first request. A naming error, or a helper exporting a verb, fails every `/api` request in dev until fixed - adding, removing or renaming a file, or saving a helper, rebuilds the table; the reservations fail the dev server at start.
 - The client import guard checks every client import's resolved id, so an alias into `api/` is caught too.
 - The prefix is `base` + `api`, carried by each generated entry.
 - Generated tables: Node's `listen({ ..., api: { prefix, routes: [{ name, path, index, module }] } })`, and `/fetch`'s `compose(settings, sidecars, manifest, apiModules, apiRefs, pages)` with `apiRefs` `{ prefix, routes: [{ name, path, index }] }` in `apiModules`' order (`null` without `api/`), its type exported beside `FolderRefs` as entry plumbing.
@@ -574,10 +579,10 @@ export default settings;
 
 ```
 api/auth/[...].ts     default: auth(env).handler(request) - the library's basePath becomes "/api/auth"
-api/logout.ts         POST - never GET: HEAD and prefetches run GET's side effects
+api/(logout).ts       POST - never GET: HEAD and prefetches run GET's side effects
 api/photo/[id].ts     GET: the id from params, not parsed from the path
 api/dev/index.ts      default: the DEV_LOGIN gate for everything under /api/dev
-api/dev/mail.ts       GET
+api/dev/(mail).ts     GET
 ```
 
 What the port shows:
