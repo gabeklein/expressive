@@ -69,6 +69,137 @@ imports them, so `tsc` checks them only through `include`. Add any folder they i
 { "include": ["app", "api", "index.ts", "index.dev.ts", "env.d.ts"] }
 ```
 
+## Start here
+
+One small app, grown a step at a time. Each step links to its reference section below.
+
+**1. A page.** A file in `app/` is a route. `expressive dev` serves it, and a deep link or a
+refresh on `/about` loads the right page - [Project layout](#project-layout).
+
+```tsx
+// app/(about).tsx
+export function Page() {
+  return <h1>About</h1>;
+}
+```
+
+**2. A server function.** A `remote.ts` beside a page runs on the server. The page imports it like
+any module and gets a typed call - no fetch code - [Sidecars](#sidecars).
+
+```ts
+// app/tally/remote.ts
+let total = 0;
+export async function add(by: number) { return (total += by); }
+```
+
+```tsx
+// app/tally/index.tsx
+import { Component } from "@expressive/mvc";
+import { add } from "./remote";
+
+export class Page extends Component {
+  total = 0;
+
+  async bump() {
+    this.total = await add(1);
+  }
+
+  render() {
+    const { total, bump } = this;
+    return <button onClick={() => bump()}>Total: {total}</button>;
+  }
+}
+```
+
+**3. HTTP routes.** A file in `api/` answers under `/api`. Export a verb; a returned object is JSON.
+A `[id]` segment is a param, read from `Current` - [api/ routes](#api-routes).
+
+```ts
+// api/hello.ts - GET /api/hello
+export const GET = () => ({ hello: "world" });
+
+// api/photo/[id].ts - GET /api/photo/7
+import { Current } from "@expressive/dev/server";
+export const GET = () => ({ photo: Current.get().params.id });
+```
+
+**4. Gates.** A folder's `index.ts` may default-export a gate. It runs before every route in the
+folder - throw to refuse.
+
+```ts
+// api/admin/index.ts
+import { Current } from "@expressive/dev/server";
+import { Forbidden } from "@expressive/rpc";
+
+export default () => {
+  if (Current.get().cookies.admin !== "root") throw new Forbidden("Admins only.");
+};
+```
+
+Pages get the same idea through `remote.ts`: its default export gates every call in the folder, and
+the pages too - the browser asks the server before showing one ([Server Model](#server-model),
+[Gate check](#gate-check)). A guest here lands on `/login`:
+
+```ts
+// app/account/remote.ts
+import { Current } from "@expressive/dev/server";
+import { Redirect } from "@expressive/rpc";
+
+export default () => {
+  if (!Current.get().cookies.session) throw new Redirect("/login");
+};
+```
+
+**5. Middleware.** `index.ts` configures the server. `handle` runs around every request - calls,
+`api/` routes, pages and files - [handle](#handle).
+
+```ts
+// index.ts
+import { config } from "@expressive/dev";
+
+export default config({
+  handle: ({ request, next }) => {
+    console.log(request.method, request.url);
+    return next();
+  },
+});
+```
+
+To run the app inside something - a database session, a transaction - return `next()` from within
+it: `handle: ({ next }) => db.session(() => next())`.
+
+**6. Deploying to Workers.** `target: "fetch"` builds a fetch handler instead of a Node server. Pages
+and files come from the `ASSETS` binding in `wrangler.jsonc`. Declare bindings on `Env` to type
+`env` - [Deploying to a fetch host](#deploying-to-a-fetch-host).
+
+```ts
+// index.ts
+import { config } from "@expressive/dev";
+import { db } from "./db";
+import { d1 } from "./d1";
+
+declare module "@expressive/dev" { interface Env { DB: D1Database } }
+
+export default config({
+  target: "fetch",
+  handle: ({ env, next }) => db.session(() => next(), d1(env.DB)),
+});
+```
+
+In dev there is no Worker, so `index.dev.ts` supplies the bindings from wrangler's local platform.
+`expressive dev` reads it in place of `index.ts`; the build never does - [env and index.dev.ts](#env-and-indexdevts).
+
+```ts
+// index.dev.ts
+import type { Env } from "@expressive/dev";
+import { getPlatformProxy } from "wrangler";
+import settings from "./index";
+
+settings.env = async () => (await getPlatformProxy<Env>()).env;
+
+export default settings;
+```
+
 ## Server
 
 `index.ts` runs on the server - in dev on Vite's module runner, in production inside
