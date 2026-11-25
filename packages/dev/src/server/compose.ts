@@ -56,7 +56,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
     if (!handle) return below(request);
 
     try {
-      return await around(handle, { request, env: env as Env, ctx: filled }, below);
+      return await around(handle, { request, env: env as Env, ctx: filled }, below, dev);
     } catch (error) {
       if (!isCall(request)) return refuse(error, dev);
       if (!(error instanceof HttpError)) console.error(error);
@@ -66,7 +66,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
   };
 }
 
-async function around(handle: NonNullable<Settings["handle"]>, args: Omit<HandleArgs, "next">, below: (request: Request) => Promise<Response>): Promise<Response> {
+async function around(handle: NonNullable<Settings["handle"]>, args: Omit<HandleArgs, "next">, below: (request: Request) => Promise<Response>, dev: boolean): Promise<Response> {
   let taken: Promise<Response> | undefined;
   let returned = false;
 
@@ -86,7 +86,7 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
 
     returned = true;
 
-    if (result === undefined) return await (taken ?? take(args.request));
+    if (result === undefined) return taken ? await taken : passed(await take(args.request), dev);
     if (!(result instanceof Response)) throw new TypeError(`handle returned ${kind(result)} - return a Response, or nothing to pass.`);
 
     void taken?.then(reply => discard(reply, result), noop);
@@ -97,6 +97,14 @@ async function around(handle: NonNullable<Settings["handle"]>, args: Omit<Handle
     void taken?.then(reply => discard(reply), noop);
     throw error;
   }
+}
+
+const UNWRAPPED = "handle returned nothing and the app then failed - it ran after handle returned, outside anything handle wraps it in. A handle that wraps the app (a session, a transaction) must return next() inside the wrapper.";
+
+function passed(reply: Response, dev: boolean): Response {
+  if (dev && reply.status >= 500) console.warn(UNWRAPPED);
+
+  return reply;
 }
 
 const SHELLS = ["/200.html", "/index.html"];

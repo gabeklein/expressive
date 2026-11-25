@@ -198,6 +198,23 @@ describe("handle", () => {
     expect(statuses).toEqual([200]);
   });
 
+  it("will warn in dev when the app fails after a handle that returned nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failing = { fetch: async () => Promise.reject(new Error("no session")) };
+    const handle = () => {};
+
+    try {
+      await compose({ handle })(page("/"), { assets: failing });
+      await compose({ handle }, { dev: true })(page("/"), { assets });
+      expect(warn).not.toHaveBeenCalled();
+
+      expect((await compose({ handle }, { dev: true })(page("/"), { assets: failing })).status).toBe(500);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("must return next() inside the wrapper"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("will forward a rewritten request, and throw for anything else", async () => {
     const app = compose({
       handle({ request, next }) {
