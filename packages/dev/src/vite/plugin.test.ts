@@ -727,7 +727,7 @@ describe("vite host", () => {
 
   const SEEN = "export default { handle: ({ env }: any) => { const g = globalThis as any; const same = g.seenEnv === env; g.seenEnv = env; return Response.json({ db: env.DB, name: env.DEV_NAME, calls: g.envCalls, same }); } };";
 
-  it("will bind env() over process.env and .env in dev, once per server and again after a throw", async () => {
+  it("will bind env() under process.env and .env in dev, once per server and again after a throw", async () => {
     (globalThis as any).envCalls = 0;
     vi.stubEnv("DEV_NAME", "process");
     const root = project({
@@ -737,7 +737,7 @@ describe("vite host", () => {
         import settings from "./index";
         (settings as any).env = async () => {
           if (++(globalThis as any).envCalls === 1) throw new Error("not yet");
-          return { DB: "local", DEV_NAME: undefined };
+          return { DB: "local", DEV_NAME: "bound" };
         };
         export default settings;
       `,
@@ -748,8 +748,8 @@ describe("vite host", () => {
     const get = () => fetch(new URL("/", server.resolvedUrls!.local[0]));
 
     expect((await get()).status).toBe(500);
-    expect(await (await get()).json()).toEqual({ db: "local", calls: 2, same: false });
-    expect(await (await get()).json()).toEqual({ db: "local", calls: 2, same: true });
+    expect(await (await get()).json()).toEqual({ db: "local", name: "process", calls: 2, same: false });
+    expect(await (await get()).json()).toEqual({ db: "local", name: "process", calls: 2, same: true });
 
     for (const files of [{ "index.ts": SEEN } as Record<string, string>, { "index.ts": SEEN, "index.dev.ts": `import settings from "./index"; (settings as any).env = () => null; export default settings;` }]) {
       const other = await serve(project({ "app/index.tsx": PAGE, ...files }));
