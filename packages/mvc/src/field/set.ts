@@ -34,7 +34,9 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
 /**
  * Value from a factory, run once - lazily on first read, or on activation if `required` is `true`.
  *
- * Read-only and non-enumerable. `this` is the instance. The factory must declare no parameters -
+ * Writable and non-enumerable - declare it `readonly` to keep it read-only. A write before the factory
+ * runs skips it; a write while async discards the result, settles suspended reads, drops a rejection
+ * and releases a hold. `this` is the instance. The factory must declare no parameters -
  * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
  * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
  * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
@@ -53,7 +55,7 @@ function set<T>(factory: () => T | PromiseLike<NoInfer<T>>, required?: true): Aw
 /**
  * Lazy factory - with `false`, reads `undefined` while pending instead of suspending.
  *
- * Read-only and non-enumerable. Runs on first read. The field updates when the result resolves.
+ * Writable and non-enumerable. Runs on first read. The field updates when the result resolves, unless written first.
  * Passing `true` behaves as the required overload.
  */
 function set<T>(
@@ -128,7 +130,8 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
       set: false
     };
 
-    let computed = false;
+    let owned = true;
+    let release: (() => void) | undefined;
 
     // One-shot factory
     if (typeof value == 'function') {
@@ -137,9 +140,9 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
         return output instanceof Model && thenable(output) ? interim(subject, output) : output;
       };
 
-      computed = true;
-
       function init() {
+        if (!owned) return;
+
         let output: unknown;
 
         try {
@@ -155,14 +158,14 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
 
         function assign(next: any, silent?: boolean) {
           if (typeof argument == 'function') subject[key] = next;
-          else update(subject, key, next, silent, true);
+          else if (owned) update(subject, key, next, silent, true);
         }
 
         if (output instanceof Promise) {
           output.then((next) => {
             if (observer(subject) !== null) assign(next);
           }, (error) => {
-            if (observer(subject) === null) return;
+            if (!owned || observer(subject) === null) return;
             event(subject, key);
             config.get = () => {
               throw error;
@@ -170,10 +173,13 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           });
 
           if (argument === true)
-            return output.catch((err) => {
-              if (observer(subject) !== null)
-                REPORT.as('setup', subject, err, key);
-            });
+            return Promise.race([
+              output.catch((err) => {
+                if (owned && observer(subject) !== null)
+                  REPORT.as('setup', subject, err, key);
+              }),
+              new Promise<void>((resolve) => (release = resolve))
+            ]);
 
           if (argument === undefined)
             return access(subject, key, true);
@@ -205,10 +211,12 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           };
         });
       };
-    } else if (!computed)
+    } else
       config.set = () => {
+        owned = false;
         config.get = undefined;
         config.set = undefined;
+        release?.();
       };
 
     return config;
