@@ -6201,7 +6201,7 @@ describe('computed (getters)', () => {
     const error = mockError();
     const warn = mockWarn();
 
-    it('will warn if throws', () => {
+    it('will rethrow on first compute without warning', () => {
       class Subject extends Model {
         get never() {
           throw new Error();
@@ -6211,9 +6211,7 @@ describe('computed (getters)', () => {
       const state = Subject.new();
 
       expect(() => state.never).toThrow();
-      expect(warn).toBeCalledWith(
-        `An exception was thrown while initializing ${state}.never.`
-      );
+      expect(warn).not.toBeCalled();
     });
 
     it('will not report a suspense thrown while refreshing', async () => {

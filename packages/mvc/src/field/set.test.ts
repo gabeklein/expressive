@@ -355,7 +355,7 @@ describe('factory', () => {
     expect(seen).toBeCalledWith(instance);
   });
 
-  it('will warn and rethrow error from factory', () => {
+  it('will rethrow error from factory without warning', () => {
     class Test extends Model {
       memoized = set(this.failToGetSomething);
 
@@ -367,11 +367,7 @@ describe('factory', () => {
     const test = Test.new();
 
     expect(() => test.memoized).toThrow('Foobar');
-    expect(warn).toBeCalledWith(
-      expect.stringMatching(
-        /Generating initial value for [\w-]+\.memoized failed\./
-      )
-    );
+    expect(warn).not.toBeCalled();
   });
 });
 

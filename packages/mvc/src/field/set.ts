@@ -37,7 +37,7 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * Read-only and non-enumerable. `this` is the instance. The factory must declare no parameters -
  * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
  * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
- * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * once it resolves. A synchronous throw rethrows to the reader - a lazy factory retries on the next read.
  * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
  * it settles - unless it resolves to itself.
  * With `true` it runs after constructor args apply; while async it holds `ready`, effects and
@@ -79,7 +79,7 @@ function set<T>(
  * Arity selects this form - the function must declare a parameter; `set(() => x)` is a one-shot
  * factory. Receives the instance as `this` and first argument - arrow functions work. Computes on
  * first read. Enumerable and read-only, like a getter. A subclass may narrow its type with `declare`,
- * which a getter does not allow. A throw on first compute warns and rethrows; later throws report to
+ * which a getter does not allow. A throw on first compute rethrows to the reader; later throws report to
  * `catch` as `getter`.
  *
  * @example
@@ -140,16 +140,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
       computed = true;
 
       function init() {
-        let output: unknown;
-
-        try {
-          output = attempt(factory);
-        } catch (err) {
-          console.warn(
-            `Generating initial value for ${subject}.${key} failed.`
-          );
-          throw err;
-        }
+        const output = attempt(factory);
 
         config.get = argument !== false;
 

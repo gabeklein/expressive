@@ -169,10 +169,8 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
         err.then(retry, retry);
 
         if (suspended) return;
-      } else if (initial) {
-        console.warn(`An exception was thrown while initializing ${target}.${key}.`);
-        throw err;
-      } else REPORT.as('getter', target, err, key);
+      } else if (initial) throw err;
+      else REPORT.as('getter', target, err, key);
     }
 
     suspended = false;
