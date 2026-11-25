@@ -6,7 +6,7 @@ import { send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import type { Settings } from "../settings";
-import { verifyApi, type ApiRoute, type Exports } from "./api";
+import type { ApiRoute, Exports } from "./api";
 import { compose, type Pages } from "./compose";
 import { layered } from "./env";
 import { install } from "./install";
@@ -78,20 +78,13 @@ export interface ListenOptions {
  *
  * Composes the app `settings` over `client` - for GET and HEAD, a file, else a page's `<path>/index.html`, else the `200.html` or `index.html` shell by the page rule, else 404 - caching `assetsDir` immutably.
  * Binds `process.env` over the `.env` files as each request's `env`.
- * Throws if an `api/` module breaks the route rules.
  * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
  */
 export function listen({ settings, client, sidecars = [], gates = [], api, pages = { patterns: [] } }: ListenOptions): Server {
   install();
 
   const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
-  const routes = api?.routes.map(({ module, ...ref }) => {
-    const route = { ...ref, load: () => module };
-
-    verifyApi(route, module);
-    return route;
-  });
-
+  const routes = api?.routes.map(({ module, ...ref }) => ({ ...ref, load: () => module }));
   const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), api: routes && { prefix: api!.prefix, routes: () => routes }, pages });
   const assets = { fetch: async (request: Request) => files(client, request, `/${pages.assetsDir ?? "assets"}/`) };
   const env = layered();

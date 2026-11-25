@@ -1253,6 +1253,36 @@ describe("vite host", () => {
       expect((await server.environments.ssr.transformRequest("/app/index.tsx"))?.code).toContain("/api/hello.ts");
     });
 
+    it("will throw if client code imports api/ through an alias", async () => {
+      const root = project({ "app/index.tsx": "import { GET } from '@routes/hello'; export const Page = () => GET", "api/hello.ts": "export const GET = () => 1;" });
+      const server = await serve(root, expressive(), { alias: [{ find: /^@routes\/(.*)$/, replacement: `${root}/api/$1` }, ...(SOURCES!.alias as any[])] });
+
+      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("api/ is server-only");
+    });
+
+    it("will refuse in dev a route whose exports break the rules as it loads, and log a save's errors", async () => {
+      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/hello.ts": "export const helper = () => {};", "api/ok.ts": "export const GET = () => 1;" }));
+      const server = await serve(root);
+      const logged = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
+      const console_ = vi.spyOn(console, "error").mockImplementation(() => {});
+      await server.listen(0);
+
+      const reply = await fetch(new URL("/api/hello", server.resolvedUrls!.local[0]));
+      const message = "api/hello.ts: `helper` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.";
+
+      expect([reply.status, (await reply.json()).message]).toEqual([500, message]);
+
+      server.watcher.emit("change", join(root, "elsewhere.ts"));
+      server.watcher.emit("change", join(root, "api/hello.ts"));
+      await vi.waitFor(() => expect(logged).toHaveBeenCalledWith(message));
+
+      writeFileSync(join(root, "api/ok.ts"), "export const GET = (");
+      server.watcher.emit("change", join(root, "api/ok.ts"));
+      await vi.waitFor(() => expect(logged).toHaveBeenCalledTimes(2));
+
+      console_.mockRestore();
+    });
+
     it("builds the node service with the api/ table, and fails the build on a module that breaks the rules", async () => {
       const { client, server } = await buildBoth({ ...API, "app/index.tsx": PAGE });
 

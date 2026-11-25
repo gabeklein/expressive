@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { apiErrors, reservedApi, scanApi } from "./api";
+import { Model } from "@expressive/mvc";
+
+import { apiErrors, problems, reservedApi, scanApi, verifyApi } from "./api";
 
 const dirs: string[] = [];
 
@@ -63,12 +65,18 @@ describe("scanApi", () => {
       "api/dev/index.ts": GET,
       "api/item/[id].ts": GET,
       "api/item/[slug]/x.ts": GET,
+      "api/:x.ts": GET,
+      "api/*.ts": GET,
+      "api/[...rest].ts": GET,
     }));
 
     expect(problems).toEqual([
       "api/(admin).ts: api/ has no groups - name it admin.ts.",
       "api/(group): api/ has no groups - name it group/.",
+      "api/*.ts: a name starting with : or * reads as a param - name a param [name], the rest of a path [...].",
+      "api/:x.ts: a name starting with : or * reads as a param - name a param [name], the rest of a path [...].",
       "api/[...]: [...] takes the rest of the path - make it a file, [...].ts.",
+      "api/[...rest].ts: [...] takes the rest of the path, unnamed - use [...] for a catch-all or [rest] for one segment.",
       "api/dev/index.ts and api/dev.ts serve the same path - keep one.",
       "api/item/: one [param] per folder - [id] and [slug] would take the same segment.",
     ]);
@@ -95,15 +103,48 @@ describe("apiErrors", () => {
 });
 
 describe("reservedApi", () => {
-  it("will name what would serve /api beside an api/ folder", () => {
+  it("will name what would serve /api beside an api/ folder, in any case", () => {
     const files = { "app/api/": "", "app/api.tsx": "", "app/(api).ts": "", "public/api/": "", "app/apis.tsx": "" };
 
     expect(reservedApi(project({ ...files, "api/index.ts": GET }))).toEqual([
+      "app/(api).ts would serve /api, which belongs to the api/ folder - move it.",
       "app/api would serve /api, which belongs to the api/ folder - move it.",
       "app/api.tsx would serve /api, which belongs to the api/ folder - move it.",
-      "app/(api).ts would serve /api, which belongs to the api/ folder - move it.",
       "public/api would serve /api, which belongs to the api/ folder - move it.",
     ]);
+    expect(reservedApi(project({ "app/(API).tsx": "", "public/Api/": "", "api/index.ts": GET }))).toEqual([
+      "app/(API).tsx would serve /api, which belongs to the api/ folder - move it.",
+      "public/Api would serve /api, which belongs to the api/ folder - move it.",
+    ]);
+    expect(reservedApi(project({ "api/index.ts": GET }))).toEqual([]);
     expect(reservedApi(project(files))).toEqual([]);
+  });
+});
+
+describe("problems", () => {
+  it("will name exports a route does not read, reserving api/index.ts's", () => {
+    expect(problems(["GET", "Get"], false, false, false)).toEqual(["`Get` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/."]);
+    expect(problems(["default", "spec"], true, true, false)).toEqual(["`spec` - api/index.ts's other exports are reserved; export only verbs and a default gate."]);
+    expect(problems(["default", "spec"], true, false, false)).toEqual(["`spec` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/."]);
+  });
+
+  it("will refuse a class gate, a catch-all beside verbs and a module with no handler, but pass a gate alone", () => {
+    expect(problems(["default"], true, false, true)).toEqual(["A folder's default is its gate - a function, not a class: export default () => { Session.new() }"]);
+    expect(problems(["default", "GET"], false, false, false)).toEqual(["A default answers every method - export it or verbs, not both."]);
+    expect(problems([], false, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
+    expect(problems([], true, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
+    expect(problems(["default"], true, false, false)).toEqual([]);
+    expect(problems(["default", "GET"], true, false, false)).toEqual([]);
+  });
+});
+
+describe("verifyApi", () => {
+  it("will throw for a class gate, imported or not, and a handler that is not a function", () => {
+    class Session extends Model {}
+    const route = (index: boolean) => ({ name: "api/a.ts", path: ["a"], index });
+
+    expect(() => verifyApi(route(true), { default: Session })).toThrow("api/a.ts: A folder's default is its gate - a function, not a class");
+    expect(() => verifyApi(route(false), { GET: "hi" })).toThrow("api/a.ts: `GET` is not a function.");
+    expect(() => verifyApi(route(false), { GET: () => {} })).not.toThrow();
   });
 });

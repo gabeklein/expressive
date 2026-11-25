@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 
-import { problems, type ApiRoute } from "../server/api";
+import { VERBS, type ApiRoute, type Exports } from "../server/api";
 import { scanExports } from "./scan";
 
 const EXT = new Set([".ts", ".tsx", ".js", ".jsx"]);
@@ -10,6 +10,37 @@ const SKIP = /\.(test|spec)\.|\.d\.ts$/;
 export interface ApiFile extends Omit<ApiRoute, "load"> {
   file: string;
 }
+
+/** What is wrong with a module's exports - `names` its runtime exports, `classDefault` whether its `default` is a class. */
+export function problems(names: Iterable<string>, index: boolean, root: boolean, classDefault: boolean): string[] {
+  const found: string[] = [];
+  const all = [...names];
+  const verbs = all.filter(name => VERBS.includes(name));
+  const gate = all.includes("default");
+
+  for (const name of all)
+    if (name !== "default" && !VERBS.includes(name))
+      found.push(root && index
+        ? `\`${name}\` - api/index.ts's other exports are reserved; export only verbs and a default gate.`
+        : `\`${name}\` is not a route export - export ${VERBS.join(", ")} or a default, and keep helpers outside api/.`);
+
+  if (index && classDefault) found.push("A folder's default is its gate - a function, not a class: export default () => { Session.new() }");
+  if (!index && gate && verbs.length) found.push("A default answers every method - export it or verbs, not both.");
+  if (!gate && !verbs.length) found.push(`No handler - export ${VERBS.join(", ")} or a default.`);
+
+  return found;
+}
+
+/** Throw if a loaded module breaks the route rules, naming its file. */
+export function verifyApi({ name, index, path }: Omit<ApiRoute, "load">, exports: Exports): void {
+  const found = problems(Object.keys(exports), index, !path.length, isClass(exports.default));
+
+  for (const key of [...VERBS, "default"]) if (key in exports && typeof exports[key] != "function") found.push(`\`${key}\` is not a function.`);
+
+  if (found.length) throw new Error(`${name}: ${found.join(" ")}`);
+}
+
+const isClass = (value: unknown) => typeof value == "function" && /^class\b/.test(Function.prototype.toString.call(value));
 
 /** Every route module under `dir`, with what is wrong with their names. */
 export function scanApi(root: string, dir = join(root, "api")): { routes: ApiFile[]; problems: string[] } {
@@ -40,15 +71,20 @@ export function scanApi(root: string, dir = join(root, "api")): { routes: ApiFil
 
       const raw = isDir ? entry : basename(entry, ext);
       const param = /^\[(.+)\]$/.exec(raw)?.[1];
+      const wrong =
+        /^\(.*\)$/.test(raw) ? `api/ has no groups - name it ${raw.slice(1, -1)}${isDir ? "/" : ext}.` :
+        /^[:*]/.test(raw) ? `a name starting with : or * reads as a param - name a param [name], the rest of a path [...].` :
+        param?.startsWith("...") && param !== "..." ? `[...] takes the rest of the path, unnamed - use [...] for a catch-all or [${param.slice(3)}] for one segment.` :
+        param === "..." && isDir ? "[...] takes the rest of the path - make it a file, [...].ts." :
+        undefined;
 
-      if (/^\(.*\)$/.test(raw)) {
-        found.push(`${name(full)}: api/ has no groups - name it ${raw.slice(1, -1)}${isDir ? "/" : ext}.`);
+      if (wrong) {
+        found.push(`${name(full)}: ${wrong}`);
         continue;
       }
 
       if (param === "...") {
-        if (isDir) found.push(`${name(full)}: [...] takes the rest of the path - make it a file, [...].ts.`);
-        else add(full, [...path, "*"], false);
+        add(full, [...path, "*"], false);
         continue;
       }
 
@@ -81,11 +117,17 @@ export async function apiErrors(root: string): Promise<string[]> {
   return found;
 }
 
-const RESERVED = ["app/api", ...["api", "(api)"].flatMap(file => [...EXT].map(ext => `app/${file}${ext}`)), "public/api"];
+const RESERVED: Record<string, (entry: string) => boolean> = {
+  app: entry => /^(api|\(api\))(\.[jt]sx?)?$/.test(entry),
+  public: entry => entry === "api",
+};
 
-/** Paths that would serve `/api` beside an `api/` folder. */
+/** Paths that would serve `/api` beside an `api/` folder, in any case. */
 export function reservedApi(root: string): string[] {
   if (!existsSync(join(root, "api"))) return [];
 
-  return RESERVED.filter(path => existsSync(join(root, path))).map(path => `${path} would serve /api, which belongs to the api/ folder - move it.`);
+  return Object.entries(RESERVED).flatMap(([dir, reserved]) =>
+    (existsSync(join(root, dir)) ? readdirSync(join(root, dir)).sort() : [])
+      .filter(entry => reserved(entry.toLowerCase()))
+      .map(entry => `${dir}/${entry} would serve /api, which belongs to the api/ folder - move it.`));
 }

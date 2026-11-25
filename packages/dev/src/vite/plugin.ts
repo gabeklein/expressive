@@ -21,7 +21,7 @@ import { SCRIPT, guardScript, type Sources } from "@expressive/rpc/vite";
 import { fileResponse } from "../server/listen";
 import { install } from "../server/install";
 import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
-import { apiErrors, reservedApi, scanApi, type ApiFile } from "./api";
+import { apiErrors, reservedApi, scanApi, verifyApi, type ApiFile } from "./api";
 
 const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
@@ -32,7 +32,6 @@ const CALL = "call.ts";
 const SETTINGS = "settings.ts";
 const INDEX = "settings-index.ts";
 const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
-const API_IMPORT = /(^|\/)api(\/|\.[cm]?[jt]sx?$|$)/;
 
 /** The plugin's API - `config()` loads the app's settings: `index.dev.ts`'s when it exists, else `index.ts`'s. */
 export interface Host {
@@ -266,19 +265,20 @@ export function host(dotenv: boolean): Plugin<Host> {
       if (id === htmlId && !existsSync(htmlId)) return htmlId;
       if (id === DOM_SERVER && importer === prerenderId) return this.resolve(id, fileURLToPath(import.meta.url), { skipSelf: true });
 
-      if (!options.ssr && importer && API_IMPORT.test(id) && SCRIPT.test(importer.split("?")[0])) {
-        const resolved = await this.resolve(id, importer, { ...options, skipSelf: true });
+      if (options.ssr || !importer || !SCRIPT.test(importer.split("?")[0])) return;
 
-        if (resolved?.id.startsWith(apiDir + sep)) {
-          if ("scan" in options && options.scan) return { id: `\0${resolved.id}`, external: true };
-          this.error(`${relative(root, importer)} imports ${relative(root, resolved.id)} - api/ is server-only; fetch its route, or move what both need outside api/.`);
-        }
-      }
+      const named = REMOTE_IMPORT.test(id);
 
-      if (options.ssr || !importer || !REMOTE_IMPORT.test(id) || !SCRIPT.test(importer.split("?")[0])) return;
+      if (!named && !existsSync(apiDir)) return;
 
       const resolved = await this.resolve(id, importer, { ...options, skipSelf: true });
-      const remote = resolved && remoteAt(resolved.id);
+
+      if (resolved?.id.startsWith(apiDir + sep)) {
+        if ("scan" in options && options.scan) return { id: `\0${resolved.id}`, external: true };
+        this.error(`${relative(root, importer)} imports ${relative(root, resolved.id)} - api/ is server-only; fetch its route, or move what both need outside api/.`);
+      }
+
+      const remote = named && resolved && remoteAt(resolved.id);
 
       if (!remote) return resolved;
 
@@ -377,16 +377,35 @@ export function host(dotenv: boolean): Plugin<Host> {
 
       const routing: Api = {
         prefix: apiPrefix,
-        routes: () => (table ??= apiFiles()!.map(({ file, ...route }) => ({ ...route, load: () => host.import(file) }))),
+        routes: () => (table ??= apiFiles()!.map(({ file, ...route }) => ({
+          ...route,
+          async load() {
+            const exports = await host.import(file);
+            verifyApi(route, exports);
+            return exports;
+          },
+        }))),
       };
 
       const moved = (file: string) => file.startsWith(apiDir + sep) && (table = undefined);
+
+      const saved = async (file: string) => {
+        if (!file.startsWith(apiDir + sep)) return;
+
+        try {
+          for (const error of await apiErrors(root)) server.config.logger.error(error);
+        } catch (error) {
+          server.config.logger.error(`${error}`);
+        }
+      };
 
       server.watcher.add(apiDir);
       server.watcher.on("add", moved);
       server.watcher.on("unlink", moved);
       server.watcher.on("addDir", moved);
       server.watcher.on("unlinkDir", moved);
+      server.watcher.on("add", saved);
+      server.watcher.on("change", saved);
 
       const endpoints = () => exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
       const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
@@ -430,13 +449,13 @@ export function host(dotenv: boolean): Plugin<Host> {
 
         try {
           const call = isCall(request);
-          const routed = existsSync(apiDir) && owns(routing, new URL(request.url).pathname);
+          const owned = existsSync(apiDir) && owns(routing, new URL(request.url).pathname);
 
-          if (!call && !routed && skipped(request)) return next();
+          if (!call && !owned && skipped(request)) return next();
 
           const settings = await api.config();
 
-          if (!call && !routed && !settings.handle) return next();
+          if (!call && !owned && !settings.handle) return next();
 
           let fell: { request: Request; error?: unknown } | undefined;
 

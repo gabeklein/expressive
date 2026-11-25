@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Model } from "@expressive/mvc";
 import { Current, Forbidden } from "@expressive/rpc";
 
-import { problems, verifyApi, type Api, type ApiRoute, type Exports } from "./api";
+import type { Api, ApiRoute, Exports } from "./api";
 import { compose } from "./compose";
 import { install } from "./install";
 
@@ -174,36 +174,60 @@ describe("api routes", () => {
     });
   });
 
-  it("will refuse a module that breaks the route rules as it loads, with a 500 naming it", async () => {
-    const reply = await serve([route(["hello"], { helper: () => {} })])("/api/hello");
+  it("will answer a 500 for a module that fails to load", async () => {
+    const reply = await serve([{ ...route(["hello"], {}), load: async () => { throw new Error("syntax"); } }])("/api/hello");
 
-    expect([reply.status, (await reply.json()).message]).toEqual([500, "api/hello.ts: `helper` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
-  });
-});
-
-describe("problems", () => {
-  it("will name exports a route does not read, reserving api/index.ts's", () => {
-    expect(problems(["GET", "Get"], false, false, false)).toEqual(["`Get` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/."]);
-    expect(problems(["default", "spec"], true, true, false)).toEqual(["`spec` - api/index.ts's other exports are reserved; export only verbs and a default gate."]);
-    expect(problems(["default", "spec"], true, false, false)).toEqual(["`spec` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and keep helpers outside api/."]);
+    expect([reply.status, (await reply.json()).message]).toEqual([500, "syntax"]);
   });
 
-  it("will refuse a class gate, a catch-all beside verbs and a module with no handler, but pass a gate alone", () => {
-    expect(problems(["default"], true, false, true)).toEqual(["A folder's default is its gate - a function, not a class: export default () => { Session.new() }"]);
-    expect(problems(["default", "GET"], false, false, false)).toEqual(["A default answers every method - export it or verbs, not both."]);
-    expect(problems([], false, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
-    expect(problems([], true, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
-    expect(problems(["default"], true, false, false)).toEqual([]);
-    expect(problems(["default", "GET"], true, false, false)).toEqual([]);
+  it("will match a fixed name against the decoded segment, so an escape cannot skip its gate", async () => {
+    const fetch = serve([
+      route(["admin"], { default: () => { throw new Forbidden("Admins only."); } }, true),
+      route(["admin", "me"], { GET: () => "admin" }),
+      route([":tenant", "me"], { GET: () => "tenant" }),
+      route(["café"], { GET: () => "café" }),
+      route(["a b"], { GET: () => "a b" }),
+    ]);
+
+    expect((await fetch("/api/%61dmin/me")).status).toBe(403);
+    expect(await (await fetch("/api/caf%C3%A9")).text()).toBe("café");
+    expect(await (await fetch("/api/a%20b")).text()).toBe("a b");
   });
-});
 
-describe("verifyApi", () => {
-  it("will throw for a class gate, imported or not, and a handler that is not a function", () => {
-    class Session extends Model {}
+  it("will keep empty segments inside the rest of a path, but not as its first", async () => {
+    const fetch = serve([route(["files", "*"], { default: () => Current.get().params })]);
 
-    expect(() => verifyApi(route(["a"], { default: Session }, true), { default: Session })).toThrow("api/a.ts: A folder's default is its gate - a function, not a class");
-    expect(() => verifyApi(route(["a"], {}), { GET: "hi" })).toThrow("api/a.ts: `GET` is not a function.");
-    expect(() => verifyApi(route(["a"], {}), { GET: () => {} })).not.toThrow();
+    expect(await (await fetch("/api/files/a//b/")).json()).toEqual({ "*": "a//b/" });
+    expect((await fetch("/api/files//a")).status).toBe(404);
+  });
+
+  it("will answer HEAD without a body on a 404, a 400, a load failure and a gate's refusal", async () => {
+    const fetch = serve([
+      route(["dev"], { default: () => { throw new Forbidden("Dev only."); } }, true),
+      route(["dev", "mail"], { GET: () => "mail" }),
+      { ...route(["broken"], {}), load: async () => { throw new Error("syntax"); } },
+    ]);
+
+    for (const [path, status] of [["/api/nope", 404], ["/api/%E0%A4%A", 400], ["/api/broken", 500], ["/api/dev/mail", 403], ["/api/dev/nope", 403]] as const) {
+      const reply = await fetch(path, { method: "HEAD" });
+      expect([path, reply.status, await reply.text()]).toEqual([path, status, ""]);
+    }
+  });
+
+  it("will answer an index module's verbs on its own path, under its own gate", async () => {
+    const seen: string[] = [];
+    const fetch = serve([route(["account"], { default: () => void seen.push("gate"), GET: () => "own" }, true)]);
+
+    expect(await (await fetch("/api/account")).text()).toBe("own");
+    expect(seen).toEqual(["gate"]);
+  });
+
+  it("will dispatch only a known verb, so a method named default never runs a gate as the route", async () => {
+    const gate = vi.fn();
+    const fetch = serve([route(["account"], { default: gate, GET: () => "own" }, true)]);
+    const reply = await fetch("/api/account", { method: "default" });
+
+    expect([reply.status, reply.headers.get("allow")]).toEqual([405, "GET, HEAD"]);
+    expect(gate).toHaveBeenCalledTimes(1);
   });
 });

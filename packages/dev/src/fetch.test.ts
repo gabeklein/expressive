@@ -68,11 +68,6 @@ describe("compose", () => {
     expect((await fetch(new Request("http://localhost/api/a/b"))).status).toBe(404);
   });
 
-  it("will throw on creation if an api/ module breaks the route rules", () => {
-    expect(() => compose({}, [], [], [{ GET: "hi" }], { prefix: "/api", routes: [{ name: "api/a.ts", path: ["a"], index: false }] }))
-      .toThrow("api/a.ts: `GET` is not a function.");
-  });
-
   it("will reply a thrown error class with its status", async () => {
     const { fetch } = compose({}, [tally, shop], manifest);
     const response = await fetch(post("add", [1, 0]));

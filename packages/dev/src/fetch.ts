@@ -2,7 +2,7 @@ import type { Env, ExecutionCtx } from "@expressive/rpc";
 import { install, verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import type { App, AppOptions, Settings } from "./settings";
-import { verifyApi, type ApiRoute } from "./server/api";
+import type { ApiRoute } from "./server/api";
 import { compose as app, type Pages } from "./server/compose";
 
 /** An export of a server module - its index in the module list, and its name. */
@@ -27,7 +27,7 @@ export interface ApiRefs {
  * `settings.host`'s value given the app - an object without a `fetch` method gets the default `fetch(request, env, ctx)`; a class is exported as is.
  * The app's `assets` default to `env.ASSETS` when it has a `fetch`.
  * `api/` modules come in `apiModules`, described by `apiRefs` in the same order; `null` without an `api/` folder.
- * Throws on creation if a ref names no export, a folder's class is not an Error or an `api/` module breaks the route rules - a bad build fails at module load.
+ * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */
 export function compose(settings: Settings, modules: Record<string, unknown>[], manifest: FolderRefs[], apiModules: Record<string, unknown>[] = [], apiRefs: ApiRefs | null = null, pages?: Pages): { fetch(request: Request, env?: Env, ctx?: Partial<ExecutionCtx>): Promise<Response> } {
   install();
@@ -46,14 +46,7 @@ export function compose(settings: Settings, modules: Record<string, unknown>[], 
     return { pattern, exports: async () => exports };
   });
 
-  const routes = apiRefs?.routes.map((ref, i) => {
-    const exports = apiModules[i];
-    const route = { ...ref, load: () => exports };
-
-    verifyApi(route, exports);
-    return route;
-  });
-
+  const routes = apiRefs?.routes.map((ref, i) => ({ ...ref, load: () => apiModules[i] }));
   const api = routes && { prefix: apiRefs!.prefix, routes: () => routes };
   const inner = app(settings, { sidecars: () => sidecars, api, pages });
   const composed: App = (request, options = {}) => inner(request, { ...options, assets: options.assets ?? bound(options.env) });

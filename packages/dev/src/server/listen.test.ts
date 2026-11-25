@@ -239,10 +239,4 @@ describe("listen", () => {
     server.close();
     vi.restoreAllMocks();
   });
-
-  it("will throw if an api/ module breaks the route rules", () => {
-    const routes = [{ name: "api/hello.ts", path: ["hello"], index: false, module: { helper: () => {} } }];
-
-    expect(() => listen({ settings: { port: 0 }, client: tmpdir(), api: { prefix: "/api", routes } })).toThrow("api/hello.ts: `helper` is not a route export");
-  });
 });

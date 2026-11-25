@@ -43,7 +43,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
       bind(forward, env as Env, filled);
 
       if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
-      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api).then(mutable, error => refuse(error, dev));
+      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {
@@ -167,6 +167,13 @@ async function follow(assets: Assets, request: Request): Promise<Response> {
 }
 
 const mutable = (reply: Response) => (reply.status === 101 ? reply : new Response(reply.body, reply));
+
+function headless(request: Request, reply: Response): Response {
+  if (request.method !== "HEAD") return mutable(reply);
+
+  discard(reply);
+  return new Response(null, reply);
+}
 
 function discard(reply: Response, kept?: Response) {
   if (reply === kept) return;
