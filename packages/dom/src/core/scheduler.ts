@@ -8,6 +8,7 @@ interface Schedulable {
   update(passive: boolean): PromiseLike<unknown> | void;
   probe?(): PromiseLike<unknown> | void;
   empty?(): boolean;
+  bounds?(): [Node, Node];
 }
 
 const urgent = new Set<Schedulable>();
@@ -63,7 +64,9 @@ function flushPassive() {
     if (waiting) return defer(batch, waiting, scope);
   }
 
-  batch.sort((a, b) => Number(!!b.empty?.()) - Number(!!a.empty?.()));
+  const arriving = new Set(batch.filter((scope) => scope.empty?.() && !batch.some((outer) => encloses(outer, scope))));
+
+  batch.sort((a, b) => Number(arriving.has(b)) - Number(arriving.has(a)));
 
   for (let index = 0; index < batch.length; index++) {
     const scope = batch[index];
@@ -85,6 +88,15 @@ function flushPassive() {
     if (waiting) return defer(batch.slice(index + 1), waiting, scope);
     unblock(scope);
   }
+}
+
+function encloses(outer: Schedulable, inner: Schedulable) {
+  if (outer === inner || !outer.bounds || !inner.bounds) return false;
+
+  const [start, end] = outer.bounds();
+  const [node] = inner.bounds();
+
+  return !!(start.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(end.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING);
 }
 
 function defer(scopes: Schedulable[], waiting: PromiseLike<unknown>, source: Schedulable) {
