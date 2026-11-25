@@ -378,8 +378,8 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${IMPORTED}`, "(x).tsx": `${PAGE}\nexport { default } from "../lib/auth";` });
 
     expect(out).toContain('import { Component, Model } from "@expressive/mvc";');
-    expect(out).toContain("const RootEnter = hook(RootScope);");
-    expect(out).toContain('const XEnter = () => import("../app/(x).tsx").then(m => hook(m.default));');
+    expect(out).toContain('const RootEnter = hook(RootScope, "app/index.tsx");');
+    expect(out).toContain('const XEnter = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
     expect(out).toMatch(/<Route as={RootScoped} enter={RootEnter}>/);
     expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnter}>\s*<Route as={X} \/>/);
   });
@@ -589,6 +589,32 @@ describe("app/ routing (runtime)", () => {
     expect(root.textContent).toBe("report");
   });
 
+  it("will hold a folder's page under a Layout reading the path while the next page loads", async () => {
+    let load!: (page: () => any) => void;
+    const Post = () => new Promise<() => any>(resolve => (load = resolve));
+    const Shell = (props: { children?: any }) => <section data-path={Route.get().router.path}>{props.children}<Link to="/blog/x">x</Link></section>;
+    const Tree = () => (
+      <Route fallback={null}>
+        <Route to="blog" as={Shell} fallback={null}>
+          <Route as={BlogIndex} fallback={null} />
+          <Route to=":slug" as={Post} fallback={null} />
+        </Route>
+      </Route>
+    );
+
+    location("/blog");
+    const root = await mount(Tree);
+
+    root.querySelector("a")!.click();
+    await settle();
+    await settle();
+
+    expect(root.textContent).toBe("blog-indexx");
+
+    load(() => <p>post</p>);
+    await vi.waitFor(() => expect(root.textContent).toBe("postx"));
+  });
+
   it("will let a static page shadow a param folder beside it, as the tree passes it through", async () => {
     const Through = (props: { children?: any }) => props.children;
     const Room = () => <p>room:{Route.get().match!.id}</p>;
@@ -772,6 +798,11 @@ describe("app/ routing (generated)", () => {
 
     await shows(() => root.textContent, "page");
     expect(window.location.pathname).toBe("/");
+  });
+
+  it("will throw naming the route for a default imported from elsewhere that is a class but not a Model", async () => {
+    await expect(app({ "app/index.tsx": `import { Plain } from "../lib/plain"; export default Plain; ${PAGE}`, "lib/plain.ts": "export class Plain {}" }, "/"))
+      .rejects.toThrow("app/index.tsx: the default export Plain is a class but not a Model or Component.");
   });
 
   it("will render the root index alone at /, and a root [...] page below", async () => {
