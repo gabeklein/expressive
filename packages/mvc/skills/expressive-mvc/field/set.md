@@ -8,7 +8,7 @@ import { set } from '@expressive/mvc';
 
 Instruction for managed slots: defaults, placeholders, lazy/async factories, validation callbacks.
 
-All `set()` forms are **non-enumerable** - hidden from `Object.keys()`, spread, and `ref(this)`, unlike plain assignment (`name = 'foo'`) - except the [computed](#computed-reactive) form, enumerable to match a getter. Factory forms are **read-only** unless paired with a callback; value forms are writable.
+All `set()` forms are **non-enumerable** - hidden from `Object.keys()`, spread, and `ref(this)`, unlike plain assignment (`name = 'foo'`) - except the [computed](#computed-reactive) form, enumerable to match a getter. All forms are writable except the computed one; declare a field `readonly` to keep a factory read-only - TypeScript enforces it.
 
 ## Overloads
 
@@ -64,14 +64,27 @@ Callback runs on every assignment:
 
 ```ts
 class AppState extends Model {
-  config = set(() => loadConfig()); // lazy, read-only
+  config = set(() => loadConfig()); // lazy
   api = set(async () => fetchData()); // async, suspends until resolved
   data = set(() => fetchData(), true); // required - runs on activation, holds ready
   maybe = set(() => fetchData(), false); // lazy, no suspense (undefined while pending)
 }
 ```
 
-Zero-argument factory, computed lazily on first access. Read-only.
+Zero-argument factory, computed lazily on first access. Writable - a loaded value can be patched in place:
+
+```ts
+class Account extends Model {
+  profile = set(() => api.profile());
+  readonly plan = set(() => api.plan()); // read-only to TypeScript
+
+  rename(name: string) {
+    this.profile = { ...this.profile, name };
+  }
+}
+```
+
+A write takes over from the factory: before first access the factory never runs; while pending its result is discarded, suspended readers settle to the written value, a later rejection is dropped and a required factory's hold releases. A constructor arg (`Account.new({ profile })`) seeds the field the same way, so a required factory is skipped.
 
 - Async factories (any thenable result) throw suspense on access until resolved; the field types as the `Awaited` value.
 - A thenable Model not yet active (`new Job()`) activates owned by the instance and is destroyed once it settles - kept if it resolves to itself (a loaded entity).
