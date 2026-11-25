@@ -181,12 +181,21 @@ A `default` or page class gates itself in `new()`. mvc's async `set()` factories
 
 ## The router
 
-The router stays HTTP-free: it is not browser-only, let alone dom-only, and "404" isn't its concept. Everything above lives in dev's `Route` and `Router` subclasses.
+The router stays HTTP-free - not browser-only, let alone dom-only, so "404" isn't its concept. It does gain a thrown redirect, because the timing problem is any SPA's, not dev's:
 
-Open: the router's own `<Redirect>` component. dev stops re-exporting it either way. Options:
+| Where a redirect is decided | `goto` works? |
+| --- | --- |
+| an event handler, an effect after mount | yes - nothing is rendering |
+| `Route`'s `redirect` prop | yes - the router owns the moment |
+| while rendering, or in `new()` | no - a side effect in a tree that may never show |
 
-- **Leave the router untouched.** Router-only apps keep `<Redirect>`; its compatibility contract holds.
-- **Replace it with a router-native `Redirect` error.** Navigation is the router's domain, so a thrown redirect fits it; the component is deleted (breaking, `minor`, the AGENTS.md guardrail updated). dev's `Route` then accepts both the router's and rpc's `Redirect`.
+`<Redirect>` is the last row: it calls `goto` from its own `new()`, so under a held navigation a tree not yet committed navigates. A thrown redirect makes the decision a value the router acts on from its catch.
+
+- **A router-native `Redirect` error** - navigation only, no status. The router's `Route` catches it with the held redirect above: `goto(location, { replace: true })` and a `catch()` promise settled when the route is destroyed.
+- **The `<Redirect>` component is deleted.** Its one legitimate job, redirecting during render, moves to the throw; `goto` covers the rest. The `redirect` prop calls `goto` directly. Breaking: `minor`, a migration line (`<Redirect to>` → `throw new Redirect(to)`), and the AGENTS.md guardrail names the error instead of the component.
+- **dev's `Route` accepts both** the router's `Redirect` and rpc's, extending the router's catch. dev re-exports rpc's, which works on the server too.
+- **Two classes named `Redirect`, never in one app's imports:** router-only apps import the router's, dev apps import rpc's through dev. rpc can't extend the router's without depending on a client-only package.
+- **Its own PR, against `main`, in either order.** dev handles rpc's `Redirect` in its own `Route` regardless; accepting the router's is additive once that ships.
 
 ## One import source
 
@@ -224,10 +233,10 @@ A function `default` can't be told apart from a 0.5 entry hook by shape. Generat
 
 ## Open questions
 
-1. **The router's `<Redirect>`.** Leave it, or replace it with a router-native `Redirect` error (above).
-2. **The held redirect on both hosts.** The never-settling `catch()` keeping the hold needs a test under dom's transitions and React's under the compat host.
+1. **The held redirect on both hosts.** The never-settling `catch()` keeping the hold needs a test under dom's transitions and React's under the compat host.
 
 ## New public surface
 
 - `Redirect`, `NotFound` and the `HttpError` family re-exported from `@expressive/dev`.
+- `@expressive/router`: a `Redirect` error; the `<Redirect>` component removed.
 - Behaviour: route nesting `default` → `Layout` → `Page`; a leaf's `default` is its page; the entry hook and the `NotFound` route export removed; `Route.get().match` non-optional; dev's `Route` catches `Redirect` and `NotFound`, and a `Model.on({ catch })` policy routes `setup` reports carrying them.
