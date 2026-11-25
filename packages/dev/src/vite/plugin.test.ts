@@ -324,12 +324,13 @@ describe("vite host", () => {
     try {
       expect([await call([], "root", []), await call(["blog", ":slug"], "like", [])]).toEqual([1, 1]);
       expect(await call(["tally"], "add", [])).toBe(1);
+      expect(await call(["blog", "*"], "rest", [])).toBe(1);
       await expect(call(["shop", ":id"], "buy", [])).rejects.toThrow("buy() belongs to /shop/:id and cannot be called from /blog/hello/comments.");
     } finally {
       vi.unstubAllGlobals();
     }
 
-    expect(posted).toEqual(["/", "/blog/hello", "/tally"]);
+    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments"]);
   });
 
   it("will serve an exported subclass of an http error to the browser as an error", async () => {

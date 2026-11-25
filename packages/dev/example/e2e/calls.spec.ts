@@ -31,6 +31,13 @@ test("calls the root sidecar from a nested page", async ({ page, open }) => {
   await expect(page.locator("output")).toHaveText("/");
 });
 
+test("calls a param folder's sidecar from its own page, params filled", async ({ page, open }) => {
+  await open("/note/7");
+
+  await page.getByRole("button", { name: "Where" }).click();
+  await expect(page.locator("output")).toHaveText("/note/7");
+});
+
 test("rebuilds a sidecar's http error subclass as an HttpError", async ({ page, open }) => {
   await open("/tally");
 
