@@ -200,27 +200,41 @@ it('will run empty scopes first and defer the batch when one suspends', async ()
   expect(order).toEqual(['arriving', 'leaving']);
 });
 
-it('will not run an empty scope before a scope around it', async () => {
+it('will run an empty scope after a scope around it that renders nothing', async () => {
   const order: string[] = [];
   const [start, inner, end, after] = [0, 1, 2, 3].map(() => document.createComment(''));
-  const nodes = document.createDocumentFragment();
 
-  nodes.append(start, inner, end, after);
+  document.createDocumentFragment().append(start, inner, end, after);
 
-  const scope = (name: string, empty: boolean, bounds: [Node, Node]): Schedulable => ({
-    ...target(vi.fn(() => void order.push(name))),
-    empty: () => empty,
-    bounds: () => bounds
-  });
+  const scope = (name: string, empty: boolean, bounds: [Node, Node], output: unknown = 'content'): Schedulable => {
+    const self: Schedulable = {
+      ...target(vi.fn(() => void order.push(name))),
+      empty: () => empty,
+      bounds: () => bounds,
+      probe: () => void (self.probed = { output })
+    };
+
+    return self;
+  };
 
   transition(() => {
-    schedule(scope('leaving', false, [start, end]));
     schedule(scope('inside', true, [inner, inner]));
+    schedule(scope('leaving', false, [start, end], null));
     schedule(scope('arriving', true, [after, after]));
   });
 
   await vi.runAllTimersAsync();
   expect(order).toEqual(['arriving', 'leaving', 'inside']);
+
+  order.length = 0;
+
+  transition(() => {
+    schedule(scope('staying', false, [start, end]));
+    schedule(scope('inside', true, [inner, inner]));
+  });
+
+  await vi.runAllTimersAsync();
+  expect(order).toEqual(['inside', 'staying']);
 });
 
 it('will let urgent work overtake a deferred scope', async () => {

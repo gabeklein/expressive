@@ -512,6 +512,45 @@ describe('suspense and recovery', () => {
     await until(() => expect(root.textContent).toBe('Blazy'));
   });
 
+  it('will hold a sibling swap under a shell reading the same state', async () => {
+    const [Lazy, loaded] = lazy();
+
+    class Nav extends Model {
+      page = 'a';
+    }
+
+    function Shell(props: { children?: Component.Node }) {
+      return <main data-page={Nav.get().page}>{props.children}</main>;
+    }
+
+    function A() {
+      return Nav.get().page == 'a' ? <p>A</p> : null;
+    }
+
+    function B() {
+      return Nav.get().page == 'b' ? <><h2>B</h2><Lazy /></> : null;
+    }
+
+    class App extends Component {
+      nav = new Nav();
+      fallback = <i>loading</i>;
+
+      render() {
+        return <Shell><A /><B /></Shell>;
+      }
+    }
+
+    const [app, root] = mount(App);
+
+    pending(() => (app.nav.page = 'b'));
+    await until(() => expect(Lazy).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(root.textContent).toBe('A');
+
+    loaded.resolve(() => <b>lazy</b>);
+    await until(() => expect(root.textContent).toBe('Blazy'));
+  });
+
   it('will attach refs and autofocus of content rendered behind a fallback once it shows', async () => {
     const loaded = mockPromise<string>();
     const ref = vi.fn((node: Element | null) => node?.isConnected);

@@ -64,9 +64,10 @@ function flushPassive() {
     if (waiting) return defer(batch, waiting, scope);
   }
 
-  const arriving = new Set(batch.filter((scope) => scope.empty?.() && !batch.some((outer) => encloses(outer, scope))));
+  const leaving = batch.filter((scope) => scope.probed && blank(scope.probed.output));
+  const rank = new Map(batch.map((scope) => [scope, leaving.some((outer) => encloses(outer, scope)) ? 2 : scope.empty?.() ? 0 : 1]));
 
-  batch.sort((a, b) => Number(arriving.has(b)) - Number(arriving.has(a)));
+  batch.sort((a, b) => rank.get(a)! - rank.get(b)!);
 
   for (let index = 0; index < batch.length; index++) {
     const scope = batch[index];
@@ -88,6 +89,10 @@ function flushPassive() {
     if (waiting) return defer(batch.slice(index + 1), waiting, scope);
     unblock(scope);
   }
+}
+
+function blank(output: unknown) {
+  return output == null || typeof output == 'boolean';
 }
 
 function encloses(outer: Schedulable, inner: Schedulable) {
