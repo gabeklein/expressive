@@ -1,4 +1,4 @@
-import { afterPass, afterFlush, claim, complete, hostOf, inserted, reconcileChildren, reserved, unmatched, unmountFiber } from '@expressive/jsx';
+import { afterPass, afterFlush, claim, hostOf, inserted, reconcileChildren, reserved, unmatched, unmountFiber } from '@expressive/jsx';
 import { activeDocument } from '../host';
 import { adopt, adopted, touch } from '../hydrate';
 import { applyClaim } from '../style';
@@ -10,8 +10,9 @@ const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textConte
 const controlled = new WeakMap<Element, Fiber>();
 const attached = new WeakMap<Fiber, unknown>();
 const restoring = new WeakSet<Document | ShadowRoot>();
+const mounting = new WeakMap<Fiber, boolean>();
 
-function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null, appearance?: Appearance) {
+function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null) {
   const tag = value.type as string;
   const host = hostOf(parent) as Element;
   const namespace = tag == 'svg' || host.namespaceURI == SVG && host.localName != 'foreignObject' ? SVG : undefined;
@@ -21,7 +22,6 @@ function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, befor
     () => namespace ? activeDocument().createElementNS(SVG, tag) : activeDocument().createElement(tag),
     (node) => node.nodeType == 1 && (node as Element).localName == tag && ((node as Element).namespaceURI == SVG) == !!namespace
   );
-  fiber.start = fiber.end = element;
   fiber.events = new Map();
 
   const adopting = adopted(element);
@@ -32,14 +32,8 @@ function mountElement(fiber: Fiber, value: VNode, parent: globalThis.Node, befor
     if (tag != 'textarea' && !CONTENT.some((key) => key in value.props)) touch(element);
   }
 
-  if (!adopting && (value.props.autofocus || value.props.autoFocus))
-    inserted(fiber, () => {
-      afterPass(() => element.isConnected && (element as HTMLElement).focus());
-    });
-
-  return complete(fiber, () => {
-    patchProps(fiber, value, appearance, adopting);
-  });
+  mounting.set(fiber, adopting);
+  return element;
 }
 
 function attributeOf(key: string) {
@@ -62,9 +56,19 @@ function prune(element: Element, props: Record<string, any>) {
     if (name == 'style' || !expected.has(name.toLowerCase())) element.removeAttribute(name);
 }
 
-function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance, adopting?: boolean) {
+function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance) {
   const next = value.props as Record<string, any>;
   const element = fiber.start as Element;
+  const adopting = mounting.get(fiber);
+  const fresh = adopting === false;
+
+  mounting.delete(fiber);
+
+  if (fresh && (next.autofocus || next.autoFocus))
+    inserted(fiber, () => {
+      afterPass(() => element.isConnected && (element as HTMLElement).focus());
+    });
+
   const previous = fiber.props!;
   const raw = 'dangerouslySetInnerHTML' in next;
   const resolved = appearance?.context?.resolve(next, fiber.type as string);
