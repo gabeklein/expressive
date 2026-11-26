@@ -1,6 +1,6 @@
 /** @jsxImportSource @expressive/jsx */
 
-import { Component, Context, Model, set } from "@expressive/mvc";
+import { Component, Context, Model, set, unbind } from "@expressive/mvc";
 import { Route as Base, Redirect as RouterRedirect, fullPattern, matchPattern } from "@expressive/router";
 import { Redirect } from "@expressive/rpc";
 import { childrenOf, propsOf, typeOf } from "@expressive/jsx/jsx-runtime";
@@ -23,6 +23,11 @@ const WARNED = new WeakSet<EntryHook>();
 const HOT = "expressive:route-update";
 
 export const owns = (instance: Model) => OWNED.has(instance);
+
+const methodSource = (type: Model.Extends, key: string) => {
+  const { get, value } = Object.getOwnPropertyDescriptor(type.prototype, key) ?? {};
+  return unbind(get ?? value)?.toString();
+};
 
 /**
  * Router's `Route` with a route module's exports - the generated tree builds one per module.
@@ -86,7 +91,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
     }
     DISPOSE.get(route.is)?.();
     DEFAULTS.set(route.is, instance);
-    const originalNew = Object.getOwnPropertyDescriptor(value.prototype, "new")?.value?.toString();
+    const originalNew = methodSource(value, "new");
     let retired = false;
     let disposed = false;
     const dispose = () => {
@@ -106,7 +111,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
       const source = (route.enter as EntryHook & { source?: string } | undefined)?.source;
       const paths = (event as CustomEvent<string[]>).detail;
       if (!source || !paths?.includes("/" + source)) return;
-      if (!retired && !instance.get(null) && Object.getOwnPropertyDescriptor(value.prototype, "new")?.value?.toString() === originalNew) {
+      if (!retired && !instance.get(null) && methodSource(value, "new") === originalNew) {
         const current = (route.enter as EntryHook & { current?: EntryHook } | undefined)?.current;
         const next = current?.(route);
         if (next instanceof Promise) void next.then(type => { if (Model.is(type) && type !== value) { dispose(); arm(route, route.enter); } }).catch(() => {});

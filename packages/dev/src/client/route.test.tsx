@@ -420,6 +420,22 @@ describe("prebuilt defaults", () => {
     await vi.waitFor(() => expect(root.querySelector("section")?.getAttribute("data-tag")).toBe("new"));
   });
 
+  it("will rebuild when a hot update changes new", async () => {
+    let built = 0;
+    class Guard extends Model { protected new() { built += 1; } }
+    accept("dev-route-new", { Guard });
+    let Current: Model.Extends = Guard;
+    const entry = Object.assign(() => Current, { source: "app/new.tsx", current: () => Current });
+    location("/");
+    await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(built).toBe(1));
+    Current = accept("dev-route-new", { Guard: class Guard extends Model {
+      protected new() { built += 2; }
+    } }).Guard;
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/new.tsx"] }));
+    await vi.waitFor(() => expect(built).toBe(3));
+  });
+
   it("will rebuild when hot replacement retires the default class", async () => {
     let built = 0;
     class Guard extends Model { value = 1; protected new() { built++; } }

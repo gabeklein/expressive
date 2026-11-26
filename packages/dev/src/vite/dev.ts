@@ -1,4 +1,5 @@
 import { register } from "@expressive/env";
+import hot from "@expressive/dom/vite";
 import { env } from "@expressive/env/vite";
 import inspect from "@expressive/inspect/vite";
 import { createServer } from "vite";
@@ -25,7 +26,7 @@ export async function runDev(root = process.cwd(), { inspect: relay = true, port
     root,
     mode: nodeMode(),
     configFile: viteConfigFile(root),
-    plugins: [host, env(), relay && inspect()],
+    plugins: [host, hot(), env(), relay && inspect()],
     server: port === undefined ? undefined : { port },
   });
 

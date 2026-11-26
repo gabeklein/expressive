@@ -739,8 +739,9 @@ Nothing is written into the project. The shell, the client entry and the generat
 are virtual, addressed under `/.expressive/`. The router module regenerates when files appear or
 vanish under `app/`, or an edit changes what it generates.
 
-`@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; the CLI
-adds it and `@expressive/inspect/vite`. It also exports `runBuild`, which the CLI's build calls.
+`@expressive/dev/vite` exports the `expressive()` plugin for a hand-written Vite config; add
+`@expressive/dom/vite` beside it for hot reload. The CLI adds both and `@expressive/inspect/vite`.
+It also exports `runBuild`, which the CLI's build calls.
 `config` comes from the root. Server-only API - `compose`, `Current` - is `@expressive/dev/server`;
 the generated server entry imports `listen` from there. Under `target: "fetch"` it calls
 `@expressive/dev/fetch`'s `compose` instead - entry plumbing, not an API to call by hand.

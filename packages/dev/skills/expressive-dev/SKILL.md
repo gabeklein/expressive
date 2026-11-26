@@ -156,7 +156,7 @@ expressive help [command]       commands, or one command's inputs
 node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
 
-Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `@expressive/dom/vite` for hot reload and `inspect()` from `@expressive/inspect/vite` for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
 
 ## Server entry
 

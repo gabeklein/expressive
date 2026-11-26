@@ -1529,8 +1529,7 @@ export function Catch({ error }: { error: Error }) {
 
 async function routeDefault() {
   const dir = join(ROOT, 'route-default');
-  const packages = ['mvc', 'dom', 'router', 'env', 'inspect', 'dev'];
-  const file = join(dir, 'app/(counter).tsx');
+  const file = join(dir, 'counter.tsx');
   const page = (label: string, title: string, initial: number, field: string) => `import { Component } from '@expressive/mvc';
 export default class Counter extends Component {
   count = ${field};
@@ -1543,17 +1542,43 @@ export function Page() {
 }
 `;
   write(dir, {
-    'app/index.tsx': `import { Link } from '@expressive/dev'; export const Page = () => <Link to="/counter">Counter</Link>;`,
-    'app/(counter).tsx': page('count', 'old', 1, '0'),
+    'index.html': '<!doctype html><html><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>',
+    'main.tsx': `import { render } from '@expressive/dom';
+import { App } from './app';
+
+render(<App />, document.getElementById('root')!);
+`,
+    'app.tsx': `import { Route, Router } from 'dev-client';
+import Counter, { Page } from './counter';
+
+const entry = Object.assign(() => Counter, { source: 'counter.tsx', current: () => Counter });
+
+export const App = () => <Router><Route to="counter" enter={entry}><Route as={Page} /></Route></Router>;
+
+if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', payload => dispatchEvent(new CustomEvent('expressive:route-update', { detail: payload.updates.map(update => update.path) })));
+`,
+    'counter.tsx': page('count', 'old', 1, '0'),
   });
+  const hot = domHot();
+  const transform = hot.transform as Function;
+  hot.transform = async function(code, id, options) {
+    if (id.split('?')[0].startsWith(resolve('packages') + '/')) return;
+    return transform.call(this, code, id, options);
+  };
   const vite = await createServer({
     configFile: false,
     root: dir,
     logLevel: 'silent',
     cacheDir: join(ROOT, '.vite-route-default'),
-    plugins: [expressive()],
-    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
-    optimizeDeps: { noDiscovery: true, include: [] },
+    plugins: [hot],
+    esbuild: { jsx: 'automatic', jsxImportSource: '@expressive/dom' },
+    resolve: { alias: {
+      'dev-client': resolve('packages/dev/src/client/index.ts'),
+      '@expressive/dom': src('dom'),
+      '@expressive/jsx': src('jsx'),
+      '@expressive/mvc': src('mvc'),
+      '@expressive/router': src('router')
+    } },
     server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
   });
   await vite.listen();
@@ -1562,9 +1587,7 @@ export function Page() {
   const count = (value: string) => until(async () => (await browser.text('#count')) == value);
   let ok = false;
   try {
-    await browser.open(`http://127.0.0.1:${port}/`, join(ROOT, '.chrome-route-default'));
-    await until(() => browser.text('a'), 20000);
-    await browser.eval(`document.querySelector('a[href="/counter"]').click()`);
+    await browser.open(`http://127.0.0.1:${port}/counter`, join(ROOT, '.chrome-route-default'));
     await count('count 1');
     await browser.eval(`document.getElementById('count').click()`);
     await count('count 2');

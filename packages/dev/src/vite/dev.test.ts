@@ -4,6 +4,7 @@ const server = vi.hoisted(() => ({ listen: vi.fn(async () => {}), printUrls: vi.
 const createServer = vi.hoisted(() => vi.fn(async (_config: { mode?: string; plugins: ({ name: string } | false)[] }) => server));
 
 vi.mock("vite", async importOriginal => ({ ...(await importOriginal<object>()), createServer }));
+vi.mock("@expressive/dom/vite", () => ({ default: () => ({ name: "hot" }) }));
 vi.mock("@expressive/inspect/vite", () => ({ default: () => ({ name: "inspect" }) }));
 vi.mock("@expressive/env/vite", () => ({ env: () => ({ name: "env" }) }));
 
@@ -37,14 +38,14 @@ it("will serve the working directory by default", async () => {
   expect(createServer).toHaveBeenLastCalledWith(expect.objectContaining({ root: process.cwd() }));
 });
 
-it("will always add env, and the inspect relay unless turned off", async () => {
+it("will always add hot reload and env, and the inspect relay unless turned off", async () => {
   const names = () => createServer.mock.lastCall![0].plugins.map((plugin) => plugin && plugin.name);
 
   await runDev("/app");
-  expect(names()).toEqual(["expressive", "env", "inspect"]);
+  expect(names()).toEqual(["expressive", "hot", "env", "inspect"]);
 
   await runDev("/app", { inspect: false, env: false });
-  expect(names()).toEqual(["expressive", "env", false]);
+  expect(names()).toEqual(["expressive", "hot", "env", false]);
 });
 
 it("will register .env before the server starts", () => {
