@@ -24,10 +24,12 @@ it('will create and provide instance', () => {
   expect(screen).toHaveText('bar');
 });
 
-it('will render a Component whose own getter shares a host instance key', () => {
+it('will render a Component whose own getter shares a host instance key', async () => {
   class Box extends Component {
+    label = 'box';
+
     get base() {
-      return 'box';
+      return this.label;
     }
 
     render() {
@@ -35,9 +37,12 @@ it('will render a Component whose own getter shares a host instance key', () => 
     }
   }
 
-  render(<Box />);
-
+  let box!: Box;
+  render(<Box is={(b) => void (box = b)} />);
   expect(screen).toHaveText('box');
+
+  await act(async () => (box.label = 'crate'));
+  expect(screen).toHaveText('crate');
 });
 
 it('will not enumerate react internals on instance', () => {
