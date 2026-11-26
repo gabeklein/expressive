@@ -155,6 +155,7 @@
       "version": "0.95.0",
       "devDependencies": {
         "@expressive/mvc": "^0.97.0",
+        "@expressive/router": "workspace:^",
         "@testing-library/preact": "^3.2.3",
         "@testing-library/react": "^16.3.0",
         "@types/react": "^19",
