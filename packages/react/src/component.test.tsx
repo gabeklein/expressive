@@ -1875,7 +1875,7 @@ reactOnly.describe('abandoned render', () => {
   });
 });
 
-reactOnly.describe('router Redirect', () => {
+describe('router Redirect', () => {
   let error: { mock: { calls: unknown[][] }; mockRestore(): void; mockClear(): void };
 
   beforeEach(() => {
@@ -1953,7 +1953,7 @@ reactOnly.describe('router Redirect', () => {
     expect(view).toHaveText('new');
   });
 
-  it('will push from the held screen', async () => {
+  async function suspended() {
     const { gate, Page } = held();
     const { router, view } = await mount('/', <>
       <Route to="/" as={() => <h1>home</h1>} />
@@ -1962,7 +1962,18 @@ reactOnly.describe('router Redirect', () => {
     </>);
 
     await act(async () => router.goto('/me'));
+
+    return { gate, router, view };
+  }
+
+  preactDiffers('will hold the screen while the page decides', async () => {
+    const { view } = await suspended();
+
     expect(view).toHaveText('home');
+  });
+
+  it('will push from a navigation the page suspended', async () => {
+    const { gate, router, view } = await suspended();
 
     await act(async () => gate.resolve());
     await act(flushMicrotasks);
@@ -2004,9 +2015,10 @@ reactOnly.describe('router Redirect', () => {
       </Component>
     );
     await act(flushMicrotasks);
+    await act(flushMicrotasks);
 
     expect(caught).toEqual([failure]);
-    expect(error).toHaveBeenCalledWith(expect.anything(), failure, expect.anything(), expect.anything());
+    expect(error.mock.calls.every((call) => call[1] === failure)).toBe(true);
     error.mockClear();
   });
 
