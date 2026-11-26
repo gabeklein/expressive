@@ -170,7 +170,7 @@ Not caught: effects after mount and event handlers. They act rather than decide;
 
 A nearer boundary intercepts first. Order, outside in: the folder Route (`Catch`) › `default` › `Layout` › the page Route (`Loading`) › the page. A `default` Component with its own `catch` sees `Redirect` and `NotFound` before the folder's `Catch`, so an app `catch` rejects what it doesn't handle. `Catch` renders outside `default`, so `Me.get()` isn't available inside it.
 
-mvc reports an async `new()` rejection to `Model.on({ catch })` with kind `setup`; unhandled, it escapes. dev's policy marks a `setup` report carrying `Redirect` or `NotFound` handled - the route has already acted on it - so nothing escapes or logs.
+mvc reports an async `new()` rejection to `Model.on({ catch })` with kind `setup`; unhandled, it escapes. dev's policy marks a `setup` report carrying `Redirect` or `NotFound` handled - the route has already acted on it - so nothing escapes or logs. dev registers it when it renders its root, and removes it when the root is released - never at import, per feat/jsx's root-owned host contract.
 
 ### Redirect, and what the screen shows meanwhile
 
@@ -232,6 +232,8 @@ The router stays HTTP-free - not browser-only, let alone dom-only, so "404" isn'
 
 ## Implementation notes
 
+- **After feat/jsx.** The mechanisms here - a route's `catch()` boundary and fallback, placing a held instance, `<Component for>`, and `renderToString`'s handling of a held `catch()` - move into `@expressive/jsx`'s reconciler and mvc's default element on that trunk. Implement after it lands and re-run the probes there. Its `renderToString` escalates a `catch` retry that gets no further, which is the prerender behaviour this note needs. A follow-up seam - `<Component for={instance}>` rendering a Component instance with its children, replacing the `set({ props })` workaround below - is proposed then, against /jsx.
+
 - **The gate check keeps `enter`.** Apps lose the entry hook, but dev's gate check is built on it: `enter`, `arm`, `REFUSED` and `retry` in `client/route.tsx`, `checked()` in `check.ts`, and `hookOf`/`hook` in `vite/routes.ts`. `enter` stays as internal plumbing for gated folders; only the app-facing function `default` goes. `stay(error)` strips `location` from a refused gate's redirect to force `Catch`, but the error is still `instanceof Redirect` - the `Redirect` branch checks `error.location` too.
 - **Placing a pre-built `default`.** A Component instance placed as `{instance}` gets its `children` written with `instance.set({ props: { children } })` when the route's content changes - never from the route's `render()`, which loops. The route's `new()` returns its cleanup synchronously; awaiting readiness happens inside it.
 - **Console noise.** Render-time throws reach a boundary, and React logs what boundaries catch: dev's React root filters `Redirect` and `NotFound` through `onCaughtError`. mvc warned when a factory or getter threw on its first read, though the error also reaches the reader; #834 drops that warning, so a guard's throw prints nothing.
@@ -278,7 +280,7 @@ A function `default` can't be told apart from a 0.5 entry hook by shape - a wrap
 
 ## Follow-up
 
-- **Holding the screen through a redirect.** A host seam turning a `catch()` outcome into a suspension in a passive pass, so a thrown `Redirect` keeps the held screen up until its target is ready instead of showing the fallback. New behaviour in dom and the React adapter, with its own sign-off. Tracked on the board.
+- **Holding the screen through a redirect.** A host seam turning a `catch()` outcome into a suspension in a passive pass, so a thrown `Redirect` keeps the held screen up until its target is ready instead of showing the fallback. New behaviour in `@expressive/jsx`'s reconciler (after feat/jsx) and the React adapter, with its own sign-off. Tracked on the board.
 
 ## Open questions
 
