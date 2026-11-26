@@ -1,6 +1,6 @@
 /** @jsxImportSource @expressive/jsx */
 
-import { set, type Component } from "@expressive/mvc";
+import { Component, Context, Model, set } from "@expressive/mvc";
 import { Route as Base, Redirect as RouterRedirect, fullPattern, matchPattern } from "@expressive/router";
 import { Redirect } from "@expressive/rpc";
 import { childrenOf, propsOf, typeOf } from "@expressive/jsx/jsx-runtime";
@@ -11,7 +11,10 @@ type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
 type Verdict = string | void | null;
 
-type EntryHook = (route: Route) => Verdict | Promise<Verdict>;
+type EntryHook = (route: Route) => Verdict | Model.Extends | Promise<Verdict | Model.Extends>;
+
+const DEFAULTS = new WeakMap<Route, Model>();
+const HOT = "expressive:route-update";
 
 /**
  * Router's `Route` with a route module's exports - the generated tree builds one per module.
@@ -23,15 +26,21 @@ export class Route extends Base {
   fallback: Component.Node = false;
 
   /**
-   * Entry hook - a function `default` export, run with the Route before render.
+   * Internal entry step for generated route defaults and gated folders.
    *
-   * Generated function defaults reject returned strings. The internal gate check may still return a path.
-   * A thrown error reaches `Catch`, whose `retry` checks again.
+   * The gate runs before a default class is built. A thrown error reaches `Catch`.
    */
   enter = set<EntryHook | undefined>(undefined, hook => arm(this, hook));
 
   /** Error UI for this route - `retry` re-renders the content. */
   Catch?: CatchUI = undefined;
+
+  /** Renders matched content inside its ready default instance, when one exists. */
+  render(): Component.Node {
+    const content = super.render();
+    const instance = DEFAULTS.get(this.is);
+    return instance ? <Component for={instance}>{content}</Component> : content;
+  }
 }
 
 const REFUSED = new Set<Route>();
@@ -50,11 +59,48 @@ function arm(route: Route, hook: EntryHook | undefined) {
 
   const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
 
+  const built = async (value: Verdict | Model.Extends): Promise<Verdict> => {
+    if (!Model.is(value)) return value as Verdict;
+    const instance = entering(route.router.path, () => (value as Model.Type<Model>).new(Context.get(route)));
+    try {
+      await instance.set();
+    } catch (error) {
+      instance.set(null);
+      throw error;
+    }
+    DEFAULTS.set(route.is, instance);
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      unwatch();
+      if (typeof window !== "undefined") window.removeEventListener(HOT, onHot);
+      DEFAULTS.delete(route.is);
+      instance.set(null);
+    };
+    const onHot = (event: Event) => {
+      const source = (route.enter as EntryHook & { source?: string } | undefined)?.source;
+      const paths = (event as CustomEvent<string[]>).detail;
+      if (!source || !paths?.some(path => path.endsWith(source))) return;
+      dispose();
+      arm(route, route.enter);
+    };
+    const unwatch = route.router.set("path", () => {
+      if (route.matched) return;
+      dispose();
+      return null;
+    });
+    if (typeof window !== "undefined") window.addEventListener(HOT, onHot);
+    route.set(null, dispose);
+  };
+
   route.redirect = hook && (() => {
     try {
       const verdict = enter(hook);
 
-      return verdict instanceof Promise ? verdict.then(next => (typeof next == "function" ? enter(next as EntryHook) : next)).catch(refused) : verdict;
+      return verdict instanceof Promise
+        ? verdict.then(next => typeof next == "function" && !Model.is(next) ? enter(next as EntryHook) : next).then(built).catch(refused)
+        : Model.is(verdict) ? built(verdict).catch(refused) : verdict;
     } catch (error) {
       return refused(error);
     }
@@ -100,6 +146,7 @@ Object.defineProperty(Route.prototype, "catch", {
           if (done) return;
           done = true;
           unwatch();
+          window.removeEventListener(HOT, retry);
           REFUSED.forEach(route => arm(route, route.enter));
           REFUSED.clear();
           this.fallback = initial;
@@ -110,7 +157,8 @@ Object.defineProperty(Route.prototype, "catch", {
         unwatch = this.router.set("path", () => {
           if (this.router.path !== path) retry();
         });
-        this.set(null, () => { unwatch(); });
+        window.addEventListener(HOT, retry);
+        this.set(null, () => { unwatch(); window.removeEventListener(HOT, retry); });
       });
     };
 

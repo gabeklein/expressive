@@ -2,6 +2,7 @@
 // @vitest-environment-options { "url": "http://localhost/" }
 
 import { Redirect as Moved, Unauthorized } from "@expressive/rpc";
+import { Model } from "@expressive/mvc";
 import type { BrowserRouter } from "@expressive/router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -32,6 +33,19 @@ describe("gateCheck", () => {
   const flush = () => settle().then(settle);
   const goto = (path: string) => (router.current.goto(path), flush());
   const paths = (call: ReturnType<typeof pass>) => call.mock.calls.map(([path]) => path);
+
+  it("will check a gate before building its default", async () => {
+    const order: string[] = [];
+    const call = vi.fn(async () => { order.push("gate"); return true; });
+    class Guard extends Model {
+      protected new() { order.push("default"); }
+    }
+    location("/admin");
+    const checked = gateCheck(call, TREE);
+    const root = await mount(() => <Route><Route to="admin" enter={checked(() => Guard)}><Route as={() => <p>ready</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("ready"));
+    expect(order).toEqual(["gate", "default"]);
+  });
 
   afterEach(() => {
     vi.unstubAllGlobals();
