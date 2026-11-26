@@ -6,12 +6,9 @@ import { mockPromise } from '../mvc/test.setup';
 import { vnode } from './src/node/vnode';
 import { plain } from './src/render/host';
 import type { Host } from './src/render/host';
-import { reconcileChildren } from './src/render/reconcile';
 import { render as renderWith } from './src/render/render';
-import { claim } from './src/style/claim';
-import { unmatched } from './src/style/diagnose';
 import { isBare } from './src/style/numeric';
-import { documentOf, reserved } from './src/style/protocol';
+import { documentOf } from './src/style/protocol';
 import type { Declaration, Styles } from './src/style/protocol';
 
 function declare(style: CSSStyleDeclaration, declarations: Declaration, previous: Declaration = {}) {
@@ -72,32 +69,23 @@ export const styled: Host = {
     return styles;
   },
   mount: (_fiber, value, parent, before) => parent.insertBefore(documentOf(parent).createElement(value.type as string), before),
-  patch(fiber, value, appearance) {
+  patch(fiber, value, previous) {
     const element = fiber.start as HTMLElement;
     const { children, className, style, key: _, ...props } = value.props as Record<string, any>;
-    const previous = fiber.props as Record<string, any>;
+    const { className: classes, declarations } = fiber.claimed!;
 
-    unmatched(value.source, value.props, [appearance?.context], appearance?.author, undefined, fiber.type as string);
-
-    for (const key of Object.keys({ ...previous, ...props })) {
+    for (const key of Object.keys({ ...fiber.props, ...props })) {
       const prop = props[key];
 
-      if (key[0] == '_') reserved(key);
-      else if (key == 'children' || key == 'className' || key == 'style' || key == 'key') continue;
+      if (key[0] == '_' || key == 'children' || key == 'className' || key == 'style' || key == 'key') continue;
       else if (prop == null || prop === false || typeof prop == 'object' || typeof prop == 'function') element.removeAttribute(key);
       else element.setAttribute(key, prop === true ? '' : String(prop));
     }
 
-    const next = claim(fiber.root!.styles!, appearance, appearance?.context?.resolve(value.props, fiber.type as string), className, style);
-
-    if (next.className) element.setAttribute('class', next.className);
+    if (classes) element.setAttribute('class', classes);
     else element.removeAttribute('class');
 
-    declare(element.style, next.declarations, fiber.claimed?.declarations);
-    fiber.claimed = next;
-    fiber.props = value.props;
-    reconcileChildren(fiber, element, null, children, fiber.context, fiber.boundary,
-      next.context || appearance?.author ? { author: appearance?.author, context: next.context, entries: [] } : undefined);
+    declare(element.style, declarations, previous?.declarations);
   },
   unmount() {}
 };

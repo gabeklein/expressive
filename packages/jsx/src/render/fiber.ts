@@ -60,6 +60,7 @@ interface Fiber {
   appearance?: Appearance;
   consumed?: boolean;
   claimed?: Claim;
+  settled?: Record<string, any>;
   dehydrated?: boolean;
   root?: Root;
   dev?: object;

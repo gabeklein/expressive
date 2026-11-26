@@ -1,15 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component } from '@expressive/mvc';
+import { Component, pending } from '@expressive/mvc';
 
 import { PORTAL, Portal, vnode } from '../node/vnode';
 import { isComment, plain } from './host';
 import type { Host, Hydration } from './host';
 import { LEAD } from './portal';
-import { reconcileChildren } from './reconcile';
 import { hydrate, mountRoot, render } from './render';
 import { hostOf } from './suspense';
-import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
+import { flushMicrotasks, lazy, mockPromise, mount, until } from '../../test.setup';
 
 describe('plain host', () => {
   it('will render tags, text and components with attributes and handlers', async () => {
@@ -171,6 +170,28 @@ describe('plain host', () => {
     await flushMicrotasks();
     expect(root.textContent).toBe('xslow');
     expect(aside.textContent).toBe('in');
+  });
+
+  it('will keep one listener on an element patched again after its children suspend', async () => {
+    const [Lazy, loaded] = lazy();
+    let clicks = 0;
+
+    class App extends Component {
+      open = false;
+
+      render() {
+        return <button onClick={() => clicks++}>{this.open && <Lazy />}</button>;
+      }
+    }
+
+    const [app, root] = mount(App);
+
+    pending(() => (app.open = true));
+    loaded.resolve(() => <s>lazy</s>);
+    await until(() => expect(root.textContent).toBe('lazy'));
+
+    root.querySelector('button')!.click();
+    expect(clicks).toBe(1);
   });
 
   it('will recognize a comment by its text', () => {
@@ -336,10 +357,7 @@ const tree: Host = {
   marker: (_root, kind) => new Item(8, kind) as never,
   fragment: () => new Item(11) as never,
   mount: (_fiber, value, parent, before) => (parent as never as Item).insertBefore(new Item(1, null, value.type as string), before as never) as never,
-  patch(fiber, value) {
-    fiber.props = value.props;
-    reconcileChildren(fiber, fiber.start, null, value.props.children, fiber.context, fiber.boundary);
-  },
+  patch() {},
   unmount: vi.fn()
 };
 
@@ -394,5 +412,24 @@ describe('custom host', () => {
     await loading;
     await flushMicrotasks();
     expect(String(root)).toBe('<root><p>kept</p><b>done</b></root>');
+  });
+
+  it('will skip children a host sets itself, and settle each element after its children', () => {
+    const settled: string[] = [];
+    const host: Host = {
+      ...tree,
+      patch(fiber, value) {
+        if (value.props.text == null) return;
+        (fiber.start as never as Item).appendChild(new Item(3, value.props.text as string));
+        return false;
+      },
+      settle: (fiber) => void settled.push(String(fiber.start))
+    };
+    const root = new Item(1, null, 'root');
+
+    mountRoot(<ul><li text="raw">ignored</li><li>kept</li></ul>, root as never, host);
+
+    expect(String(root)).toBe('<root><ul><li>raw</li><li>kept</li></ul></root>');
+    expect(settled).toEqual(['<li>raw</li>', '<li>kept</li>', '<ul><li>raw</li><li>kept</li></ul>']);
   });
 });

@@ -10,13 +10,11 @@ export { activeRoot, isComment, marker, plain, text, within } from './render/hos
 export type { Host, Hydration, Root } from './render/host';
 export { unmountFiber } from './render/mount';
 export { LEAD } from './render/portal';
-export { reconcileChildren } from './render/reconcile';
 export { afterPass, hydrate, render, settled } from './render/render';
 export { hostOf } from './render/suspense';
-export { claim, flatten } from './style/claim';
+export { flatten, styleElement } from './style/claim';
 export type { Appearance, Claim } from './style/claim';
-export { unmatched } from './style/diagnose';
 export { isBare } from './style/numeric';
-export { documentOf, reserved } from './style/protocol';
+export { documentOf } from './style/protocol';
 export type { Declaration, Styles, StyleTarget } from './style/protocol';
 export { syncRoots } from './style/root';
