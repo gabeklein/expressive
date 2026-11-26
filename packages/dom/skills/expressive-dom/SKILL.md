@@ -384,4 +384,4 @@ A top-level function component (`function View()`, `const View = () => …`, Pas
 
 ## Boundaries
 
-The renderer targets the browser, with `renderToString` for servers: no native target or streaming. It has no general hook API, memo wrapper, synthetic events, or devtools ownership. Build-time expressive-jsx extraction is not included.
+The renderer targets the browser, with `renderToString` for servers: no native target or streaming. It has no general hook API, memo wrapper, synthetic events, or devtools ownership. Build-time style extraction is not included.

@@ -5,6 +5,7 @@
     "types": ["preact", "node"],
     "paths": {
       "@expressive/mvc/*": ["../mvc/src/*"],
+      "@expressive/jsx/*": ["../jsx/src/*"],
       "@expressive/react/adapter": ["./src/adapter"],
       "@expressive/*": ["../*/src"]
     },

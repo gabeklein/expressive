@@ -15,7 +15,7 @@ type Result = Promise<{ code: string; map: null } | undefined>;
 function transform(code: string, id = '/src/app.js', runtime: string | null = '/mvc/src/hot.js', ssr?: boolean): Result {
   const hook = expressive().transform as Function;
   const resolve = async (entry: string) =>
-    runtime && { id: entry.includes('/dom/') ? '/dom/src/jsx-dev-runtime.js' : runtime };
+    runtime && { id: entry.includes('/dom/') ? '/dom/src/jsx-dev-runtime.js' : entry.includes('/jsx/') ? '/jsx/src/jsx-dev-runtime.js' : runtime };
 
   return hook.call({ parse: parseAst, resolve }, code, id, ssr === undefined ? undefined : { ssr });
 }
@@ -56,8 +56,8 @@ it('will apply during serve only, after other transforms', () => {
 
 describe('prebundle', () => {
   const dirs: string[] = [];
-  const ALL = { '@expressive/mvc': ['', 'hot'], '@expressive/dom': ['jsx-runtime', 'jsx-dev-runtime'] };
-  const IDS = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
+  const ALL = { '@expressive/mvc': ['', 'hot'], '@expressive/jsx': ['jsx-runtime', 'jsx-dev-runtime'], '@expressive/dom': ['jsx-runtime', 'jsx-dev-runtime'] };
+  const IDS = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/jsx/jsx-runtime', '@expressive/jsx/jsx-dev-runtime', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
 
   function project(packages: Record<string, string[]>, linked?: boolean) {
     const root = mkdtempSync(join(tmpdir(), 'expressive-vite-'));
@@ -116,6 +116,7 @@ describe('skip', () => {
     ['a non-script module', 'class A {}', '/src/app.css'],
     ['the mvc runtime itself', 'class A {}', '/mvc/src/model.js'],
     ['the dom runtime itself', 'export const App = () => null;', '/dom/src/lazy.js'],
+    ['the jsx runtime itself', 'export class Style {}', '/jsx/src/style/stylesheet.js'],
     ['a dependency', 'class A {}', '/node_modules/lib/index.js'],
     ['a module without classes or components', 'export const title = "no class";', undefined],
     ['a module mentioning class without declaring one', 'export const className = "a";', undefined]
@@ -136,7 +137,7 @@ it('will resolve the runtime once', async () => {
   await hook.call(context, 'class A {}', '/src/a.js');
   await hook.call(context, 'class B {}', '/src/b.js');
 
-  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(resolve).toHaveBeenCalledTimes(3);
 });
 
 it('will name a module by its path from the project root', async () => {
@@ -190,6 +191,12 @@ describe('components', () => {
 
     expect(code).toContain(`import { hot as __refresh } from '@expressive/dom/jsx-dev-runtime';`);
     expect(code).toContain('__refresh("/src/app.js", { App, Card, Row, Page });');
+  });
+
+  it('will register components of a module on the portable runtime', async () => {
+    const code = await inject('import { jsx } from "@expressive/jsx/jsx-runtime";\nfunction Card() {}');
+
+    expect(code).toContain('__refresh("/src/app.js", { Card });');
   });
 
   it('will not register other functions', async () => {

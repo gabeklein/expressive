@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Model, pending, set } from '@expressive/mvc';
-import { render } from '../index';
-import { flushMicrotasks, mockPromise, mount, place, until } from '../../test.setup';
+
+import { Portal, render, style } from '../index';
+import { attached, flushMicrotasks, lazy, mockPromise, mockWarn, mount, place, until } from '../../test.setup';
 
 if (false) {
   // @ts-expect-error @expressive/dom uses className, not the class attribute name.
@@ -149,7 +150,7 @@ describe('element', () => {
     const pointerDown = vi.fn();
     const clicked = vi.fn();
     const values: string[] = [];
-    const root = document.body.appendChild(document.createElement('main'));
+    const root = attached();
 
     render(
       <>
@@ -326,7 +327,7 @@ describe('element', () => {
     }
 
     const detached = place(<input autofocus />);
-    const [editor, root] = mount(Editor, {}, document.body.appendChild(document.createElement('main')));
+    const [editor, root] = mount(Editor, {}, attached());
 
     expect(document.activeElement).not.toBe(detached.querySelector('input'));
 
@@ -370,7 +371,7 @@ describe('element', () => {
         }
       }
 
-      const [app, root] = mount(App, {}, document.body.appendChild(document.createElement('main')));
+      const [app, root] = mount(App, {}, attached());
 
       pending(() => (app.nav.page = 'next'));
 
@@ -418,7 +419,7 @@ describe('element', () => {
       }
     }
 
-    const root = place(<Name />, document.body.appendChild(document.createElement('main')));
+    const root = place(<Name />, attached());
     const input = root.querySelector('input')!;
 
     input.value = 'abcd';
@@ -457,7 +458,7 @@ describe('element', () => {
       }
     }
 
-    const root = place(<Name />, document.body.appendChild(document.createElement('main')));
+    const root = place(<Name />, attached());
     const input = root.querySelector('input')!;
     const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!;
 
@@ -496,7 +497,7 @@ describe('element', () => {
       }
     }
 
-    const root = place(<Form />, document.body.appendChild(document.createElement('main')));
+    const root = place(<Form />, attached());
     const [box, field] = root.querySelectorAll('input');
 
     box.checked = true;
@@ -517,7 +518,7 @@ describe('element', () => {
   });
 
   it('will keep a controlled field without a handler on its value', async () => {
-    const root = place(<><input value="fixed" /><input type="checkbox" checked={false} /><input /><input type="range" value={150} max={200} /><select value="b"><option value="a" /><option value="b" /></select></>, document.body.appendChild(document.createElement('main')));
+    const root = place(<><input value="fixed" /><input type="checkbox" checked={false} /><input /><input type="range" value={150} max={200} /><select value="b"><option value="a" /><option value="b" /></select></>, attached());
     const [text, box, free, range] = root.querySelectorAll('input');
     const select = root.querySelector('select')!;
 
@@ -540,5 +541,247 @@ describe('element', () => {
     expect(box.checked).toBe(false);
     expect(free.value).toBe('free');
     expect(select.value).toBe('b');
+  });
+});
+
+describe('styles', () => {
+  const warn = mockWarn();
+
+  it('will warn for a flag that matches no rule', () => {
+    function Badge() {
+      return <i _smal />;
+    }
+
+    style(Badge, { _small: { color: 'red' } });
+    place(<Badge />);
+
+    expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Badge. Did you mean "_small"?']]);
+  });
+
+  it('will throw for a subcomponent key on an element', () => {
+    function Card() {
+      return <div {...{ _Title: true }} />;
+    }
+
+    expect(() => place(<Card />)).toThrow('"_Title" is reserved for subcomponents in style() maps.');
+  });
+
+  it('will keep the author of children through an unstyled wrapper', () => {
+    function Wrap({ children }: { children?: Component.Node }) {
+      return <div>{children}</div>;
+    }
+
+    function Author() {
+      return <Wrap><p _note /></Wrap>;
+    }
+
+    style(Author, { _note: { color: 'green' } });
+
+    expect(place(<Author />).querySelector('p')!.className).toBe('Author_note');
+  });
+});
+
+describe('svg', () => {
+  it('will render SVG, fragments and primitive updates', async () => {
+    class Shapes extends Component {
+      count: number | bigint = 1;
+
+      render() {
+        return (
+          <>
+            text:{this.count}
+            <label htmlFor="shape">shape</label>
+            <svg viewBox="0 0 10 10" {...({ focusable: true } as any)}>
+              <circle
+                {...({ class: 'legacy' } as any)}
+                className="shape"
+                cx={5}
+                cy={5}
+                r={4}
+                style={['active', { opacity: 0.5 }]}
+              />
+            </svg>
+            {false}
+          </>
+        );
+      }
+    }
+
+    const [shapes, root] = mount(Shapes);
+
+    expect(root.textContent).toBe('text:1shape');
+    expect(root.querySelector('circle')?.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(root.querySelector('circle')?.getAttribute('class')).toBe('shape active');
+    expect((root.querySelector('circle') as SVGCircleElement).style.opacity).toBe('0.5');
+    expect(root.querySelector('label')?.getAttribute('for')).toBe('shape');
+    expect(root.querySelector('svg')?.getAttribute('focusable')).toBe('');
+
+    shapes.count = 2n;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('text:2shape');
+  });
+});
+
+
+describe('behind a boundary', () => {
+  it('will attach refs and autofocus of content rendered behind a fallback once it shows', async () => {
+    const loaded = mockPromise<string>();
+    const ref = vi.fn((node: Element | null) => node?.isConnected);
+
+    class Page extends Component {
+      value = set(() => loaded);
+
+      render() {
+        return <div ref={ref}><input autofocus />{this.value}</div>;
+      }
+    }
+
+    class Nav extends Model {
+      page = 'home';
+    }
+
+    function Swap() {
+      return Nav.get().page == 'next' ? <Page /> : <p>home</p>;
+    }
+
+    class App extends Component {
+      nav = new Nav();
+      fallback = <i>loading</i>;
+
+      render() {
+        return <Swap />;
+      }
+    }
+
+    const [app, root] = mount(App, {}, attached());
+
+    app.nav.page = 'next';
+    await flushMicrotasks();
+    loaded.resolve('ready');
+    await until(() => expect(root.textContent).toBe('ready'));
+
+    expect(ref).toHaveBeenCalledTimes(1);
+    expect(ref).toHaveReturnedWith(true);
+    expect(document.activeElement).toBe(root.querySelector('input'));
+  });
+
+  it('will mount staged transition content once it is in the document', async () => {
+    const seen: string[] = [];
+    const connected = () => !!document.querySelector('#chart');
+
+    class Nav extends Model {
+      page = 'a';
+    }
+
+    class Chart extends Component {
+      protected new() {
+        this.get(() => void seen.push(`effect ${connected()}`));
+      }
+
+      render() {
+        return <div id="chart" ref={(node) => node && seen.push(`ref ${connected()}`)} />;
+      }
+    }
+
+    function Page() {
+      return <section><Chart /></section>;
+    }
+
+    function Swap() {
+      return Nav.get().page == 'b' ? <Page /> : null;
+    }
+
+    class App extends Component {
+      nav = new Nav();
+
+      render() {
+        return <Swap />;
+      }
+    }
+
+    const [app] = mount(App, {}, attached());
+
+    pending(() => (app.nav.page = 'b'));
+    await until(() => expect(seen).toEqual(['ref true', 'effect true']));
+  });
+
+  it('will attach only the latest ref given while hidden', async () => {
+    const [Lazy, loaded] = lazy();
+    const first = vi.fn();
+    const second = vi.fn();
+
+    class Slot extends Model {
+      ref?: (node: Element | null) => void = undefined;
+    }
+
+    function Target() {
+      const { ref } = Slot.get();
+      return ref ? <section ref={ref} /> : null;
+    }
+
+    class App extends Component {
+      slot = new Slot();
+      fallback = <i>loading</i>;
+
+      render() {
+        return <><Target /><Lazy /></>;
+      }
+    }
+
+    const [app, root] = mount(App);
+
+    app.slot.ref = first;
+    await flushMicrotasks();
+    app.slot.ref = second;
+    await flushMicrotasks();
+    loaded.resolve(() => <span>ready</span>);
+    await flushMicrotasks();
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledWith(root.querySelector('section'));
+  });
+
+  it('will attach a ref in portal content added while hidden', async () => {
+    const [Lazy, loaded] = lazy();
+    const target = document.body.appendChild(document.createElement('aside'));
+    const ref = { current: null as HTMLElement | null };
+
+    class App extends Component {
+      fallback = <i>loading</i>;
+      extra = false;
+
+      render() {
+        return <><Portal into={target}><b>modal</b>{this.extra && <u ref={ref} />}</Portal><Lazy /></>;
+      }
+    }
+
+    const [app] = mount(App);
+
+    app.extra = true;
+    await flushMicrotasks();
+    expect(ref.current).toBe(null);
+
+    loaded.resolve(() => <span>ready</span>);
+    await flushMicrotasks();
+    expect(ref.current).toBe(target.querySelector('u'));
+    expect(ref.current!.isConnected).toBe(true);
+  });
+
+  it('will create SVG content resolved while its boundary is hidden', async () => {
+    const [Lazy, loaded] = lazy();
+
+    class Chart extends Component {
+      render() {
+        return <Lazy />;
+      }
+    }
+
+    const root = place(<svg><Chart /><foreignObject><div /></foreignObject></svg>);
+
+    loaded.resolve(() => <circle r="1" />);
+    await flushMicrotasks();
+    expect(root.querySelector('circle')!.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(root.querySelector('div')!.namespaceURI).toBe('http://www.w3.org/1999/xhtml');
   });
 });

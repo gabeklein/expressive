@@ -71,6 +71,7 @@
         "@expressive/dom": "^0.13.4",
         "@expressive/env": "^0.2.0",
         "@expressive/inspect": "^0.6.7",
+        "@expressive/jsx": "^0.0.0",
         "@expressive/router": "^0.10.7",
         "@expressive/rpc": "^0.5.1",
         "es-module-lexer": "^1.6.0",
@@ -89,6 +90,9 @@
     "packages/dom": {
       "name": "@expressive/dom",
       "version": "0.13.4",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "workspace:^",
         "@types/node": "^25.2.0",
@@ -129,6 +133,9 @@
     "packages/inspect": {
       "name": "@expressive/inspect",
       "version": "0.6.7",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "tsdown": "^0.20.1",
@@ -142,6 +149,18 @@
         "vite",
       ],
     },
+    "packages/jsx": {
+      "name": "@expressive/jsx",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@expressive/mvc": "workspace:^",
+        "@types/node": "^25.2.0",
+        "tsdown": "^0.20.1",
+      },
+      "peerDependencies": {
+        "@expressive/mvc": "^0.97.1",
+      },
+    },
     "packages/mvc": {
       "name": "@expressive/mvc",
       "version": "0.97.1",
@@ -153,6 +172,9 @@
     "packages/react": {
       "name": "@expressive/react",
       "version": "0.95.0",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/mvc": "^0.97.0",
         "@expressive/router": "workspace:^",
@@ -184,6 +206,9 @@
     "packages/router": {
       "name": "@expressive/router",
       "version": "0.10.7",
+      "dependencies": {
+        "@expressive/jsx": "^0.0.0",
+      },
       "devDependencies": {
         "@expressive/dom": "workspace:^",
         "@expressive/mvc": "^0.97.0",
@@ -491,6 +516,8 @@
     "@expressive/examples": ["@expressive/examples@workspace:examples"],
 
     "@expressive/inspect": ["@expressive/inspect@workspace:packages/inspect"],
+
+    "@expressive/jsx": ["@expressive/jsx@workspace:packages/jsx"],
 
     "@expressive/mvc": ["@expressive/mvc@workspace:packages/mvc"],
 

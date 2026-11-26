@@ -19,7 +19,7 @@ npm install @expressive/mvc @expressive/react
 
 `@expressive/mvc` is a peer dependency: import `Model`, `Component` and instructions from it, and import `@expressive/react` once from your entry so the host registers. Provide an instance to a subtree with `<Component for={Model}>` - `Provider` and `Consumer` were removed. The adapter exports nothing for app code.
 
-Works on React DOM, and on React Native and Expo - the adapter imports only `react` and `react/jsx-runtime`, so there is nothing renderer-specific to port. Exercised on an iOS simulator and an Android emulator in both Debug and Release builds, and gated per release on Metro resolution and a Hermes build (Expo SDK 57, React Native 0.86). Under Jest, add `@expressive` to `transformIgnorePatterns`.
+Works on React DOM, and on React Native and Expo - beside `react` and `react/jsx-runtime` the adapter imports only `@expressive/jsx/jsx-runtime`, so there is nothing renderer-specific to port. Exercised on an iOS simulator and an Android emulator in both Debug and Release builds, and gated per release on Metro resolution and a Hermes build (Expo SDK 57, React Native 0.86). Under Jest, add `@expressive` to `transformIgnorePatterns`.
 
 ```tsx
 import { Component } from '@expressive/mvc';

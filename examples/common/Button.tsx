@@ -1,6 +1,6 @@
 import './Button.css';
 
-import type { JSX } from '@expressive/mvc/jsx-runtime';
+import type { JSX } from '@expressive/jsx/jsx-runtime';
 
 type ButtonProps = JSX.IntrinsicElements['button'] & {
   primary?: boolean;

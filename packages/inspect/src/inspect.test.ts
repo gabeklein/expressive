@@ -540,3 +540,30 @@ describe('health', () => {
     }
   });
 });
+
+describe('host', () => {
+  it('will judge orphans once a default element is made, keeping an earlier element hook', async () => {
+    vi.resetModules();
+
+    const mvc = await vi.importActual<typeof import('@expressive/mvc')>('@expressive/mvc');
+    const runtime = await vi.importActual<typeof import('@expressive/jsx/jsx-runtime')>('@expressive/jsx/jsx-runtime');
+    const inspect = await vi.importActual<typeof import('./index')>('./index');
+    const hook = vi.fn();
+
+    runtime.onElement(hook);
+    inspect.attach();
+
+    class Loose extends mvc.Model {}
+
+    const before = Loose.new();
+    await flushMicrotasks();
+    expect(inspect.Instance.of(before).claimed).toBe(true);
+
+    const node = runtime.jsx('div', {});
+    expect(hook).toHaveBeenCalledWith(node);
+
+    const after = Loose.new();
+    await flushMicrotasks();
+    expect(inspect.Instance.of(after).claimed).toBe(false);
+  });
+});
