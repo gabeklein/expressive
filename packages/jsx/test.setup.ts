@@ -6,7 +6,6 @@ import { mockPromise } from '../mvc/test.setup';
 import { vnode } from './src/node/vnode';
 import { plain } from './src/render/host';
 import type { Host } from './src/render/host';
-import { complete } from './src/render/mount';
 import { reconcileChildren } from './src/render/reconcile';
 import { render as renderWith } from './src/render/render';
 import { claim } from './src/style/claim';
@@ -72,11 +71,7 @@ export const styled: Host = {
 
     return styles;
   },
-  mount(fiber, value, parent, before, appearance) {
-    fiber.start = fiber.end = parent.insertBefore(documentOf(parent).createElement(value.type as string), before);
-
-    return complete(fiber, () => styled.patch(fiber, value, appearance));
-  },
+  mount: (_fiber, value, parent, before) => parent.insertBefore(documentOf(parent).createElement(value.type as string), before),
   patch(fiber, value, appearance) {
     const element = fiber.start as HTMLElement;
     const { children, className, style, key: _, ...props } = value.props as Record<string, any>;
