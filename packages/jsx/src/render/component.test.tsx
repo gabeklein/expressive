@@ -348,6 +348,142 @@ describe('class element', () => {
     expect(panel.get(null)).toBe(false);
   });
 
+  it('will preserve placed field state and clear children on removal', async () => {
+    class Panel extends Component {
+      label = 'a';
+      render(props: { children?: Component.Node }) {
+        return <b>{this.label}{props.children}</b>;
+      }
+    }
+    const panel = Panel.new({ label: 'a' });
+    panel.label = 'b';
+    const root = document.createElement('main');
+    class App extends Component {
+      child = 'one';
+      active = true;
+      render() {
+        return this.active ? <Component for={panel}>{this.child}</Component> : null;
+      }
+    }
+    const [app, , release] = mount(App, undefined, root);
+    expect(root.textContent).toBe('bone');
+    expect(panel.label).toBe('b');
+    app.child = 'two';
+    await flushMicrotasks();
+    expect(root.textContent).toBe('btwo');
+    expect(panel.label).toBe('b');
+    app.active = false;
+    await flushMicrotasks();
+    expect(panel.props.children).toBeUndefined();
+    const placed = place(<div>{panel}</div>);
+    expect(placed.textContent).toBe('b');
+    release();
+  });
+
+  it('will use the element fallback for a placed render and children', async () => {
+    const gate = mockPromise<() => Component.Node>();
+    const Lazy = () => gate;
+    class Panel extends Component {
+      render(props: { children?: Component.Node }) {
+        return <section>{props.children}<Lazy /></section>;
+      }
+    }
+    const panel = Panel.new();
+    const root = place(<Component for={panel} fallback={<i>loading</i>}><Lazy /></Component>);
+    expect(root.textContent).toBe('loading');
+    gate.resolve(() => <b>ready</b>);
+    await flushMicrotasks();
+    expect(root.textContent).toBe('readyready');
+  });
+
+  it('will use the element catch for a placed render error', async () => {
+    const caught = vi.fn();
+    class Panel extends Component {
+      broken = true;
+      render(): Component.Node {
+        if (this.broken) throw new Error('broken');
+        return <b>ready</b>;
+      }
+    }
+    const panel = Panel.new();
+    const root = place(<Component<Panel> for={panel} fallback={<i>recovering</i>} catch={(error: Error, instance: Component) => { caught(error.message, instance); panel.broken = false; }} />);
+    await flushMicrotasks();
+    expect(caught).toHaveBeenCalledWith('broken', expect.any(Component));
+    expect(root.textContent).toBe('ready');
+  });
+
+  it('will render subclass children when it has a for field', () => {
+    class Panel extends Component {}
+    class Slot extends Component {
+      for?: Component;
+    }
+    const panel = Panel.new();
+    const root = place(<Slot for={panel}>kids</Slot>);
+    expect(root.textContent).toBe('kids');
+  });
+
+  it('will refresh a placed instance when its own render props change', async () => {
+    class Panel extends Component {
+      render(props: { tone?: string }) {
+        return <b>{props.tone}</b>;
+      }
+    }
+    const panel = Panel.new({ tone: 'a' });
+    const root = place(<Component for={panel} />);
+    expect(root.textContent).toBe('a');
+    (panel as any).props = { tone: 'b' };
+    await flushMicrotasks();
+    expect(root.textContent).toBe('b');
+  });
+
+  it('will let the latest provider own shared children', async () => {
+    class Panel extends Component {
+      render(props: { children?: Component.Node }) {
+        return <b>{props.children}</b>;
+      }
+    }
+    const panel = Panel.new();
+    const first = document.createElement('main');
+    const second = document.createElement('main');
+    const releaseFirst = render(<Component for={panel} fallback="first">one</Component>, first);
+    const releaseSecond = render(<Component for={panel} fallback="second">two</Component>, second);
+    expect(second.textContent).toBe('two');
+    expect(first.textContent).toBe('one');
+    releaseFirst();
+    expect(second.textContent).toBe('two');
+    releaseSecond();
+    expect((panel as any)[Symbol.for('@expressive/mvc.placed')]).toBeUndefined();
+  });
+
+  it('will clear children after swapping Component, Model, then undefined', async () => {
+    class Panel extends Component {
+      render(props: { children?: Component.Node }) {
+        return <b>{props.children}</b>;
+      }
+    }
+    const panel = Panel.new();
+    class Store extends Model {}
+    const model = Store.new();
+    const root = document.createElement('main');
+    class App extends Component {
+      step = 0;
+      render() {
+        return <Component for={this.step === 0 ? panel : this.step === 1 ? model : undefined}>kids</Component>;
+      }
+    }
+    const [app, , release] = mount(App, undefined, root);
+    expect(root.textContent).toBe('kids');
+    app.step = 1;
+    await flushMicrotasks();
+    expect(panel.props.children).toBeUndefined();
+    expect(root.textContent).toBe('kids');
+    expect(place(<div>{panel}</div>).textContent).toBe('');
+    app.step = 2;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('kids');
+    release();
+  });
+
   it('will destroy an adopted Component and swap provided instances', async () => {
     class Panel extends Component {
       label = '';
