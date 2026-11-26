@@ -178,7 +178,7 @@ function styleElement(styles: Styles, type: string, props: Record<string, any>, 
   return { claim: claimed as Claim, inner };
 }
 
-/** A claim's declarations with its unconditional rule declarations folded in, for inline output. */
+/** A claim's declarations with its unconditional rule declarations folded in, for inline output. Takes claims the core made - `fiber.claimed` after a styled patch. */
 function flatten(claimed: Claim) {
   const { declarations, plain } = claimed as Claimed;
 

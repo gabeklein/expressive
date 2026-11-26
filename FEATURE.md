@@ -42,7 +42,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on `plain`.
 - jsx's suite without dom: style tests render through a stylesheet test host, JSX compiles against jsx's runtime with test-only intrinsics; the jsx→dom edge in `affected.ts` is gone.
 - Unused root exports dropped: `mountRoot`, `rootOf` and the root `JSX` type (`JSX` stays on `/jsx-runtime`).
-- The core resolves element styling (`styleElement`) and reconciles element children; `Host.patch` applies the claim and may return `false`; `Host.settle` runs after children. `claim`, `unmatched`, `reserved` and `reconcileChildren` leave the root export.
+- The core resolves element styling (`styleElement`), assigns `fiber.props` and reconciles element children; `Host.patch` applies the claim and may return `false`; `Host.settle` runs after children with the last settled props. `claim`, `unmatched`, `reserved` and `reconcileChildren` leave the root export.
 - `Host.mount` creates or adopts its node and returns it; the core sets the fiber's range and runs `patch` inside `complete`; `complete` is no longer exported.
 
 ## Before release
@@ -61,7 +61,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 
 - **`_` props without `styles`.** `styleElement` runs only when the root has `styles`, so on `plain` a `_flag` is an ordinary prop (written as an attribute) and `_Name` doesn't throw. Should a style-less host still reject reserved keys?
 - **`settle` has one user.** dom needs it for controlled `value`/`checked` after `<option>`s exist, and for refs. If no other host ever does, it could fold back into a dom-only path.
-- **`fiber.props` lags `patch`.** The core assigns the new props after `settle`, so `patch` and `settle` diff against `fiber.props`. Work a host defers from `patch` must not read `fiber.props` expecting the new ones - dom's ref check moved to its own map for this.
+- **Props across a suspended pass.** The core assigns `fiber.props` as soon as `patch` returns, so a retry after children suspend diffs against what was applied. `settle` instead gets the props of the last pass that reached it, since a suspended pass skips it - one more field (`Fiber.settled`) to keep that. Is a second props snapshot the right price for `settle`?
 - **`patch` returning `false`** leaves previously reconciled children mounted; the host unmounts them, as dom does before `innerHTML`. Could the core do it without fighting the host's own content write?
 - **React adoption.** `spike/react-style` imports style internals by path. Moving it onto `styleElement` from `@expressive/jsx` is part of React styling, after this trunk.
 - **Non-DOM hosts** (terminal, three) must present DOM-shaped nodes, and a host embedded in another host's tree inherits no context or boundaries - board items "jsx: a root nested in another host's tree inherits nothing" and "One JSX host per build, at runtime and at type level".

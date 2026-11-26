@@ -9,7 +9,6 @@ const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
 const attached = new WeakMap<Fiber, unknown>();
-const wanted = new WeakMap<Fiber, unknown>();
 const restoring = new WeakSet<Document | ShadowRoot>();
 const mounting = new WeakMap<Fiber, boolean>();
 
@@ -57,7 +56,7 @@ function prune(element: Element, props: Record<string, any>) {
     if (name == 'style' || !expected.has(name.toLowerCase())) element.removeAttribute(name);
 }
 
-function patchProps(fiber: Fiber, value: VNode, claimed?: Claim) {
+function patchProps(fiber: Fiber, value: VNode, previousClaim?: Claim) {
   const next = value.props as Record<string, any>;
   const element = fiber.start as Element;
   const adopting = mounting.get(fiber);
@@ -86,15 +85,14 @@ function patchProps(fiber: Fiber, value: VNode, claimed?: Claim) {
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  applyClaim(element, claimed, fiber.claimed!);
+  applyClaim(element, previousClaim, fiber.claimed!);
 
   return !raw;
 }
 
-function settleProps(fiber: Fiber, value: VNode) {
+function settleProps(fiber: Fiber, value: VNode, previous: Record<string, any>) {
   const next = value.props as Record<string, any>;
   const element = fiber.start as Element;
-  const previous = fiber.props!;
 
   for (const key of CONTROLS) {
     const value = next[key];
@@ -124,9 +122,8 @@ function settleProps(fiber: Fiber, value: VNode) {
 function patchProp(fiber: Fiber, element: Element, key: string, previous: any, next: any) {
   if (key == 'ref') {
     detachRef(fiber);
-    wanted.set(fiber, next);
     inserted(fiber, () => {
-      if (wanted.get(fiber) !== next) return;
+      if (fiber.props!.ref !== next) return;
       attached.set(fiber, next);
       applyRef(next, element);
     });

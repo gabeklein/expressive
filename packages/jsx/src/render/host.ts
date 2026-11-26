@@ -40,14 +40,18 @@ interface Host {
   /**
    * Write `value.props` to the node - after `mount` and on every update.
    *
-   * `fiber.props` still holds the previous props; the core replaces them after `settle`.
+   * `fiber.props` holds the props last applied - the core replaces them once this returns.
    * With `styles`, the core has already styled the element: apply `fiber.claimed`, replacing `previous`. `_` props are the core's.
    * The core then reconciles `value.props.children` into the node, unless this returns `false` - the host set the content itself.
    * Children reconciled on an earlier pass stay mounted on `false` - unmount them first with `unmountFiber`.
    */
   patch(fiber: Fiber, value: VNode, previous?: Claim): boolean | void;
-  /** Called after children reconcile - for props that depend on them, as dom's `value` on a `<select>`. */
-  settle?(fiber: Fiber, value: VNode): void;
+  /**
+   * Called after children reconcile - for props that depend on them, as dom's `value` on a `<select>`.
+   *
+   * `previous` is the props of the last pass that reached `settle`; a pass whose children suspended or threw did not.
+   */
+  settle?(fiber: Fiber, value: VNode, previous: Record<string, any>): void;
   /** Release what `mount` attached - the core removes the node. */
   unmount(fiber: Fiber): void;
   /** Adopt existing markup instead of creating nodes - dom's hydration. Without it, `hydrate()` renders instead, clearing the container. */
@@ -100,7 +104,6 @@ const plain: Host = {
       else if (next[key] == null || next[key] === false || typeof next[key] == 'object' || typeof next[key] == 'function') element.removeAttribute(key);
       else element.setAttribute(key, next[key] === true ? '' : String(next[key]));
     }
-
   },
   unmount(fiber) {
     for (const key of Object.keys(fiber.props!))

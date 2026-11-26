@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component } from '@expressive/mvc';
+import { Component, pending } from '@expressive/mvc';
 
 import { PORTAL, Portal, vnode } from '../node/vnode';
 import { isComment, plain } from './host';
@@ -8,7 +8,7 @@ import type { Host, Hydration } from './host';
 import { LEAD } from './portal';
 import { hydrate, mountRoot, render } from './render';
 import { hostOf } from './suspense';
-import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
+import { flushMicrotasks, lazy, mockPromise, mount, until } from '../../test.setup';
 
 describe('plain host', () => {
   it('will render tags, text and components with attributes and handlers', async () => {
@@ -170,6 +170,28 @@ describe('plain host', () => {
     await flushMicrotasks();
     expect(root.textContent).toBe('xslow');
     expect(aside.textContent).toBe('in');
+  });
+
+  it('will keep one listener on an element patched again after its children suspend', async () => {
+    const [Lazy, loaded] = lazy();
+    let clicks = 0;
+
+    class App extends Component {
+      open = false;
+
+      render() {
+        return <button onClick={() => clicks++}>{this.open && <Lazy />}</button>;
+      }
+    }
+
+    const [app, root] = mount(App);
+
+    pending(() => (app.open = true));
+    loaded.resolve(() => <s>lazy</s>);
+    await until(() => expect(root.textContent).toBe('lazy'));
+
+    root.querySelector('button')!.click();
+    expect(clicks).toBe(1);
   });
 
   it('will recognize a comment by its text', () => {

@@ -81,11 +81,17 @@ function patchElement(fiber: Fiber, value: VNode, appearance?: Appearance) {
   fiber.appearance = appearance;
   if (styled) fiber.claimed = styled.claim;
 
-  if (host.patch(fiber, value, previous) !== false)
+  const owned = host.patch(fiber, value, previous) === false;
+
+  fiber.props = value.props;
+
+  if (!owned)
     reconcileChildren(fiber, fiber.start, null, value.props.children, fiber.context, fiber.boundary, styled?.inner);
 
-  host.settle?.(fiber, value);
-  fiber.props = value.props;
+  if (host.settle) {
+    host.settle(fiber, value, fiber.settled || {});
+    fiber.settled = value.props;
+  }
 }
 
 function patchText(fiber: Fiber, value: RenderNode) {
