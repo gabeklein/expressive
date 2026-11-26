@@ -2018,6 +2018,7 @@ describe('router Redirect', () => {
     await act(flushMicrotasks);
 
     expect(caught).toEqual([failure]);
+    expect(error.mock.calls.every((call) => call[1] === failure)).toBe(true);
     error.mockClear();
   });
 
