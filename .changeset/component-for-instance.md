@@ -4,4 +4,4 @@
 "@expressive/react": minor
 ---
 
-`<Component for={instance}>` renders a provided Component instance around its children and updates its `props.children` when they change. Model providers and existing ownership rules remain unchanged.
+`<Component for={instance}>` renders a provided Component instance around its children. New children re-render it without replacing its construction props or resetting its fields. The element's `fallback` and `catch` cover the placed render.

@@ -319,17 +319,25 @@ describe('for', () => {
     const provider = Component.new({ for: panel, children: 'first' } as any);
 
     expect(provider.render()).toBe(panel);
-    expect(panel.props.children).toBe('first');
-    expect(panel.render()).toBe('first');
+    expect(panel.props.children).toBeUndefined();
 
     (provider as any).props = { for: panel, children: 'second' };
     await flushMicrotasks();
-    expect(panel.props.children).toBe('second');
+    expect(panel.props.children).toBeUndefined();
 
     (provider as any).props = { for: panel, children: 'second' };
     await flushMicrotasks();
     expect(provider.render()).toBe(panel);
-    expect(panel.render()).toBe('second');
+  });
+
+  it('will clear placement when its provider is removed', () => {
+    class Panel extends Component {}
+    const panel = Panel.new();
+    const provider = Component.new({ for: panel, children: 'old' } as any);
+    expect(provider.render()).toBe(panel);
+    provider.set(null);
+    expect((panel as any)[Symbol.for('@expressive/mvc.placed')]).toBeUndefined();
+    expect(panel.props.children).toBeUndefined();
   });
 
   it('will provide a class swapped in for once', async () => {
