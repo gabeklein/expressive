@@ -156,7 +156,7 @@ function probing(fiber: Fiber) {
   const scope = fiber.scope!;
 
   scope.empty = () => !fiber.children.length;
-  scope.encloses = (inner) => contains(fiber, inner);
+  scope.enclosed = (into) => gather(fiber, into);
   scope.probe = () => {
     try {
       scope.probed = { output: consume(fiber, fiber.render!) };
@@ -166,8 +166,13 @@ function probing(fiber: Fiber) {
   };
 }
 
-function contains(fiber: Fiber, scope: Schedulable): boolean {
-  return fiber.children.some((child) => child.scope === scope || contains(child, scope));
+function gather(fiber: Fiber, into: Set<Schedulable>) {
+  for (const child of fiber.children) {
+    if (child.scope) into.add(child.scope);
+    gather(child, into);
+  }
+
+  if (fiber.placeholder) gather(fiber.placeholder, into);
 }
 
 function patchFunction(fiber: Fiber, value: VNode, appearance?: Appearance) {

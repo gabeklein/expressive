@@ -207,7 +207,7 @@ it('will run an empty scope after a scope around it that renders nothing', async
     const self: Schedulable = {
       ...target(vi.fn(() => void order.push(name))),
       empty: () => empty,
-      encloses: (scope) => inside.includes(scope),
+      enclosed: (into) => inside.forEach((scope) => into.add(scope)),
       probe: () => void (self.probed = { output })
     };
 
