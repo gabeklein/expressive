@@ -135,6 +135,8 @@ Today a route module's `default` is read by kind - a function is an entry hook, 
 - **dev's `Route` and `Router` recognize the errors**, by extending the router's. The router learns nothing about HTTP; `NotFound` is dev's alone.
 - **No entry hook for apps.** A function `default` is a wrapper (or, in a leaf, the page).
 - **A dev app imports nothing from `@expressive/rpc` or `@expressive/router`.** Neither is the app's dependency; dev's docs and skill never show those imports.
+- **Prerender skips a self-gated page quietly,** with one summary line per build instead of a warning per page.
+- **An index `default` that never places its `children` warns in dev,** naming the module - the folder's routes would otherwise vanish silently.
 
 ## The errors
 
@@ -208,7 +210,7 @@ A factory is called with its field's key (`value.call(subject, key)`), and an rp
 
 - An unmatched URL keeps its 404 from the server, which sees the path (page patterns in each entry).
 - A page's thrown `NotFound` is a render state on the client - status 200. A formal 404 (or 302) from a page waits for server rendering, later in the product cycle; the thrown value is what that phase reads.
-- Prerender: on the server the route's `catch()` rejects rather than holds - `renderToString` awaits a held promise until its settle timeout. A thrown `Redirect` takes prerender's existing "redirected at build" branch; a `NotFound` skips the page. Either way the path gets the shell and the browser decides.
+- Prerender: on the server the route's `catch()` rejects rather than holds - `renderToString` awaits a held promise until its settle timeout. A thrown `Redirect` or `NotFound` skips the page quietly - no per-page warning - and the build ends with one summary line (`3 pages redirect at build - not prerendered`). Either way the path gets the shell and the browser decides.
 - dev's `setup` policy defers to the prerender entry's own `Model.on({ catch })` while prerendering, so a page's failure still reaches it.
 
 ## The router
@@ -281,11 +283,6 @@ A function `default` can't be told apart from a 0.5 entry hook by shape - a wrap
 ## Follow-up
 
 - **Holding the screen through a redirect.** A host seam turning a `catch()` outcome into a suspension in a passive pass, so a thrown `Redirect` keeps the held screen up until its target is ready instead of showing the fallback. New behaviour in `@expressive/jsx`'s reconciler (after feat/jsx) and the React adapter, with its own sign-off. Tracked on the board.
-
-## Open questions
-
-1. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
-2. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
 
 ## New public surface
 
