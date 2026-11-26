@@ -1,13 +1,13 @@
 /**
- * Thrown to navigate elsewhere - the nearest Route catches it and goes to `to`.
+ * Thrown to navigate - the nearest Route catches it and goes to `to`.
  *
- * Throw while rendering or from a Component's `new()`, sync or async. `to` resolves against the
- * catching Route. History is replaced when the URL being left is the committed entry (a cold load),
- * pushed during a navigation. The current screen stays up until the target is ready. A second
- * redirect caught before the first lands passes on as an error.
+ * Throw while rendering or from a Component's `new()`, sync or async; elsewhere navigate with
+ * `goto`. `to` resolves against the catching Route. History is replaced on a cold load, pushed during
+ * in-app navigation. A render-time throw shows the Route's `fallback` until the target is ready. A
+ * redirect caught before the previous one lands passes on as an error.
  *
  * @example
- * if (!this.session.user) throw new Redirect('/login');
+ * if (!session.user) throw new Redirect('/login');
  */
 export class Redirect extends Error {
   constructor(readonly to: string) {

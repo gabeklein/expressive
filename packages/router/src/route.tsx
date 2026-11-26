@@ -50,8 +50,9 @@ export class Route extends Component {
   meta?: Record<string, any> = undefined;
 
   /**
-   * Entry guard. A static string redirects there when matched (always replaces
-   * history). A function is evaluated on entry to this route's matched space:
+   * Entry guard. A static string redirects there when matched - once per
+   * entry, replacing the history entry on a cold load and pushing during
+   * in-app navigation. A function is evaluated on entry to this route's matched space:
    * a truthy string redirects, a falsy result (`''`/`undefined`) allows normal
    * render, and `null` force-404s - the route cedes the path so its scope falls
    * through to the nearest `none`. May be async - the route's `fallback` shows
@@ -359,7 +360,7 @@ function frame(this: Route): Component.Node {
 const GUARD = new WeakMap<Route, { redirect: Route['redirect']; space: string; to?: string; sent?: boolean; promise?: Promise<string | undefined>; error?: unknown }>();
 
 /**
- * Resolve a function `redirect` guard for an entered route. Caches the verdict
+ * Resolve a `redirect` verdict for an entered route - a string is its own. Caches the verdict
  * per entry (keyed by the guard fn and the concrete path its own pattern
  * consumes, so a param change re-enters); an async guard throws its pending promise
  * (suspense -> the route's `fallback`) until it settles, then the cached result

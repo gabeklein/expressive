@@ -152,17 +152,26 @@ class NavLink extends Link {
 
 ## Redirect
 
-`Redirect` navigates to `to` when mounted, gated on `when` (default `true`), and renders nothing. The `Route` `redirect` prop is an always-replace shorthand for it.
+`Redirect` is an error. Throw it while rendering, or from a Component's `new()`,
+and the nearest `Route` catches it and navigates - replacing the entry on a cold
+load, pushing during in-app navigation:
 
 ```tsx
 import { Redirect } from '@expressive/router';
 
-<Redirect to="/login" when={!user} />     {/* navigates on mount when `when` is true */}
-<Redirect to="/home" replace />           {/* overwrite the current entry */}
+class Account extends Component {
+  session = get(Session);
+
+  protected new() {
+    if (!this.session.user) throw new Redirect('/login');
+  }
+}
 ```
 
+In an event handler or effect, navigate with `Route.get().goto()` instead.
+
 `Route.redirect` also accepts a synchronous or async entry guard. A non-empty
-string redirects with replacement, a falsy value allows the route, and `null`
+string redirects by the same history rule, a falsy value allows the route, and `null`
 cedes the path to the nearest scoped `none` Route:
 
 ```tsx

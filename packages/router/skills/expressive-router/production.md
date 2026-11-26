@@ -64,7 +64,7 @@ owning instance. Do not add an async router effect merely to relocate domain wor
 Use an entry guard for entry policy or redirect/not-found arbitration, not as a
 general loader:
 
-- string: redirect with replacement;
+- string: redirect - replacing the entry on a cold load, pushing during in-app navigation;
 - `undefined` or `''`: allow;
 - `null`: cede to the nearest scoped `none` Route.
 
