@@ -16,7 +16,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - **/jsx is a regular dependency of hosts, never a peer.**
 - **A render root is `{ host, container, target? }`.** A `Host` creates text, markers and fragments and mounts/patches/unmounts intrinsics. Its nodes keep a DOM-shaped structural contract.
   - `dom` is the full host.
-  - `limp` is what /jsx does with no host opinion: tags as written, props as attributes, `on*` handlers attached.
+  - `plain` is what /jsx does with no host opinion: tags as written, props as attributes, `on*` handlers attached.
   - Optional host seams: `hydration` (adopt existing markup, keep and resume suspended ranges; without it `hydrate` renders), `locate` (string `Portal` targets; without it targets must be nodes), `portaled` (after a portal mounts), `hoist`, and `target`/`styles`.
 - **/jsx has one export surface, its root.** It's a vendor package for hosts, so it exports internals freely, with no `./host` or `./server` subpaths. dom stays the curated surface.
 - **`Context.root` is shared across hosts on purpose.** Root-held globals keep a human UI and an agent interface in sync. Releasing a root pops only its own child context.
@@ -34,11 +34,11 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #800 mvc default element and `onElement`; dom registers no host; per-element dev marks.
 - #801 one tag table; nodes from the root's document (fixes iframes).
 - #802 one `Styles` facility for document, shadow root and server sink.
-- #803 render through a `Host` (dom, limp, custom-host tests).
+- #803 render through a `Host` (dom, `plain`, custom-host tests).
 - #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
 - #806 `renderToString` through the reconciler: jsx `settled()`, dom's string-tree host; the second walker is gone.
 - Runtime move: /jsx owns the JSX runtime and host registry; mvc's `jsx-runtime` keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.
-- Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on limp.
+- Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on `plain`.
 - jsx's suite without dom: style tests render through a stylesheet test host, JSX compiles against jsx's runtime with test-only intrinsics; the jsx→dom edge in `affected.ts` is gone.
 
 ## Before release
@@ -47,7 +47,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - **Public API**, iterated once the first extraction exists:
   - trimming /jsx's root export to what hosts actually use;
   - the `Host` type;
-  - `render(node, el, options)`, with options as partial `Host` overrides over limp.
+  - `render(node, el, options)`, with options as partial `Host` overrides over `plain`.
   - The `Host` hands the core a `Styles` receiver, and the core resolves element styles for any host that has one.
 - **Fat cutting, after the extraction:**
   - `Fiber.root` required;
