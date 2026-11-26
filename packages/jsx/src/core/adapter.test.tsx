@@ -941,8 +941,8 @@ describe('import', () => {
     resolver(sentinel);
 
     const { render: renderWith } = await vi.importActual<typeof import('../render/render')>('../render/render');
-    const { limp } = await vi.importActual<typeof import('../render/host')>('../render/host');
-    const render = (node: any, root: Element) => renderWith(node, root, limp);
+    const { plain } = await vi.importActual<typeof import('../render/host')>('../render/host');
+    const render = (node: any, root: Element) => renderWith(node, root, plain);
     const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
 
     expect(resolver(sentinel)).toBe(sentinel);
@@ -970,8 +970,8 @@ describe('import', () => {
     const { Header } = app;
 
     const { render: renderWith } = await vi.importActual<typeof import('../render/render')>('../render/render');
-    const { limp } = await vi.importActual<typeof import('../render/host')>('../render/host');
-    const render = (node: any, root: Element) => renderWith(node, root, limp);
+    const { plain } = await vi.importActual<typeof import('../render/host')>('../render/host');
+    const render = (node: any, root: Element) => renderWith(node, root, plain);
     const { jsx } = await vi.importActual<typeof import('../jsx-runtime')>('../jsx-runtime');
     const root = document.createElement('main');
     const release = render(jsx(Header, {}), root);

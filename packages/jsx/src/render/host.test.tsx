@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Component } from '@expressive/mvc';
 
 import { PORTAL, Portal, vnode } from '../node/vnode';
-import { isComment, limp } from './host';
+import { isComment, plain } from './host';
 import type { Host, Hydration } from './host';
 import { complete } from './mount';
 import { LEAD } from './portal';
@@ -12,7 +12,7 @@ import { hydrate, mountRoot, render } from './render';
 import { hostOf } from './suspense';
 import { flushMicrotasks, mockPromise, mount } from '../../test.setup';
 
-describe('limp host', () => {
+describe('plain host', () => {
   it('will render tags, text and components with attributes and handlers', async () => {
     const click = vi.fn();
     let card!: Card;
@@ -27,7 +27,7 @@ describe('limp host', () => {
     }
 
     const root = document.createElement('main');
-    const release = mountRoot(<section className="ignored-alias"><Card is={(value) => void (card = value)} /></section>, root, limp);
+    const release = mountRoot(<section className="ignored-alias"><Card is={(value) => void (card = value)} /></section>, root, plain);
     const b = root.querySelector('b')!;
 
     expect(root.querySelector('section')!.getAttribute('className')).toBe('ignored-alias');
@@ -60,7 +60,7 @@ describe('limp host', () => {
     const root = document.createElement('main');
     const modal = document.createElement('aside');
 
-    modal.id = 'limp-modal';
+    modal.id = 'plain-modal';
     document.body.append(root, modal);
 
     const release = mountRoot(
@@ -69,7 +69,7 @@ describe('limp host', () => {
         <Portal into={modal}><u>away</u></Portal>
       </>,
       root,
-      limp
+      plain
     );
 
     const i = root.querySelector('i')!;
@@ -80,8 +80,8 @@ describe('limp host', () => {
 
     release();
 
-    expect(() => mountRoot(<Portal into="#limp-modal">x</Portal>, root, limp)).toThrow(
-      'Portal target "#limp-modal" needs a node - this host resolves no selectors.'
+    expect(() => mountRoot(<Portal into="#plain-modal">x</Portal>, root, plain)).toThrow(
+      'Portal target "#plain-modal" needs a node - this host resolves no selectors.'
     );
 
     root.remove();
@@ -97,7 +97,7 @@ describe('limp host', () => {
     const release = hydrate(<>
       <p>fresh</p>
       {vnode(PORTAL, { into: aside, children: <i>first</i>, [LEAD]: true })}
-    </>, root, limp);
+    </>, root, plain);
 
     expect(root.textContent).toBe('fresh');
     expect(aside.textContent).toBe('first');
@@ -158,7 +158,7 @@ describe('limp host', () => {
     const root = document.createElement('main');
     const hoist = (value: any, parent: globalThis.Node) => (parents.push(hostOf(parent)), value);
 
-    render(<Shell is={(self: Shell) => void (shell = self)} />, root, { ...limp, hoist });
+    render(<Shell is={(self: Shell) => void (shell = self)} />, root, { ...plain, hoist });
     expect(root.textContent).toBe('wait');
     expect(aside.textContent).toBe('');
 
@@ -186,7 +186,7 @@ describe('limp host', () => {
     const locate = vi.fn(() => aside);
     const portaled = vi.fn((fiber: { children: unknown[] }, _adopted: boolean) => fiber.children.length);
 
-    mountRoot(<Portal into="#away"><i>in</i></Portal>, root, { ...limp, locate, portaled });
+    mountRoot(<Portal into="#away"><i>in</i></Portal>, root, { ...plain, locate, portaled });
 
     expect(locate).toHaveBeenCalledWith('#away', root);
     expect(aside.textContent).toBe('in');
@@ -239,7 +239,7 @@ describe('limp host', () => {
       fallback = 'wait';
     }
 
-    hydrate(<><Portal into={aside}>away</Portal><Box><Slow /></Box></>, root, { ...limp, hydration });
+    hydrate(<><Portal into={aside}>away</Portal><Box><Slow /></Box></>, root, { ...plain, hydration });
 
     expect(root.textContent).toBe('');
 
@@ -267,7 +267,7 @@ describe('limp host', () => {
 
     const root = document.createElement('main');
 
-    mountRoot(<Box><Slow /></Box>, root, limp);
+    mountRoot(<Box><Slow /></Box>, root, plain);
     expect(root.textContent).toBe('wait');
 
     waiting = false;

@@ -4,7 +4,7 @@ import { Component, Model, set } from '@expressive/mvc';
 
 import { Portal } from '../node/vnode';
 import { fragment } from './commits';
-import { limp } from './host';
+import { plain } from './host';
 import type { Root } from './host';
 import { afterPass, mountRoot, settled } from './render';
 import { flushMicrotasks, mockPromise, render } from '../../test.setup';
@@ -37,7 +37,7 @@ describe('render', () => {
       return null;
     }
 
-    mountRoot(<Child />, document.createElement('main'), limp);
+    mountRoot(<Child />, document.createElement('main'), plain);
 
     expect(order).toEqual(['now', 'render', 'after', 'during flush']);
   });
@@ -45,7 +45,7 @@ describe('render', () => {
 
 describe('settled', () => {
   function container() {
-    return fragment({ host: limp, container: document.body } as Root);
+    return fragment({ host: plain, container: document.body } as Root);
   }
 
   function text(node: globalThis.Node) {
@@ -67,7 +67,7 @@ describe('settled', () => {
     }
 
     const root = container();
-    const unmount = await settled(<Component fallback={<Spinner />}><Slow /></Component>, root, limp);
+    const unmount = await settled(<Component fallback={<Spinner />}><Slow /></Component>, root, plain);
 
     expect(text(root)).toBe('done');
     expect(drawn).not.toHaveBeenCalled();
@@ -85,7 +85,7 @@ describe('settled', () => {
 
     const root = container();
 
-    await settled(<Portal into={into}><Slow /></Portal>, root, limp);
+    await settled(<Portal into={into}><Slow /></Portal>, root, plain);
 
     expect(text(into)).toBe('away');
   });
@@ -108,7 +108,7 @@ describe('settled', () => {
     await expect(settled(
       <Component catch={outer}><Owned /><Component catch={inner}><Always /></Component></Component>,
       container(),
-      limp
+      plain
     )).rejects.toThrow('always');
 
     expect(inner).toHaveBeenCalledOnce();
@@ -134,7 +134,7 @@ describe('settled', () => {
 
     const root = container();
 
-    await settled(<Component catch={caught}><Setup name="a" /><Setup name="b" /></Component>, root, limp);
+    await settled(<Component catch={caught}><Setup name="a" /><Setup name="b" /></Component>, root, plain);
 
     expect(caught).toHaveBeenCalledTimes(2);
     expect(text(root)).toBe('ab');
@@ -158,7 +158,7 @@ describe('settled', () => {
       }
     }
 
-    const rendering = settled(<Component catch={caught}><Slow /></Component>, container(), limp, controller.signal);
+    const rendering = settled(<Component catch={caught}><Slow /></Component>, container(), plain, controller.signal);
 
     pending.reject(new Error('failed'));
     await flushMicrotasks();
@@ -193,7 +193,7 @@ describe('settled', () => {
 
     const root = container();
 
-    await settled(<Shell />, root, limp, AbortSignal.timeout(1000));
+    await settled(<Shell />, root, plain, AbortSignal.timeout(1000));
 
     expect(text(root)).toBe('closed');
   });
