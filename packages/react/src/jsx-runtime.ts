@@ -4,7 +4,7 @@ import { host } from '@expressive/jsx/jsx-runtime';
 
 import type { Component as ReactComponent, JSX as ReactJSX, ReactNode } from 'react';
 
-declare module '@expressive/mvc/jsx-runtime' {
+declare module '@expressive/mvc/host' {
   interface Host {
     node: ReactNode;
     intrinsics: ReactJSX.IntrinsicElements;

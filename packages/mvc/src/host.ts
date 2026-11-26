@@ -8,7 +8,7 @@
  * `JSX.ElementType`).
  *
  * ```ts
- * declare module '@expressive/mvc/jsx-runtime' {
+ * declare module '@expressive/mvc/host' {
  *   interface Host {
  *     node: React.ReactNode;
  *     intrinsics: React.JSX.IntrinsicElements;

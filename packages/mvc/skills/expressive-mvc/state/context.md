@@ -194,7 +194,7 @@ scene.get(Model, (node) => attach(node), true); // direct members only - a, not 
 
 ### Writing a host
 
-A host installs `resolver((Type, compute) => ...)` from `@expressive/mvc/jsx-runtime`, which runs for every `Context.get` outside an origin - `Type` is undefined for bare `Context.get()`. `resolver` returns the previous one; the host calls it where it is not rendering, so installs stack. Its return value is what the caller receives. In render the host runs `compute` against a tracked view of its own context, so a provider any lookup in `compute` reads arriving, replaced or leaving renders again, and tracks a returned Model, one subscription per instance per render.
+A host installs `resolver((Type, compute) => ...)` from `@expressive/mvc/host`, which runs for every `Context.get` outside an origin - `Type` is undefined for bare `Context.get()`. `resolver` returns the previous one; the host calls it where it is not rendering, so installs stack. Its return value is what the caller receives. In render the host runs `compute` against a tracked view of its own context, so a provider any lookup in `compute` reads arriving, replaced or leaving renders again, and tracks a returned Model, one subscription per instance per render.
 
 Without a registered `host()`, the JSX entries create mvc's own element (`Element`), which `isElement`, `typeOf`, `propsOf` and `childrenOf` read. A host rendering it learns which elements each render creates through `onElement(hook)` - it returns the previous hook, to call from the new one.
 

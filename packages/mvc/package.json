@@ -42,9 +42,9 @@
       "types": "./dist/hot.d.ts",
       "default": "./dist/hot.js"
     },
-    "./jsx-runtime": {
-      "types": "./dist/jsx-runtime.d.ts",
-      "default": "./dist/jsx-runtime.js"
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
     }
   },
   "engines": {
