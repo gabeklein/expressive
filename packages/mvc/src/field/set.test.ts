@@ -25,19 +25,31 @@ describe('property descriptors', () => {
   });
 
   it.each([
-    ['will be read-only with factory', () => set(() => 'foo')],
-    ['will be read-only with required factory', () => set(() => 'foo', true)]
-  ])('%s', (_, field) => {
+    ['will be writable with factory', () => set(() => 'foo')],
+    ['will be writable with required factory', () => set(() => 'foo', true)],
+    ['will be writable with optional factory', () => set(() => 'foo', false) as string]
+  ])('%s', async (_, field) => {
     class Test extends Model {
       value = field();
     }
 
     const test = Test.new();
 
-    expect(() => {
-      test.value = 'bar';
-    }).toThrow(/read-only/);
     expect(test.value).toBe('foo');
+    test.value = 'bar';
+    expect(test.value).toBe('bar');
+    await expect(test).toHaveUpdated('value');
+  });
+
+  it('will be read-only to TypeScript if declared readonly', () => {
+    class Test extends Model {
+      readonly value = set(() => 'foo');
+    }
+
+    const test = Test.new();
+
+    // @ts-expect-error
+    test.value = 'bar';
   });
 
   it.each<[string, (callback: () => void) => string, unknown[] | undefined]>([
@@ -773,6 +785,184 @@ describe('suspense', () => {
     await flushMicrotasks();
 
     expect(await didThrow).toBe('oh no');
+  });
+});
+
+describe('write to factory', () => {
+  it('will skip the factory if written before first read', () => {
+    const factory = vi.fn(() => 'foo');
+
+    class Test extends Model {
+      value = set(factory);
+    }
+
+    const test = Test.new();
+
+    test.value = 'bar';
+
+    expect(test.value).toBe('bar');
+    expect(factory).not.toBeCalled();
+  });
+
+  it('will skip a required factory seeded by arguments', () => {
+    const factory = vi.fn(() => 'foo');
+
+    class Test extends Model {
+      value = set(factory, true);
+    }
+
+    expect(Test.new({ value: 'bar' }).value).toBe('bar');
+    expect(factory).not.toBeCalled();
+  });
+
+  it('will resolve suspense to a value written while pending', async () => {
+    const promise = mockPromise<string>();
+
+    class Test extends Model {
+      value = set(() => promise);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    test.value = 'bar';
+
+    await expect(suspense).resolves.toBe('bar');
+
+    promise.resolve('foo');
+    await flushMicrotasks();
+
+    expect(test.value).toBe('bar');
+  });
+
+  it('will drop a rejection after a write', async () => {
+    const promise = mockPromise<string>();
+
+    class Test extends Model {
+      value = set(() => promise, false);
+    }
+
+    const test = Test.new();
+
+    expect(test.value).toBeUndefined();
+    test.value = 'bar';
+
+    promise.reject(new Error('nope'));
+    await flushMicrotasks();
+
+    expect(test.value).toBe('bar');
+  });
+
+  it('will recover from a rejection when written', async () => {
+    const promise = mockPromise<string>();
+    const error = new Error('nope');
+
+    class Test extends Model {
+      value = set(() => promise);
+    }
+
+    const test = Test.new();
+
+    const suspense = attempt(() => test.value);
+
+    promise.reject(error);
+    await suspense;
+
+    expect(() => test.value).toThrow(error);
+
+    test.value = 'bar';
+    expect(test.value).toBe('bar');
+  });
+
+  it('will not re-run a suspended factory after a write', async () => {
+    const factory = vi.fn(function (this: Test) {
+      return this.source + '!';
+    });
+
+    class Test extends Model {
+      source = set<string>();
+      value = set(factory);
+    }
+
+    const test = Test.new();
+    const suspense = attempt(() => test.value);
+
+    test.value = 'bar';
+    await suspense;
+    test.source = 'foo';
+    await flushMicrotasks();
+
+    expect(factory).toBeCalledTimes(1);
+    expect(test.value).toBe('bar');
+  });
+
+  it('will keep a value the factory writes while running', async () => {
+    const promise = mockPromise<string | undefined>();
+
+    class Test extends Model {
+      value = set(async function (this: Test) {
+        this.value = undefined;
+        return promise;
+      });
+    }
+
+    const test = Test.new();
+
+    expect(test.value).toBeUndefined();
+
+    promise.resolve('foo');
+    await flushMicrotasks();
+
+    expect(test.value).toBeUndefined();
+  });
+
+  it('will release ready when a required factory writes itself', async () => {
+    const ready = vi.fn();
+
+    class Test extends Model {
+      value = set(async function (this: Test) {
+        this.value = 'bar';
+        return mockPromise<string>();
+      }, true);
+    }
+
+    Test.on({ ready });
+
+    const test = Test.new();
+
+    await test.set();
+
+    expect(ready).toBeCalledTimes(1);
+    expect(test.value).toBe('bar');
+  });
+
+  it('will release ready for a value written while pending', async () => {
+    const promise = mockPromise<string>();
+    const ready = vi.fn();
+    const caught = vi.fn();
+
+    class Test extends Model {
+      value = set(() => promise, true);
+    }
+
+    Test.on({ ready, catch: caught });
+
+    const test = Test.new();
+
+    await flushMicrotasks();
+    expect(ready).not.toBeCalled();
+
+    test.value = 'bar';
+    await test.set();
+
+    expect(ready).toBeCalledTimes(1);
+    expect(test.value).toBe('bar');
+
+    promise.reject(new Error('nope'));
+    await flushMicrotasks();
+
+    expect(caught).not.toBeCalled();
+    expect(test.value).toBe('bar');
   });
 });
 
