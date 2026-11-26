@@ -42,7 +42,7 @@ test("shows the blog Catch when a separate page throws NotFound", async ({ page,
   await expect(page.getByRole("heading")).toHaveText("Blog post not found");
 });
 
-test("an entry hook redirects until it allows the route", async ({ page, open }) => {
+test("a thrown Redirect navigates until the entry hook allows the route", async ({ page, open }) => {
   await open("/admin");
   await expect(page).toHaveURL("/");
   await expect(page.getByRole("heading")).toHaveText("Home");

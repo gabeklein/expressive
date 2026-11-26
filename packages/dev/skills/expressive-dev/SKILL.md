@@ -43,6 +43,19 @@ Bare-named files under `app/` and `api/` are support modules. Siblings match sta
 - `Layout` - wraps the folder's pages; `children` is the content slot.
 - `Loading` - placeholder for the slot of the `Layout` beside it, for any page below still loading code, an entry hook or data, until a nested `Layout`. A page's own `Loading` covers it first. Shown on cold arrival only - in-app navigation holds the current page (`Router.get().navigating`).
 - `Catch` - error boundary for the folder, given `{ error, retry }`. Handle `error instanceof NotFound` here. An unmatched path below the folder also throws `NotFound`; without `Catch`, the root shows a plain 404 or generic error.
+
+```tsx
+import { NotFound, Redirect } from "@expressive/dev";
+export function Page() {
+  if (!record) throw new NotFound();
+  if (!session) throw new Redirect("/login");
+  return <article>{record.title}</article>;
+}
+export const Catch = ({ error, retry }) => error instanceof NotFound
+  ? <p>Not found</p> : <button onClick={retry}>Try again</button>;
+```
+
+`Catch` replaces its folder's `Layout`. A folder `Catch` claims unmatched paths below it ahead of a root `[...]` page. A redirect immediately followed by another shows `Catch`; `a → b → c` stops at `b`.
 - `label` - names the route for breadcrumbs (`Route.get().parent.label`). `const` string literal only - inlined into the tree; anything else fails generation. A folder's `index.tsx` labels the folder - or, with no other routes inside, the one route it collapses to (`Route.get().label`). In dev, an edit shows after a restart.
 - `Router` - root `index.tsx` only: a subclass of `Router` from `@expressive/dev` (not router's `BrowserRouter`), mounted in its place - override `navigate()`, add methods. `Router.get()` and the subclass's `get()` both find it. Prerendering constructs it and runs `new()` without `window` - guard what touches it there.
 - `default`, read by kind:
@@ -67,7 +80,7 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-- A call POSTs to the folder's path, params filled from `Router.path` (`/blog/a` for `app/blog/[slug]/remote.ts`), including while entering a route.
+- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`).
 - Only the folder and those below it may import its sidecar - the build throws otherwise.
 - A `remote/` folder holds several; every module in it belongs to the parent folder and is never a route.
 - Module rules, errors (`HttpError` family from `@expressive/dev` or `/server`), ids and `opaque` are rpc's - `expressive-rpc`. Turn off hashed ids with `config({ remote: { opaque: false } })` in `index.ts`.

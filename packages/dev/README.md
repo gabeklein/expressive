@@ -37,6 +37,24 @@ Component - renders around the route's content and is provided to everything bel
 `Layout`, it wraps the `Layout`. A Component's `render()` places that content as `props.children`.
 A default imported from another module is told apart when the route loads.
 
+In a page, throw `new NotFound()` for a missing record or `new Redirect("/login")` to navigate:
+
+```tsx
+import { NotFound, Redirect } from "@expressive/dev";
+
+export function Page() {
+  if (!record) throw new NotFound();
+  if (!session) throw new Redirect("/login");
+  return <article>{record.title}</article>;
+}
+
+export function Catch({ error, retry }) {
+  return error instanceof NotFound ? <p>Record not found</p> : <button onClick={retry}>Try again</button>;
+}
+```
+
+`Catch` replaces the folder's `Layout` while showing an error. A folder `Catch` claims every unmatched path below it ahead of a root `[...]` page. A redirect followed immediately by another shows `Catch`: an `a → b → c` chain stops at `b`.
+
 `Loading` is the placeholder for the content slot of the `Layout` beside it: any page rendered
 there that cannot show anything yet - its code, its entry hook or its data still pending - shows
 it in place, inside the layout. It reaches pages at any depth until a nested `Layout`, which starts
@@ -548,7 +566,7 @@ import { add } from "./remote";
 A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
 for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
 `feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
-Only the folder and those below it may import its sidecar. Calls from an entering route fill params from `Router.path`.
+Only the folder and those below it may import its sidecar.
 
 Only what the client imports is callable: the server accepts calls to the stubs the browser loaded in
 dev, and to those the client build generated in production - a helper module in `remote/` is never
