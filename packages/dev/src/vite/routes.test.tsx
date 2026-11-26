@@ -100,12 +100,35 @@ describe("app/ routing (codegen)", () => {
   });
 
   it("will reject a route NotFound export with migration guidance", async () => {
-    await expect(generate({ "index.tsx": `${PAGE}\n${NOTFOUND}` })).rejects.toThrow("export Catch and handle error instanceof NotFound");
+    await expect(generate({ "index.tsx": `${PAGE}\n${NOTFOUND}` })).rejects.toThrow('Import { NotFound } from "@expressive/dev" and export Catch');
   });
 
   it("will reject a default entry hook with a route parameter", async () => {
     await expect(generate({ "index.tsx": `${PAGE}\nexport default function (route) { return route.path; }` }))
-      .rejects.toThrow("Throw new Redirect(...) while rendering");
+      .rejects.toThrow('default takes "route" - entry hooks no longer redirect by return value');
+  });
+
+  it("will reserve generated names when aliasing routes", async () => {
+    const out = await generate({
+      "index.tsx": PAGE,
+      "default/index.tsx": `${PAGE}\n${CATCH}`,
+      "(not-found).tsx": PAGE,
+    });
+    expect(out).toContain("Catch as DefaultCatch_");
+    expect(out).toContain('const NotFound_ = () => import("../app/(not-found).tsx")');
+    expect(out).toContain("Catch={DefaultCatch_}");
+  });
+
+  it("will not emit an undefined gate check for a folder with only Catch", async () => {
+    const out = await generate({ "index.tsx": PAGE, "empty/index.tsx": CATCH, "empty/remote.ts": "export default () => {};" });
+    expect(out).toContain('to="empty" Catch={EmptyCatch}');
+    expect(out).not.toContain("checked()");
+  });
+
+  it("will not let a leaf Catch claim unmatched children", async () => {
+    const out = await generate({ "index.tsx": PAGE, "(foo).tsx": `${PAGE}\n${CATCH}`, "[...].tsx": PAGE });
+    expect(out).toContain('<Route to="foo" as={Foo} Catch={FooCatch} />');
+    expect(out).not.toMatch(/to="foo"[^>]*>\s*<Route none/);
   });
 
   it("Layout makes a scope; index page is a to-less child; missing route is last", async () => {
@@ -196,14 +219,14 @@ describe("app/ routing (codegen)", () => {
 
   it("default entry hook rides as the `enter` prop on a leaf", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\n${ENTER}` });
-    expect(out).toContain('const AdminEnter = () => import("../app/(admin).tsx").then(m => m.default);');
-    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnter} />');
+    expect(out).toContain('const AdminEnterHook = () => import("../app/(admin).tsx").then(m => hook(m.default, "app/(admin).tsx"));');
+    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnterHook} />');
   });
 
   it("default entry hook gates a section (rides on the scope)", async () => {
     const out = await generate({ "admin/index.tsx": `${PAGE}\n${LAYOUT}\n${ENTER}`, "admin/[id].tsx": PAGE });
     expect(out).toContain('const AdminEnter = () => import("../app/admin/index.tsx").then(m => m.default);');
-    expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnter}>/);
+    expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnterHook}>/);
   });
 
   it("will place a folder's missing route last, unless a [...] page catches it", async () => {
@@ -238,7 +261,7 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { call } from "@expressive/rpc";');
     expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
-    expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
+    expect(out).toContain('<Route to="admin" enter={checked(AdminEnterHook, () => import("../app/admin/index.tsx"))}>');
     expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
     expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
     expect(out).toContain('<Route to="tally" as={Tally} />');
@@ -298,7 +321,7 @@ describe("app/ routing (codegen)", () => {
 
   it("will read a function exported as the default by name as an entry hook", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\nconst gate = () => "/login";\nexport default gate` });
-    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnter} />');
+    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnterHook} />');
   });
 
   it("[slug] is a dynamic segment → to=\":slug\"", async () => {
@@ -376,10 +399,10 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${IMPORTED}`, "(x).tsx": `${PAGE}\nexport { default } from "../lib/auth";` });
 
     expect(out).toContain('import { Component, Model } from "@expressive/mvc";');
-    expect(out).toContain('const RootEnter = hook(RootScope, "app/index.tsx");');
-    expect(out).toContain('const XEnter = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
-    expect(out).toMatch(/<Route as={RootScoped} enter={RootEnter} Catch={DefaultCatch}>/);
-    expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnter}>\s*<Route as={X} \/>/);
+    expect(out).toContain('const RootEnterHook = hook(RootScope, "app/index.tsx");');
+    expect(out).toContain('const XEnterHook = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
+    expect(out).toMatch(/<Route as={RootScoped} enter={RootEnterHook} Catch={DefaultCatch}>/);
+    expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnterHook}>\s*<Route as={X} \/>/);
   });
 
   it("will not route a leaf without a page", async () => {
@@ -799,6 +822,46 @@ describe("app/ routing (generated)", () => {
     expect(window.location.pathname).toBe("/x");
   });
 
+  it("will reject a string returned by an inline default function", async () => {
+    const root = await app({ "app/index.tsx": `${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`, "app/(x).tsx": `${PAGE} export default () => "/";` }, "/x");
+    await shows(() => root.textContent, "app/(x).tsx: a function default returned a string. Throw new Redirect(...) instead.");
+    expect(window.location.pathname).toBe("/x");
+  });
+
+  it("will send unmatched children of a leaf Catch to the root splat", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(foo).tsx": `${PAGE} export const Catch = () => <p>leaf catch</p>;`,
+      "app/[...].tsx": `export const Page = () => <p>splat page</p>;`,
+    }, "/foo/bar");
+    await shows(() => root.textContent, "splat page");
+  });
+
+  it("will replace a cold entry for a thrown Redirect in a generated page", async () => {
+    const before = window.history.length;
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("/new"); };`,
+      "app/(new).tsx": `export const Page = () => <p>new</p>;`,
+    }, "/old");
+    await shows(() => root.textContent, "new");
+    expect(window.location.pathname).toBe("/new");
+    expect(window.history.length).toBe(before);
+  });
+
+  it("will push a thrown Redirect after generated in-app navigation", async () => {
+    const root = await app({
+      "app/index.tsx": `import { Link } from "@expressive/dev"; export const Page = () => <Link to="/old">Go</Link>;`,
+      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("/new"); };`,
+      "app/(new).tsx": `export const Page = () => <p>new</p>;`,
+    }, "/");
+    const before = window.history.length;
+    (root.querySelector("a") as HTMLElement).click();
+    await shows(() => root.textContent, "new");
+    expect(window.location.pathname).toBe("/new");
+    expect(window.history.length).toBe(before + 1);
+  });
+
   it("will throw naming the route for a default imported from elsewhere that is a class but not a Model", async () => {
     await expect(app({ "app/index.tsx": `import { Plain } from "../lib/plain"; export default Plain; ${PAGE}`, "lib/plain.ts": "export class Plain {}" }, "/"))
       .rejects.toThrow("app/index.tsx: the default export Plain is a class but not a Model or Component.");
@@ -822,9 +885,19 @@ describe("app/ routing (generated)", () => {
     await shows(() => root.textContent, "NotFound");
   });
 
+  it("will load a gated folder whose index exports only Catch", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/empty/index.tsx": `export const Catch = () => <p>empty catch</p>;`,
+      "app/empty/remote.ts": `export default () => {};`,
+    }, "/");
+    await shows(() => root.textContent, "page");
+  });
+
   it("will show the default Catch for an unmatched root URL", async () => {
     const root = await app({ "app/index.tsx": PAGE }, "/absent");
     await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
+    expect(root.querySelector('a[href="/"]')?.textContent).toBe("Home");
   });
 
   it("will show the default Catch for an unmatched URL below a folder without Catch", async () => {
@@ -834,9 +907,14 @@ describe("app/ routing (generated)", () => {
   });
 
   it("will show the default Catch for an ordinary render error", async () => {
+    const logged = vi.spyOn(console, "error");
     const root = await app({ "app/index.tsx": `export const Page = () => { throw new Error("broken"); };` }, "/");
     await shows(() => root.querySelector("h1")?.textContent, "Something went wrong");
     expect(root.querySelector("button")?.textContent).toBe("Try again");
+    expect(root.querySelector('a[href="/"]')?.textContent).toBe("Home");
+    expect(root.textContent).toContain("broken");
+    expect(logged).toHaveBeenCalledWith(expect.objectContaining({ message: "broken" }));
+    logged.mockRestore();
   });
 });
 
