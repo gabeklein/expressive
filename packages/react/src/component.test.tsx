@@ -1483,6 +1483,79 @@ describe('for', () => {
     return <>{Session.get().name}</>;
   }
 
+  it('will render and provide a Component instance around changing children', async () => {
+    const calls = vi.fn();
+
+    class Panel extends Component {
+      label = 'first';
+
+      render(props: { children?: React.ReactNode }) {
+        calls(props.children);
+        return <section>{this.label}:{props.children}</section>;
+      }
+    }
+
+    function Read() {
+      return <b>{Panel.get().label}</b>;
+    }
+
+    const panel = Panel.new();
+    const view = render(<Component for={panel}><Read /></Component>);
+
+    expect(view.container.textContent).toBe('first:first');
+    expect(calls).toHaveBeenCalled();
+
+    view.rerender(<Component for={panel}><i>new</i><Read /></Component>);
+    await act(async () => {});
+    expect(view.container.textContent).toBe('first:newfirst');
+
+    view.unmount();
+    expect(panel.get(null)).toBe(false);
+  });
+
+  it('will destroy an adopted Component and swap provided instances', async () => {
+    class Panel extends Component {
+      label = '';
+
+      render(props: { children?: React.ReactNode }) {
+        return <section>{this.label}{props.children}</section>;
+      }
+    }
+
+    const first = new Panel();
+    const second = Panel.new();
+    const view = render(<Component for={first} label="one">child</Component>);
+
+    expect(view.container.textContent).toBe('onechild');
+    view.rerender(<Component for={second} label="two">next</Component>);
+    await act(async () => {});
+
+    expect(first.get(null)).toBe(true);
+    expect(view.container.textContent).toBe('twonext');
+
+    view.unmount();
+    expect(second.get(null)).toBe(false);
+  });
+
+  it('will pass children through a provided Model instance', () => {
+    const model = Session.new();
+    const view = render(<Component for={model}><b>child</b></Component>);
+
+    expect(screen).toHaveText('child');
+    view.unmount();
+    expect(model.get(null)).toBe(false);
+  });
+
+  it('will pass children through a provided Component without render', () => {
+    class Bare extends Component {}
+    const bare = Bare.new();
+    const view = render(<Component for={bare}><b>child</b></Component>);
+
+    expect(view.container.textContent).toBe('child');
+    view.unmount();
+    expect(bare.get(null)).toBe(false);
+  });
+
   it('will construct, provide, release and destroy a class', async () => {
     const released = vi.fn();
     let session!: Owned;

@@ -1,5 +1,6 @@
 import { Component, unbind } from '@expressive/mvc';
 import { createProvider, type Context } from './context';
+import { elementType } from './element';
 import { Runtime, useWatch } from './runtime';
 
 declare module '@expressive/mvc' {
@@ -130,8 +131,21 @@ function render(from: Component, context: Context) {
     context.pop();
   };
 
-  const Render = () => (own || Object.getPrototypeOf(owner).render).call(from, from.props);
-  const Component = () => {
+  let nested: Component | undefined;
+  let Nested: Function | undefined;
+  const Render = () => {
+    const output = (own || Object.getPrototypeOf(owner).render).call(from, from.props);
+
+    if (from.constructor !== Component || !(output instanceof Component)) return output;
+    const provided = output as Component;
+    if (provided !== nested) {
+      nested = provided;
+      Nested = elementType(provided);
+    }
+
+    return createElement(Nested!);
+  };
+  const HostComponent = () => {
     from = useWatch(from, () => {
       PLACING.get(owner)!.place();
       attempt?.commit();
@@ -140,7 +154,7 @@ function render(from: Component, context: Context) {
     return createFrame(from, context, createElement(Render));
   };
 
-  return () => createElement(Component);
+  return () => createElement(HostComponent);
 }
 
 function wrappable(value: unknown): value is Function {
