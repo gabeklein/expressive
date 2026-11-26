@@ -1,4 +1,4 @@
-import { PORTAL, claim, complete, flatten, fragment, hostOf, isBare, isVNode, reconcileChildren, reserved, settled, syncRoots, unmatched, vnode } from '@expressive/jsx';
+import { PORTAL, claim, flatten, fragment, hostOf, isBare, isVNode, reconcileChildren, reserved, settled, syncRoots, unmatched, vnode } from '@expressive/jsx';
 import type { Declaration, Host, RenderNode as Node, Root, Styles } from '@expressive/jsx';
 
 import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './tags';
@@ -158,7 +158,7 @@ function stringHost(sink: Styles): Host {
     text: (_, value) => asNode(new Markup(3, value)),
     marker: (_, kind) => asNode(new Markup(8, kind)),
     fragment: () => asNode(new Markup(11)) as DocumentFragment,
-    mount(fiber, value, parent, before, appearance) {
+    mount(_fiber, value, parent, before) {
       const tag = value.type as string;
 
       if (!TAG.test(tag)) throw new TypeError(`Invalid element name "${tag}".`);
@@ -166,9 +166,7 @@ function stringHost(sink: Styles): Host {
       const element = new Markup(1, '', tag);
 
       element.svg = tag == 'svg' || inSvg(parent);
-      fiber.start = fiber.end = parent.insertBefore(asNode(element), before);
-
-      return complete(fiber, () => host.patch(fiber, value, appearance));
+      return parent.insertBefore(asNode(element), before);
     },
     patch(fiber, value, appearance) {
       const element = asMarkup(fiber.start);

@@ -4,7 +4,6 @@ import { documentOf } from '../style/protocol';
 import type { Styles, StyleTarget } from '../style/protocol';
 import { syncRoots } from '../style/root';
 import type { Container, Fiber } from './fiber';
-import { complete } from './mount';
 import { reconcileChildren } from './reconcile';
 
 /** Where a render lands: its host, the node it renders into, and that node's style target, if any. */
@@ -32,12 +31,12 @@ interface Host {
   marker(root: Root, kind: string): globalThis.Node;
   fragment(root: Root): DocumentFragment;
   /**
-   * Mount an intrinsic element - a string type - into `fiber`.
+   * Create the node for an intrinsic element - a string type - insert it at `parent` before `before`, and return it.
    *
-   * Insert its node at `parent` before `before`, set `start` and `end` to it, then set props and reconcile `value.props.children` inside `complete()`, so a suspended mount can be parked.
+   * A hydrating host may return an existing node instead. The core then calls `patch`.
    */
-  mount(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null, appearance?: Appearance): Fiber;
-  /** Update props and reconcile children, as `mount` does. */
+  mount(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null): globalThis.Node;
+  /** Set props and reconcile `value.props.children` - after `mount` and on every update. */
   patch(fiber: Fiber, value: VNode, appearance?: Appearance): void;
   /** Release what `mount` attached - the core removes the node. */
   unmount(fiber: Fiber): void;
@@ -73,11 +72,7 @@ const plain: Host = {
   text: (root, value) => ownerOf(root).createTextNode(value),
   marker: (root, kind) => ownerOf(root).createComment(kind),
   fragment: (root) => ownerOf(root).createDocumentFragment(),
-  mount(fiber, value, parent, before) {
-    fiber.start = fiber.end = parent.insertBefore(ownerOf(fiber.root!).createElement(value.type as string), before);
-
-    return complete(fiber, () => plain.patch(fiber, value));
-  },
+  mount: (fiber, value, parent, before) => parent.insertBefore(ownerOf(fiber.root!).createElement(value.type as string), before),
   patch(fiber, value) {
     const element = fiber.start as Element;
     const previous = fiber.props!;

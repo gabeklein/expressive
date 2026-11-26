@@ -51,7 +51,9 @@ function mount(value: RenderNode, parent: globalThis.Node, before: globalThis.No
       const { key, type } = value as VNode;
       const fiber: Fiber = { kind: 'element', key, type, props: {}, context, boundary, root, start: parent, end: parent, children: [] };
 
-      return root.host.mount(fiber, value as VNode, parent, before, appearance);
+      fiber.start = fiber.end = root.host.mount(fiber, value as VNode, parent, before);
+
+      return complete(fiber, () => root.host.patch(fiber, value as VNode, appearance));
     }
     case 'owned':
       return mountOwnedComponent(value as VNode, parent, before, context, boundary, appearance);

@@ -5,7 +5,6 @@ import { Component } from '@expressive/mvc';
 import { PORTAL, Portal, vnode } from '../node/vnode';
 import { isComment, plain } from './host';
 import type { Host, Hydration } from './host';
-import { complete } from './mount';
 import { LEAD } from './portal';
 import { reconcileChildren } from './reconcile';
 import { hydrate, mountRoot, render } from './render';
@@ -336,13 +335,7 @@ const tree: Host = {
   text: (_root, value) => new Item(3, value) as never,
   marker: (_root, kind) => new Item(8, kind) as never,
   fragment: () => new Item(11) as never,
-  mount(fiber, value, parent, before) {
-    const element = new Item(1, null, value.type as string);
-
-    fiber.start = fiber.end = element as never;
-    (parent as never as Item).insertBefore(element, before as never);
-    return complete(fiber, () => tree.patch(fiber, value));
-  },
+  mount: (_fiber, value, parent, before) => (parent as never as Item).insertBefore(new Item(1, null, value.type as string), before as never) as never,
   patch(fiber, value) {
     fiber.props = value.props;
     reconcileChildren(fiber, fiber.start, null, value.props.children, fiber.context, fiber.boundary);
