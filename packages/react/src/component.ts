@@ -1,4 +1,5 @@
 import { Component, unbind } from '@expressive/mvc';
+import { placement } from '@expressive/mvc/host';
 import { createProvider, type Context } from './context';
 import { elementType } from './element';
 import { Runtime, useWatch } from './runtime';
@@ -100,7 +101,7 @@ function bootstrap(this: Component, parent: Context){
  */
 function createFrame(from: Component, context: Context, children: unknown) {
   const { createElement } = Runtime;
-  const placed = (from as any)[Symbol.for('@expressive/mvc.placed')];
+  const placed = placement(from);
 
   if(!placed && from.fallback !== false)
     children = createElement(
@@ -144,7 +145,7 @@ function render(from: Component, context: Context) {
     let Nested = NESTED.get(provided);
     if (!Nested) NESTED.set(provided, Nested = elementType(provided));
 
-    const next = (provided as any)[Symbol.for('@expressive/mvc.placed')]?.children;
+    const next = placement(provided)?.children;
     if (nested !== provided || children !== next) {
       nested = provided;
       children = next;

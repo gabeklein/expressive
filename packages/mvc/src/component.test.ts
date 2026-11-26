@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { flushMicrotasks, mockPromise, mockWarn } from '../test.setup';
 import { Component } from './component';
+import { placement } from './host';
 import { Context } from './context';
 import { Model, event } from './model';
 import { map } from './field/map';
@@ -320,10 +321,12 @@ describe('for', () => {
 
     expect(provider.render()).toBe(panel);
     expect(panel.props.children).toBeUndefined();
+    expect(placement(panel)?.children).toBe('first');
 
     (provider as any).props = { for: panel, children: 'second' };
     await flushMicrotasks();
     expect(panel.props.children).toBeUndefined();
+    expect(placement(panel)?.children).toBe('second');
 
     (provider as any).props = { for: panel, children: 'second' };
     await flushMicrotasks();
@@ -336,7 +339,7 @@ describe('for', () => {
     const provider = Component.new({ for: panel, children: 'old' } as any);
     expect(provider.render()).toBe(panel);
     provider.set(null);
-    expect((panel as any)[Symbol.for('@expressive/mvc.placed')]).toBeUndefined();
+    expect(placement(panel)).toBeUndefined();
     expect(panel.props.children).toBeUndefined();
   });
 

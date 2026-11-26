@@ -1,5 +1,5 @@
 import { Component } from '@expressive/mvc';
-import { elements } from '@expressive/mvc/host';
+import { elements, placement } from '@expressive/mvc/host';
 import type { Renderable } from '@expressive/mvc/host';
 import { useAmbient } from './context';
 import { Runtime, useFactory, useWatch } from './runtime';
@@ -85,8 +85,8 @@ function Element(this: Component){
     let from = this;
     const context = outer.push(this);
     const Content = () => {
-      const placement = (from as any)[Symbol.for('@expressive/mvc.placed')];
-      return from.render(placement ? { ...from.props, children: placement.children } : from.props);
+      const placed = placement(from);
+      return from.render(placed ? { ...from.props, children: placed.children } : from.props);
     };
 
     return () => {

@@ -1,4 +1,5 @@
 import { Component, Context, unbind } from '@expressive/mvc';
+import { placement } from '@expressive/mvc/host';
 import { watch } from '@expressive/mvc/observable';
 
 import { resolve } from '../node/loader';
@@ -19,7 +20,6 @@ import { isThenable } from '../node/kind';
 
 
 const PLACED = new WeakMap<Component, Promise<void>>();
-const CHILDREN = Symbol.for('@expressive/mvc.placed');
 let installed = false;
 
 function own(Type: new (props: unknown) => Component, props: unknown, placed: Promise<void>) {
@@ -90,9 +90,9 @@ function mountComponent(
   fiber.dev = dev;
   const childContext = context.push(instance, owned ? () => instance.set(null) : undefined);
   const element = (owned ? props : {}) as Placement;
-  const placement = (instance as any)[CHILDREN];
+  const placed = placement(instance);
   const { fallback } = instance;
-  const ownBoundary: Boundary | undefined = placement ? inherited : fallback !== undefined && fallback !== false || element.catch || instance.catch
+  const ownBoundary: Boundary | undefined = placed ? inherited : fallback !== undefined && fallback !== false || element.catch || instance.catch
     ? {
         catch: element.catch || instance.catch ? (error) => {
           const handler = owned && (fiber.props as Placement).catch;
@@ -116,9 +116,9 @@ function mountComponent(
   fiber.scope = makeScope(childContext, (passive) => run(fiber, passive));
   fiber.render = () => enter(fiber.scope!, () => {
     const current = fiber.value as Component;
-    const placement = (current as any)[CHILDREN];
+    const placed = placement(current);
     const props = fiber.owned ? fiber.props : current.props;
-    return unbind(current.render).call(current, placement ? { ...props, children: placement.children } : props);
+    return unbind(current.render).call(current, placed ? { ...props, children: placed.children } : props);
   });
   probing(fiber);
 

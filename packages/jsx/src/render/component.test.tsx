@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { Component, Context, has, Model } from '@expressive/mvc';
+import { placement } from '@expressive/mvc/host';
 
 import { flushMicrotasks, mockPromise, mount, place, render } from '../../test.setup';
 
@@ -452,7 +453,7 @@ describe('class element', () => {
     releaseFirst();
     expect(second.textContent).toBe('two');
     releaseSecond();
-    expect((panel as any)[Symbol.for('@expressive/mvc.placed')]).toBeUndefined();
+    expect(placement(panel)).toBeUndefined();
   });
 
   it('will clear children after swapping Component, Model, then undefined', async () => {

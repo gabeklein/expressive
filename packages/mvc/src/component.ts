@@ -270,7 +270,17 @@ Component.on({
 });
 
 const PROVIDERS = new WeakMap<Component, Component>();
-const PLACED = Symbol.for('@expressive/mvc.placed');
+const PLACEMENTS = new WeakMap<Component, { children: Component.Node }>();
+
+/**
+ * Return the provider placement for a Component instance.
+ *
+ * Returns `undefined` when no `<Component for>` provider places the instance.
+ * Placement children stay outside the instance's observed props.
+ */
+export function placement(instance: Component): { children: Component.Node } | undefined {
+  return PLACEMENTS.get(instance.is);
+}
 
 function provide(self: Component<any>) {
   let input: unknown;
@@ -282,7 +292,7 @@ function provide(self: Component<any>) {
     if (provided) provided();
     provided = undefined;
     if (target instanceof Component && PROVIDERS.get(target) === self) {
-      delete (target as any)[PLACED];
+      PLACEMENTS.delete(target);
       PROVIDERS.delete(target);
     }
   }
@@ -319,9 +329,9 @@ function provide(self: Component<any>) {
 
     if (target instanceof Component) {
       PROVIDERS.set(target, self);
-      const placement = (target as any)[PLACED];
-      if (placement) placement.children = children;
-      else Object.defineProperty(target, PLACED, { value: { children }, configurable: true });
+      const current = PLACEMENTS.get(target);
+      if (current) current.children = children;
+      else PLACEMENTS.set(target, { children });
     }
   }
 
