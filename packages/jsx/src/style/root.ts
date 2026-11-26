@@ -34,6 +34,7 @@ function attachRoots(styles: Styles) {
   synced.set(styles, version);
 }
 
+/** Write pack root rules (variable defaults) to `styles` if any were declared since it last synced. */
 function syncRoots(styles: Styles) {
   if (synced.get(styles) !== version) attachRoots(styles);
 }

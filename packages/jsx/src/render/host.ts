@@ -132,6 +132,11 @@ function within<T>(root: Root, run: () => T): T {
   }
 }
 
+/**
+ * The root of the render pass running now.
+ *
+ * Undefined outside one, so `text` and `marker` throw there - wrap such calls in `within`.
+ */
 function activeRoot() {
   return current!;
 }
@@ -168,16 +173,19 @@ interface Hydration {
   reserve(start: globalThis.Node, end: globalThis.Node): void;
 }
 
+/** Create a text node through the active root's host. */
 function text(value: string) {
   const root = activeRoot();
   return root.host.text(root, value);
 }
 
+/** Create a range marker - a comment, for dom - through the active root's host. */
 function marker(kind: string) {
   const root = activeRoot();
   return root.host.marker(root, kind);
 }
 
+/** True if `node` is a comment holding exactly `data` - how hydration recognizes markers. */
 function isComment(node: globalThis.Node, data: string) {
   return node.nodeType == 8 && (node as Comment).data == data;
 }
