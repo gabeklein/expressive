@@ -74,6 +74,21 @@ describe('settled', () => {
     unmount();
   });
 
+  it('will wait at the root past a catch boundary without a fallback', async () => {
+    let ready = false;
+
+    function Slow() {
+      if (!ready) throw new Promise((resolve) => setTimeout(resolve)).then(() => ready = true);
+      return 'done';
+    }
+
+    const root = container();
+    const unmount = await settled(<Component fallback={false} catch={() => {}}><Slow /></Component>, root, plain);
+
+    expect(text(root)).toBe('done');
+    unmount();
+  });
+
   it('will wait at the root without a boundary, sharing the wait with portals', async () => {
     const into = document.createDocumentFragment();
     let ready = false;
