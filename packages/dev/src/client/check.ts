@@ -56,7 +56,7 @@ function walk(node: GateNode, at: string[], i: number, path: string[], gate: str
 /**
  * Entry plumbing, not app API: the generated route tree's gate check, given that tree's routes.
  *
- * Returns a wrapper for a gated folder's entry hook. Entering sends one check to the deepest gated folder on the path
+ * Returns a wrapper for a gated folder's entry step. Entering sends one check to the deepest gated folder on the path
  * unless the last pass covers it; a refusal throws to `Catch`, a 3xx with a `location` redirects.
  */
 export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryHook, load?: () => unknown) => EntryHook {
@@ -125,6 +125,10 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
         },
       );
     };
-    return Object.assign(step, { source: (hook as EntryHook & { source?: string } | undefined)?.source });
+    return Object.assign(step, {
+      source: (hook as EntryHook & { source?: string } | undefined)?.source,
+      leaf: (hook as EntryHook & { leaf?: boolean } | undefined)?.leaf,
+      current: (hook as EntryHook & { current?: EntryHook } | undefined)?.current,
+    });
   };
 }

@@ -4,8 +4,9 @@ import { Component, Context, Model, set } from "@expressive/mvc";
 import { Route as Base, Redirect as RouterRedirect, fullPattern, matchPattern } from "@expressive/router";
 import { Redirect } from "@expressive/rpc";
 import { childrenOf, propsOf, typeOf } from "@expressive/jsx/jsx-runtime";
-import { entering } from "./router";
+import { replaced } from "@expressive/mvc/hot";
 
+import { entering } from "./router";
 
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
@@ -14,7 +15,14 @@ type Verdict = string | void | null;
 type EntryHook = (route: Route) => Verdict | Model.Extends | Promise<Verdict | Model.Extends>;
 
 const DEFAULTS = new WeakMap<Route, Model>();
+const DISPOSE = new WeakMap<Route, () => void>();
+const TOKENS = new WeakMap<Route, object>();
+const OWNED = new WeakSet<Model>();
+const WRAPPED = new WeakSet<Route>();
+const WARNED = new WeakSet<EntryHook>();
 const HOT = "expressive:route-update";
+
+export const owns = (instance: Model) => OWNED.has(instance);
 
 /**
  * Router's `Route` with a route module's exports - the generated tree builds one per module.
@@ -34,13 +42,6 @@ export class Route extends Base {
 
   /** Error UI for this route - `retry` re-renders the content. */
   Catch?: CatchUI = undefined;
-
-  /** Renders matched content inside its ready default instance, when one exists. */
-  render(): Component.Node {
-    const content = super.render();
-    const instance = DEFAULTS.get(this.is);
-    return instance ? <Component for={instance}>{content}</Component> : content;
-  }
 }
 
 const REFUSED = new Set<Route>();
@@ -48,7 +49,8 @@ const WATCHED = new WeakSet<Route>();
 const REDIRECTING = new WeakSet<object>();
 
 function arm(route: Route, hook: EntryHook | undefined) {
-  const refused = (error: unknown) => {
+  const refused = (error: unknown, token: object) => {
+    if (!route.matched || TOKENS.get(route.is) !== token) return;
     try {
       return redirected(error);
     } catch (error) {
@@ -59,50 +61,98 @@ function arm(route: Route, hook: EntryHook | undefined) {
 
   const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
 
-  const built = async (value: Verdict | Model.Extends): Promise<Verdict> => {
+  const built = async (value: Verdict | Model.Extends, token: object): Promise<Verdict> => {
+    if (TOKENS.get(route.is) !== token || !route.matched) return;
     if (!Model.is(value)) return value as Verdict;
-    const instance = entering(route.router.path, () => (value as Model.Type<Model>).new(Context.get(route)));
+    const { source, leaf } = hook as EntryHook & { source?: string; leaf?: boolean };
+    if (leaf && source && hook && !Component.is(value) && !WARNED.has(hook)) {
+      WARNED.add(hook);
+      console.warn(`${source}: a Model default without Page renders nothing.`);
+    }
+    const context = new Context(Context.get(route));
+    const instance = entering(route.router.path, () => (value as Model.Type<Model>).new(context));
+    OWNED.add(instance);
     try {
       await instance.set();
     } catch (error) {
       instance.set(null);
+      context.pop();
       throw error;
     }
+    if (TOKENS.get(route.is) !== token || !route.matched) {
+      instance.set(null);
+      context.pop();
+      return;
+    }
+    DISPOSE.get(route.is)?.();
     DEFAULTS.set(route.is, instance);
+    const originalNew = Object.getOwnPropertyDescriptor(value.prototype, "new")?.value?.toString();
+    let retired = false;
     let disposed = false;
     const dispose = () => {
       if (disposed) return;
       disposed = true;
       unwatch();
+      unready();
+      unreplace();
+      unregister();
       if (typeof window !== "undefined") window.removeEventListener(HOT, onHot);
       DEFAULTS.delete(route.is);
+      DISPOSE.delete(route.is);
       instance.set(null);
+      context.pop();
     };
     const onHot = (event: Event) => {
       const source = (route.enter as EntryHook & { source?: string } | undefined)?.source;
       const paths = (event as CustomEvent<string[]>).detail;
-      if (!source || !paths?.some(path => path.endsWith(source))) return;
+      if (!source || !paths?.includes("/" + source)) return;
+      if (!retired && !instance.get(null) && Object.getOwnPropertyDescriptor(value.prototype, "new")?.value?.toString() === originalNew) {
+        const current = (route.enter as EntryHook & { current?: EntryHook } | undefined)?.current;
+        const next = current?.(route);
+        if (next instanceof Promise) void next.then(type => { if (Model.is(type) && type !== value) { dispose(); arm(route, route.enter); } }).catch(() => {});
+        else if (Model.is(next) && next !== value) { dispose(); arm(route, route.enter); }
+        return;
+      }
       dispose();
       arm(route, route.enter);
     };
-    const unwatch = route.router.set("path", () => {
-      if (route.matched) return;
+    const leave = () => {
+      if (route.matched || route.router.navigating) return;
       dispose();
       return null;
+    };
+    const unwatch = route.router.set("path", leave);
+    const unready = route.router.set("navigating", leave);
+    const unreplace = replaced(({ prev }) => {
+      if (instance instanceof prev) retired = true;
     });
     if (typeof window !== "undefined") window.addEventListener(HOT, onHot);
-    route.set(null, dispose);
+    const unregister = route.set(null, dispose);
+    DISPOSE.set(route.is, dispose);
   };
 
+  if (hook && !WRAPPED.has(route.is)) {
+    const original = route.as;
+    WRAPPED.add(route.is);
+    route.as = function DefaultContent(props: { children?: Component.Node }) {
+      const Original = original;
+      const content = Original ? <Original>{props.children}</Original> : props.children;
+      const instance = DEFAULTS.get(route.is);
+      return instance ? <Component for={instance}>{content}</Component> : content;
+    } as typeof route.as;
+  }
+
   route.redirect = hook && (() => {
+    const token = {};
+    TOKENS.set(route.is, token);
     try {
       const verdict = enter(hook);
 
       return verdict instanceof Promise
-        ? verdict.then(next => typeof next == "function" && !Model.is(next) ? enter(next as EntryHook) : next).then(built).catch(refused)
-        : Model.is(verdict) ? built(verdict).catch(refused) : verdict;
+        ? verdict.then(next => built(next, token)).catch(error => refused(error, token))
+        : Model.is(verdict) ? built(verdict, token).catch(error => refused(error, token)) : verdict;
     } catch (error) {
-      return refused(error);
+      return refused(error, token);
     }
   });
 }
