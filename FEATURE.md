@@ -40,7 +40,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - Runtime move: /jsx owns the JSX runtime and host registry; mvc's `jsx-runtime` keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.
 - Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on `plain`.
 - jsx's suite without dom: style tests render through a stylesheet test host, JSX compiles against jsx's runtime with test-only intrinsics; the jsx→dom edge in `affected.ts` is gone.
-- Unused root exports dropped: `mountRoot`, `rootOf`, `within` and the root `JSX` type (`JSX` stays on `/jsx-runtime`).
+- Unused root exports dropped: `mountRoot`, `rootOf` and the root `JSX` type (`JSX` stays on `/jsx-runtime`).
 
 ## Before release
 

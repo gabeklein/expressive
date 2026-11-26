@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Component, set } from '@expressive/mvc';
 
-import { within } from '@expressive/jsx/render/host';
+import { within } from '@expressive/jsx';
 
 import { hydrate, Portal, render, style } from './index';
 import { renderToString } from './server';
