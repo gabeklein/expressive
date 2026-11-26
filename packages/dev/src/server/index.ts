@@ -4,6 +4,7 @@ import { compose as app } from "./compose";
 export { listen, type ListenOptions } from "./listen";
 export type { App, AppOptions } from "../settings";
 export { Cookies, Current, type CookieOptions, type ExecutionCtx } from "@expressive/rpc";
+export { HttpError, BadRequest, Unauthorized, PaymentRequired, Forbidden, NotFound, MethodNotAllowed, Conflict, Gone, PayloadTooLarge, UnprocessableEntity, TooManyRequests, InternalError, NotImplemented, ServiceUnavailable, Redirect } from "@expressive/rpc";
 export { register as registerEnv } from "@expressive/env";
 
 /**

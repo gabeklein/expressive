@@ -16,7 +16,6 @@ const ROLES = [
   "Layout",
   "Loading",
   "Catch",
-  "NotFound",
   "default",
 ] as const;
 
@@ -26,6 +25,7 @@ export interface Scan {
   exports: Iterable<string>;
   classDefault?: boolean;
   label?: string;
+  routeParameter?: boolean;
 }
 
 export type ExportScanner = (source: string, path: string) => Scan | Promise<Scan>;
@@ -56,7 +56,8 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const gated = JSON.stringify(gates).includes('"gate"');
   const pageImports = `{ ${[
     gated && "gateCheck",
-    !root.exports.has("NotFound") && "NotFound",
+    "NotFound",
+    !root.exports.has("Catch") && "DefaultCatch",
     "Route",
     !root.exports.has("Router") && "Router",
   ].filter(Boolean).join(", ")} }`;
@@ -65,12 +66,13 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...(scoped ? ['import { Component, Model } from "@expressive/mvc";'] : []),
+    ...(scoped ? ['import { Component, Model } from "@expressive/mvc";'] : either ? ['import { Model } from "@expressive/mvc";'] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
     ...(scoped ? ["", "const wrap = (Type, children) => Component.is(Type) ? <Type>{children}</Type> : Model.is(Type) ? <Component for={Type}>{children}</Component> : children;"] : []),
-    ...(either ? [`const hook = (value, file) => {\n  if (Model.is(value)) return;\n  if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component.");\n  return value;\n};`] : []),
+    ...(either ? [`const hook = (value, file) => {\n  if (Model.is(value)) return;\n  if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component.");\n  return (...args) => {\n    const result = value(...args);\n    const check = answer => { if (typeof answer === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return answer; };\n    return result instanceof Promise ? result.then(check) : check(result);\n  };\n};`] : []),
+    "const missing = () => { throw new NotFound(); };",
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
@@ -86,7 +88,7 @@ function gateTree(node: RouteNode, root = false): object {
     ...(!root && { to: node.segment }),
     ...(node.gated && { gate: 1 }),
     ...(node.alias.Page && { page: 1 }),
-    ...((root || node.alias.NotFound) && !caught(node) && { none: 1 }),
+    ...((root || node.alias.Catch) && !caught(node) && { none: 1 }),
     ...(!node.isLeaf && { in: node.children.filter(renders).map(child => gateTree(child)) }),
   };
 }
@@ -161,7 +163,12 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
 
     const scanned = await scan(readFileSync(full, "utf8"), full);
     const exports = new Set(scanned.exports);
-    const { classDefault, label } = scanned;
+    const { classDefault, label, routeParameter } = scanned;
+
+    if (exports.has("NotFound"))
+      throw new Error(`${full}: export Catch and handle error instanceof NotFound instead of exporting NotFound.`);
+    if (routeParameter)
+      throw new Error(`${full}: a function default with parameter route is an entry hook. Throw new Redirect(...) while rendering instead.`);
 
     if (exports.has("label") && typeof label != "string")
       throw new Error(`${full} exports a label that is not a string literal.`);
@@ -340,7 +347,7 @@ const caught = (node: RouteNode) => node.children.some(child => child.segment ==
 
 function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string, outDir: string, contend = false): string[] {
   const pad = "  ".repeat(depth);
-  const { Page, Layout, Loading, Catch, NotFound } = node.alias;
+  const { Page, Layout, Loading, Catch } = node.alias;
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
   const hook = hookOf(node);
   const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
@@ -348,7 +355,7 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const scope = scopeOf(node);
 
   const own = Loading ? `<${Loading} />` : undefined;
-  const isScope = isRoot || node.children.length > 0 || !!Layout || !!NotFound || !!scope;
+  const isScope = isRoot || node.children.length > 0 || !!Layout || !!Catch || !!scope;
 
   if (!isScope)
     return Page ? route(pad, { to: node.segment, label, as: Page, enter, fallback: own ?? slot, Catch }) : [];
@@ -363,17 +370,14 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   for (const child of node.children)
     inner.push(...emitNode(child, false, depth + 1, childSlot, outDir, rivals));
 
-  if (!inner.length) return [];
+  if (!inner.length && !Catch && !isRoot) return [];
 
   const as = scopedOf(node) ?? scope ?? Layout ?? (contend ? "Through" : undefined);
-  const fallbackPage = NotFound ?? (isRoot ? "NotFound" : undefined);
-
-  if (NotFound && caught(node)) console.warn(`${node.file}: NotFound is never shown - the [...] page beside it catches every path below.`);
-  if (fallbackPage && !caught(node)) inner.push(`${pad}  <Route none as={${fallbackPage}} fallback={null} />`);
+  if ((Catch || isRoot) && !caught(node)) inner.push(`${pad}  <Route none as={missing} fallback={null} />`);
 
   return route(
     pad,
-    { to: isRoot ? undefined : node.segment, label, as, enter, fallback: slot, Catch },
+    { to: isRoot ? undefined : node.segment, label, as, enter, fallback: slot, Catch: Catch ?? (isRoot ? "DefaultCatch" : undefined) },
     inner,
   );
 }

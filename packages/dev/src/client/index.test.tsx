@@ -3,7 +3,7 @@
 
 import { set } from "@expressive/mvc";
 import { Link, Redirect } from "@expressive/router";
-import { Redirect as Moved } from "@expressive/rpc";
+import { NotFound, Redirect as Moved } from "@expressive/rpc";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
@@ -86,8 +86,73 @@ it("bubbles to an ancestor Catch when the throwing Page has none", async () => {
   expect(root.textContent).toBe("caught: kaboom");
 });
 
-// The `NotFound` member injects a to-less `none` child via the `children` seam,
-// so unmatched URLs resolve to it without a generator-emitted sibling Route.
+describe("render-time HTTP errors", () => {
+  const router = browserRouter();
+
+  it("will show the folder Catch for NotFound with the original error and retry", async () => {
+    const missing = new NotFound("Record missing");
+    let caught: Error | undefined;
+    let retry: (() => void) | undefined;
+    const Catch = ({ error, retry: again }: { error: Error; retry: () => void }) => {
+      caught = error;
+      retry = again;
+      return <p>missing</p>;
+    };
+    location("/record");
+    const root = await mount(() => <Route Catch={Catch}><Route to="record" as={() => { throw missing; }} /></Route>);
+    expect(root.textContent).toBe("missing");
+    expect(caught).toBe(missing);
+    expect(retry).toBeTypeOf("function");
+  });
+
+  it("will send a status-shaped error to Catch without navigating", async () => {
+    const fake = Object.assign(new Error("fake"), { status: 302, location: "/login" });
+    location("/record");
+    const root = await mount(() => <Route Catch={Err}><Route to="record" as={() => { throw fake; }} /></Route>);
+    expect(root.textContent).toBe("caught: fake");
+    expect(window.location.pathname).toBe("/record");
+  });
+
+  it("will redirect an rpc Redirect during render and replace a cold entry", async () => {
+    const Login = () => <p>login</p>;
+    location("/secret");
+    const before = window.history.length;
+    const root = await mount(() => <Route Catch={Err}><Route to="login" as={Login} /><Route to="secret" as={() => { throw new Moved("/login"); }} /></Route>);
+    expect(root.textContent).toBe("login");
+    expect(window.location.pathname).toBe("/login");
+    expect(window.history.length).toBe(before);
+  });
+
+  it("will push an rpc Redirect after in-app navigation", async () => {
+    const Tree = () => <Route><Route as={() => <Link to="/secret">Go</Link>} /><Route to="login" as={() => <p>login</p>} /><Route to="secret" as={() => { throw new Moved("/login"); }} /></Route>;
+    location("/");
+    const root = await mount(Tree);
+    const before = window.history.length;
+    await click(root, "Go");
+    await settle();
+    expect(root.textContent).toBe("login");
+    expect(window.history.length).toBe(before + 1);
+  });
+
+  it("will clear a caught NotFound when the path changes", async () => {
+    const Tree = () => <Route Catch={Err}><Route to="missing" as={() => { throw new NotFound("gone"); }} /><Route to="home" as={() => <p>home</p>} /></Route>;
+    location("/missing");
+    const root = await mount(Tree);
+    expect(root.textContent).toBe("caught: gone");
+    router.current.goto("/home");
+    await settle();
+    expect(root.textContent).toBe("home");
+  });
+
+  it("will send a redirect caught after another redirect to Catch", async () => {
+    const Tree = () => <Route><Route to="a" as={() => { throw new Moved("/b"); }} /><Route to="b" Catch={Err} as={() => { throw new Moved("/a"); }} /></Route>;
+    location("/a");
+    const root = await mount(Tree);
+    await settle();
+    expect(root.textContent).toContain("caught: /a");
+  });
+});
+
 describe("NotFound member", () => {
   browserRouter();
 
@@ -95,8 +160,9 @@ describe("NotFound member", () => {
   const Missing = () => <span>missing</span>;
 
   const Tree = () => (
-    <Route NotFound={Missing}>
+    <Route>
       <Route as={Home} />
+      <Route none as={Missing} />
     </Route>
   );
 
@@ -127,8 +193,9 @@ describe("user Page delegated via `as`", () => {
   }
 
   const Tree = () => (
-    <Route as={UserPage} NotFound={Missing}>
+    <Route as={UserPage}>
       <Route to="sub" as={Child} />
+      <Route none as={Missing} />
     </Route>
   );
 
@@ -183,8 +250,9 @@ describe("dynamically generated routes", () => {
 
   const Tree = () => (
     <Route>
-      <Route to="docs" as={DocsPage} NotFound={() => <p>missing</p>}>
+      <Route to="docs" as={DocsPage}>
         <Route as={() => <p>docs-index</p>} />
+        <Route none as={() => <p>missing</p>} />
       </Route>
     </Route>
   );
@@ -292,8 +360,9 @@ describe("redirect guard prop", () => {
 
   it("null verdict force-404s to the section NotFound (no navigation)", async () => {
     const Tree = () => (
-      <Route NotFound={Missing}>
+      <Route>
         <Route to="admin" as={Secret} redirect={() => null} />
+        <Route none as={Missing} />
       </Route>
     );
     location("/admin");
