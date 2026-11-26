@@ -33,7 +33,9 @@ interface Host {
   /**
    * Create the node for an intrinsic element - a string type - insert it at `parent` before `before`, and return it.
    *
-   * A hydrating host may return an existing node instead. The core then calls `patch`.
+   * A hydrating host may return an existing node instead.
+   * The fiber's `start` and `end` are still `parent` until it returns.
+   * Set no props and reconcile no children here - the core calls `patch` next, where a suspension is parked; a throw in `mount` is not.
    */
   mount(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null): globalThis.Node;
   /** Set props and reconcile `value.props.children` - after `mount` and on every update. */

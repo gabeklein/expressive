@@ -41,7 +41,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on `plain`.
 - jsx's suite without dom: style tests render through a stylesheet test host, JSX compiles against jsx's runtime with test-only intrinsics; the jsx→dom edge in `affected.ts` is gone.
 - Unused root exports dropped: `mountRoot`, `rootOf` and the root `JSX` type (`JSX` stays on `/jsx-runtime`).
-- `Host.mount` creates or adopts its node and returns it; the core sets the fiber's range and runs `patch` inside `complete`, which leaves the root export.
+- `Host.mount` creates or adopts its node and returns it; the core sets the fiber's range and runs `patch` inside `complete`; `complete` is no longer exported.
 
 ## Before release
 
