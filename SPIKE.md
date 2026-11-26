@@ -135,7 +135,7 @@ Results: jsx suite and coverage gates pass (new host-steps test); react, jsx, do
 
 ## Step 2: client sheet placement, no render
 
-Tried first: `render`/`hydrate` on a new `@expressive/react/dom` subpath (commits `aeeb14018`, `efb040894`, reverted). It worked - 66/66 in Chrome - but its only jobs were picking a root's style target and moving the server's style groups before hydrating, and neither needs `react-dom`. Dropped in favor of zero new surface.
+Tried first: `render`/`hydrate` on a new `@expressive/react/dom` subpath (dropped from this branch's history). It worked - 66/66 in Chrome - but its only jobs were picking a root's style target and moving the server's style groups before hydrating, and neither needs `react-dom`. Dropped in favor of zero new surface.
 
 Now: the host's document sheet, on opening, looks for server `expressive-*` precedence groups. If the last one is outside `<head>` - `renderToString` into a container leaves them inline there - the sheet goes at the end of `<body>`: after the groups, outside a `#root` container React hydrates. Otherwise it goes at the end of `<head>` as before.
 
