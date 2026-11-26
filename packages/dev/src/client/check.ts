@@ -1,4 +1,5 @@
 import type { Route } from "./route";
+import { entering } from "./router";
 
 type Verdict = string | void | null;
 
@@ -97,7 +98,7 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
         if (!current()) return;
         if (verdict === true) passed = at;
 
-        return hook?.(route);
+        return entering(router.path, () => hook?.(route));
       },
       error => {
         if (!current()) return;

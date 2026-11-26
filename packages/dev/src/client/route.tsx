@@ -4,6 +4,7 @@ import { set, type Component } from "@expressive/mvc";
 import { Route as Base, Redirect as RouterRedirect, fullPattern, matchPattern } from "@expressive/router";
 import { Redirect } from "@expressive/rpc";
 import { childrenOf, propsOf, typeOf } from "@expressive/jsx/jsx-runtime";
+import { entering } from "./router";
 
 
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
@@ -47,7 +48,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
     }
   };
 
-  const enter = (run: EntryHook) => run(route);
+  const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
 
   route.redirect = hook && (() => {
     try {
