@@ -309,6 +309,97 @@ describe('class element', () => {
     expect(panel.get(null)).toBe(false);
   });
 
+  it('will render and provide a Component instance around changing children', async () => {
+    const calls = vi.fn();
+
+    class Panel extends Component {
+      label = 'first';
+
+      render(props: { children?: Component.Node }) {
+        calls(props.children);
+        return <section>{this.label}:{props.children}</section>;
+      }
+    }
+
+    function Read() {
+      return <b>{Panel.get().label}</b>;
+    }
+
+    const panel = Panel.new();
+    const root = document.createElement('main');
+    class App extends Component {
+      extra = false;
+
+      render() {
+        return <Component for={panel}>{this.extra && <i>new</i>}<Read /></Component>;
+      }
+    }
+
+    const [app, , release] = mount(App, undefined, root);
+
+    expect(root.textContent).toBe('first:first');
+    expect(calls).toHaveBeenCalled();
+
+    app.extra = true;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('first:newfirst');
+
+    release();
+    expect(panel.get(null)).toBe(false);
+  });
+
+  it('will destroy an adopted Component and swap provided instances', async () => {
+    class Panel extends Component {
+      label = '';
+
+      render(props: { children?: Component.Node }) {
+        return <section>{this.label}{props.children}</section>;
+      }
+    }
+
+    const first = new Panel();
+    const second = Panel.new();
+    const root = document.createElement('main');
+    class App extends Component {
+      swap = false;
+
+      render() {
+        return this.swap
+          ? <Component for={second} label="two">next</Component>
+          : <Component for={first} label="one">child</Component>;
+      }
+    }
+
+    const [app, , release] = mount(App, undefined, root);
+
+    expect(root.textContent).toBe('onechild');
+    app.swap = true;
+    await flushMicrotasks();
+
+    expect(first.get(null)).toBe(true);
+    expect(root.textContent).toBe('twonext');
+
+    release();
+    expect(second.get(null)).toBe(false);
+  });
+
+  it('will pass children through a provided Model instance', () => {
+    class Plain extends Model {}
+    const model = Plain.new();
+    const root = place(<Component for={model}><b>child</b></Component>);
+
+    expect(root.textContent).toBe('child');
+    expect(model.get(null)).toBe(false);
+  });
+
+  it('will pass children through a provided Component without render', () => {
+    class Bare extends Component {}
+    const bare = Bare.new();
+    const root = place(<Component for={bare}><b>child</b></Component>);
+
+    expect(root.textContent).toBe('child');
+  });
+
 
   it('will own a boundary from a fallback on the element', async () => {
     const loaded = mockPromise<() => Component.Node>();

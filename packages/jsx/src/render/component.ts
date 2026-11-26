@@ -113,7 +113,7 @@ function mountComponent(
   fiber.appearance = appearance;
   fiber.scope = makeScope(childContext, (passive) => run(fiber, passive));
   fiber.render = () => enter(fiber.scope!, () => {
-    return unbind((fiber.value as Component).render).call(fiber.value, fiber.props);
+    return unbind((fiber.value as Component).render).call(fiber.value, fiber.owned ? fiber.props : fiber.instance!.props);
   });
   probing(fiber);
 
@@ -180,7 +180,7 @@ function patchFunction(fiber: Fiber, value: VNode, appearance?: Appearance) {
 function patchComponent(fiber: Fiber, value: RenderNode, appearance?: Appearance) {
   const resolved = isVNode(value)
     ? componentProps(value.type, value.props, appearance)
-    : { appearance: placed(appearance), props: fiber.props! };
+    : { appearance: placed(appearance), props: fiber.instance!.props };
   fiber.appearance = resolved.appearance;
   const props = isVNode(value) ? observe(resolved.props) : resolved.props;
   if (isVNode(value)) fiber.dev = value.source;
