@@ -27,6 +27,7 @@ interface LocationRouter extends Navigation {
 }
 
 const ACTIVE = new WeakMap<object, object>();
+const UNCOMMITTED = new WeakSet<object>();
 const LOCATING = new WeakSet<object>();
 const READY = new WeakSet<object>();
 
@@ -123,7 +124,7 @@ export class Router extends Component {
         this.entries = [...this.entries.slice(0, this.index + 1), url];
         this.index = this.entries.length - 1;
       }
-    });
+    }, !replace);
   }
 
   /** Move back one history entry. */
@@ -141,8 +142,10 @@ export class Router extends Component {
     navigate(
       this,
       (work) => this.navigate(work),
-      () => this.locate(this.entries[index]),
-      () => { this.index = index; }
+      () => {
+        this.locate(this.entries[index]);
+        this.index = index;
+      }
     );
   }
 
@@ -215,11 +218,15 @@ export async function navigate(
   router: Navigation,
   stage: (work: () => void) => Promise<void>,
   work: () => void,
-  commit?: () => void
+  commit?: () => void,
+  push?: boolean
 ) {
   const token = {};
   ACTIVE.set(router, token);
   router.navigating = true;
+
+  if (push) UNCOMMITTED.add(router);
+  else UNCOMMITTED.delete(router);
 
   try {
     await stage(() => {
@@ -229,9 +236,15 @@ export async function navigate(
   } finally {
     if (ACTIVE.get(router) === token) {
       ACTIVE.delete(router);
+      UNCOMMITTED.delete(router);
       if (!router.get(null)) router.navigating = false;
     }
   }
+}
+
+/** Whether a push in flight has yet to write its entry - the URL on screen is still the committed one. */
+export function uncommitted(router: object) {
+  return UNCOMMITTED.has(router);
 }
 
 export function bindLocation(router: LocationRouter) {

@@ -13,7 +13,7 @@
 
 The core of [Expressive MVC](https://github.com/gabeklein/expressive): reactive primitives built around plain classes, with no framework dependency. Provides the `Model` class, instructions, context, and the renderer-agnostic `Component` that adapters like [`@expressive/react`](https://www.npmjs.com/package/@expressive/react) build on.
 
-> **Building a React app?** Install [`@expressive/react`](https://www.npmjs.com/package/@expressive/react) alongside this package - the adapter declares `@expressive/mvc` as a peer dependency, so both belong in your `package.json`. Import `Model`, `Component`, and every instruction from this package, and import the adapter once from your entry so the host registers. The same holds for [`@expressive/dom`](https://www.npmjs.com/package/@expressive/dom), the renderer without React.
+> **Building a React app?** Install [`@expressive/react`](https://www.npmjs.com/package/@expressive/react) alongside this package - the adapter declares `@expressive/mvc` as a peer dependency, so both belong in your `package.json`. Import `Model`, `Component`, and every instruction from this package, and import the adapter once from your entry so the host registers. [`@expressive/dom`](https://www.npmjs.com/package/@expressive/dom), the renderer without React, needs no registration.
 
 Installed alone, it serves host-agnostic code - a shared domain package, a Node service, or a new adapter:
 
@@ -122,14 +122,14 @@ off();                                                // stop listening
 
 ## Framework-agnostic components
 
-`@expressive/mvc` ships its own JSX runtime, so you can author components - including reusable libraries - against the core and let any host render them:
+Author components - including reusable libraries - against the host-neutral runtime in `@expressive/jsx`, and let any host render them:
 
 ```jsonc
 // tsconfig.json
 {
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "@expressive/mvc"
+    "jsxImportSource": "@expressive/jsx"
   }
 }
 ```

@@ -1,4 +1,4 @@
-/** @jsxImportSource @expressive/mvc */
+/** @jsxImportSource @expressive/jsx */
 
 import type { Component } from "@expressive/mvc";
 

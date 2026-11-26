@@ -32,6 +32,7 @@ const PARENT = new WeakMap<object, Model | null>();
 
 /** Reference bound instance methods, or their getter, to real one. */
 const UNBIND = new WeakMap<any, any>();
+const OWNER = new WeakMap<Function, { owner: Model; key: string }>();
 
 /** List of methods defined by a given type. */
 const METHODS = new WeakMap<Function, Map<string, (value: any) => void>>();
@@ -1025,6 +1026,7 @@ function classify(
       const bound = fn.bind(is);
 
       UNBIND.set(bound, fn);
+      OWNER.set(bound, { owner: is, key });
       define(is, key, { value: bound, writable: true, configurable: true });
 
       for (const handler of stages(is.constructor as Model.Extends, 'method')) handler.call(is, key, bound, is);
@@ -1257,6 +1259,15 @@ function uid() {
 }
 
 /**
+ * Instance and key a bound method was read from - undefined for any other function.
+ *
+ * For hosts: a capitalized method rendered as a component reads its owner through this.
+ */
+function methodOf(fn: Function): { owner: Model; key: string } | undefined {
+  return OWNER.get(fn);
+}
+
+/**
  * Original function behind a bound Model method - any other function returns as given.
  *
  * Unwraps an instance's bound method, a prototype method's binding getter, and a `_` method's wrapper.
@@ -1288,4 +1299,4 @@ function parent(child: object, value?: Model | null) {
 }
 
 export type { Got, Handler, Keyed };
-export { adopt, defer, event, plain, unbind, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };
+export { adopt, defer, event, plain, unbind, methodOf, Model, observed, parent, children, owned, trailing, PENDING, uid, getter, classify, METHODS, GETTERS, SETUP, UNBIND, LATEST };

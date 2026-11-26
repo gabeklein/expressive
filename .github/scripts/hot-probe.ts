@@ -595,6 +595,7 @@ async function serve(mode: Mode, dir: string) {
         '@expressive/router': src('router'),
         '@expressive/react': src('react'),
         '@expressive/dom': src('dom'),
+        '@expressive/jsx': src('jsx'),
         '@expressive/mvc': src('mvc')
       }
     },

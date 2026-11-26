@@ -26,8 +26,8 @@ For reactive computed values, a normal class getter usually reads best - getters
 | `= "foo"` (plain)        | yes        | yes      | Normal data property                      |
 | `= set("foo")`           | no         | yes      | Managed default, hidden from `Object.keys()` |
 | `= set("foo", cb)`       | no         | yes      | Managed with setter callback              |
-| `= set(() => "foo")`     | no         | no       | Factory, read-only                        |
-| `= set(() => "foo", cb)` | no         | yes      | Factory made writable by callback         |
+| `= set(() => "foo")`     | no         | yes      | Factory, lazy                             |
+| `= set(() => "foo", cb)` | no         | yes      | Factory with setter callback              |
 | `= set(self => ...)`     | yes        | no       | Reactive computed via instruction         |
 | `get foo() { ... }`      | yes        | no       | Reactive computed, included in snapshots  |
 | `= set<T>()`             | no         | yes      | Placeholder, suspends on access           |
@@ -81,7 +81,7 @@ config = set(() => loadConfig());
 data = set(async () => fetchData()); // async, suspends on access
 ```
 
-Zero-argument function. Runs on first access. Read-only.
+Zero-argument function. Runs on first access. Writable - a write before first access skips the factory, and a write while async discards its result. A `readonly` field rejects direct assignment at compile time.
 
 ### `set(factory, true)` - eager factory
 
@@ -89,7 +89,7 @@ Zero-argument function. Runs on first access. Read-only.
 data = set(() => fetch(), true);
 ```
 
-Runs immediately on activation. Still read-only.
+Runs immediately on activation. A constructor arg for the field skips it; a write while pending releases the hold.
 
 ### `set(factory, false)` - lazy factory, no suspense
 
@@ -110,7 +110,7 @@ config = set(
 );
 ```
 
-Makes the property writable. Callback runs on factory resolution and subsequent assignments.
+Callback runs on factory resolution and subsequent assignments.
 
 ### `set(compute)` - reactive computed
 

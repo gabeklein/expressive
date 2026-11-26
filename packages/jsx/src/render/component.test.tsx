@@ -1,0 +1,497 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { Component, Context, has, Model } from '@expressive/mvc';
+
+import { flushMicrotasks, mockPromise, mount, place, render } from '../../test.setup';
+
+describe('component', () => {
+  it('will run an effect from new() once inserted', async () => {
+    const effect = vi.fn();
+
+    class App extends Component {
+      protected new() {
+        this.get(effect);
+      }
+
+      render() {
+        return <b>app</b>;
+      }
+    }
+
+    mount(App);
+
+    expect(effect).not.toBeCalled();
+
+    await flushMicrotasks();
+    expect(effect).toBeCalledTimes(1);
+  });
+
+  it('will run effects after descendants, as any parent commits', async () => {
+    const order: string[] = [];
+
+    class Inner extends Component {
+      protected new() {
+        this.get(() => void order.push('child'));
+      }
+
+      render() {
+        return <i>inner</i>;
+      }
+    }
+
+    class Outer extends Component {
+      protected new() {
+        this.get(() => void order.push('parent'));
+      }
+
+      render() {
+        return <Inner />;
+      }
+    }
+
+    mount(Outer);
+
+    await flushMicrotasks();
+    expect(order).toEqual(['child', 'parent']);
+  });
+
+  it('will hold a constructed class until the provider is inserted', async () => {
+    const effect = vi.fn();
+
+    class Owned extends Model {
+      protected new() {
+        this.get(effect);
+      }
+    }
+
+    place(<Component for={Owned} />);
+
+    expect(effect).not.toBeCalled();
+
+    await flushMicrotasks();
+    expect(effect).toBeCalledTimes(1);
+  });
+
+  it('will destroy owned Components when their context pops', () => {
+    let child!: Child;
+
+    class Child extends Component {}
+    class Parent extends Component {
+      render() {
+        return <Child is={(c) => void (child = c)} />;
+      }
+    }
+
+    const [parent] = mount(Parent);
+
+    Context.get(parent).pop();
+
+    expect(child.get(null)).toBe(true);
+    expect(parent.get(null)).toBe(true);
+  });
+
+  it('will retain a class Component when its VNode props object is unchanged', async () => {
+    class Child extends Component {
+      label = '';
+      render() {
+        return <span>{this.label}</span>;
+      }
+    }
+
+    const child = <Child label="fixed" />;
+
+    class Parent extends Component {
+      tick = 0;
+      render() {
+        this.tick;
+        return child;
+      }
+    }
+
+    const [parent, root] = mount(Parent);
+    const span = root.querySelector('span');
+    parent.tick++;
+    await flushMicrotasks();
+
+    expect(root.querySelector('span')).toBe(span);
+  });
+
+  it('will place an external Component and collection without owning them', async () => {
+    const cleanup = vi.fn();
+
+    class Message extends Component {
+      protected new() {
+        this.get(() => cleanup);
+      }
+
+      render() {
+        return <span>message</span>;
+      }
+    }
+
+    const message = Message.new();
+    const first = new has.List(['first']);
+    const second = new has.List(['second']);
+
+    class Parent extends Component {
+      tick = 0;
+      useSecond = false;
+
+      render() {
+        return <><small>{this.tick}</small>{message}{this.useSecond ? second : first}</>;
+      }
+    }
+
+    const [parent, root, release] = mount(Parent);
+    parent.tick++;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('1messagefirst');
+
+    parent.useSecond = true;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('1messagesecond');
+
+    release();
+    expect(message.get(null)).toBe(false);
+    expect(cleanup).not.toHaveBeenCalled();
+    message.set(null);
+  });
+});
+
+describe('class element', () => {
+  it('will pass children through a Component without render', () => {
+    class Bare extends Component {}
+    const root = document.createElement('main');
+
+    render(<div><Bare>text</Bare><Bare /></div>, root);
+    expect(root.textContent).toBe('text');
+  });
+
+  it('will be owned by enclosing Component', () => {
+    let inner!: Component;
+
+    class Panel extends Component {
+      render() {
+        return null;
+      }
+    }
+
+    class Outer extends Component {
+      render() {
+        return <Panel is={(panel) => void (inner = panel)} />;
+      }
+    }
+
+    const [outer] = mount(Outer);
+
+    expect(outer.get(Model, false)).toBeUndefined();
+    expect(inner.get(Model)).toBe(outer);
+  });
+
+  it('will render a Component with a render method', async () => {
+    const lifecycle: string[] = [];
+    let panel!: Panel;
+
+    class Panel extends Component {
+      label = 'idle';
+      count = 0;
+
+      protected new() {
+        this.get(() => {
+          lifecycle.push('effect');
+          return () => lifecycle.push('cleanup');
+        });
+      }
+
+      render() {
+        return <span>{this.label}:{this.count}</span>;
+      }
+    }
+
+    const root = document.createElement('main');
+    const release = render(<Panel label="busy" is={(value) => void (panel = value)} />, root);
+
+    expect(root.textContent).toBe('busy:0');
+
+    await flushMicrotasks();
+    expect(lifecycle).toEqual(['effect']);
+
+    panel.count = 2;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('busy:2');
+
+    release();
+    expect(lifecycle).toEqual(['effect', 'cleanup']);
+    expect(panel.get(null)).toBe(true);
+  });
+
+  it('will apply props to fields, reset dropped ones and pass the rest to render', async () => {
+    class Panel extends Component {
+      label?: string = 'default';
+
+      render(props: { children?: Component.Node }) {
+        return <b>{this.label ?? 'none'}{props.children}</b>;
+      }
+    }
+
+    class App extends Component {
+      label?: string = 'one';
+
+      render() {
+        return this.label ? <Panel label={this.label}>!</Panel> : <Panel>!</Panel>;
+      }
+    }
+
+    const [app, root] = mount(App);
+    expect(root.textContent).toBe('one!');
+
+    app.label = 'two';
+    await flushMicrotasks();
+    expect(root.textContent).toBe('two!');
+
+    app.label = undefined;
+    await flushMicrotasks();
+    expect(root.textContent).toBe('none!');
+  });
+
+  it('will provide a Model through Component for', async () => {
+    class Session extends Model {
+      name = 'Ada';
+    }
+
+    let session!: Session;
+
+    function Leaf() {
+      return <b>{Session.get().name}</b>;
+    }
+
+    function Sibling() {
+      return <i>{Session.get(false) ? 'leak' : 'none'}</i>;
+    }
+
+    const root = document.createElement('main');
+    const release = render(
+      <>
+        <Component for={Session} name="Grace" is={(value: Session) => void (session = value)}>
+          <Leaf />
+        </Component>
+        <Sibling />
+      </>,
+      root
+    );
+
+    expect(root.textContent).toBe('Gracenone');
+
+    session.name = 'Hopper';
+    await flushMicrotasks();
+    expect(root.textContent).toBe('Hoppernone');
+
+    release();
+    expect(session.get(null)).toBe(true);
+  });
+
+
+  it('will render a Component instance inline', async () => {
+    class Panel extends Component {
+      label = 'inline';
+      render() {
+        return <span>{this.label}</span>;
+      }
+    }
+
+    const panel = Panel.new();
+    const root = place(<div>{panel}</div>);
+    expect(root.textContent).toBe('inline');
+
+    panel.label = 'changed';
+    await flushMicrotasks();
+    expect(root.textContent).toBe('changed');
+    expect(panel.get(null)).toBe(false);
+  });
+
+
+  it('will own a boundary from a fallback on the element', async () => {
+    const loaded = mockPromise<() => Component.Node>();
+    const Lazy = () => loaded;
+
+    class Plain extends Component {
+      render() {
+        return <Lazy />;
+      }
+    }
+
+    const root = place(<Plain fallback={<i>loading</i>} />);
+    expect(root.textContent).toBe('loading');
+
+    loaded.resolve(() => <b>ready</b>);
+    await flushMicrotasks();
+    expect(root.textContent).toBe('ready');
+  });
+
+  it('will keep a Component which suspends itself', async () => {
+    const loaded = mockPromise<void>();
+    const created = vi.fn();
+    let ready = false;
+
+    class Report extends Component {
+      count = 1;
+
+      new() {
+        created();
+      }
+
+      render() {
+        if (!ready) throw loaded;
+        return <p>{this.count}</p>;
+      }
+    }
+
+    const [report, root] = mount(Report, { fallback: <i>loading</i> });
+    expect(root.textContent).toBe('loading');
+
+    report.count = 2;
+    ready = true;
+    loaded.resolve();
+    await flushMicrotasks();
+
+    expect(root.textContent).toBe('2');
+    expect(created).toHaveBeenCalledTimes(1);
+  });
+
+  it('will prefer an element fallback over the member, used when placed', () => {
+    const Lazy = () => new Promise<never>(() => {});
+
+    class Guarded extends Component {
+      fallback: Component.Node = <i>member</i>;
+
+      render() {
+        return <Lazy />;
+      }
+    }
+
+    const root = place(<Guarded fallback={<i>element</i>} />);
+    expect(root.textContent).toBe('element');
+
+    const other = place(<><Guarded /><div>{Guarded.new() as never}</div></>);
+    expect(other.textContent).toBe('membermember');
+  });
+
+  it('will call an element catch with the error and instance', async () => {
+    const caught = vi.fn();
+    let plain!: Plain;
+
+    class Plain extends Component {
+      broken = true;
+
+      render() {
+        if (this.broken) throw new Error('broken');
+        return <p>fixed</p>;
+      }
+    }
+
+    const root = place(
+      <Plain
+        is={(value) => void (plain = value)}
+        fallback={<i>recovering</i>}
+        catch={(error: Error, instance: Plain) => {
+          caught(error.message, instance);
+          instance.broken = false;
+        }}
+      />
+    );
+
+    expect(caught).toHaveBeenCalledWith('broken', plain);
+    expect(root.textContent).toBe('recovering');
+
+    await flushMicrotasks();
+    expect(root.textContent).toBe('fixed');
+  });
+
+  it('will not own a boundary from fallback on a function component', () => {
+    const received = vi.fn();
+    const Lazy = () => new Promise<never>(() => {});
+
+    function View(props: { fallback?: string }) {
+      received(props.fallback);
+      return <Lazy />;
+    }
+
+    class Outer extends Component {
+      fallback = <i>outer</i>;
+
+      render() {
+        return <View fallback="inner" />;
+      }
+    }
+
+    const root = place(<Outer />);
+    expect(received).toHaveBeenCalledWith('inner');
+    expect(root.textContent).toBe('outer');
+  });
+
+  it('will render a PascalCase function field as a plain function component', async () => {
+    const First = ({ text }: { text: string }) => <b>{text}</b>;
+    const Second = ({ text }: { text: string }) => <i>{text}</i>;
+
+    class Panel extends Component {
+      Badge = First;
+
+      render() {
+        return <this.Badge text="x" />;
+      }
+    }
+
+    const [panel, root] = mount(Panel);
+    expect(root.querySelector('b')?.textContent).toBe('x');
+    expect(panel.Badge).toBe(First);
+
+    panel.Badge = Second;
+    await flushMicrotasks();
+    expect(root.querySelector('i')?.textContent).toBe('x');
+  });
+
+  it('will render a Component class held in a PascalCase field', async () => {
+    class Badge extends Component {
+      text = '';
+
+      render() {
+        return <b>{this.text}</b>;
+      }
+    }
+
+    class Panel extends Component {
+      Badge = Badge;
+
+      render() {
+        return <this.Badge text="x" />;
+      }
+    }
+
+    const [panel, root] = mount(Panel);
+    expect(panel.Badge).toBe(Badge);
+    expect(root.querySelector('b')?.textContent).toBe('x');
+  });
+
+  it('will reconcile keyed Components', async () => {
+    class Item extends Component {
+      value = '';
+      render() {
+        return <li>{this.value}</li>;
+      }
+    }
+
+    class App extends Component {
+      items = ['a', 'b'];
+      render() {
+        return <ul>{this.items.map((value) => <Item key={value} value={value} />)}</ul>;
+      }
+    }
+
+    const [app, root] = mount(App);
+    expect(root.textContent).toBe('ab');
+
+    app.items = ['b', 'c'];
+    await flushMicrotasks();
+    expect(root.textContent).toBe('bc');
+  });
+});

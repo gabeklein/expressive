@@ -40,7 +40,7 @@ afterEach(async () => {
     throw new Error(`Unexpected console.error (use mockError() to expect one):\n${errors.map(String).join('\n')}`);
 });
 
-export { mockError, mockPromise, mockWarn } from '../mvc/test.setup';
+export { mockError, mockPromise, mockUncaught, mockWarn } from '../mvc/test.setup';
 
 /**
  * Opt-in per-test BrowserRouter lifecycle. Call at the top of a describe (or

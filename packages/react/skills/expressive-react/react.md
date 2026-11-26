@@ -102,7 +102,7 @@ To render a specific request's data (a path, a session), provide it per request:
 
 ## React Native
 
-Works with no configuration - the adapter imports only `react` and `react/jsx-runtime`, and Metro resolves it as published. Three boundaries:
+Works with no configuration - beside `react` and `react/jsx-runtime`, the adapter imports only `@expressive/jsx/jsx-runtime`, and Metro resolves it as published. Three boundaries:
 
 - **Jest.** The build is ESM-only and `jest-expo` skips `node_modules`, so the import fails to parse until `@expressive` is added to `transformIgnorePatterns`:
 

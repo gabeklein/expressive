@@ -18,6 +18,7 @@
       "@expressive/dev/*": ["./src/*"],
       "@expressive/mvc/*": ["../mvc/src/*"],
       "@expressive/dom/*": ["../dom/src/*"],
+      "@expressive/jsx/*": ["../jsx/src/*"],
       "@expressive/router/*": ["../router/src/*"],
       "@expressive/inspect/*": ["../inspect/src/*"],
       "@expressive/rpc/*": ["../rpc/src/*"],

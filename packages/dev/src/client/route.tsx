@@ -1,7 +1,7 @@
-/** @jsxImportSource @expressive/mvc */
+/** @jsxImportSource @expressive/jsx */
 
 import { set, type Component } from "@expressive/mvc";
-import { Route as Base } from "@expressive/router";
+import { Route as Base, Redirect } from "@expressive/router";
 
 import { entering } from "./router";
 
@@ -87,13 +87,15 @@ function redirected(error: unknown): string {
   throw error;
 }
 
+const { catch: redirect } = Base.prototype;
+
 Object.defineProperty(Route.prototype, "catch", {
   get(this: Route) {
     const Boundary = this.Catch;
 
-    if (!Boundary) return undefined;
+    if (!Boundary) return redirect;
 
-    return (error: Error) => new Promise<void>(resolve => {
+    return (error: Error) => error instanceof Redirect ? redirect.call(this, error) : new Promise<void>(resolve => {
       const retry = () => {
         REFUSED.forEach(route => arm(route, route.enter));
         REFUSED.clear();

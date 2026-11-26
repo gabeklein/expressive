@@ -22,7 +22,8 @@ export class BrowserRouter extends Router {
         } finally {
           SELF_DRIVEN.delete(this);
         }
-      }
+      },
+      !replace
     );
   }
 

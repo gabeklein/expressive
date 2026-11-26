@@ -1,5 +1,5 @@
 import { Component, get } from '@expressive/mvc';
-import type { JSX } from '@expressive/mvc/jsx-runtime';
+import type { JSX } from '@expressive/jsx/jsx-runtime';
 
 import { Route } from './route';
 import { isExternal } from './url';

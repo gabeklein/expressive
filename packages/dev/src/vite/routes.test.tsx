@@ -567,7 +567,7 @@ describe("app/ routing (runtime)", () => {
     const Claim = () => (
       <Route>
         <Route to="claim" as={() => <Link to="/report">report</Link>} />
-        <Route none as={() => <Redirect to="/claim" />} />
+        <Route none as={() => { throw new Redirect("/claim"); }} />
       </Route>
     );
     const Report = () => Promise.resolve(() => <h1>report</h1>);

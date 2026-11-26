@@ -26,7 +26,8 @@ import { Route, Link, NavLinks, Redirect, Router, BrowserRouter } from '@express
 - **`Router`** - the navigation Model: current `path`, reactive `query`/`hash`, derived `url`, and an in-memory history stack. Headless; touches no browser globals, so it runs and tests anywhere. It is also the memory-router substrate.
 - **`BrowserRouter`** - binds the core to `window.location`/`history`, syncing `path`/`query`/`hash` on navigation (`goto`, `popstate`, `hashchange`, external `pushState`/`replaceState`).
 - **`Route`** - a `Component` that matches part of the URL and renders a page. Routes nest to mirror the URL hierarchy. Each `Route` is a scoped facade over the active `Router` (`path`, `match`, `query`, `goto`, `resolve`).
-- **`Link` / `NavLinks` / `Redirect`** - navigation UI built on `Route`. They resolve against the nearest `Route` and throw outside one - render shared navigation inside a layout (`<Route as={Frame}>`), not beside Routes under the `Router`.
+- **`Link` / `NavLinks`** - navigation UI built on `Route`. They resolve against the nearest `Route` and throw outside one - render shared navigation inside a layout (`<Route as={Frame}>`), not beside Routes under the `Router`.
+- **`Redirect`** - an error. Throw it while rendering or from `new()`; the nearest `Route` catches it and navigates.
 
 A `<Route>` with no ancestor `Router` in context spins up a headless `Router`. For a browser app, provide a `BrowserRouter` so navigation reflects the address bar. Both are Components, so as the top of the tree they can carry the app's last-resort boundary: `<BrowserRouter fallback={null} catch={…}>`.
 
@@ -85,11 +86,11 @@ A `none` Route always needs an authored parent scope - a root-level one is the a
 
 | Returns | Outcome |
 | --- | --- |
-| a truthy `string` | redirect there (replaces history) |
+| a truthy `string` | redirect there - once per verdict; replaces the entry on a cold load, pushes during in-app navigation |
 | `''` / `undefined` | allow normal render |
 | `null` | **force-404**: cede the path so the scope falls through to its nearest `none` Route |
 
-The guard takes no arguments - read state from the declaring class. It may be **async**: while it pends, cold load shows `fallback`; in-app navigation holds the current screen ([Deferred presentation](#deferred-presentation)). A guard that throws or rejects is an error like a failed chunk - `catch` on a `Route` subclass, or the nearest ancestor boundary.
+The guard takes no arguments - read state from the declaring class. It may be **async**: while it pends, cold load shows `fallback`; in-app navigation holds the current screen ([Deferred presentation](#deferred-presentation)). A guard that throws or rejects is an error like a failed chunk - `catch` on a `Route` subclass, or the nearest ancestor boundary. To redirect from the page or its state instead, throw [`Redirect`](#redirect).
 
 The verdict is cached per concrete path of the route's own pattern: navigation below it reuses the verdict; re-entry or a change to its own params (`/document/1` -> `/document/2` on `document/:id`) re-runs the guard.
 
@@ -308,12 +309,24 @@ class SideNav extends NavLinks {
 
 ### `Redirect`
 
-Navigates to `to` on activation when `when` (default `true`). Pushes unless `replace`. Renders nothing. A string `redirect` prop on `Route` is the always-replace shorthand.
+An error the nearest `Route` catches and navigates from - for a redirect decided while rendering or in a Component's `new()`, sync or async. `to` resolves against that Route. History is replaced on a cold load and pushed during in-app navigation, so Back still reaches the page the user came from.
 
 ```tsx
-<Redirect to="/login" when={!user} />
-<Redirect to="/home" replace />
+class Account extends Component {
+  session = get(Session);
+
+  protected new() {
+    if (!this.session.user) throw new Redirect('/login');
+  }
+}
 ```
+
+- A render-time throw shows the Route's `fallback` until the target is ready.
+- An async `new()` redirects after the page has shown. To decide before render, throw before the first `await`, or use the `redirect` prop.
+- Effects and event handlers navigate with `Route.get().goto()` - a throw there is just an error.
+- A redirect caught before the previous one lands passes on as an error - the loop guard.
+- Every `Route` is a `catch` boundary: it handles `Redirect` and passes any other error to the next boundary up. Any `catch` between the throw and the Route sees it first - a `Route` subclass returns `super.catch(error)`, any other rejects what it doesn't handle.
+- React logs every error a boundary catches through `onCaughtError`. Pass one to `createRoot` that skips `Redirect`.
 
 ## Extending Route: contributing child routes
 
