@@ -1,5 +1,7 @@
 import { Component, unbind } from '@expressive/mvc';
+import { placement } from '@expressive/mvc/host';
 import { createProvider, type Context } from './context';
+import { elementType } from './element';
 import { Runtime, useWatch } from './runtime';
 
 declare module '@expressive/mvc' {
@@ -19,6 +21,7 @@ declare module '@expressive/mvc' {
 // pushes a child context, registers the instance for teardown, and installs its
 // per-instance render host. Host-specific descriptors stay in each adapter.
 const PLACING = new WeakMap<Component, { placed: Promise<void>; place(): void }>();
+const NESTED = new WeakMap<Component, Function>();
 
 Object.defineProperties(Component.prototype, {
   state: {
@@ -98,8 +101,9 @@ function bootstrap(this: Component, parent: Context){
  */
 function createFrame(from: Component, context: Context, children: unknown) {
   const { createElement } = Runtime;
+  const placed = placement(from);
 
-  if(from.fallback !== false)
+  if(!placed && from.fallback !== false)
     children = createElement(
       Runtime.Suspense,
       { fallback: from.fallback, name: String(from) },
@@ -108,7 +112,7 @@ function createFrame(from: Component, context: Context, children: unknown) {
 
   children = createProvider(context, children);
 
-  return from.props.catch || from.catch
+  return !placed && (from.props.catch || from.catch)
     ? createElement(Runtime.ErrorBoundary, { self: from, children })
     : children;
 }
@@ -130,8 +134,27 @@ function render(from: Component, context: Context) {
     context.pop();
   };
 
-  const Render = () => (own || Object.getPrototypeOf(owner).render).call(from, from.props);
-  const Component = () => {
+  let nested: Component | undefined;
+  let children: unknown;
+  let element: unknown;
+  const Render = () => {
+    const output = (own || Object.getPrototypeOf(owner).render).call(from, from.props);
+
+    if (!(output instanceof Component)) return output;
+    const provided = output as Component;
+    let Nested = NESTED.get(provided);
+    if (!Nested) NESTED.set(provided, Nested = elementType(provided));
+
+    const next = placement(provided)?.children;
+    if (nested !== provided || children !== next) {
+      nested = provided;
+      children = next;
+      element = createElement(Nested);
+    }
+
+    return element;
+  };
+  const HostComponent = () => {
     from = useWatch(from, () => {
       PLACING.get(owner)!.place();
       attempt?.commit();
@@ -140,7 +163,7 @@ function render(from: Component, context: Context) {
     return createFrame(from, context, createElement(Render));
   };
 
-  return () => createElement(Component);
+  return () => createElement(HostComponent);
 }
 
 function wrappable(value: unknown): value is Function {

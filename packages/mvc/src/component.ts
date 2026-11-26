@@ -31,7 +31,8 @@ type ForProps<T extends Model> = {
       /**
        * Model to provide to children - a class is constructed, owned and destroyed with this.
        *
-       * Other props assign to it on every update. Changing `for` releases the previous one first.
+       * Other attributes assign to its fields on every update; render-declared props are not
+       * forwarded. Changing `for` releases the previous one first.
        */
       for: Model.Extends<T>;
       /** Receives the constructed Model once; a returned plain object is assigned to it. */
@@ -41,13 +42,15 @@ type ForProps<T extends Model> = {
       /**
        * Model to provide to children - an active instance is provided as-is, never destroyed.
        *
-       * An unactivated one is adopted - destroyed with this. `undefined` provides nothing. Other props
-       * assign to it on every update. Changing `for` releases the previous one first.
+       * An unactivated one is adopted - destroyed with this. A Component instance renders around
+       * `children`; one without `render` passes them through. `undefined` provides nothing. Other
+       * attributes assign to fields, not render-declared props. One provider places an instance at
+       * a time - the last writer wins. Changing `for` releases the previous one first.
        */
       for: T | undefined;
       is?: never;
     }
-) & { [K in Acceptable<Pick<T, Exclude<keyof T, keyof Model>>>]?: T[K] };
+) & { [K in Acceptable<Pick<T, Exclude<keyof T, keyof Component>>>]?: T[K] };
 
 declare namespace Component {
   /**
@@ -111,7 +114,9 @@ declare namespace Component {
  *
  * Without `render`, children pass through. Props assign to fields on construction and on every
  * update; a prop omitted later resets its field to `undefined`. Bare `Component` given `for` provides
- * one Model to its children.
+ * one Model to its children; a provided Component instance renders around them. Provider attributes
+ * assign to its fields; render-declared props are not forwarded. One provider places an instance at
+ * a time - the last writer wins.
  *
  * @example
  * class Counter extends Component {
@@ -217,8 +222,8 @@ class Component<P = unknown> extends Model {
    * }
    */
   render(props?: {}): Component.Node {
-    const { children } = (props || this.props) as { children?: Component.Node };
-    return children || null;
+    const { children, for: provided } = (props || this.props) as { children?: Component.Node; for?: Model };
+    return this?.constructor === Component && provided instanceof Component ? provided : children || null;
   }
 
   /**
@@ -264,6 +269,19 @@ Component.on({
   }
 });
 
+const PROVIDERS = new WeakMap<Component, Component>();
+const PLACEMENTS = new WeakMap<Component, { children: Component.Node }>();
+
+/**
+ * Return the provider placement for a Component instance.
+ *
+ * Returns `undefined` when no `<Component for>` provider places the instance.
+ * Placement children stay outside the instance's observed props.
+ */
+export function placement(instance: Component): { children: Component.Node } | undefined {
+  return PLACEMENTS.get(instance.is);
+}
+
 function provide(self: Component<any>) {
   let input: unknown;
   let target: Model | undefined;
@@ -273,12 +291,16 @@ function provide(self: Component<any>) {
   function remove() {
     if (provided) provided();
     provided = undefined;
+    if (target instanceof Component && PROVIDERS.get(target) === self) {
+      PLACEMENTS.delete(target);
+      PROVIDERS.delete(target);
+    }
   }
 
   function sync() {
     const { for: next, is, children, fallback, catch: _catch, ...rest } = self.props as Record<string, any>;
 
-    if (fallback === undefined) self.fallback = false;
+    if (fallback === undefined && self.fallback !== false) self.fallback = false;
 
     if (next !== input) {
       input = next;
@@ -303,7 +325,14 @@ function provide(self: Component<any>) {
       }
     }
 
-    target?.set(rest);
+    if (target && Object.keys(rest).length) target.set(rest);
+
+    if (target instanceof Component) {
+      PROVIDERS.set(target, self);
+      const current = PLACEMENTS.get(target);
+      if (current) current.children = children;
+      else PLACEMENTS.set(target, { children });
+    }
   }
 
   sync();
