@@ -827,6 +827,12 @@ describe("app/ routing (generated)", () => {
     await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
   });
 
+  it("will show the default Catch for an unmatched URL below a folder without Catch", async () => {
+    const root = await app({ "app/index.tsx": PAGE, "app/docs/index.tsx": PAGE }, "/docs/absent");
+    await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
+    expect(root.textContent).toContain("No route matched.");
+  });
+
   it("will show the default Catch for an ordinary render error", async () => {
     const root = await app({ "app/index.tsx": `export const Page = () => { throw new Error("broken"); };` }, "/");
     await shows(() => root.querySelector("h1")?.textContent, "Something went wrong");

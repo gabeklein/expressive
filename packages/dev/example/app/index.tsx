@@ -42,7 +42,7 @@ export function Loading() {
 }
 
 export function Catch({ error, retry }: { error: Error; retry: () => void }) {
-  if (error instanceof NotFound) return <h1>404 - Not found</h1>;
+  if (error instanceof NotFound) return <h1>404</h1>;
   return (
     <p role="alert">
       Something broke: {error.message} <button onClick={retry}>Retry</button>
