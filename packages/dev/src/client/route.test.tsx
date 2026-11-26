@@ -271,6 +271,23 @@ describe("prebuilt defaults", () => {
     expect(current.get(null)).toBe(true);
   });
 
+  it("will keep a default when a held navigation is superseded back to it", async () => {
+    let release!: () => void;
+    let current!: Guard;
+    class Guard extends Model { protected new() { current = this; } }
+    class Slow extends Model { protected new() { return new Promise<void>(done => (release = done)); } }
+    location("/a");
+    const root = await mount(() => <Route><Route to="a" enter={() => Guard}><Route as={() => <p>a</p>} /></Route><Route to="b" enter={() => Slow}><Route as={() => <p>b</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("a"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    router.goto("/a");
+    release();
+    await settle();
+    expect(root.textContent).toBe("a");
+    expect(current.get(null)).toBe(false);
+  });
+
   it("will render a prebuilt Component around its page and destroy it on leave", async () => {
     const gone = vi.fn();
     class Frame extends Component {
@@ -412,6 +429,9 @@ describe("prebuilt defaults", () => {
     location("/");
     const root = await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
     await vi.waitFor(() => expect(root.textContent).toBe("ready"));
+    class Other extends Model {}
+    accept("dev-route-other", { Other });
+    accept("dev-route-other", { Other: class Other extends Model { changed = true; } });
     Current = accept("dev-route-fields", { Guard: class Guard extends Model {
       value = 2;
       extra = true;
@@ -422,14 +442,56 @@ describe("prebuilt defaults", () => {
     expect(root.textContent).toBe("ready");
   });
 
+  it("will rebuild when a hot update changes the default export", async () => {
+    let built = 0;
+    class First extends Model { protected new() { built++; } }
+    class Second extends Model { protected new() { built++; } }
+    let Current: Model.Extends = First;
+    const entry = Object.assign(() => Current, { source: "app/change.tsx", current: () => Current });
+    location("/");
+    await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(built).toBe(1));
+    Current = Second;
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/change.tsx"] }));
+    await vi.waitFor(() => expect(built).toBe(2));
+  });
+
+  it("will compare a lazy default export after hot updates", async () => {
+    let built = 0;
+    class First extends Model { protected new() { built++; } }
+    class Second extends Model { protected new() { built++; } }
+    let Current: Model.Extends = First;
+    let fails = false;
+    const entry = Object.assign(() => Current, {
+      source: "app/lazy.tsx",
+      current: () => fails ? Promise.reject(new Error("update")) : Promise.resolve(Current),
+    });
+    location("/");
+    await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(built).toBe(1));
+    const update = () => window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/lazy.tsx"] }));
+    update();
+    await settle();
+    expect(built).toBe(1);
+    Current = Second;
+    update();
+    await vi.waitFor(() => expect(built).toBe(2));
+    fails = true;
+    update();
+    await settle();
+    expect(built).toBe(2);
+  });
+
   it("will keep one destroy registration across three builds", async () => {
     let active = 0;
+    let dispose!: () => void;
     class Guard extends Model {}
     const route = Route.new();
     const original = route.set.bind(route);
     vi.spyOn(route, "set").mockImplementation(((status: unknown, callback?: () => void) => {
       const result = (original as (...args: unknown[]) => unknown)(status, callback);
       if (status !== null || callback?.name !== "dispose") return result;
+      dispose = callback;
       active++;
       return () => { active--; return (result as () => boolean)(); };
     }) as typeof route.set);
@@ -438,8 +500,10 @@ describe("prebuilt defaults", () => {
       await (route.redirect as () => Promise<unknown>)();
       expect(active).toBe(1);
     }
-    route.set(null);
+    dispose();
+    dispose();
     expect(active).toBe(0);
+    route.set(null);
   });
 
   it("will keep a default when an unrelated hot update arrives", async () => {
