@@ -5,7 +5,7 @@ import { Fragment } from '../jsx-runtime';
 import { kindOf } from '../node/kind';
 import type { Collection } from '../node/kind';
 import type { Node as RenderNode, VNode } from '../node/vnode';
-import { placed } from '../style/claim';
+import { placed, styleElement } from '../style/claim';
 import type { Appearance } from '../style/claim';
 import { dispose } from '../core/adapter';
 import { mountCollection } from './collection';
@@ -15,7 +15,7 @@ import type { Boundary, Fiber } from './fiber';
 import { untrack } from '../core/hot';
 import { hydrationOf } from './host';
 import { mountPortal, unmountPortal } from './portal';
-import { reconcile } from './reconcile';
+import { reconcile, reconcileChildren } from './reconcile';
 import { rendering } from './render';
 import { activeRoot } from './host';
 import { hold, unwait } from './suspense';
@@ -53,7 +53,7 @@ function mount(value: RenderNode, parent: globalThis.Node, before: globalThis.No
 
       fiber.start = fiber.end = root.host.mount(fiber, value as VNode, parent, before);
 
-      return complete(fiber, () => root.host.patch(fiber, value as VNode, appearance));
+      return complete(fiber, () => patchElement(fiber, value as VNode, appearance));
     }
     case 'owned':
       return mountOwnedComponent(value as VNode, parent, before, context, boundary, appearance);
@@ -71,6 +71,27 @@ function mountFragment(value: VNode, parent: globalThis.Node, before: globalThis
   return complete(fiber, () => {
     reconcile(fiber, value.props.children, context, boundary, appearance);
   });
+}
+
+function patchElement(fiber: Fiber, value: VNode, appearance?: Appearance) {
+  const { host, styles } = fiber.root!;
+  const previous = fiber.claimed;
+  const styled = styles && styleElement(styles, fiber.type as string, value.props, appearance, value.source);
+
+  fiber.appearance = appearance;
+  if (styled) fiber.claimed = styled.claim;
+
+  const owned = host.patch(fiber, value, previous) === false;
+
+  fiber.props = value.props;
+
+  if (!owned)
+    reconcileChildren(fiber, fiber.start, null, value.props.children, fiber.context, fiber.boundary, styled?.inner);
+
+  if (host.settle) {
+    host.settle(fiber, value, fiber.settled || {});
+    fiber.settled = value.props;
+  }
 }
 
 function patchText(fiber: Fiber, value: RenderNode) {
@@ -106,4 +127,4 @@ function unmountFiber(fiber: Fiber) {
   removeRange(fiber.start, fiber.end);
 }
 
-export { complete, mount, patchFragment, patchText, unmountFiber };
+export { complete, mount, patchElement, patchFragment, patchText, unmountFiber };

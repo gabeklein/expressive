@@ -1,5 +1,5 @@
-import { PORTAL, claim, flatten, fragment, hostOf, isBare, isVNode, reconcileChildren, reserved, settled, syncRoots, unmatched, vnode } from '@expressive/jsx';
-import type { Declaration, Host, RenderNode as Node, Root, Styles } from '@expressive/jsx';
+import { PORTAL, flatten, fragment, hostOf, isBare, isVNode, settled, syncRoots, vnode } from '@expressive/jsx';
+import type { Claim, Declaration, Host, RenderNode as Node, Root, Styles } from '@expressive/jsx';
 
 import { ALIASES, BOOLEAN, RAW, VOID, isHoisted, isStringified } from './tags';
 
@@ -92,7 +92,7 @@ class Markup {
   parentNode: Markup | null = null;
   childNodes: Markup[] = [];
   props: Record<string, any> = {};
-  claimed?: ReturnType<typeof claim>;
+  claimed?: Claim;
   svg?: boolean;
 
   constructor(readonly nodeType: number, public nodeValue = '', readonly tag = '') {}
@@ -168,34 +168,18 @@ function stringHost(sink: Styles): Host {
       element.svg = tag == 'svg' || inSvg(parent);
       return parent.insertBefore(asNode(element), before);
     },
-    patch(fiber, value, appearance) {
+    patch(fiber, value) {
       const element = asMarkup(fiber.start);
-      const { tag } = element;
       const props = value.props as Record<string, any>;
-      const resolved = appearance?.context?.resolve(props, tag);
-
-      unmatched(value.source, props, [appearance?.context], appearance?.author, undefined, tag);
 
       for (const key of Object.keys(props))
-        if (key[0] == '_') reserved(key);
-        else if (!SKIPPED.has(key) && !/^on/i.test(key) && typeof props[key] != 'function' && !ATTRIBUTE.test(key))
+        if (key[0] != '_' && !SKIPPED.has(key) && !/^on/i.test(key) && typeof props[key] != 'function' && !ATTRIBUTE.test(key))
           throw new TypeError(`Invalid attribute name "${key}".`);
 
-      element.claimed = claim(sink, appearance, resolved, props.className, props.style);
-      element.props = fiber.props = props;
+      element.claimed = fiber.claimed;
+      element.props = props;
 
-      if (!opaque(tag, props))
-        reconcileChildren(
-          fiber,
-          fiber.start,
-          null,
-          props.children,
-          fiber.context,
-          fiber.boundary,
-          element.claimed.context || appearance?.author
-            ? { author: appearance?.author, context: element.claimed.context, entries: [] }
-            : undefined
-        );
+      return !opaque(element.tag, props);
     },
     unmount() {},
     hoist: (value) => isVNode(value) && value.type === PORTAL ? vnode(PORTAL, { into: discard }, value.key) : value
