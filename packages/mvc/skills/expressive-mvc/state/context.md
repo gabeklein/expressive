@@ -151,7 +151,8 @@ Bare `Component` (not a subclass) given `for` provides one instance to its child
 
 - A class is constructed, owned and destroyed with the element; `is` receives it; its effects wait for the element's commit, and a replacement class while committed is released at once.
 - An active instance is provided, never destroyed; `is` is rejected. An unactivated one is adopted like a field - `for={new X()}` in render gives an instance that lives for one render.
-- Other attributes are typed from the provided instance and assign to it on every render.
+- A Component instance renders around the element's children through its `props.children`; one without `render()` passes them through. New children update its props and render. A Model instance or class passes children through.
+- Other attributes are typed from the provided instance and assign to its fields on every render, including for a Component instance.
 - Changing `for` releases the previous item, then provides the next.
 - No suspense boundary unless `fallback` or `catch` is passed. Bare `<Component>` without `for` keeps `fallback = null`.
 - One item only - several belong to a parent instance that owns them as fields (`class Root extends Model { theme = new Theme(); router = new BrowserRouter() }`), where they resolve each other as siblings with `get()`. Nesting `<Component for>` elements works but is a smell: the inner instance can `get` the outer, not the reverse.

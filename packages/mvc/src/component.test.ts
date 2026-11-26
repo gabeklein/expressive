@@ -312,6 +312,26 @@ describe('for', () => {
     name = 'none';
   }
 
+  it('will render a provided Component and forward changing children', async () => {
+    class Panel extends Component {}
+
+    const panel = Panel.new();
+    const provider = Component.new({ for: panel, children: 'first' } as any);
+
+    expect(provider.render()).toBe(panel);
+    expect(panel.props.children).toBe('first');
+    expect(panel.render()).toBe('first');
+
+    (provider as any).props = { for: panel, children: 'second' };
+    await flushMicrotasks();
+    expect(panel.props.children).toBe('second');
+
+    (provider as any).props = { for: panel, children: 'second' };
+    await flushMicrotasks();
+    expect(provider.render()).toBe(panel);
+    expect(panel.render()).toBe('second');
+  });
+
   it('will provide a class swapped in for once', async () => {
     class Other extends Model {}
 

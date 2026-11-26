@@ -41,8 +41,9 @@ type ForProps<T extends Model> = {
       /**
        * Model to provide to children - an active instance is provided as-is, never destroyed.
        *
-       * An unactivated one is adopted - destroyed with this. `undefined` provides nothing. Other props
-       * assign to it on every update. Changing `for` releases the previous one first.
+       * An unactivated one is adopted - destroyed with this. A Component instance renders around
+       * `children`; one without `render` passes them through. `undefined` provides nothing. Other
+       * props assign to fields on every update. Changing `for` releases the previous one first.
        */
       for: T | undefined;
       is?: never;
@@ -111,7 +112,7 @@ declare namespace Component {
  *
  * Without `render`, children pass through. Props assign to fields on construction and on every
  * update; a prop omitted later resets its field to `undefined`. Bare `Component` given `for` provides
- * one Model to its children.
+ * one Model to its children; a provided Component instance renders around them.
  *
  * @example
  * class Counter extends Component {
@@ -217,8 +218,8 @@ class Component<P = unknown> extends Model {
    * }
    */
   render(props?: {}): Component.Node {
-    const { children } = (props || this.props) as { children?: Component.Node };
-    return children || null;
+    const { children, for: provided } = (props || this.props) as { children?: Component.Node; for?: Model };
+    return provided instanceof Component ? provided : children || null;
   }
 
   /**
@@ -304,6 +305,9 @@ function provide(self: Component<any>) {
     }
 
     target?.set(rest);
+
+    if (target instanceof Component && target.props.children !== children)
+      target.set({ props: { ...target.props, children } } as any);
   }
 
   sync();
