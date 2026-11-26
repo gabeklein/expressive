@@ -94,7 +94,7 @@ describe("app/ routing (codegen)", () => {
 
   it("root is always a scope; lone index becomes the \"/\" page + implicit 404", async () => {
     const out = await generate({ "index.tsx": PAGE });
-    expect(out).toContain('import { NotFound, DefaultCatch, Route, Router } from "@expressive/dev";');
+    expect(out).toContain('import { NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { Page as Root } from "../app/index.tsx";');
     expect(out).toMatch(/<Route Catch={DefaultCatch}>\s*<Route as={Root} \/>\s*<Route none as={missing} \/>\s*<\/Route>/);
   });
@@ -235,7 +235,7 @@ describe("app/ routing (codegen)", () => {
       "notes/remote": "",
     });
 
-    expect(out).toContain('import { gateCheck, NotFound, DefaultCatch, Route, Router } from "@expressive/dev";');
+    expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { call } from "@expressive/rpc";');
     expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
     expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
@@ -388,7 +388,7 @@ describe("app/ routing (codegen)", () => {
 
   it("will mount the root's Router export in place of dev's", async () => {
     const out = await generate({ "index.tsx": "export class Router {}", "(a).tsx": PAGE, "_/index.tsx": `${PAGE}\nexport class Router {}` });
-    expect(out).toContain('import { NotFound, DefaultCatch, Route } from "@expressive/dev";');
+    expect(out).toContain('import { NotFound, Route } from "@expressive/dev";');
     expect(out).toContain('import { Router } from "../app/index.tsx";');
     expect(out).toContain('import { Page as Root } from "../app/_/index.tsx";');
     expect(out).toContain("<Router {...props}>");
@@ -825,6 +825,12 @@ describe("app/ routing (generated)", () => {
   it("will show the default Catch for an unmatched root URL", async () => {
     const root = await app({ "app/index.tsx": PAGE }, "/absent");
     await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
+  });
+
+  it("will show the default Catch for an ordinary render error", async () => {
+    const root = await app({ "app/index.tsx": `export const Page = () => { throw new Error("broken"); };` }, "/");
+    await shows(() => root.querySelector("h1")?.textContent, "Something went wrong");
+    expect(root.querySelector("button")?.textContent).toBe("Try again");
   });
 });
 

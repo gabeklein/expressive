@@ -57,7 +57,6 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const pageImports = `{ ${[
     gated && "gateCheck",
     "NotFound",
-    !root.exports.has("Catch") && "DefaultCatch",
     "Route",
     !root.exports.has("Router") && "Router",
   ].filter(Boolean).join(", ")} }`;
@@ -73,6 +72,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     ...(scoped ? ["", "const wrap = (Type, children) => Component.is(Type) ? <Type>{children}</Type> : Model.is(Type) ? <Component for={Type}>{children}</Component> : children;"] : []),
     ...(either ? [`const hook = (value, file) => {\n  if (Model.is(value)) return;\n  if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component.");\n  return (...args) => {\n    const result = value(...args);\n    const check = answer => { if (typeof answer === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return answer; };\n    return result instanceof Promise ? result.then(check) : check(result);\n  };\n};`] : []),
     "const missing = () => { throw new NotFound(); };",
+    ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p></main> : <main><h1>Something went wrong</h1><button onClick={retry}>Try again</button></main>;'] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
