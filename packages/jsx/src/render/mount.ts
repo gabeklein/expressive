@@ -106,6 +106,12 @@ function patchFragment(fiber: Fiber, value: VNode, context: Context, appearance?
   reconcile(fiber, value.props.children, context, fiber.boundary, appearance);
 }
 
+/**
+ * Unmount a fiber and everything under it, then remove its nodes.
+ *
+ * Releases components and suspensions, and calls `Host.unmount` for each element.
+ * It stays in its parent's `children` - a host clearing reconciled children (see `Host.patch`) empties that list itself.
+ */
 function unmountFiber(fiber: Fiber) {
   fiber.dead = true;
   unwait(fiber);

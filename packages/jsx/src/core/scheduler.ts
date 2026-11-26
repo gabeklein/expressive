@@ -43,6 +43,11 @@ function flushUrgent() {
   for (const run of after.splice(0)) run();
 }
 
+/**
+ * Run `run` after the next urgent flush, scheduling one if none is due.
+ *
+ * Passive and deferred updates may still be pending. dom uses it to restore a controlled input after an event.
+ */
 function afterFlush(run: () => void) {
   after.push(run);
 

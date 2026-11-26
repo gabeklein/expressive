@@ -35,6 +35,7 @@ function gather(error: unknown, next: Fiber[], old: Fiber[]) {
   holding.fiber = undefined;
 }
 
+/** The node `parent` stands in for - the live parent when content mounts into a suspended stash. */
 function hostOf(parent: globalThis.Node) {
   let host = parent;
 

@@ -1,3 +1,4 @@
+/** CSS declarations by property - camelCase or custom `--name` keys. */
 type Declaration = Record<string, unknown>;
 
 interface Block {
@@ -43,6 +44,7 @@ interface Styles {
   inline?: boolean;
 }
 
+/** Where a root's rules apply - its document, or the shadow root it renders in. */
 type StyleTarget = Document | ShadowRoot;
 
 type Emit = (block: Block, depth: number, styles: Styles) => string;
@@ -74,6 +76,7 @@ function emitClass(block: Block, depth: number, styles: Styles) {
   return emitter!(block, depth, styles);
 }
 
+/** The document a node belongs to - itself, for a document. */
 function documentOf(target: globalThis.Node): Document {
   return target.nodeType == 9 ? target as Document : target.ownerDocument!;
 }
