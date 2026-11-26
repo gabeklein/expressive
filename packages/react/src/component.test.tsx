@@ -1,5 +1,5 @@
 import { render, screen, act, waitFor } from '@testing-library/react';
-import { beforeEach, vi, expect, it, describe } from 'vitest';
+import { afterEach, beforeEach, vi, expect, it, describe } from 'vitest';
 import React, { Suspense } from 'react';
 
 import { collect, mockError, mockPromise, mockWarn, flushMicrotasks, revisions, preactDiffers, reactOnly, suspender } from '../test.setup';
@@ -7,6 +7,7 @@ import * as hot from '@expressive/mvc/hot';
 import { Context, Model } from '@expressive/mvc';
 import '.';
 import { Component, pending, set } from '@expressive/mvc';
+import { Redirect, Route, Router } from '@expressive/router';
 
 it('will create and provide instance', () => {
   class Control extends Component {
@@ -1871,5 +1872,158 @@ reactOnly.describe('abandoned render', () => {
     await act(collect);
 
     expect(live.size).toBe(0);
+  });
+});
+
+reactOnly.describe('router Redirect', () => {
+  let error: { mock: { calls: unknown[][] }; mockRestore(): void; mockClear(): void };
+
+  beforeEach(() => {
+    error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    const logged = error.mock.calls.map((call) => call[1]);
+    error.mockRestore();
+    expect(logged.every((e) => e instanceof Redirect)).toBe(true);
+  });
+
+  function held() {
+    const gate = mockPromise<void>();
+    let open = false;
+
+    gate.then(() => (open = true));
+
+    const Page = () => {
+      if (!open) throw gate;
+      throw new Redirect('/login');
+    };
+
+    return { gate, Page };
+  }
+
+  async function mount(path: string, routes: React.ReactNode) {
+    const router = Router.new();
+    router.path = path;
+    const view = render(<Component for={router}>{routes}</Component>);
+    await act(flushMicrotasks);
+    return { router, view };
+  }
+
+  it('will navigate when thrown while rendering', async () => {
+    const { router, view } = await mount('/legacy', <>
+      <Route to="/legacy" as={() => { throw new Redirect('/new'); }} />
+      <Route to="/new" as={() => <h1>new</h1>} />
+    </>);
+
+    expect(router.path).toBe('/new');
+    expect(view).toHaveText('new');
+  });
+
+  it('will navigate when thrown from new()', async () => {
+    class Legacy extends Component {
+      protected new() {
+        throw new Redirect('/new');
+      }
+    }
+
+    const { router, view } = await mount('/legacy', <>
+      <Route to="/legacy" as={Legacy} />
+      <Route to="/new" as={() => <h1>new</h1>} />
+    </>);
+
+    expect(router.path).toBe('/new');
+    expect(view).toHaveText('new');
+  });
+
+  it('will navigate when async new() rejects', async () => {
+    class Legacy extends Component {
+      protected async new() {
+        await null;
+        throw new Redirect('/new');
+      }
+    }
+
+    const { router, view } = await mount('/legacy', <>
+      <Route to="/legacy" as={Legacy} />
+      <Route to="/new" as={() => <h1>new</h1>} />
+    </>);
+
+    expect(router.path).toBe('/new');
+    expect(view).toHaveText('new');
+  });
+
+  it('will push from the held screen', async () => {
+    const { gate, Page } = held();
+    const { router, view } = await mount('/', <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Route to="/me" as={Page} />
+      <Route to="/login" as={() => <h1>login</h1>} />
+    </>);
+
+    await act(async () => router.goto('/me'));
+    expect(view).toHaveText('home');
+
+    await act(async () => gate.resolve());
+    await act(flushMicrotasks);
+    expect(router.path).toBe('/login');
+    expect(view).toHaveText('login');
+
+    await act(async () => router.back());
+    expect(router.path).toBe('/');
+  });
+
+  it('will not navigate from a tree abandoned mid-hold', async () => {
+    const { gate, Page } = held();
+    const { router, view } = await mount('/', <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Route to="/me" as={Page} />
+      <Route to="/about" as={() => <h1>about</h1>} />
+      <Route to="/login" as={() => <h1>login</h1>} />
+    </>);
+
+    await act(async () => router.goto('/me'));
+    await act(async () => router.goto('/about'));
+    await act(async () => gate.resolve());
+    await act(flushMicrotasks);
+
+    expect(router.path).toBe('/about');
+    expect(view).toHaveText('about');
+  });
+
+  it('will pass other errors to the next boundary', async () => {
+    const failure = new Error('broken');
+    const caught: Error[] = [];
+    const router = Router.new();
+
+    render(
+      <Component catch={(e) => { caught.push(e); return new Promise(() => {}); }}>
+        <Component for={router}>
+          <Route to="/" as={() => { throw failure; }} />
+        </Component>
+      </Component>
+    );
+    await act(flushMicrotasks);
+
+    expect(caught).toEqual([failure]);
+    expect(error).toHaveBeenCalledWith(expect.anything(), failure, expect.anything(), expect.anything());
+    error.mockClear();
+  });
+
+  it('will navigate under StrictMode', async () => {
+    const router = Router.new();
+    router.path = '/legacy';
+    const view = render(
+      <React.StrictMode>
+        <Component for={router}>
+          <Route to="/legacy" as={() => { throw new Redirect('/new'); }} />
+          <Route to="/new" as={() => <h1>new</h1>} />
+        </Component>
+      </React.StrictMode>
+    );
+    await act(flushMicrotasks);
+
+    expect(router.path).toBe('/new');
+    expect(view).toHaveText('new');
   });
 });

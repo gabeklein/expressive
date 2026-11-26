@@ -130,7 +130,13 @@ function portals(fiber: Fiber, found: Fiber[]) {
 }
 
 function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean) {
-  const boundary = fiber.boundary;
+  let boundary = fiber.boundary;
+
+  for (let above = boundary; above; above = above.parent)
+    if (above.fallback() !== false) {
+      boundary = above;
+      break;
+    }
 
   if (isThenable(thrown)) {
     const kept = !fiber.children.length && keep(fiber.start, fiber.end);

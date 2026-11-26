@@ -24,6 +24,23 @@ describe('suspense and recovery', () => {
     expect(root.textContent).toBe('ready');
   });
 
+  it('will pass suspension from a catch boundary without a fallback to one with', async () => {
+    const [Lazy, loaded] = lazy<{ default: () => Component.Node }>();
+    const root = place(
+      <Component fallback={<i>loading</i>}>
+        <Component fallback={false} catch={() => {}}>
+          <b>beside</b>
+          <Lazy />
+        </Component>
+      </Component>
+    );
+    expect(root.textContent).toBe('loading');
+
+    loaded.resolve({ default: () => <strong>ready</strong> });
+    await flushMicrotasks();
+    expect(root.textContent).toBe('besideready');
+  });
+
   it('will load a failed load again when catch resolves', async () => {
     let attempt = 0;
     let retry!: () => void;
