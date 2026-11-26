@@ -485,27 +485,6 @@ describe("default entry hook via `enter`", () => {
     expect(root.textContent).toBe("login");
   });
 
-  it("will run the hook a loader resolves", async () => {
-    let ran = false;
-    const hook = () => Promise.resolve(() => {
-      ran = true;
-      return "/login";
-    });
-    const Tree = () => (
-      <Route>
-        <Route to="login" as={Login} />
-        <Route to="secret" as={Secret} enter={hook as never} fallback={null} />
-      </Route>
-    );
-
-    location("/secret");
-    const root = await mount(Tree);
-    await settle();
-
-    expect(ran).toBe(true);
-    expect(root.textContent).toBe("login");
-  });
-
   it("will redirect where a hook's thrown 3xx error points", async () => {
     const hook = (): undefined => {
       throw new Moved("/login");

@@ -41,7 +41,7 @@ Bare-named files under `app/` and `api/` are support modules. Siblings match sta
 
 - `Page` - a function (params via `Route.get().match`) or `class Page extends Route` (from `@expressive/dev`) with `this.match`, fields and `render()`.
 - `Layout` - wraps the folder's pages; `children` is the content slot.
-- `Loading` - placeholder for the slot of the `Layout` beside it, for any page below still loading code, an entry hook or data, until a nested `Layout`. A page's own `Loading` covers it first. Shown on cold arrival only - in-app navigation holds the current page (`Router.get().navigating`).
+- `Loading` - placeholder for the slot of the `Layout` beside it, for any page below still loading code, a default guard or data, until a nested `Layout`. A page's own `Loading` covers it first. Shown on cold arrival only - in-app navigation holds the current page (`Router.get().navigating`).
 - `Catch` - error boundary for the folder, given `{ error, retry }`. Handle `error instanceof NotFound` here. An unmatched path below the folder also throws `NotFound`; without `Catch`, the root shows a plain 404 or generic error.
 
 ```tsx
@@ -58,12 +58,34 @@ export const Catch = ({ error, retry }) => error instanceof NotFound
 `Catch` replaces its folder's `Layout`. A folder `Catch` claims unmatched paths below it ahead of a root `[...]` page. A redirect immediately followed by another shows `Catch`; `a → b → c` stops at `b`.
 - `label` - names the route for breadcrumbs (`Route.get().parent.label`). `const` string literal only - inlined into the tree; anything else fails generation. A folder's `index.tsx` labels the folder - or, with no other routes inside, the one route it collapses to (`Route.get().label`). In dev, an edit shows after a restart.
 - `Router` - root `index.tsx` only: a subclass of `Router` from `@expressive/dev` (not router's `BrowserRouter`), mounted in its place - override `navigate()`, add methods. `Router.get()` and the subclass's `get()` both find it. Prerendering constructs it and runs `new()` without `window` - guard what touches it there.
-- `default`, read by kind:
-  - a function runs before render; returning a string fails, naming the module. Throw `new Redirect(to)` from a `Page` during render to redirect.
-  - a Model or Component class renders around the content (around `Layout` if present) and is provided below - a Component's `render()` gets that content as `props.children`. Declared in the module or imported, either works.
+- `default` → `Layout` → `Page` is the content order; each is optional. A missing export passes content through. In a leaf, `default` is the page; `Page` still works.
+- A class `default` is built before render, during the navigation hold. It is destroyed after navigation settles away, rebuilt on re-entry or a param change. Guard in `new()`; it may await and throw `Redirect` or `NotFound`. `new()` runs once per instance, so a sign-out guard there does not re-run - read the session in `render()` when the page must react. Calls after the first `await` in `new()` use the old URL's params during a hold. A Model is provided below; a Component also renders around `Layout` and `Page` through `props.children`. `X.get()` finds it below. A leaf Model without `Page` renders nothing and warns.
+- A function `default` renders as a wrapper, or as a leaf page. Text-only pages need a fragment; returning a string fails with the module name.
 - `paths` - below a `[param]` or `[...]`, the absolute paths a prerendering build renders; may be async. Bundled with the client - no Node APIs; use static imports, `import.meta.glob` or an absolute-URL `fetch`.
 
 Each module is its own chunk, loaded on first entry, unless it is the root or exports `Loading` or `Catch`.
+
+```tsx
+// app/me/index.tsx
+import { Redirect } from "@expressive/dev";
+import { Component, get, set } from "@expressive/mvc";
+import { Session } from "../session";
+import * as account from "./remote";
+
+export default class Me extends Component {
+  session = get(Session);
+  profile = set(() => account.profile());
+
+  protected new() {
+    if (!this.session.me) throw new Redirect("/signin");
+  }
+}
+
+export function Page() {
+  const { profile } = Me.get();
+  return <h1>Hi, {profile.name}</h1>;
+}
+```
 
 ## Sidecars
 
@@ -134,7 +156,7 @@ expressive help [command]       commands, or one command's inputs
 node dist/server/index.js       run the built service (port from index.ts, default 3000)
 ```
 
-Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `inspect()` from `@expressive/inspect/vite` beside it for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
+Nothing is written into the project - the shell, entry and route tree are virtual under `/.expressive/`. `@expressive/dev/vite` exports `expressive()` for a hand-written Vite config - add `@expressive/dom/vite` for hot reload and `inspect()` from `@expressive/inspect/vite` for the relay. Server code runs on Vite's module runner in dev, with Node's `import.meta`.
 
 ## Server entry
 
@@ -156,7 +178,7 @@ export default config({
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
 - Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: from `public/`. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `Catch` handles `NotFound`. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
-- Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
+- Page routes are `app/` files exporting `Page` or a leaf `default`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
 - Remote calls and gate checks ignore a non-root Vite `base` for now - they post from `/`.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request. Navigations get the shell first - a `vite.config.ts` plugin serving pages from its `configureServer` middleware needs `enforce: "pre"`.
 
@@ -283,7 +305,7 @@ const db = connect(env.DATABASE_URL);
 `expressive dev build` (and `runBuild` from `@expressive/dev/vite`) builds, then renders each page with `renderToString` (`expressive-dom/SKILL.md#server-rendering`) to `dist/client/<path>/index.html` - markup in `#root`, its `head` ahead of the shell's `<title>`, its `css` as a `<style>`. The client hydrates a page prerendered for its path and renders anything else fresh. `--no-html` / `{ html: false }` opts out; a failure of the whole step - no empty `<div id="root">` in the shell, a bundle that will not load, a throwing `paths()` - warns and keeps the client-only build.
 
 - Rendered: every page with no `[param]` or `[...]` above it, plus what `paths()` lists below one - unchecked against the routes, so an unmatched path writes the 404 page.
-- Server-bound pages stay in the browser, wherever their remote sits - the build never runs server code. During a page's render, calling a remote function (`new()` included) aborts that page alone, counted in the summary. A call from an event handler or effect never runs, so its page still renders. An entry hook or `Layout` that calls the server leaves every page below to the browser. A `paths()` that calls the server lists nothing.
-- A page that redirects, renders nothing, throws or takes over 30s is skipped with a warning. An async `new()` rejecting during the render counts as a throw; rejecting after it, the page is kept with a warning.
+- Server-bound pages stay in the browser, wherever their remote sits - the build never runs server code. During a page's render, calling a remote function (`new()` included) aborts that page alone, counted in the summary. A call from an event handler or effect never runs, so its page still renders. A default class or `Layout` that calls the server leaves every page below to the browser. A `paths()` that calls the server lists nothing.
+- A page that redirects, renders nothing, throws or takes over 30s is skipped with a warning. A default class awaits `new()` before render; its rejection fails the page. A class built during render may reject later and warn.
 - `new()` runs at build and effects do not - DOM listeners and browser-only reads belong in effects. `typeof window` detects the build (`import.meta.env.SSR` is false); a module reading `window` or `document` at load fails the whole step.
 - The empty shell is kept as `200.html`; the built service serves `<path>/index.html`, then it. A static host should fall back to `200.html`. One that falls back to the root `index.html` (Cloudflare Pages without a `404.html`) still boots the right page, after showing the home page until scripts load.

@@ -24,6 +24,7 @@ type Role = (typeof ROLES)[number];
 export interface Scan {
   exports: Iterable<string>;
   classDefault?: boolean;
+  modelDefault?: boolean;
   label?: string;
   routeParameter?: boolean;
 }
@@ -36,6 +37,7 @@ interface RouteNode {
   file?: string;
   exports: Set<string>;
   classDefault: boolean | undefined;
+  modelDefault: boolean;
   label?: string;
   children: RouteNode[];
   isLeaf: boolean;
@@ -47,10 +49,17 @@ interface RouteNode {
 export async function generateRoutes(appDir: string, outDir: string, scan: ExportScanner): Promise<string> {
   const root = await scanDir(appDir, "", "", scan);
 
-  assignAliases(root, new Set(["NotFound", "Route", "Router", "DefaultCatch", "missing", "hook", "wrap", "checked", "Through", "Component", "Model", "call", "gateCheck"]));
+  const warn = (node: RouteNode) => {
+    if (leafDefault(node) && node.modelDefault)
+      console.warn(`${node.file}: a Model default without Page renders nothing.`);
+    node.children.forEach(warn);
+  };
+  warn(root);
+
+  assignAliases(root, new Set(["NotFound", "Route", "Router", "DefaultCatch", "missing", "hook", "wrap", "watching", "checked", "Through", "Component", "Model", "call", "gateCheck"]));
 
   const { imports, loaders } = collectImports(root, outDir, dirname(appDir));
-  const wrappers = collectWrappers(root);
+  const wrappers = collectWrappers(root, dirname(appDir));
   const tree = emitNode(root, true, 2, "null", outDir).join("\n");
   const gates = gateTree(root, true);
   const gated = JSON.stringify(gates).includes('"gate"');
@@ -65,18 +74,34 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...((scoped || either) ? [`import { ${scoped ? "Component, " : ""}Model } from "@expressive/mvc";`] : []),
+    ...((scoped || either) ? ['import { Model } from "@expressive/mvc";'] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
-    ...(scoped ? ["", "const wrap = (Type, children) => Component.is(Type) ? <Type>{children}</Type> : Model.is(Type) ? <Component for={Type}>{children}</Component> : children;"] : []),
-    ...(either ? [`const hook = (value, file) => {\n  if (Model.is(value)) return;\n  if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component.");\n  return (...args) => {\n    const result = value(...args);\n    const check = answer => { if (typeof answer === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return answer; };\n    return result instanceof Promise ? result.then(check) : check(result);\n  };\n};`] : []),
+    ...(scoped ? ["", `const wrapped = new WeakMap();
+const wrap = (Type, children, file) => {
+  if (Model.is(Type)) return children;
+  if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component.");
+  let View = wrapped.get(Type);
+  if (!View) {
+    View = new Proxy(Type, { apply(target, receiver, args) {
+      const check = result => { if (typeof result === "string") throw new Error(file + ": a function default is a component and must not return a string. Wrap text in a fragment."); return result; };
+      const result = Reflect.apply(target, receiver, args);
+      return result instanceof Promise ? result.then(check) : check(result);
+    } });
+    wrapped.set(Type, View);
+  }
+  return <View>{children}</View>;
+};`] : []),
+    ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
+    ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf) => Object.assign(enter, { source, leaf, current: enter });"] : []),
     "const missing = () => { throw new NotFound(); };",
     ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p><a href="/">Home</a></main> : (console.error(error), <main><h1>Something went wrong</h1>{import.meta.env.DEV && <p>{error.message}</p>}<button onClick={retry}>Try again</button><a href="/">Home</a></main>);'] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
     ...(tree.includes("as={Through}") ? ["", "const Through = props => props.children;"] : []),
+    'if (import.meta.hot) import.meta.hot.on("vite:afterUpdate", payload => window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: payload.updates.map(update => update.path) })));',
     "",
     "const App = (props) => (\n  <Router {...props}>", tree, "  </Router>\n);\n",
     "export default App;\n",
@@ -87,7 +112,7 @@ function gateTree(node: RouteNode, root = false): object {
   return {
     ...(!root && { to: node.segment }),
     ...(node.gated && { gate: 1 }),
-    ...(node.alias.Page && { page: 1 }),
+    ...(hasPage(node) && { page: 1 }),
     ...(!node.isLeaf && (root || node.alias.Catch) && !caught(node) && { none: 1 }),
     ...(!node.isLeaf && { in: node.children.filter(renders).map(child => gateTree(child)) }),
   };
@@ -98,7 +123,7 @@ export async function pagePatterns(appDir: string, scan: ExportScanner): Promise
   const patterns: string[] = [];
 
   (function walk(node: RouteNode, path: string) {
-    if (node.exports.has("Page")) patterns.push(path || "/");
+    if (hasPage(node)) patterns.push(path || "/");
 
     for (const child of node.children) walk(child, `${path}/${child.segment}`);
   })(await scanDir(appDir, "", "", scan), "");
@@ -118,7 +143,7 @@ export async function staticPaths(appDir: string, scan: ExportScanner): Promise<
   (function walk(node: RouteNode, path: string, dynamic: boolean) {
     if (node.gated) return;
     if (dynamic && node.exports.has("paths")) sources.push(node.file!);
-    if (!dynamic && node.exports.has("Page")) paths.push(path || "/");
+    if (!dynamic && hasPage(node)) paths.push(path || "/");
 
     for (const child of node.children)
       walk(child, `${path}/${child.segment}`, dynamic || !!precedence(child.segment));
@@ -130,7 +155,7 @@ export async function staticPaths(appDir: string, scan: ExportScanner): Promise<
 const some = (node: RouteNode, test: (node: RouteNode) => boolean): boolean => test(node) || node.children.some(child => some(child, test));
 
 function newNode(fields: Partial<RouteNode>): RouteNode {
-  return { segment: "", name: "", exports: new Set(), classDefault: false, children: [], isLeaf: false, gated: false, alias: {}, ...fields };
+  return { segment: "", name: "", exports: new Set(), classDefault: false, modelDefault: false, children: [], isLeaf: false, gated: false, alias: {}, ...fields };
 }
 
 async function scanDir(dir: string, segment: string, name: string, scan: ExportScanner): Promise<RouteNode> {
@@ -163,7 +188,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
 
     const scanned = await scan(readFileSync(full, "utf8"), full);
     const exports = new Set(scanned.exports);
-    const { classDefault, label, routeParameter } = scanned;
+    const { classDefault, modelDefault, label, routeParameter } = scanned;
 
     if (exports.has("NotFound"))
       throw new Error(`${full}: the NotFound route export was removed. Import { NotFound } from "@expressive/dev" and export Catch = ({ error }) => error instanceof NotFound ? ... : ... .`);
@@ -177,6 +202,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
       node.file = full;
       node.exports = exports;
       node.classDefault = classDefault;
+      node.modelDefault = !!modelDefault;
       node.label = label;
       continue;
     }
@@ -187,6 +213,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
       file: full,
       exports,
       classDefault,
+      modelDefault: !!modelDefault,
       label,
       isLeaf: true,
     }));
@@ -245,12 +272,12 @@ function assignAliases(node: RouteNode, used: Set<string>): void {
   for (const role of ROLES) {
     if (!node.exports.has(role)) continue;
 
-    const suffix = role !== "default" ? role : node.classDefault === false ? "Enter" : "Scope";
+    const suffix = role !== "default" ? role : "Scope";
 
     node.alias[role] = unique(role === "Page" ? base : base + suffix, used);
   }
 
-  if (node.alias.default && node.classDefault !== true) node.hook = unique(base + "EnterHook", used);
+  if (node.alias.default && node.classDefault === undefined) node.hook = unique(base + "EnterHook", used);
 
   for (const child of node.children) assignAliases(child, used);
 }
@@ -272,12 +299,12 @@ function collectImports(root: RouteNode, outDir: string, project: string) {
 
     if (node.file && (roles.length || router)) {
       const spec = JSON.stringify(importRel(outDir, node.file));
-      if (lazy(node)) loaders.push(...roles.map(role => loaderFor(node, role, spec)));
+      if (lazy(node)) loaders.push(...roles.map(role => loaderFor(node, role, spec, sourceOf(node, project))));
       else imports.push(importFor(node, roles, spec, router));
 
       if (node.hook) {
-        const file = JSON.stringify(relative(project, node.file).split(sep).join("/"));
-        loaders.push(`const ${node.hook} = ${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `hook(${node.alias.default}, ${file})`};`);
+        const file = JSON.stringify(sourceOf(node, project));
+        loaders.push(`const ${node.hook} = watching(${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `() => hook(${node.alias.default}, ${file})`}, ${file}, ${leafDefault(node) && !node.modelDefault});`);
       }
     }
 
@@ -288,13 +315,13 @@ function collectImports(root: RouteNode, outDir: string, project: string) {
 }
 
 const isRoot = (node: RouteNode): boolean => !node.name;
+const sourceOf = (node: RouteNode, project: string): string => relative(project, node.file!).split(sep).join("/");
 const lazy = (node: RouteNode): boolean => !isRoot(node) && !node.alias.Loading && !node.alias.Catch;
 
-function loaderFor(node: RouteNode, role: Role, spec: string): string {
-  const load = role === "default" && scopeOf(node)
-    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children))`
+function loaderFor(node: RouteNode, role: Role, spec: string, file: string): string {
+  const load = role === "default" && node.classDefault !== true
+    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}))`
     : `() => import(${spec}).then(m => m.${role})`;
-
   return `const ${node.alias[role]} = ${load};`;
 }
 
@@ -307,37 +334,26 @@ function importFor(node: RouteNode, roles: Role[], spec: string, router: boolean
   return `import ${clause} from ${spec};`;
 }
 
-const renders = (node: RouteNode): boolean => !!node.alias.Page || node.children.some(renders);
+const leafDefault = (node: RouteNode): boolean => !!node.file && !node.children.length && !node.exports.has("Page") && node.exports.has("default");
 
-const scopeOf = (node: RouteNode): string | undefined => (node.classDefault === false ? undefined : node.alias.default);
+const hasPage = (node: RouteNode): boolean => node.exports.has("Page") || (!!node.file && !node.children.length && node.exports.has("default"));
+
+const renders = (node: RouteNode): boolean => hasPage(node) || node.children.some(renders);
+
+const scopeOf = (node: RouteNode): string | undefined => node.alias.default;
 
 const hookOf = (node: RouteNode): string | undefined => node.hook;
 
-function scopedOf(node: RouteNode): string | undefined {
-  const scope = scopeOf(node);
-
-  if (scope && (node.alias.Layout || !lazy(node))) return scope + "d";
-}
-
-function provide(node: RouteNode, alias: string, content: string): string {
-  return lazy(node)
-    ? `<${alias}>${content}</${alias}>`
-    : `wrap(${alias}, ${content})`;
-}
-
-function collectWrappers(root: RouteNode): string[] {
+function collectWrappers(root: RouteNode, project: string): string[] {
   const wrappers: string[] = [];
 
   (function walk(node: RouteNode) {
     node.children.forEach(walk);
-
-    if (!renders(node)) return;
-
-    const { Layout } = node.alias;
-    const scoped = scopedOf(node);
-
-    if (scoped)
-      wrappers.push(`const ${scoped} = props => ${provide(node, scopeOf(node)!, Layout ? `<${Layout} {...props} />` : "props.children")};`);
+    if (!node.alias.default || node.classDefault === true) return;
+    const file = JSON.stringify(sourceOf(node, project));
+    const alias = node.alias.default + "d";
+    const layout = node.alias.Layout ? `<${node.alias.Layout}>{props.children}</${node.alias.Layout}>` : "props.children";
+    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file})`};`);
   })(root);
 
   return wrappers;
@@ -351,7 +367,8 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
   const hook = hookOf(node);
   const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
-  const enter = node.gated && renders(node) ? `checked(${hook ?? (load && "undefined")}${load})` : hook;
+  const entry = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault})` : hook;
+  const enter = node.gated && renders(node) ? `checked(${entry ?? (load && "undefined")}${load})` : entry;
   const scope = scopeOf(node);
 
   const own = Loading ? `<${Loading} />` : undefined;
@@ -370,9 +387,9 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   for (const child of node.children)
     inner.push(...emitNode(child, false, depth + 1, childSlot, outDir, rivals));
 
-  if (!inner.length && !Catch && !isRoot) return [];
+  if (!inner.length && !Catch && !isRoot && !scope) return [];
 
-  const as = scopedOf(node) ?? scope ?? Layout ?? (contend ? "Through" : undefined);
+  const as = scope && node.classDefault !== true ? scope + "d" : Layout ?? (contend ? "Through" : undefined);
   if (!node.isLeaf && (Catch || isRoot) && !caught(node)) inner.push(`${pad}  <Route none as={missing} fallback={null} />`);
 
   return route(

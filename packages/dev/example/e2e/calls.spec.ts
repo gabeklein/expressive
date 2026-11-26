@@ -38,7 +38,7 @@ test("calls a param folder's sidecar from its own page, params filled", async ({
   await expect(page.locator("output")).toHaveText("/note/7");
 });
 
-test("calls a param folder's sidecar from its entry hook during an in-app navigation", async ({ page, open }) => {
+test("calls a param folder's sidecar from its default during an in-app navigation", async ({ page, open }) => {
   await open("/");
   await page.getByRole("link", { name: "Note 7" }).click();
 

@@ -144,7 +144,15 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
-  it("will warn of a default failing its async new() after its page rendered, failing no later page", async () => {
+  it("will render a ready default class on the server", async () => {
+    const renderer = await launch(project({
+      "app/index.tsx": `import { Model } from "@expressive/mvc"; export default class Session extends Model { name = "ready"; } export const Page = () => <p>{Session.get().name}</p>;`,
+    }));
+    expect((await renderer.render("/"))?.html).toContain("<p>ready</p>");
+    renderer.close();
+  });
+
+  it("will fail before rendering when a default rejects from async new()", async () => {
     const root = project({
       "app/index.tsx": `export const Page = () => <p>index</p>;`,
       "app/home/index.tsx": `
@@ -152,22 +160,22 @@ describe("launch", { timeout: 30_000 }, () => {
         export default class Session extends Model {
           async new() {
             await new Promise(resolve => (globalThis.failLate = resolve));
-            throw new Error("too late");
+            throw new Error("guard failed");
           }
         }
         export const Page = () => <p>home</p>;
       `,
-      "app/(about).tsx": `export const Page = () => { globalThis.failLate?.(); return <p>about</p>; };`,
+      "app/(about).tsx": `export const Page = () => <p>about</p>;`,
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const renderer = await launch(root);
 
-    expect((await renderer.render("/home"))?.html).toContain("<p>home</p>");
+    const pending = renderer.render("/home");
+    await vi.waitFor(() => expect((globalThis as any).failLate).toBeTypeOf("function"));
+    (globalThis as any).failLate();
+    await expect(pending).rejects.toThrow("guard failed");
     expect((await renderer.render("/about"))?.html).toContain("<p>about</p>");
-    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith("/home failed after its page rendered at build: too late"));
 
     renderer.close();
-    warn.mockRestore();
     delete (globalThis as any).failLate;
   });
 

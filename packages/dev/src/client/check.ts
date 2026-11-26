@@ -1,9 +1,10 @@
+import type { Model } from "@expressive/mvc";
 import type { Route } from "./route";
 import { entering } from "./router";
 
 type Verdict = string | void | null;
 
-type EntryHook = (route: Route) => Verdict | Promise<Verdict>;
+type EntryHook = (route: Route) => Verdict | Model.Extends | Promise<Verdict | Model.Extends>;
 
 type Call = (path: string, name: string, args: unknown[]) => Promise<unknown>;
 
@@ -55,7 +56,7 @@ function walk(node: GateNode, at: string[], i: number, path: string[], gate: str
 /**
  * Entry plumbing, not app API: the generated route tree's gate check, given that tree's routes.
  *
- * Returns a wrapper for a gated folder's entry hook. Entering sends one check to the deepest gated folder on the path
+ * Returns a wrapper for a gated folder's entry step. Entering sends one check to the deepest gated folder on the path
  * unless the last pass covers it; a refusal throws to `Catch`, a 3xx with a `location` redirects.
  */
 export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryHook, load?: () => unknown) => EntryHook {
@@ -78,49 +79,56 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
     return pending.done;
   };
 
-  return (hook, load) => route => {
-    if (typeof window == "undefined") return hook?.(route);
+  return (hook, load) => {
+    const step: EntryHook = route => {
+      if (typeof window == "undefined") return hook?.(route);
 
-    const { router } = route;
-    const at = deepest(router.path)!;
-    const path = "/" + at.join("/");
-    const current = () => deepest(router.path)?.join("/") === at.join("/");
-    const after = hopped === router.path;
+      const { router } = route;
+      const at = deepest(router.path)!;
+      const path = "/" + at.join("/");
+      const current = () => deepest(router.path)?.join("/") === at.join("/");
+      const after = hopped === router.path;
 
-    hopped = undefined;
+      hopped = undefined;
 
-    if (passed && covers(at, passed)) return hook?.(route);
+      if (passed && covers(at, passed)) return hook?.(route);
 
-    void Promise.resolve(load?.()).catch(() => {});
+      void Promise.resolve(load?.()).catch(() => {});
 
-    return check(path).then(
-      verdict => {
-        if (!current()) return;
-        if (verdict === true) passed = at;
+      return check(path).then(
+        verdict => {
+          if (!current()) return;
+          if (verdict === true) passed = at;
 
-        return entering(router.path, () => hook?.(route));
-      },
-      error => {
-        if (!current()) return;
+          return entering(router.path, () => hook?.(route));
+        },
+        error => {
+          if (!current()) return;
 
-        const { status, location: to } = Object(error) as { status?: unknown; location?: unknown };
+          const { status, location: to } = Object(error) as { status?: unknown; location?: unknown };
 
-        if (typeof status != "number" || status < 300 || status >= 400 || typeof to != "string" || !to) throw error;
+          if (typeof status != "number" || status < 300 || status >= 400 || typeof to != "string" || !to) throw error;
 
-        const url = new URL(to, window.location.href);
-        const local = url.origin === window.location.origin;
+          const url = new URL(to, window.location.href);
+          const local = url.origin === window.location.origin;
 
-        if (after || !/^https?:$/.test(url.protocol) || (local && covers(at, segments(url.pathname)))) throw stay(error);
+          if (after || !/^https?:$/.test(url.protocol) || (local && covers(at, segments(url.pathname)))) throw stay(error);
 
-        if (!local || !routed(url.pathname)) {
-          window.location.assign(url.href);
-          return new Promise<never>(() => {});
-        }
+          if (!local || !routed(url.pathname)) {
+            window.location.assign(url.href);
+            return new Promise<never>(() => {});
+          }
 
-        hopped = url.pathname;
+          hopped = url.pathname;
 
-        return url.pathname + url.search + url.hash;
-      },
-    );
+          return url.pathname + url.search + url.hash;
+        },
+      );
+    };
+    return Object.assign(step, {
+      source: (hook as EntryHook & { source?: string } | undefined)?.source,
+      leaf: (hook as EntryHook & { leaf?: boolean } | undefined)?.leaf,
+      current: (hook as EntryHook & { current?: EntryHook } | undefined)?.current,
+    });
   };
 }
