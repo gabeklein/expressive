@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFound, Redirect } from "@expressive/rpc";
+import { NotFound, Redirect, client } from "@expressive/rpc";
 import { Component, Context, Model, set } from "@expressive/mvc";
 import { accept } from "@expressive/mvc/hot";
 import { Redirect as RouterRedirect } from "@expressive/router";
@@ -184,6 +184,20 @@ describe("prebuilt defaults", () => {
     expect(order).toEqual(["new", "ready", "render"]);
   });
 
+  it("will hold the current screen while a new default awaits", async () => {
+    let release!: () => void;
+    class Guard extends Model {
+      protected async new() { await new Promise<void>(resolve => (release = resolve)); }
+    }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="next" enter={() => Guard}><Route as={() => <p>next</p>} /></Route></Route>);
+    router.goto("/next");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(root.textContent).toBe("home");
+    release();
+    await vi.waitFor(() => expect(root.textContent).toBe("next"));
+  });
+
   it("will render a prebuilt Component around its page and destroy it on leave", async () => {
     const gone = vi.fn();
     class Frame extends Component {
@@ -232,15 +246,16 @@ describe("prebuilt defaults", () => {
     let current: unknown;
     class Guard extends Model {
       protected new() {
-        entered = (globalThis as Record<symbol, unknown>)[Symbol.for("@expressive/dev#path")];
+        const path = (globalThis as Record<symbol, unknown>)[Symbol.for("@expressive/dev#path")];
+        entered = client().pathOf(["note", ":id"], "served", path as string);
         current = window.location.pathname;
       }
     }
     location("/");
-    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="next" enter={() => Guard}><Route as={() => <p>next</p>} /></Route></Route>);
-    router.goto("/next");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="note/:id" enter={() => Guard}><Route as={() => <p>next</p>} /></Route></Route>);
+    router.goto("/note/8");
     await vi.waitFor(() => expect(root.textContent).toBe("next"));
-    expect(entered).toBe("/next");
+    expect(entered).toBe("/note/8");
     expect(current).toBe("/");
   });
 
