@@ -107,6 +107,12 @@ const plain: Host = {
 
 let current: Root | undefined;
 
+/**
+ * Run `run` with `root` active, as a render pass does.
+ *
+ * `text`, `marker` and `activeRoot` read the active root, so host code calling them outside a render - a `Hydration` under test - runs inside this.
+ * The previous root is restored after, even on a throw.
+ */
 function within<T>(root: Root, run: () => T): T {
   const previous = current;
   current = root;
