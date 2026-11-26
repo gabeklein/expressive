@@ -72,6 +72,7 @@ export const nameOf = (node: ESTree.ModuleExportName) => (node.type === "Identif
  */
 export async function scanModule(file: string, source: string, sources: Sources, owned: (file: string) => boolean, extension: Extension = {}, only?: ReadonlySet<string>): Promise<Scan> {
   const module = moduleOf(file, source);
+  const modules = new Map([[file, module]]);
   const scan: Scan = { calls: [], errors: [], gate: false, problems: [...module.errors] };
   const found: [ErrorClass, number][] = [];
 
@@ -83,12 +84,12 @@ export async function scanModule(file: string, source: string, sources: Sources,
   for (const [name, value] of module.exports) {
     if (name === "default") {
       if (extension.default) scan.problems.push(...(await extension.default(value)));
-      else if (!only || only.has("default")) await gate(scan, value, module, sources, owned);
+      else if (!only || only.has("default")) await gate(scan, value, module, sources, owned, modules);
       continue;
     }
 
     if (only && !only.has(name)) {
-      const end = isClass(value) ? await endOf({ cls: value, module }, name, sources, owned) : undefined;
+      const end = isClass(value) ? await endOf({ cls: value, module }, name, sources, owned, modules) : undefined;
 
       if (end?.kind === "error") found.push([{ name, ...(end.parent && { parent: end.parent }) }, value!.start]);
       continue;
@@ -117,7 +118,7 @@ export async function scanModule(file: string, source: string, sources: Sources,
       continue;
     }
 
-    const end = await endOf({ cls: value, module }, name, sources, owned);
+    const end = await endOf({ cls: value, module }, name, sources, owned, modules);
 
     if (end.kind === "error") found.push([{ name, ...(end.parent && { parent: end.parent }) }, value.start]);
     else if (end.kind === "problem") scan.problems.push(end.problem);
@@ -129,7 +130,7 @@ export async function scanModule(file: string, source: string, sources: Sources,
   return scan;
 }
 
-async function gate(scan: Scan, value: Value, module: Module, sources: Sources, owned: (file: string) => boolean): Promise<void> {
+async function gate(scan: Scan, value: Value, module: Module, sources: Sources, owned: (file: string) => boolean, modules: Map<string, Module>): Promise<void> {
   if (!INDEX.test(basename(module.file)))
     return void scan.problems.push("Only a folder's index may export a default - its gate.");
 
@@ -138,7 +139,7 @@ async function gate(scan: Scan, value: Value, module: Module, sources: Sources, 
   if (module.body.some(node => node.type === "ExportDefaultDeclaration" && node.declaration.type === "Identifier" && module.imports.has(node.declaration.name)))
     return void scan.problems.push(DECLARED);
 
-  const end = isClass(value) ? await endOf({ cls: value, module }, "default", sources, owned) : undefined;
+  const end = isClass(value) ? await endOf({ cls: value, module }, "default", sources, owned, modules) : undefined;
 
   if (end?.kind === "problem") scan.problems.push(end.problem);
   else if (end?.kind === "model") scan.gate = true;
@@ -163,7 +164,7 @@ function unsupported(node: Statement): string | undefined {
   }
 }
 
-async function endOf(start: Found, name: string, sources: Sources, owned: (file: string) => boolean): Promise<End> {
+async function endOf(start: Found, name: string, sources: Sources, owned: (file: string) => boolean, modules: Map<string, Module>): Promise<End> {
   const chain: Found[] = [];
   const names: string[] = [];
   let parent: Parent | undefined;
@@ -184,23 +185,28 @@ async function endOf(start: Found, name: string, sources: Sources, owned: (file:
 
     const local = module.locals.get(base.name);
     const imported = module.imports.get(base.name);
-    const rpc = imported && !imported.type && (imported.from === ROOT || LIBRARY.test(imported.from) || /^[./]/.test(imported.from)) && await rpcError(imported, module.file, sources);
     let next: Found;
 
     if (isClass(local)) next = { cls: local, module };
     else if (!imported || imported.type) return globalEnd(owner, base.name, parent);
-    else if (rpc) return { kind: "error", parent: parent ?? { id: `http:${rpc}` } };
-    else if (LIBRARY.test(imported.from)) return { kind: "model" };
+    else if (imported.from === ROOT || LIBRARY.test(imported.from)) {
+      const rpc = await rpcError(imported, module.file, sources, modules);
+      return rpc ? { kind: "error", parent: parent ?? { id: `http:${rpc}` } } : { kind: "model" };
+    }
     else if (!/^[./]/.test(imported.from)) return { kind: "error", parent };
     else {
       const file = await sources.resolve(imported.from, module.file);
 
       if (!file) return { kind: "problem", problem: `${owner} extends ${base.name} from "${imported.from}", which does not resolve.` };
 
-      const other = moduleOf(file, sources.read(file));
+      const other = readModule(file, sources, modules);
       const exported = other.exports.get(imported.name);
 
-      if (!isClass(exported)) return { kind: "problem", problem: `${owner} extends ${base.name}, which "${imported.from}" does not export as a class.` };
+      if (!isClass(exported)) {
+        const rpc = await rpcError(imported, module.file, sources, modules);
+        if (rpc) return { kind: "error", parent: parent ?? { id: `http:${rpc}` } };
+        return { kind: "problem", problem: `${owner} extends ${base.name}, which "${imported.from}" does not export as a class.` };
+      }
 
       next = { cls: exported, module: other };
     }
@@ -211,22 +217,36 @@ async function endOf(start: Found, name: string, sources: Sources, owned: (file:
   }
 }
 
-async function rpcError(imported: Import, importer: string, sources: Sources, seen = new Set<string>()): Promise<string | undefined> {
+function readModule(file: string, sources: Sources, modules: Map<string, Module>): Module {
+  let module = modules.get(file);
+  if (!module) modules.set(file, module = moduleOf(file, sources.read(file)));
+  return module;
+}
+
+async function rpcError(imported: Import, importer: string, sources: Sources, modules: Map<string, Module>, seen = new Set<string>()): Promise<string | undefined> {
   if (imported.from === ROOT) return `http:${imported.name}` in ERRORS ? imported.name : undefined;
 
   const file = await sources.resolve(imported.from, importer);
   if (!file || !isAbsolute(file) || seen.has(`${file}#${imported.name}`)) return;
   seen.add(`${file}#${imported.name}`);
 
-  const module = moduleOf(file, sources.read(file));
+  const module = readModule(file, sources, modules);
 
   for (const node of module.body) {
+    if (node.type === "ExportAllDeclaration" && imported.name !== "default") {
+      const found = await rpcError({ from: node.source.value, name: imported.name, type: false }, file, sources, modules, seen);
+      if (found) return found;
+    }
+    if (node.type === "ExportDefaultDeclaration" && imported.name === "default" && node.declaration.type === "Identifier") {
+      const next = module.imports.get(node.declaration.name);
+      if (next && !next.type) return rpcError(next, file, sources, modules, seen);
+    }
     if (node.type !== "ExportNamedDeclaration" || node.exportKind === "type") continue;
     for (const spec of node.specifiers) {
       if (spec.exportKind === "type" || nameOf(spec.exported) !== imported.name) continue;
       const name = nameOf(spec.local);
       const next = node.source ? { from: node.source.value, name, type: false } : module.imports.get(name);
-      if (next && !next.type) return rpcError(next, file, sources, seen);
+      if (next && !next.type) return rpcError(next, file, sources, modules, seen);
     }
   }
 }

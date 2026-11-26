@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { DECLARED, isClass, scanModule, type Extension, type Sources } from "./scan";
 
@@ -69,6 +69,66 @@ describe("calls", () => {
 });
 
 describe("error classes", () => {
+  it("will trace an Error through export all", async () => {
+    const files = {
+      "/packages/dev/index.ts": `export * from "./errors";`,
+      "/packages/dev/errors.ts": `export { HttpError } from "@expressive/rpc";`,
+    };
+    const sources: Sources = {
+      resolve: async (spec, importer) => spec === "@expressive/dev" ? "/packages/dev/index.ts" : spec === "@expressive/rpc" ? undefined : new URL(spec, `file://${importer}`).pathname.replace(/\.ts$/, "") + ".ts",
+      read: file => files[file as keyof typeof files],
+    };
+    const found = await scanModule("/app/api/todos.ts", `import { HttpError } from "@expressive/dev"; export class Closed extends HttpError {}`, sources, () => false);
+    expect(found.problems).toEqual([]);
+    expect(found.errors).toEqual([{ name: "Closed", parent: { id: "http:HttpError" } }]);
+  });
+
+  it("will continue past an unrelated export all", async () => {
+    const files = {
+      "/app/api/base.ts": `export * from "./other"; export * from "./errors";`,
+      "/app/api/other.ts": `export class Other extends Error {}`,
+      "/app/api/errors.ts": `export { HttpError } from "@expressive/rpc";`,
+    };
+    const sources: Sources = {
+      resolve: async (spec, importer) => spec === "@expressive/rpc" ? undefined : new URL(spec, `file://${importer}`).pathname + ".ts",
+      read: file => files[file as keyof typeof files],
+    };
+    const found = await scanModule("/app/api/todos.ts", `import { HttpError } from "./base"; export class Closed extends HttpError {}`, sources, () => false);
+    expect(found.problems).toEqual([]);
+    expect(found.errors).toEqual([{ name: "Closed", parent: { id: "http:HttpError" } }]);
+  });
+
+  it("will trace a default identifier exporting an imported Error", async () => {
+    const files = { "/app/api/base.ts": `import { HttpError } from "@expressive/rpc"; export default HttpError;` };
+    const sources: Sources = {
+      resolve: async (spec, importer) => spec === "@expressive/rpc" ? undefined : new URL(spec, `file://${importer}`).pathname + ".ts",
+      read: file => files[file as keyof typeof files],
+    };
+    const found = await scanModule("/app/api/todos.ts", `import Base from "./base"; export class Closed extends Base {}`, sources, () => false);
+    expect(found.problems).toEqual([]);
+    expect(found.errors).toEqual([{ name: "Closed", parent: { id: "http:HttpError" } }]);
+  });
+
+  it("will report a default identifier that is not an imported class", async () => {
+    const found = await scan(`import Base from "./base"; export class Closed extends Base {}`, "/app/api/todos.ts", {
+      "/app/api/base.ts": `const Value = 1; export default Value;`,
+    });
+    expect(found.errors).toEqual([]);
+    expect(found.problems).toEqual(['Closed extends Base, which "./base" does not export as a class.']);
+  });
+
+  it("will parse a shared base once in a scan", async () => {
+    const read = vi.fn(() => `export class Base extends Error {}`);
+    const sources: Sources = { resolve: async () => "/app/api/base.ts", read };
+    const found = await scanModule("/app/api/todos.ts", `import { Base } from "./base"; export class First extends Base {} export class Second extends Base {}`, sources, () => true);
+    expect(found.problems).toEqual([]);
+    expect(found.errors).toEqual([
+      { name: "First", parent: { file: "/app/api/base.ts", name: "Base" } },
+      { name: "Second", parent: { file: "/app/api/base.ts", name: "Base" } },
+    ]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
   it("will follow a re-exported http error to rpc", async () => {
     const files: Record<string, string> = {
       "/packages/dev/server.ts": `import { HttpError as Base } from "@expressive/rpc"; export { Base as HttpError };`,
