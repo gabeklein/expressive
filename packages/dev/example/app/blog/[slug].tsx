@@ -16,7 +16,6 @@ export class Page extends Route {
     const { match, blog, shown, where } = this;
     const slug = match?.slug;
     const known = blog.posts.includes(slug!);
-
     return (
       <>
         <h1>Post: {slug}{known ? "" : " (draft)"}</h1>

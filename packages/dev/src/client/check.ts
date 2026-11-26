@@ -11,7 +11,7 @@ interface Hot {
   on(event: string, listener: () => void): void;
 }
 
-/** A route in the generated tree: its segment, whether its folder is gated, has a page or a `NotFound`, and the routes inside a folder. */
+/** A route in the generated tree: its segment, whether its folder is gated, has a page or a missing-path route, and the routes inside a folder. */
 export interface GateNode {
   to?: string;
   gate?: 1;

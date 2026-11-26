@@ -1,5 +1,5 @@
 import { Current } from "@expressive/dev/server";
-import { HttpError } from "@expressive/rpc";
+import { HttpError } from "@expressive/dev/server";
 
 export class Overflow extends Error {
   status = 409;

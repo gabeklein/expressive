@@ -1,5 +1,5 @@
 import { Component } from "@expressive/mvc";
-import { HttpError } from "@expressive/rpc";
+import { HttpError } from "@expressive/dev";
 
 import { Closed, Overflow, add, close, fail, reset, where } from "./remote";
 

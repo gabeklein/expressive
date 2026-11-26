@@ -1,6 +1,6 @@
 import { Model } from "@expressive/mvc";
 import { Current } from "@expressive/dev/server";
-import { Forbidden } from "@expressive/rpc";
+import { Forbidden } from "@expressive/dev/server";
 
 export class Admin extends Model {
   name = "";

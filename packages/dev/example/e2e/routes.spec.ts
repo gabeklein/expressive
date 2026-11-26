@@ -36,7 +36,13 @@ test("provides a route's default class to its pages", async ({ page, open }) => 
   await expect(page.getByRole("heading")).toHaveText("Post: unknown (draft)");
 });
 
-test("an entry hook redirects until it allows the route", async ({ page, open }) => {
+test("shows the blog Catch when a separate page throws NotFound", async ({ page, open }) => {
+  await open("/blog/missing");
+  await expect(page.getByRole("alert")).toContainText("Blog post not found");
+  await expect(page.getByRole("heading")).toHaveText("Blog post not found");
+});
+
+test("a thrown Redirect navigates until the entry hook allows the route", async ({ page, open }) => {
   await open("/admin");
   await expect(page).toHaveURL("/");
   await expect(page.getByRole("heading")).toHaveText("Home");

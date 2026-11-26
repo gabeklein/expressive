@@ -96,32 +96,57 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "index.tsx": PAGE });
     expect(out).toContain('import { NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { Page as Root } from "../app/index.tsx";');
-    expect(out).toMatch(/<Route>\s*<Route as={Root} \/>\s*<Route none as={NotFound} \/>\s*<\/Route>/);
+    expect(out).toMatch(/<Route Catch={DefaultCatch}>\s*<Route as={Root} \/>\s*<Route none as={missing} \/>\s*<\/Route>/);
   });
 
-  it("a user NotFound suppresses the implicit 404 (no NotFound import)", async () => {
-    const out = await generate({ "index.tsx": `${PAGE}\n${NOTFOUND}` });
-    expect(out).toContain('import { Route, Router } from "@expressive/dev";');
-    expect(out).not.toContain("{ NotFound, Route, Router }");
-    expect(out).toContain("<Route none as={RootNotFound} />");
+  it("will reject a route NotFound export with migration guidance", async () => {
+    await expect(generate({ "index.tsx": `${PAGE}\n${NOTFOUND}` })).rejects.toThrow('Import { NotFound } from "@expressive/dev" and export Catch');
   });
 
-  it("Layout makes a scope; index page is a to-less child; NotFound is its last child", async () => {
-    const out = await generate({ "index.tsx": `${PAGE}\n${LAYOUT}\n${NOTFOUND}` });
-    expect(out).toContain("import { Page as Root, Layout as RootLayout, NotFound as RootNotFound }");
-    expect(out).toMatch(/<Route as={RootLayout}>\s*<Route as={Root} \/>\s*<Route none as={RootNotFound} \/>/);
+  it("will reject a default entry hook with a route parameter", async () => {
+    await expect(generate({ "index.tsx": `${PAGE}\nexport default function (route) { return route.path; }` }))
+      .rejects.toThrow('default takes "route" - entry hooks no longer redirect by return value');
+  });
+
+  it("will reserve generated names when aliasing routes", async () => {
+    const out = await generate({
+      "index.tsx": PAGE,
+      "default/index.tsx": `${PAGE}\n${CATCH}`,
+      "(not-found).tsx": PAGE,
+    });
+    expect(out).toContain("Catch as DefaultCatch_");
+    expect(out).toContain('const NotFound_ = () => import("../app/(not-found).tsx")');
+    expect(out).toContain("Catch={DefaultCatch_}");
+  });
+
+  it("will not emit an undefined gate check for a folder with only Catch", async () => {
+    const out = await generate({ "index.tsx": PAGE, "empty/index.tsx": CATCH, "empty/remote.ts": "export default () => {};" });
+    expect(out).toContain('to="empty" Catch={EmptyCatch}');
+    expect(out).not.toContain("checked()");
+  });
+
+  it("will not let a leaf Catch claim unmatched children", async () => {
+    const out = await generate({ "index.tsx": PAGE, "(foo).tsx": `${PAGE}\n${CATCH}`, "[...].tsx": PAGE });
+    expect(out).toContain('<Route to="foo" as={Foo} Catch={FooCatch} />');
+    expect(out).not.toMatch(/to="foo"[^>]*>\s*<Route none/);
+  });
+
+  it("Layout makes a scope; index page is a to-less child; missing route is last", async () => {
+    const out = await generate({ "index.tsx": `${PAGE}\n${LAYOUT}` });
+    expect(out).toContain("import { Page as Root, Layout as RootLayout }");
+    expect(out).toMatch(/<Route as={RootLayout} Catch={DefaultCatch}>\s*<Route as={Root} \/>\s*<Route none as={missing} \/>/);
   });
 
   it("Loading fills its scope's slot; Catch rides on the scope", async () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${LOADING}\n${CATCH}` });
     expect(out).toContain("{ Page as Root, Loading as RootLoading, Catch as RootCatch }");
-    expect(out).toMatch(/<Route Catch={RootCatch}>\s*<Route as={Root} fallback={<RootLoading \/>} \/>/);
+    expect(out).toMatch(/<Route Catch={RootCatch}>\s*<Route as={Root} fallback={<RootLoading \/>} \/>\s*<Route none as={missing} \/>/);
   });
 
   it("every route owns a boundary - empty where no Loading applies", async () => {
     const out = await generateRaw({ "index.tsx": PAGE, "(about).tsx": PAGE });
-    expect(out).toContain("<Route fallback={null}>");
-    expect(out).toContain("<Route none as={NotFound} fallback={null} />");
+    expect(out).toContain("<Route fallback={null} Catch={DefaultCatch}>");
+    expect(out).toContain("<Route none as={missing} fallback={null} />");
     expect(out).toContain("<Route as={Root} fallback={null} />");
     expect(out).toContain('<Route to="about" as={About} fallback={null} />');
   });
@@ -187,38 +212,34 @@ describe("app/ routing (codegen)", () => {
     expect(out).not.toContain("import(");
   });
 
-  it("a nested Layout and NotFound load with their page", async () => {
-    const out = await generate({ "index.tsx": PAGE, "blog/index.tsx": `${PAGE}\n${LAYOUT}\n${NOTFOUND}`, "blog/[slug].tsx": PAGE });
-    expect(out).toContain('const BlogLayout = () => import("../app/blog/index.tsx").then(m => m.Layout);');
-    expect(out).toContain('const BlogNotFound = () => import("../app/blog/index.tsx").then(m => m.NotFound);');
+  it("a nested Layout and Catch load with their page", async () => {
+    const out = await generate({ "index.tsx": PAGE, "blog/index.tsx": `${PAGE}\n${LAYOUT}\n${CATCH}`, "blog/[slug].tsx": PAGE });
+    expect(out).toContain('import { Page as Blog, Layout as BlogLayout, Catch as BlogCatch } from "../app/blog/index.tsx";');
   });
 
   it("default entry hook rides as the `enter` prop on a leaf", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\n${ENTER}` });
-    expect(out).toContain('const AdminEnter = () => import("../app/(admin).tsx").then(m => m.default);');
-    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnter} />');
+    expect(out).toContain('const AdminEnterHook = () => import("../app/(admin).tsx").then(m => hook(m.default, "app/(admin).tsx"));');
+    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnterHook} />');
   });
 
   it("default entry hook gates a section (rides on the scope)", async () => {
     const out = await generate({ "admin/index.tsx": `${PAGE}\n${LAYOUT}\n${ENTER}`, "admin/[id].tsx": PAGE });
     expect(out).toContain('const AdminEnter = () => import("../app/admin/index.tsx").then(m => m.default);');
-    expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnter}>/);
+    expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnterHook}>/);
   });
 
-  it("will place a folder's NotFound as its last child, and none beside a [...] page, with a warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("will place a folder's missing route last, unless a [...] page catches it", async () => {
     const out = await generate({
       "index.tsx": PAGE,
       "[slug].tsx": PAGE,
-      "docs/index.tsx": `${PAGE}\n${NOTFOUND}`,
-      "help/index.tsx": `${PAGE}\n${NOTFOUND}`,
+      "docs/index.tsx": `${PAGE}\n${CATCH}`,
+      "help/index.tsx": `${PAGE}\n${CATCH}`,
       "help/[...].tsx": PAGE,
     });
 
-    expect(out).toMatch(/<Route to="docs" as={Through}>\s*<Route as={Docs} \/>\s*<Route none as={DocsNotFound} \/>\s*<\/Route>/);
-    expect(out).toMatch(/<Route to="help" as={Through}>\s*<Route as={Help} \/>\s*<Route to="\*" as={HelpCatchall} \/>\s*<\/Route>/);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("help/index.tsx: NotFound is never shown"));
-    warn.mockRestore();
+    expect(out).toMatch(/<Route to="docs" as={Through} Catch={DocsCatch}>\s*<Route as={Docs} \/>\s*<Route none as={missing} \/>\s*<\/Route>/);
+    expect(out).toMatch(/<Route to="help" as={Through} Catch={HelpCatch}>\s*<Route as={Help} \/>\s*<Route to="\*" as={HelpCatchall} \/>\s*<\/Route>/);
   });
 
   it("will wrap a gated folder's entry in the gate check, loading its module beside it", async () => {
@@ -240,7 +261,7 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { call } from "@expressive/rpc";');
     expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
-    expect(out).toContain('<Route to="admin" enter={checked(AdminEnter, () => import("../app/admin/index.tsx"))}>');
+    expect(out).toContain('<Route to="admin" enter={checked(AdminEnterHook, () => import("../app/admin/index.tsx"))}>');
     expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
     expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
     expect(out).toContain('<Route to="tally" as={Tally} />');
@@ -249,7 +270,7 @@ describe("app/ routing (codegen)", () => {
   it("will gate the root and skip gated folders when rendering ahead", async () => {
     const out = await generate({ "index.tsx": PAGE, "remote.ts": "export default () => {}" });
 
-    expect(out).toContain('<Route enter={checked()}>');
+    expect(out).toContain('<Route enter={checked()} Catch={DefaultCatch}>');
   });
 
   it("a module with a default loads on first entry", async () => {
@@ -300,7 +321,7 @@ describe("app/ routing (codegen)", () => {
 
   it("will read a function exported as the default by name as an entry hook", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\nconst gate = () => "/login";\nexport default gate` });
-    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnter} />');
+    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnterHook} />');
   });
 
   it("[slug] is a dynamic segment → to=\":slug\"", async () => {
@@ -351,7 +372,7 @@ describe("app/ routing (codegen)", () => {
         type Props = { n: number };
         export class Page extends Route { render() { return <h1>{this.match?.x satisfies string | undefined}</h1>; } }
         export const Layout = (p: Props) => <div>{p.n}</div>;
-        export default async function (route: Route): Promise<string | void> {}`,
+        export default async function (props: Props): Promise<void> {}`,
     });
     expect(out).toContain("import RootEnter, { Page as Root, Layout as RootLayout }");
   });
@@ -378,10 +399,10 @@ describe("app/ routing (codegen)", () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${IMPORTED}`, "(x).tsx": `${PAGE}\nexport { default } from "../lib/auth";` });
 
     expect(out).toContain('import { Component, Model } from "@expressive/mvc";');
-    expect(out).toContain('const RootEnter = hook(RootScope, "app/index.tsx");');
-    expect(out).toContain('const XEnter = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
-    expect(out).toMatch(/<Route as={RootScoped} enter={RootEnter}>/);
-    expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnter}>\s*<Route as={X} \/>/);
+    expect(out).toContain('const RootEnterHook = hook(RootScope, "app/index.tsx");');
+    expect(out).toContain('const XEnterHook = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
+    expect(out).toMatch(/<Route as={RootScoped} enter={RootEnterHook} Catch={DefaultCatch}>/);
+    expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnterHook}>\s*<Route as={X} \/>/);
   });
 
   it("will not route a leaf without a page", async () => {
@@ -404,7 +425,7 @@ describe("app/ routing (codegen)", () => {
       "(new).tsx": `${PAGE}\nexport const label = "New \\"one\\"";`,
       "you/index.tsx": `${PAGE}\nconst named = "You"; export { named as label };`,
     });
-    expect(out).toContain('<Route label={"Home"}>');
+    expect(out).toContain('<Route label={"Home"} Catch={DefaultCatch}>');
     expect(out).toContain('<Route to="me" label={"Me"}>');
     expect(out).toContain('<Route to="new" label={"New \\"one\\""} as={New} />');
     expect(out).toContain('<Route to="edit" as={MeEdit} />');
@@ -446,12 +467,13 @@ describe("app/ routing (runtime)", () => {
   const NotFound = () => <p>not-found</p>;
 
   const Tree = () => (
-    <Route as={RootLayout} NotFound={NotFound}>
+    <Route as={RootLayout}>
       <Route as={Home} />
       <Route to="blog">
         <Route as={BlogIndex} />
         <Route to=":slug" as={BlogPost} />
       </Route>
+      <Route none as={NotFound} />
     </Route>
   );
 
@@ -789,15 +811,55 @@ describe("app/ routing (generated)", () => {
     await shows(() => root.textContent, "ada");
   });
 
-  it("will run a default function imported from elsewhere as the entry hook", async () => {
+  it("will reject a string returned by a default function, naming its module", async () => {
     const root = await app({
-      "app/index.tsx": PAGE,
+      "app/index.tsx": `${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`,
       "app/(x).tsx": `import { guard } from "../lib/guard"; export default guard; export const Page = () => <h1>x</h1>;`,
       "lib/guard.ts": GUARD,
     }, "/x");
 
-    await shows(() => root.textContent, "page");
-    expect(window.location.pathname).toBe("/");
+    await shows(() => root.textContent, "app/(x).tsx: a function default returned a string. Throw new Redirect(...) instead.");
+    expect(window.location.pathname).toBe("/x");
+  });
+
+  it("will reject a string returned by an inline default function", async () => {
+    const root = await app({ "app/index.tsx": `${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`, "app/(x).tsx": `${PAGE} export default () => "/";` }, "/x");
+    await shows(() => root.textContent, "app/(x).tsx: a function default returned a string. Throw new Redirect(...) instead.");
+    expect(window.location.pathname).toBe("/x");
+  });
+
+  it("will send unmatched children of a leaf Catch to the root splat", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(foo).tsx": `${PAGE} export const Catch = () => <p>leaf catch</p>;`,
+      "app/[...].tsx": `export const Page = () => <p>splat page</p>;`,
+    }, "/foo/bar");
+    await shows(() => root.textContent, "splat page");
+  });
+
+  it("will replace a cold entry for a thrown Redirect in a generated page", async () => {
+    const before = window.history.length;
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("/new"); };`,
+      "app/(new).tsx": `export const Page = () => <p>new</p>;`,
+    }, "/old");
+    await shows(() => root.textContent, "new");
+    expect(window.location.pathname).toBe("/new");
+    expect(window.history.length).toBe(before);
+  });
+
+  it("will push a thrown Redirect after generated in-app navigation", async () => {
+    const root = await app({
+      "app/index.tsx": `import { Link } from "@expressive/dev"; export const Page = () => <Link to="/old">Go</Link>;`,
+      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("/new"); };`,
+      "app/(new).tsx": `export const Page = () => <p>new</p>;`,
+    }, "/");
+    const before = window.history.length;
+    (root.querySelector("a") as HTMLElement).click();
+    await shows(() => root.textContent, "new");
+    expect(window.location.pathname).toBe("/new");
+    expect(window.history.length).toBe(before + 1);
   });
 
   it("will throw naming the route for a default imported from elsewhere that is a class but not a Model", async () => {
@@ -813,6 +875,46 @@ describe("app/ routing (generated)", () => {
       const root = await app(files, path);
       await shows(() => root.textContent, text);
     }
+  });
+
+  it("will throw NotFound into the folder Catch for an unmatched child", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/docs/index.tsx": `export const Page = () => <h1>docs</h1>; export const Catch = ({ error }) => <p>{error.constructor.name}</p>;`,
+    }, "/docs/absent");
+    await shows(() => root.textContent, "NotFound");
+  });
+
+  it("will load a gated folder whose index exports only Catch", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/empty/index.tsx": `export const Catch = () => <p>empty catch</p>;`,
+      "app/empty/remote.ts": `export default () => {};`,
+    }, "/");
+    await shows(() => root.textContent, "page");
+  });
+
+  it("will show the default Catch for an unmatched root URL", async () => {
+    const root = await app({ "app/index.tsx": PAGE }, "/absent");
+    await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
+    expect(root.querySelector('a[href="/"]')?.textContent).toBe("Home");
+  });
+
+  it("will show the default Catch for an unmatched URL below a folder without Catch", async () => {
+    const root = await app({ "app/index.tsx": PAGE, "app/docs/index.tsx": PAGE }, "/docs/absent");
+    await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
+    expect(root.textContent).toContain("No route matched.");
+  });
+
+  it("will show the default Catch for an ordinary render error", async () => {
+    const logged = vi.spyOn(console, "error");
+    const root = await app({ "app/index.tsx": `export const Page = () => { throw new Error("broken"); };` }, "/");
+    await shows(() => root.querySelector("h1")?.textContent, "Something went wrong");
+    expect(root.querySelector("button")?.textContent).toBe("Try again");
+    expect(root.querySelector('a[href="/"]')?.textContent).toBe("Home");
+    expect(root.textContent).toContain("broken");
+    expect(logged).toHaveBeenCalledWith(expect.objectContaining({ message: "broken" }));
+    logged.mockRestore();
   });
 });
 
