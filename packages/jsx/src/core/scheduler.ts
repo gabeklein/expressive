@@ -44,9 +44,9 @@ function flushUrgent() {
 }
 
 /**
- * Run `run` after the next flush of queued updates, scheduling one if none is due.
+ * Run `run` after the next urgent flush, scheduling one if none is due.
  *
- * For work that must see state settled into the tree, as dom restoring a controlled input after an event.
+ * Passive and deferred updates may still be pending. dom uses it to restore a controlled input after an event.
  */
 function afterFlush(run: () => void) {
   after.push(run);

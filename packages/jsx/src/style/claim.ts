@@ -4,7 +4,7 @@ import { unmatched } from './diagnose';
 
 type Style = string | Record<string, unknown> | false | null | undefined | readonly Style[];
 
-/** The style context an element or component renders under: its author, rule context and forwarded `style` values. */
+/** Style context an element or component renders under: author, rules and forwarded `style`. */
 interface Appearance {
   author?: object;
   context?: AppearanceContext;
@@ -28,7 +28,7 @@ interface Collected {
   tokens: Carried[];
 }
 
-/** An element's resolved styling: its class names, inline declarations, and the rule context its children inherit. */
+/** An element's resolved styling: class names, inline declarations, and its children's rules. */
 interface Claim {
   className: string;
   context?: AppearanceContext;

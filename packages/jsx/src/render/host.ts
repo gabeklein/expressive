@@ -132,7 +132,11 @@ function within<T>(root: Root, run: () => T): T {
   }
 }
 
-/** The root of the render pass running now. Undefined outside one - see `within`. */
+/**
+ * The root of the render pass running now.
+ *
+ * Undefined outside one, so `text` and `marker` throw there - wrap such calls in `within`.
+ */
 function activeRoot() {
   return current!;
 }

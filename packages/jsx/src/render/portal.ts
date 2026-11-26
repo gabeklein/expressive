@@ -52,7 +52,7 @@ function mountPortal(value: VNode, parent: globalThis.Node, before: globalThis.N
   return output;
 }
 
-/** Portal prop key: when set, the portal's content goes before what its target already holds, not after. */
+/** Portal prop key: when set, content goes before what the target already holds, not after it. */
 const LEAD = Symbol('lead');
 
 function locate(host: Host, into: unknown, parent: globalThis.Node): Container {

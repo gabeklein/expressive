@@ -3,7 +3,11 @@ import type { Element as Created } from '../jsx-runtime';
 import type { has, map } from '@expressive/mvc';
 import type { JSX as Runtime } from '../jsx-runtime';
 
-/** Element type of a portal - `<Portal>` creates it; hosts match it to place or redirect one. */
+/**
+ * Element type of a portal - `<Portal>` creates it, and hosts create or match it.
+ *
+ * A plain symbol, so a portal from another copy of this package is not recognized.
+ */
 const PORTAL = Symbol('@expressive/jsx.portal');
 const ELEMENT = Symbol.for('@expressive/mvc.element');
 const authors = new WeakMap<object, object>();
@@ -17,7 +21,7 @@ interface ComponentInstance {
 }
 type ComponentType<P = any> = FunctionComponent<P> | (abstract new (...args: any[]) => object);
 
-/** Anything a component can render: elements, instances, text, numbers, empties, arrays and Expressive collections. */
+/** Anything a component can render: elements, instances, text, empties, arrays and collections. */
 type Node =
   | VNode
   | ComponentInstance
@@ -96,7 +100,7 @@ declare namespace createElement {
   }
 }
 
-/** True for an element made by the JSX runtime - this package's own, whichever copy made it. */
+/** True for an element made by the JSX runtime, from any copy of this package. */
 function isVNode(value: unknown): value is VNode {
   return !!value && typeof value == 'object' && (value as { [ELEMENT]?: true })[ELEMENT] === true;
 }

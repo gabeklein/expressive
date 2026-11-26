@@ -33,8 +33,9 @@ function render(node: RenderNode, container: Container, host: Host): () => void 
 }
 
 /**
- * Render `node` over markup already in `container`, adopting its nodes. Returns a function that unmounts it.
+ * Render `node` over markup already in `container`, adopting its nodes.
  *
+ * Returns a function that unmounts it.
  * Adopts through `host.hydration`; a host without one renders instead, replacing the markup.
  */
 function hydrate(node: RenderNode, container: Container, host: Host): () => void {

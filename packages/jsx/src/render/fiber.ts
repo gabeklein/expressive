@@ -25,7 +25,8 @@ type Placement = Pick<Component, 'fallback' | 'catch'>;
 /**
  * The core's record of one mounted node or range.
  *
- * Hosts read `start`, `end`, `props`, `claimed`, `root` and `children`, and may keep their own entries keyed by fiber. Other fields are the core's.
+ * An element host reads `start` (its node), `props`, `claimed`, `root`, `children`, `dead` and, for a portal, `portalContainer`.
+ * dom keeps its listeners in `events`; other host state belongs in a map keyed by fiber.
  */
 interface Fiber {
   kind: Kind;
