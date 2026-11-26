@@ -1,5 +1,5 @@
 import { Component } from '@expressive/mvc';
-import { elements } from '@expressive/mvc/host';
+import { elements, placement } from '@expressive/mvc/host';
 import type { Renderable } from '@expressive/mvc/host';
 import { useAmbient } from './context';
 import { Runtime, useFactory, useWatch } from './runtime';
@@ -84,7 +84,10 @@ function Element(this: Component){
   const render = useFactory(() => {
     let from = this;
     const context = outer.push(this);
-    const Content = () => from.render(from.props);
+    const Content = () => {
+      const placed = placement(from);
+      return from.render(placed ? { ...from.props, children: placed.children } : from.props);
+    };
 
     return () => {
       from = useWatch(this, () => () => context.pop());
