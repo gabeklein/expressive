@@ -7,7 +7,7 @@ import { resume } from './host';
 import type { Boundary, Container, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
-import { consume, renderedAppearance } from '../core/appearance';
+import { renderComponent, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
 import { rootOf } from './host';
 import type { Host } from './host';
@@ -174,8 +174,11 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
     rendering = fiber.type ? fiber : parent;
 
     try {
-      const output = probed ? probed.output as RenderNode : consume(fiber, render);
-      reconcile(fiber, output, scope.context, fiber.boundary, renderedAppearance(fiber));
+      const { output, appearance } = probed
+        ? { output: probed.output as RenderNode, appearance: renderedAppearance(fiber) }
+        : renderComponent(fiber, render);
+
+      reconcile(fiber, output, scope.context, fiber.boundary, appearance);
 
       if (fiber.staging) {
         fiber.end.parentNode!.insertBefore(fiber.staging, fiber.end);

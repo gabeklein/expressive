@@ -4,6 +4,7 @@ import type { Renderable } from '@expressive/mvc/host';
 import { useAmbient } from './context';
 import { Runtime, useFactory, useWatch } from './runtime';
 import { createFrame } from './component';
+import { hostComponent } from './style';
 
 declare module '@expressive/mvc' {
   interface Component {
@@ -84,7 +85,7 @@ function Element(this: Component){
   const render = useFactory(() => {
     let from = this;
     const context = outer.push(this);
-    const Content = () => from.render(from.props);
+    const Content = () => hostComponent(from, from.render, false, from.props);
 
     return () => {
       from = useWatch(this, () => () => context.pop());

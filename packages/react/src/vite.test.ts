@@ -88,6 +88,20 @@ describe('prebundle', () => {
     expect(include(project(['hot']))).toEqual(['@expressive/mvc/hot']);
   });
 
+  function resolved(root: string, include?: string[]) {
+    const config = { root, optimizeDeps: { include } };
+    (expressive().configResolved as Function)(config);
+    return config.optimizeDeps.include;
+  }
+
+  it('will keep a linked package out of a prebundle another plugin asked for', () => {
+    const asked = ['@expressive/mvc', '@expressive/react/jsx-dev-runtime', 'react'];
+
+    expect(resolved(project(['', 'hot']), asked)).toEqual(['@expressive/mvc', 'react']);
+    expect(resolved(project(['', 'hot'], true), asked)).toEqual(['react']);
+    expect(resolved(project(['']))).toBeUndefined();
+  });
+
   it('will resolve from the working directory, or a root relative to it', () => {
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(project(['', 'hot']));
 
@@ -126,7 +140,7 @@ it('will name a module by its path from the project root', async () => {
   const plugin = expressive();
   const context = { parse: parseAst, resolve: async () => null };
 
-  (plugin.configResolved as Function)({ root: '/project' });
+  (plugin.configResolved as Function)({ root: '/project', optimizeDeps: {} });
 
   const { code } = await (plugin.transform as Function).call(context, 'class A {}', '/project/src/app.js');
   const outside = await (plugin.transform as Function).call(context, 'class A {}', '/elsewhere/app.js');
@@ -350,5 +364,74 @@ describe('private members', () => {
     expect(warn).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(note.replace('will trigger a full reload', 'replace it instead of patching'));
     expect(last.hot.invalidate).not.toHaveBeenCalled();
+  });
+});
+
+describe('styled refresh', () => {
+  const STYLED = `import { jsxDEV } from '@expressive/react/jsx-dev-runtime';`;
+  const WRAPPER = `
+function $RefreshReg$(type, id) { return register(type, '/src/app.jsx ' + id) }
+function $RefreshSig$() { return signature() }`;
+
+  function load(code: string) {
+    const registered: [unknown, string][] = [];
+    const signed: [unknown, string][] = [];
+    const hosts = new Map<unknown, unknown>();
+    const register = (type: unknown, id: string) => registered.push([type, id]);
+    const signature = () => (type: unknown, key: string) => {
+      if (typeof key == 'string') signed.push([type, key]);
+      return type;
+    };
+    const body = code.replace(/^import .*$/gm, '') + '\nreturn { $RefreshReg$, $RefreshSig$ };';
+    const refresh = new Function('register', 'signature', '__hosted', body)(register, signature, (type: unknown) => hosts.get(type));
+
+    return { ...refresh, hosts, registered, signed };
+  }
+
+  it('will register and sign a host beside its component', async () => {
+    const { code } = (await transform(STYLED + WRAPPER, '/src/app.jsx'))!;
+    const module = load(code);
+    const Button = () => null;
+    const Plain = () => null;
+    const host = () => null;
+
+    module.hosts.set(Button, host);
+
+    const sign = module.$RefreshSig$();
+    sign(Button, 'useState{a}');
+    sign();
+    module.$RefreshSig$()(Plain, 'useRef{b}');
+    module.$RefreshReg$(Button, 'Button');
+    module.$RefreshReg$(Plain, 'Plain');
+
+    expect(code).toContain(`import { hosted as __hosted } from '@expressive/react/jsx-dev-runtime';`);
+    expect(module.signed).toEqual([[host, 'useState{a}'], [Button, 'useState{a}'], [Plain, 'useRef{b}']]);
+    expect(module.registered).toEqual([
+      [host, '/src/app.jsx Button%styled'],
+      [Button, '/src/app.jsx Button'],
+      [Plain, '/src/app.jsx Plain']
+    ]);
+  });
+
+  it('will rewrite a module that also binds classes', async () => {
+    const { code } = (await transform(STYLED + WRAPPER + '\nclass A {}', '/src/app.jsx'))!;
+
+    expect(code).toContain('function __reg$(');
+    expect(code).toContain('__accept("/src/app.jsx", { A })');
+  });
+
+  it('will rewrite the hot runtime itself without binding it', async () => {
+    const { code } = (await transform(STYLED + WRAPPER + '\nclass A {}', '/mvc/src/hot.js'))!;
+
+    expect(code).toContain('function __reg$(');
+    expect(code).not.toContain('__accept(');
+  });
+
+  it.each([
+    ['without the styled runtime', WRAPPER, undefined],
+    ['without refresh', STYLED, undefined],
+    ['on the server', STYLED + WRAPPER, true]
+  ])('will not rewrite a module %s', async (_, code, ssr) => {
+    expect(await transform(code, '/src/app.jsx', undefined, ssr)).toBeUndefined();
   });
 });

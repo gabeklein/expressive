@@ -4,7 +4,7 @@ import { watch } from '@expressive/mvc/observable';
 import { resolve } from '../node/loader';
 import { isVNode } from '../node/vnode';
 import type { Key, Node as RenderNode, VNode } from '../node/vnode';
-import { componentProps, placed } from '../style/claim';
+import { placeComponent, placed } from '../style/claim';
 import type { Appearance } from '../style/claim';
 import { call, enter } from '../core/adapter';
 import { inserted } from './commits';
@@ -35,7 +35,7 @@ function own(Type: new (props: unknown) => Component, props: unknown, placed: Pr
 
 function mountFunction(value: VNode, parent: globalThis.Node, before: globalThis.Node | null, context: Context, boundary?: Boundary, appearance?: Appearance) {
   const fiber = range('function', parent, before, context);
-  const resolved = componentProps(value.type, value.props, appearance);
+  const resolved = placeComponent(value.type, value.props, appearance);
   fiber.key = value.key;
   fiber.type = value.type;
   fiber.props = observe(resolved.props);
@@ -63,7 +63,7 @@ function mountOwnedComponent(
   boundary?: Boundary,
   appearance?: Appearance
 ) {
-  const resolved = componentProps(value.type, value.props, appearance);
+  const resolved = placeComponent(value.type, value.props, appearance);
   const Type = value.type as new (props: unknown) => Component;
   const props = observe(resolved.props);
   let place!: () => void;
@@ -165,7 +165,7 @@ function probing(fiber: Fiber) {
 }
 
 function patchFunction(fiber: Fiber, value: VNode, appearance?: Appearance) {
-  const resolved = componentProps(value.type, value.props, appearance);
+  const resolved = placeComponent(value.type, value.props, appearance);
   if (fiber.type !== value.type) {
     untrack(fiber.type as Function, fiber.scope!);
     fiber.type = value.type;
@@ -179,7 +179,7 @@ function patchFunction(fiber: Fiber, value: VNode, appearance?: Appearance) {
 
 function patchComponent(fiber: Fiber, value: RenderNode, appearance?: Appearance) {
   const resolved = isVNode(value)
-    ? componentProps(value.type, value.props, appearance)
+    ? placeComponent(value.type, value.props, appearance)
     : { appearance: placed(appearance), props: fiber.props! };
   fiber.appearance = resolved.appearance;
   const props = isVNode(value) ? observe(resolved.props) : resolved.props;

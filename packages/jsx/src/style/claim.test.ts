@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createStyleScope, resolveAppearance } from './appearance';
-import { claim, componentProps, flatten } from './claim';
+import { claim, placeComponent, flatten } from './claim';
 import type { AppearanceContext, Styles } from './protocol';
 import { style } from './stylesheet';
 
@@ -51,8 +51,8 @@ describe('claim reuse', () => {
   it('will mint one token per resolved appearance', () => {
     const Child = () => null;
     const appearance = { entries: [], context };
-    const first = componentProps(Child, { _on: true }, appearance).props.style[0];
+    const first = placeComponent(Child, { _on: true }, appearance).props.style[0];
 
-    expect(componentProps(Child, { _on: true }, appearance).props.style[0]).toBe(first);
+    expect(placeComponent(Child, { _on: true }, appearance).props.style[0]).toBe(first);
   });
 });

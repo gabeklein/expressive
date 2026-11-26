@@ -48,7 +48,12 @@ const tickets = new WeakMap<object, Ticket>();
 const claims = new WeakMap<Styles, WeakMap<ResolvedAppearance, Claimed & { generation: number }>>();
 const EMPTY: Claimed = { className: '', declarations: {}, plain: [] };
 
-function componentProps(
+/**
+ * Resolve a caller's rules onto a component element's props, for hosts with their own reconciler.
+ *
+ * `appearance` is where the element was placed. Render with the returned `props` - their `style` carries the caller's rules - and keep `appearance` on the component's `Rendered` record. Throws on a reserved `_Name` prop.
+ */
+function placeComponent(
   type: unknown,
   props: Record<string, any>,
   appearance: Appearance | undefined
@@ -230,5 +235,5 @@ function appendClasses(classes: string[], value: unknown) {
   if (typeof value == 'string') classes.push(...value.split(/\s+/).filter(Boolean));
 }
 
-export { claim, componentProps, door, flatten, placed, styleElement };
+export { claim, placeComponent, door, flatten, placed, styleElement };
 export type { Appearance, Claim, Style };
