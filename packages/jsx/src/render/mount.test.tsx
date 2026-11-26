@@ -56,8 +56,8 @@ describe('mount', () => {
 
     const runtime = await vi.importActual<typeof import('@expressive/jsx/jsx-runtime')>('@expressive/jsx/jsx-runtime');
     const { render: renderWith } = await vi.importActual<typeof import('./render')>('./render');
-    const { limp } = await vi.importActual<typeof import('./host')>('./host');
-    const render = (node: any, root: Element) => renderWith(node, root, limp);
+    const { plain } = await vi.importActual<typeof import('./host')>('./host');
+    const render = (node: any, root: Element) => renderWith(node, root, plain);
     const foreign = { host: true } as never;
     const Page = () => foreign;
     const page = runtime.jsx(Page, {});

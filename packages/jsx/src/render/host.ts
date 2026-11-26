@@ -64,14 +64,19 @@ function ownerOf(root: Root) {
   return documentOf(root.container);
 }
 
-const limp: Host = {
+/**
+ * Host without opinions: tags as written, props as attributes, `on*` handlers attached.
+ *
+ * No styles, selector portal targets or hydration.
+ */
+const plain: Host = {
   text: (root, value) => ownerOf(root).createTextNode(value),
   marker: (root, kind) => ownerOf(root).createComment(kind),
   fragment: (root) => ownerOf(root).createDocumentFragment(),
   mount(fiber, value, parent, before) {
     fiber.start = fiber.end = parent.insertBefore(ownerOf(fiber.root!).createElement(value.type as string), before);
 
-    return complete(fiber, () => limp.patch(fiber, value));
+    return complete(fiber, () => plain.patch(fiber, value));
   },
   patch(fiber, value) {
     const element = fiber.start as Element;
@@ -165,7 +170,7 @@ function isComment(node: globalThis.Node, data: string) {
   return node.nodeType == 8 && (node as Comment).data == data;
 }
 
-const plain: Omit<Hydration, 'adopted' | 'hydrating'> = {
+const fresh: Omit<Hydration, 'adopted' | 'hydrating'> = {
   adopt: (parent, before, create) => parent.insertBefore(create(), before),
   adoptText: (parent, before, value) => parent.insertBefore(text(value), before),
   adoptRange(parent, before, kind) {
@@ -178,12 +183,12 @@ const plain: Omit<Hydration, 'adopted' | 'hydrating'> = {
 };
 
 function hydrationOf() {
-  return activeRoot().host.hydration || plain;
+  return activeRoot().host.hydration || fresh;
 }
 
 function resume<T>(fiber: Fiber, work: () => T): T {
   return fiber.root!.host.hydration!.hydrating(fiber.end.parentNode!, work, fiber.start, fiber.end);
 }
 
-export { activeRoot, hydrationOf, isComment, limp, marker, resume, rootOf, text, within };
+export { activeRoot, hydrationOf, isComment, marker, plain, resume, rootOf, text, within };
 export type { Host, Hydration, Root };

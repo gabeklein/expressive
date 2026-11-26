@@ -7,7 +7,7 @@ export type { JSX } from './jsx-runtime';
 export { afterFlush } from './core/scheduler';
 export { fragment, inserted } from './render/commits';
 export type { Container, Fiber } from './render/fiber';
-export { activeRoot, isComment, limp, marker, rootOf, text, within } from './render/host';
+export { activeRoot, isComment, marker, plain, rootOf, text, within } from './render/host';
 export type { Host, Hydration, Root } from './render/host';
 export { complete, unmountFiber } from './render/mount';
 export { LEAD } from './render/portal';

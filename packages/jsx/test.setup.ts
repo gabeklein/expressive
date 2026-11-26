@@ -4,7 +4,7 @@ import type { Component, Model } from '@expressive/mvc';
 
 import { mockPromise } from '../mvc/test.setup';
 import { vnode } from './src/node/vnode';
-import { limp } from './src/render/host';
+import { plain } from './src/render/host';
 import type { Host } from './src/render/host';
 import { complete } from './src/render/mount';
 import { reconcileChildren } from './src/render/reconcile';
@@ -60,9 +60,9 @@ function sheet(document: Document): Styles {
 
 const sheets = new WeakMap<Document, Styles>();
 
-/** limp with a stylesheet: classes and inline declarations from the style engine. */
+/** The plain host with a stylesheet: classes and inline declarations from the style engine. */
 export const styled: Host = {
-  ...limp,
+  ...plain,
   target: documentOf,
   styles(target) {
     const document = target as Document;
@@ -107,9 +107,9 @@ export const styled: Host = {
   unmount() {}
 };
 
-let host: Host = limp;
+let host: Host = plain;
 
-/** Render this file's `mount` and `place` through `next` - limp by default. */
+/** Render this file's `mount` and `place` through `next` - the plain host by default. */
 export function useHost(next: Host) {
   host = next;
 }
