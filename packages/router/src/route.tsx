@@ -243,7 +243,7 @@ export class Route extends Component {
    * An override handling its own errors returns `super.catch(error)` for the rest.
    */
   catch(error: Error): Promise<void> {
-    return redirect(this, error) || Promise.reject(error);
+    return follow(this, error) || Promise.reject(error);
   }
 
   /**
@@ -276,7 +276,7 @@ Route.on({
     });
 
     if (!mounted++)
-      release = Model.on({ catch: setup });
+      release = Model.on({ catch: rejected });
 
     return () => {
       if (!--mounted) release!();
@@ -284,19 +284,19 @@ Route.on({
   }
 });
 
-/** A `Redirect` rejected from an async `new()` - the nearest Route navigates. */
-function setup(this: Model, error: unknown, kind: string) {
-  if (kind == 'setup') {
-    const route = this.get(Route, false);
+/** A `Redirect` rejected from an async `new()` - the nearest Route navigates, unless it was left meanwhile. */
+function rejected(this: Model, error: unknown, kind: string) {
+  if (kind == 'setup' && error instanceof Redirect) {
+    const route = this instanceof Route ? this : this.get(Route, false);
 
-    if (route && redirect(route, error)) return;
+    if (route && (!route.matched || follow(route, error))) return;
   }
 
   return error;
 }
 
 /** Navigate to a caught `Redirect`, settling once the navigation lands; `undefined` if not one, or one caught mid-redirect. */
-function redirect(route: Route, error: unknown): Promise<void> | undefined {
+function follow(route: Route, error: unknown): Promise<void> | undefined {
   const { router } = route;
 
   if (!(error instanceof Redirect) || REDIRECTING.has(router)) return;

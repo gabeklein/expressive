@@ -4,6 +4,7 @@ import { Component, Model } from '@expressive/mvc';
 import { act, browserRouter, location, mockPromise, mockUncaught, render, renderAct } from '../test.setup';
 import { Redirect } from './redirect';
 import { Route } from './route';
+import { Router } from './router';
 
 const router = browserRouter();
 
@@ -214,6 +215,98 @@ describe('Redirect', () => {
     await act(() => { ticker.tick = 1; });
     expect(uncaught).toEqual([redirect]);
     expect(window.location.pathname).toBe('/');
+  });
+
+  it('will replace through a chain on a cold load', async () => {
+    location('/a');
+    const before = window.history.length;
+    await renderAct(
+      <>
+        <Route to="/a" redirect="/b" />
+        <Route to="/b" as={() => { throw new Redirect('/c'); }} />
+        <Route to="/c" as={() => null} />
+      </>
+    );
+    expect(window.location.pathname).toBe('/c');
+    expect(window.history.length).toBe(before);
+  });
+
+  it('will replace the entry a replacing navigation meant to', async () => {
+    location('/');
+    await renderAct(
+      <>
+        <Route to="/" as={() => null} />
+        <Route to="/dash" as={() => { throw new Redirect('/onboard'); }} />
+        <Route to="/onboard" as={() => null} />
+      </>
+    );
+    const before = window.history.length;
+
+    await act(() => router.current.goto('/dash', true));
+    expect(window.location.pathname).toBe('/onboard');
+    expect(window.history.length).toBe(before);
+  });
+
+  it('will replace an entry a memory router stepped back into', async () => {
+    const memory = Router.new();
+    await renderAct(
+      <Component for={memory}>
+        <Route to="/" as={() => null} />
+        <Route to="/admin" as={() => { throw new Redirect('/login'); }} />
+        <Route to="/login" as={() => null} />
+        <Route to="/x" as={() => null} />
+      </Component>
+    );
+    Object.assign(memory, { entries: ['/', '/admin', '/x'], index: 2, path: '/x' });
+
+    await act(() => memory.back());
+    expect(memory.path).toBe('/login');
+
+    await act(() => memory.go(1));
+    expect(memory.path).toBe('/x');
+
+    await act(() => memory.go(-2));
+    expect(memory.path).toBe('/');
+  });
+
+  it('will not navigate when async new() rejects after the page was left', async () => {
+    location('/me');
+    const check = mockPromise<void>();
+    class Me extends Component {
+      protected async new() {
+        await check;
+      }
+    }
+    await renderAct(
+      <>
+        <Route to="/me" as={Me} />
+        <Route to="/about" as={() => null} />
+      </>
+    );
+
+    await act(() => router.current.goto('/about'));
+    await act(async () => {
+      check.reject(new Redirect('/login'));
+      await check.catch(() => {});
+    });
+    expect(window.location.pathname).toBe('/about');
+  });
+
+  it('will navigate when a Route subclass rejects its own async new()', async () => {
+    location('/me');
+    class Guard extends Route {
+      protected async new() {
+        await null;
+        throw new Redirect('/login');
+      }
+    }
+    await renderAct(
+      <>
+        <Guard to="/me" />
+        <Route to="/login" as={() => null} />
+      </>
+    );
+    expect(window.location.pathname).toBe('/login');
   });
 });
 
