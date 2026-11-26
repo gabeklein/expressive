@@ -305,13 +305,14 @@ function redirect(route: Route, error: unknown): Promise<void> | undefined {
   return (async () => {
     try {
       route.goto(error.to, !uncommitted(router));
-      await new Promise<void>((done) => {
-        router.get(($) => {
-          if ($.navigating) return;
-          done();
-          return null;
+
+      if (router.navigating)
+        await new Promise<void>((done) => {
+          router.set('navigating', () => {
+            done();
+            return null;
+          });
         });
-      });
     } finally {
       REDIRECTING.delete(router);
     }
