@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { parseSync, type ESTree } from "vite";
 
 import { ERRORS } from "../errors";
@@ -184,11 +184,12 @@ async function endOf(start: Found, name: string, sources: Sources, owned: (file:
 
     const local = module.locals.get(base.name);
     const imported = module.imports.get(base.name);
+    const rpc = imported && !imported.type && (imported.from === ROOT || LIBRARY.test(imported.from) || /^[./]/.test(imported.from)) && await rpcError(imported, module.file, sources);
     let next: Found;
 
     if (isClass(local)) next = { cls: local, module };
     else if (!imported || imported.type) return globalEnd(owner, base.name, parent);
-    else if (imported.from === ROOT && `http:${imported.name}` in ERRORS) return { kind: "error", parent: parent ?? { id: `http:${imported.name}` } };
+    else if (rpc) return { kind: "error", parent: parent ?? { id: `http:${rpc}` } };
     else if (LIBRARY.test(imported.from)) return { kind: "model" };
     else if (!/^[./]/.test(imported.from)) return { kind: "error", parent };
     else {
@@ -207,6 +208,26 @@ async function endOf(start: Found, name: string, sources: Sources, owned: (file:
     parent ??= parentOf(next, owned);
     name = base.name;
     at = next;
+  }
+}
+
+async function rpcError(imported: Import, importer: string, sources: Sources, seen = new Set<string>()): Promise<string | undefined> {
+  if (imported.from === ROOT) return `http:${imported.name}` in ERRORS ? imported.name : undefined;
+
+  const file = await sources.resolve(imported.from, importer);
+  if (!file || !isAbsolute(file) || seen.has(`${file}#${imported.name}`)) return;
+  seen.add(`${file}#${imported.name}`);
+
+  const module = moduleOf(file, sources.read(file));
+
+  for (const node of module.body) {
+    if (node.type !== "ExportNamedDeclaration" || node.exportKind === "type") continue;
+    for (const spec of node.specifiers) {
+      if (spec.exportKind === "type" || nameOf(spec.exported) !== imported.name) continue;
+      const name = nameOf(spec.local);
+      const next = node.source ? { from: node.source.value, name, type: false } : module.imports.get(name);
+      if (next && !next.type) return rpcError(next, file, sources, seen);
+    }
   }
 }
 

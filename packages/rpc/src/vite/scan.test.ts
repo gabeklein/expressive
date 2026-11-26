@@ -69,6 +69,36 @@ describe("calls", () => {
 });
 
 describe("error classes", () => {
+  it("will follow a re-exported http error to rpc", async () => {
+    const files: Record<string, string> = {
+      "/packages/dev/server.ts": `import { HttpError as Base } from "@expressive/rpc"; export { Base as HttpError };`,
+      "/packages/dev/index.ts": `export { HttpError } from "./server";`,
+    };
+    const sources: Sources = {
+      resolve: async (spec, importer) => spec === "@expressive/dev" ? "/packages/dev/index.ts" : spec === "@expressive/rpc" ? undefined : new URL(spec, `file://${importer}`).pathname.replace(/\.ts$/, "") + ".ts",
+      read: file => files[file],
+    };
+    const found = await scanModule("/app/api/todos.ts", `import { HttpError } from "@expressive/dev"; export class Closed extends HttpError {}`, sources, () => false);
+
+    expect(found.problems).toEqual([]);
+    expect(found.errors).toEqual([{ name: "Closed", parent: { id: "http:HttpError" } }]);
+  });
+
+  it("will refuse an unrelated class named HttpError", async () => {
+    const files: Record<string, string> = {
+      "/packages/other/index.ts": `export { HttpError } from "./error";`,
+      "/packages/other/error.ts": `export class HttpError {}`,
+    };
+    const sources: Sources = {
+      resolve: async (spec, importer) => spec === "@expressive/other" ? "/packages/other/index.ts" : spec === "@expressive/rpc" ? undefined : new URL(spec, `file://${importer}`).pathname.replace(/\.ts$/, "") + ".ts",
+      read: file => files[file],
+    };
+    const found = await scanModule("/app/api/todos.ts", `import { HttpError } from "@expressive/other"; export class Closed extends HttpError {}`, sources, () => false);
+
+    expect(found.errors).toEqual([]);
+    expect(found.problems).toEqual(["Closed is a class but not an Error - only error classes reach the client."]);
+  });
+
   it("will take a subclass of an http error with that error as its parent", async () => {
     const { errors, problems } = await scan(`${HTTP}
       export class Payment extends HttpError { status = 402 }
