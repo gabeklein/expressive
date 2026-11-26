@@ -384,30 +384,24 @@ describe("vite host", () => {
     expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments", "/shop/7", "/blog/hello"]);
   });
 
-  it("will use the outgoing page's location during a held navigation and the entering hook's path", async () => {
+  it("will fill a held page's call params from location while Router points at the target", async () => {
     const server = await serve(project({ "app/index.tsx": PAGE }));
     const { call } = await server.ssrLoadModule("/.expressive/call.ts");
     const { Router } = await server.ssrLoadModule("@expressive/dev");
     const posted: string[] = [];
-    const path = Symbol.for("@expressive/dev#path");
-
-    vi.spyOn(Router, "get").mockReturnValue({ path: "/note/7" });
+    const get = vi.spyOn(Router, "get").mockReturnValue({ path: "/note/cart" });
     vi.stubGlobal("location", { pathname: "/note/7", href: "http://localhost/note/7" });
     vi.stubGlobal("fetch", async (url: string) => (posted.push(url), new Response('{"value":1}', { headers: { "content-type": "application/json; codec=expressive" } })));
 
     try {
       await call(["note", ":id"], "served", []);
-      (globalThis as any)[path] = "/note/8";
-      await call(["note", ":id"], "served", []);
-      delete (globalThis as any)[path];
-      await call(["note", ":id"], "served", []);
+      expect(get).not.toHaveBeenCalled();
     } finally {
-      delete (globalThis as any)[path];
       vi.restoreAllMocks();
       vi.unstubAllGlobals();
     }
 
-    expect(posted).toEqual(["/note/7", "/note/8", "/note/7"]);
+    expect(posted).toEqual(["/note/7"]);
   });
 
   it("will serve an exported subclass of an http error to the browser as an error", async () => {
