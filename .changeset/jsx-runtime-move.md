@@ -6,6 +6,7 @@
 "@expressive/inspect": patch
 "@expressive/dom": patch
 "@expressive/dev": patch
+"@expressive/rpc": patch
 ---
 
 The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx-runtime`. This covers:
@@ -15,7 +16,7 @@ The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx
 - `childrenOf`, `isElement`, `typeOf` and `propsOf`;
 - the `JSX`, `Element` and `HostRuntime` types.
 
-`@expressive/mvc/jsx-runtime` keeps the `Host` manifest and the host seams `resolver`, `methodOf` and `elements`. `@expressive/mvc/jsx-dev-runtime` is removed. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`.
+`@expressive/mvc/jsx-runtime` becomes `@expressive/mvc/host`, keeping only the `Host` manifest and the host seams `resolver`, `methodOf` and `elements` - a custom host augments `declare module '@expressive/mvc/host'`. `@expressive/mvc/jsx-dev-runtime` is removed. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`.
 
 Every copy of `@expressive/jsx` in a realm shares one host registry, so an app that resolves two copies still has one host - and so do separately bundled apps on one page or in one process; a React app beside a dom app is not supported, and dom reports the foreign elements. A host that registers with the same `jsx` replaces its members; another `jsx` throws.
 

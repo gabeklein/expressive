@@ -1,6 +1,6 @@
 import { Context, Model, unbind } from '@expressive/mvc';
 import { watch } from '@expressive/mvc/observable';
-import { methodOf, resolver } from '@expressive/mvc/jsx-runtime';
+import { methodOf, resolver } from '@expressive/mvc/host';
 
 import { schedule, transition, unschedule } from './scheduler';
 import type { Schedulable } from './scheduler';

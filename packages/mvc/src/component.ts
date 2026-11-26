@@ -4,7 +4,7 @@ import { listener } from './observable';
 import { set } from './field/set';
 import { Model, adopt, plain, trailing } from './model';
 
-import type { Host } from './jsx-runtime';
+import type { Host } from './host';
 
 const PENDING = new WeakMap<object, Component<any>>();
 
@@ -53,7 +53,7 @@ declare namespace Component {
   /**
    * What `render` returns - the host's node type.
    *
-   * Read from the `Host` manifest on `@expressive/mvc/jsx-runtime`; `any` until an adapter augments
+   * Read from the `Host` manifest on `@expressive/mvc/host`; `any` until an adapter augments
    * it with `node`. `any`, not `unknown` - an un-annotated `render` in a host-agnostic package stays
    * assignable to every host's node type.
    */

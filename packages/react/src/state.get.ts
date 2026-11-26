@@ -1,6 +1,6 @@
 import { Model, Context } from '@expressive/mvc';
 import { observer, watch } from '@expressive/mvc/observable';
-import { resolver } from '@expressive/mvc/jsx-runtime';
+import { resolver } from '@expressive/mvc/host';
 import { useAmbient } from './context';
 import { Runtime, useFactory, useSettle, useSetup, useWeak } from './runtime';
 

@@ -5,7 +5,7 @@ import { host } from '@expressive/jsx/jsx-runtime';
 
 import type { Component as PreactComponent, ComponentChildren, JSX as PreactJSX, RefObject } from 'preact';
 
-declare module '@expressive/mvc/jsx-runtime' {
+declare module '@expressive/mvc/host' {
   interface Host {
     node: ComponentChildren;
     intrinsics: PreactJSX.IntrinsicElements;

@@ -1,6 +1,6 @@
 import { elementType, Runtime } from '@expressive/react/adapter';
 import { Component } from '@expressive/mvc';
-import { elements, type Renderable } from '@expressive/mvc/jsx-runtime';
+import { elements, type Renderable } from '@expressive/mvc/host';
 import { options, type ComponentChildren } from 'preact';
 import * as compat from 'preact/compat';
 
