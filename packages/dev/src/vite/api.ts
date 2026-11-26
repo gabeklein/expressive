@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 
 import { VERBS, type ApiRoute, type Exports } from "../server/api";
+import { moduleOf } from "@expressive/rpc/vite";
 import { scanExports } from "./scan";
 
 const EXT = new Set([".ts", ".tsx", ".js", ".jsx"]);
@@ -9,6 +10,13 @@ const SKIP = /\.(test|spec)\.|\.d\.ts$/;
 
 export interface ApiFile extends Omit<ApiRoute, "load"> {
   file: string;
+}
+
+/** A bare-named module under `api/` - a helper its routes import, never a route. `path` is where it would serve as a leaf. */
+export interface ApiHelper {
+  name: string;
+  file: string;
+  path: string[];
 }
 
 /** What is wrong with a module's exports - `names` its runtime exports, `classDefault` whether its `default` is a class. */
@@ -22,7 +30,7 @@ export function problems(names: Iterable<string>, index: boolean, root: boolean,
     if (name !== "default" && !VERBS.includes(name))
       found.push(root && index
         ? `\`${name}\` - api/index.ts's other exports are reserved; export only verbs and a default gate.`
-        : `\`${name}\` is not a route export - export ${VERBS.join(", ")} or a default, and keep helpers outside api/.`);
+        : `\`${name}\` is not a route export - export ${VERBS.join(", ")} or a default, and move helpers to a bare-named file beside it, like helpers.ts.`);
 
   if (index && classDefault) found.push("A folder's default is its gate - a function, not a class: export default () => { Session.new() }");
   if (!index && gate && verbs.length) found.push("A default answers every method - export it or verbs, not both.");
@@ -42,9 +50,10 @@ export function verifyApi({ name, index, path }: Omit<ApiRoute, "load">, exports
 
 const isClass = (value: unknown) => typeof value == "function" && /^class\b/.test(Function.prototype.toString.call(value));
 
-/** Every route module under `dir`, with what is wrong with their names. */
-export function scanApi(root: string, dir = join(root, "api")): { routes: ApiFile[]; problems: string[] } {
+/** Every module under `dir` - routes and helpers - with what is wrong with their names. */
+export function scanApi(root: string, dir = join(root, "api")): { routes: ApiFile[]; helpers: ApiHelper[]; problems: string[] } {
   const routes: ApiFile[] = [];
+  const helpers: ApiHelper[] = [];
   const found: string[] = [];
   const served = new Map<string, string>();
   const name = (file: string) => relative(root, file).replaceAll("\\", "/");
@@ -70,10 +79,14 @@ export function scanApi(root: string, dir = join(root, "api")): { routes: ApiFil
       if (!isDir && (!EXT.has(ext) || SKIP.test(entry))) continue;
 
       const raw = isDir ? entry : basename(entry, ext);
-      const param = /^\[(.+)\]$/.exec(raw)?.[1];
+      const leaf = isDir ? undefined : /^\((.+)\)$/.exec(raw)?.[1];
+      const named = leaf ?? raw;
+      const param = /^\[(.+)\]$/.exec(named)?.[1];
       const wrong =
-        /^\(.*\)$/.test(raw) ? `api/ has no groups - name it ${raw.slice(1, -1)}${isDir ? "/" : ext}.` :
-        /^[:*]/.test(raw) ? `a name starting with : or * reads as a param - name a param [name], the rest of a path [...].` :
+        isDir && /^\(.*\)$/.test(raw) ? `api/ has no groups - name the folder ${raw.slice(1, -1)}/.` :
+        raw === "()" ? `a leaf needs a name - (name)${ext}.` :
+        leaf && /^[[(]/.test(leaf) ? `(name)${ext} takes a plain name - a param is [name]${ext}, the rest of a path [...]${ext}.` :
+        /^[:*]/.test(named) ? `a name starting with : or * reads as a param - name a param [name], the rest of a path [...].` :
         param?.startsWith("...") && param !== "..." ? `[...] takes the rest of the path, unnamed - use [...] for a catch-all or [${param.slice(3)}] for one segment.` :
         param === "..." && isDir ? "[...] takes the rest of the path - make it a file, [...].ts." :
         undefined;
@@ -90,35 +103,63 @@ export function scanApi(root: string, dir = join(root, "api")): { routes: ApiFil
 
       if (param) params.add(param);
 
-      const segment = param ? `:${param}` : raw;
+      const segment = param ? `:${param}` : named;
 
       if (isDir) walk(full, [...path, segment]);
       else if (raw === "index") add(full, path, true);
-      else add(full, [...path, segment], false);
+      else if (leaf || param) add(full, [...path, segment], false);
+      else helpers.push({ name: name(full), file: full, path: [...path, raw] });
     }
 
     if (params.size > 1) found.push(`${name(folder)}/: one [param] per folder - ${[...params].map(param => `[${param}]`).join(" and ")} would take the same segment.`);
   })(dir, []);
 
-  return { routes, problems: found };
+  return { routes, helpers, problems: found };
 }
 
-/** What is wrong with the folder - its names, and each module's exports. */
+/** A helper's name as a leaf - `api/store.ts` as `api/(store).ts`. */
+export const leafOf = (name: string) => name.replace(/([^/]+)(\.[jt]sx?)$/, "($1)$2");
+
+/** The helper a path would reach if it were a route. */
+export function helperAt(helpers: ApiHelper[], segments: string[]): ApiHelper | undefined {
+  return helpers.find(({ path }) => path.length === segments.length && path.every((segment, i) => segment.startsWith(":") || segment === segments[i]));
+}
+
+const FUNCTION = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
+
+/** What is wrong with a helper - a function exported under a verb's name was meant as a route. */
+export function helperProblems({ name, file }: ApiHelper, source: string): string[] {
+  const { exports, errors } = moduleOf(file, source);
+
+  if (errors.length) return [`${name}: ${errors[0]}`];
+
+  const verbs = VERBS.filter(verb => FUNCTION.has(exports.get(verb)?.type as string));
+
+  return verbs.length ? [`${name}: exports ${verbs.join(", ")}, but a bare-named file is a helper, not a route - rename it ${leafOf(name)} to serve it.`] : [];
+}
+
+const STAR = "re-exports with `export *` - list the verbs by name: export { GET } from \"...\".";
+
+/** What is wrong with the folder - its names, each route's exports, and helpers that export verb handlers. */
 export async function apiErrors(root: string): Promise<string[]> {
-  const { routes, problems: found } = scanApi(root);
+  const { routes, helpers, problems: found } = scanApi(root);
 
   for (const { file, name, index, path } of routes) {
-    const { exports, classDefault } = await scanExports(readFileSync(file, "utf8"), file);
-    const wrong = problems(exports, index, !path.length, !!classDefault);
+    const source = readFileSync(file, "utf8");
+    const { exports, classDefault } = await scanExports(source, file);
+    const star = moduleOf(file, source).body.some(node => node.type === "ExportAllDeclaration" && !node.exported && node.exportKind !== "type");
+    const wrong = problems(exports, index, !path.length, !!classDefault).map(problem => (star && problem.startsWith("No handler") ? STAR : problem));
 
     if (wrong.length) found.push(`${name}: ${wrong.join(" ")}`);
   }
+
+  for (const helper of helpers) found.push(...helperProblems(helper, readFileSync(helper.file, "utf8")));
 
   return found;
 }
 
 const RESERVED: Record<string, (entry: string) => boolean> = {
-  app: entry => /^(api|\(api\))(\.[jt]sx?)?$/.test(entry),
+  app: entry => /^(api|\(api\)(\.[jt]sx?)?)$/.test(entry),
   public: entry => entry === "api",
 };
 

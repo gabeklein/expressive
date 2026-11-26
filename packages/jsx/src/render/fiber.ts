@@ -1,0 +1,126 @@
+import { Component, Context } from '@expressive/mvc';
+
+import type { Key, Node as RenderNode } from '../node/vnode';
+import type { Appearance, Claim } from '../style/claim';
+import type { Scope } from '../core/adapter';
+import { hydrationOf } from './host';
+import { activeRoot } from './host';
+import type { Root } from './host';
+
+/** A node a root or portal renders into. */
+type Container = Element | DocumentFragment;
+
+type Kind = 'collection' | 'component' | 'element' | 'fragment' | 'function' | 'portal' | 'text';
+
+interface Boundary {
+  catch?: (error: Error) => Promise<void> | void;
+  fallback?: () => RenderNode;
+  owner?: Fiber;
+  parent?: Boundary;
+  waiting?: Set<Fiber>;
+}
+
+type Placement = Pick<Component, 'fallback' | 'catch'>;
+
+/**
+ * The core's record of one mounted node or range.
+ *
+ * An element host reads `start` (its node), `props`, `claimed`, `root`, `children`, `dead` and, for a portal, `portalContainer`.
+ * dom keeps its listeners in `events`; other host state belongs in a map keyed by fiber.
+ */
+interface Fiber {
+  kind: Kind;
+  key?: Key;
+  type?: unknown;
+  value?: unknown;
+  source?: unknown;
+  props?: Record<string, any>;
+  context: Context;
+  boundary?: Boundary;
+  ownBoundary?: Boundary;
+  start: globalThis.Node;
+  end: globalThis.Node;
+  children: Fiber[];
+  slot?: string;
+  scope?: Scope;
+  release?: () => void;
+  childContext?: Context;
+  instance?: Component;
+  owned?: boolean;
+  events?: Map<string, EventListener>;
+  portalStart?: globalThis.Node;
+  portalEnd?: globalThis.Node;
+  portalContainer?: Container;
+  suspended?: Set<() => void>;
+  applied?: boolean;
+  retried?: boolean;
+  handled?: Boundary;
+  reached?: number;
+  portals?: [Fiber, DocumentFragment][];
+  dead?: boolean;
+  waitingOn?: Boundary;
+  recovering?: object;
+  stash?: DocumentFragment;
+  placeholder?: Fiber;
+  staging?: DocumentFragment;
+  render?: () => RenderNode;
+  appearance?: Appearance;
+  consumed?: boolean;
+  claimed?: Claim;
+  settled?: Record<string, any>;
+  dehydrated?: boolean;
+  root?: Root;
+  dev?: object;
+}
+
+function range(kind: Kind, parent: globalThis.Node, before: globalThis.Node | null, context: Context): Fiber {
+  const [start, end] = hydrationOf().adoptRange(parent, before, kind);
+
+  return { kind, context, start, end, children: [], root: activeRoot() };
+}
+
+function makeScope(context: Context, update: (passive: boolean) => void): Scope {
+  return {
+    active: true,
+    context,
+    subscriptions: [],
+    update
+  };
+}
+
+function moveRange(start: globalThis.Node, end: globalThis.Node, target: globalThis.Node) {
+  let node: globalThis.Node | null = start;
+
+  while (node) {
+    const next: globalThis.Node | null = node.nextSibling;
+    target.appendChild(node);
+    if (node === end) break;
+    node = next;
+  }
+}
+
+function move(fiber: Fiber, parent: globalThis.Node, before: globalThis.Node | null) {
+  if (fiber.start.parentNode === parent && fiber.end.nextSibling === before) return;
+
+  let node: globalThis.Node | null = fiber.start;
+  while (node) {
+    const next: globalThis.Node | null = node.nextSibling;
+    parent.insertBefore(node, before);
+    if (node === fiber.end) break;
+    node = next;
+  }
+}
+
+function removeRange(start: globalThis.Node, end: globalThis.Node) {
+  let node = start;
+
+  while (true) {
+    const next = node.nextSibling;
+    (node as ChildNode).remove();
+    if (node === end) break;
+    node = next!;
+  }
+}
+
+export { makeScope, move, moveRange, range, removeRange };
+export type { Boundary, Container, Fiber, Placement };

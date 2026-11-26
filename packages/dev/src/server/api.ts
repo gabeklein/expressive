@@ -15,6 +15,8 @@ export interface ApiRoute {
 export interface Api {
   prefix: string;
   routes(): ApiRoute[] | Promise<ApiRoute[]>;
+  /** Why no route serves `segments`, in place of the generic 404 message. */
+  missing?(segments: string[], pathname: string): string | undefined;
 }
 
 interface Node {
@@ -107,7 +109,7 @@ export async function serveApi(request: Request, api: Api, dev: boolean): Promis
 
   const last = async (): Promise<Response> => {
     if (handler) return layer(handler as () => unknown, undefined, params, dev);
-    if (!verbs.length) throw new NotFound(`No route in api/ serves ${pathname} - paths under ${api.prefix} belong to api/.`);
+    if (!verbs.length) throw new NotFound(api.missing?.(segments, pathname) ?? `No route in api/ serves ${pathname} - paths under ${api.prefix} belong to api/.`);
 
     const allow = verbs.flatMap(verb => (verb === "GET" ? [verb, "HEAD"] : [verb])).join(", ");
     const reply = Response.json({ message: `${pathname} does not answer ${method}.` }, { status: 405 });

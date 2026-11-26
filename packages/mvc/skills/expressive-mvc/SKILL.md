@@ -334,6 +334,7 @@ Instructions: `field/*.md`, linked from the [helper table](#instructions--reacti
 
 ### JSX
 
+- `expressive-jsx` - writing a host on the shared reconciler and style engine: the `Host` contract, `plain`, styles, hydration, host typing, portable components
 - `expressive-dom` - client DOM render/unmount, stateless FC scopes, MVC snapshots, native events, portals, lazy boundaries, transitions, Vite hot reload, exclusions
 
 ### Router

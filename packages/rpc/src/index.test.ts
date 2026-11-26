@@ -177,6 +177,6 @@ describe("build", () => {
     const runtime = ["index.server.js", "index.client.js", "http.js", "protocol.js"];
     const external = [...reach(runtime)].flatMap(importsOf).filter(spec => !spec.startsWith("."));
 
-    expect([...new Set(external)].sort()).toEqual(["@expressive/mvc", "@expressive/mvc/jsx-runtime", "node:async_hooks", "node:crypto"]);
+    expect([...new Set(external)].sort()).toEqual(["@expressive/mvc", "@expressive/mvc/host", "node:async_hooks", "node:crypto"]);
   });
 });

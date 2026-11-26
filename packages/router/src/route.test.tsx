@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Component, unbind } from '@expressive/mvc';
-import { typeOf } from '@expressive/mvc/jsx-runtime';
+import { typeOf } from '@expressive/jsx/jsx-runtime';
 
 import { act, browserRouter, getByText, location, mockPromise, render, renderAct } from '../test.setup';
 import { Route } from './route';
@@ -390,9 +390,11 @@ describe('Route', () => {
     it.each([
       ['will throw if a later sibling is shadowed by a section none Route', '/docs/team/roster', <Route>{docs}<Route to="docs/team/roster" as={text('roster')} /></Route>, /Route "\/docs\/team\/roster" is unreachable/],
       ['will throw if a param section none Route shadows a later sibling', '/', <Route><Route to=":section" as={Chrome}><Route none as={SectionMissing} /></Route><Route to="docs/intro" as={Detail} /></Route>, /unreachable/]
-    ])('%s', (_, path, ui, error) => {
+    ])('%s', async (_, path, ui, error) => {
+      const caught: Error[] = [];
       location(path);
-      expect(() => render(ui)).toThrow(error);
+      await renderAct(<Component catch={(e) => { caught.push(e); return new Promise(() => {}); }}>{ui}</Component>);
+      expect(caught[0].message).toMatch(error);
     });
   });
 
@@ -424,6 +426,42 @@ describe('Route', () => {
         </>
       );
       expect(window.location.pathname).toBe('/posts/foo/edit');
+    });
+
+    it('will push when entered by navigation', async () => {
+      location('/');
+      await renderAct(
+        <>
+          <Route to="/" as={Home} />
+          <Route to="/old" redirect="/new" />
+          <Route to="/new" as={() => null} />
+        </>
+      );
+      const before = window.history.length;
+
+      await act(() => router.current.goto('/old'));
+      expect(window.location.pathname).toBe('/new');
+      expect(window.history.length).toBe(before + 1);
+    });
+
+    it('will navigate once per verdict', async () => {
+      class Shell extends Component {
+        label = 'a';
+
+        render() {
+          return <Route to="/admin/*" label={this.label} redirect="/admin/login" as={Layout} />;
+        }
+      }
+
+      let shell!: Shell;
+      location('/admin');
+      const write = vi.spyOn(window.history, 'replaceState');
+      await renderAct(<Shell is={(s) => void (shell = s)} />);
+      expect(window.location.pathname).toBe('/admin/login');
+
+      await act(() => { shell.label = 'b'; });
+      expect(write).toHaveBeenCalledTimes(1);
+      write.mockRestore();
     });
 
     describe('functional guard', () => {

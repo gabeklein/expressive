@@ -2,9 +2,9 @@ import './jsx-runtime';
 
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { createElement, Fragment as ReactFragment } from 'react';
-import { childrenOf, Fragment, isElement, jsx, propsOf, typeOf } from '@expressive/mvc/jsx-runtime';
+import { childrenOf, Fragment, isElement, jsx, propsOf, typeOf } from '@expressive/jsx/jsx-runtime';
 import type { JSX as ReactJSX } from 'react';
-import type { JSX } from '@expressive/mvc/jsx-runtime';
+import type { JSX } from '@expressive/jsx/jsx-runtime';
 
 const element = createElement('div', { id: 'foo' });
 

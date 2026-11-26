@@ -17,10 +17,7 @@
     "skills"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/jsx-runtime.js",
-    "./dist/jsx-dev-runtime.js"
-  ],
+  "sideEffects": false,
   "bin": {
     "expressive": "dist/cli.js"
   },
@@ -76,6 +73,7 @@
     "@expressive/cli": "^0.3.0",
     "@expressive/dom": "^0.13.4",
     "@expressive/env": "^0.2.0",
+    "@expressive/jsx": "^0.0.0",
     "@expressive/inspect": "^0.6.7",
     "@expressive/router": "^0.10.7",
     "@expressive/rpc": "^0.5.1",

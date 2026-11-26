@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
         '@expressive/steps': src('steps'),
         '@expressive/react': src(dom ? 'dom' : 'react'),
         '@expressive/dom': src('dom'),
+        '@expressive/jsx': src('jsx'),
         '@expressive/mvc': src('mvc')
       }
     }

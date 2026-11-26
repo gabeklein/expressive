@@ -12,6 +12,7 @@ Monorepo: bun workspaces + changesets. Install, scripts, and builds run under bu
 
 ```
 packages/mvc    - Core primitives (@expressive/mvc)
+packages/jsx    - Base JSX host for other hosts: renderer, style engine, runtime (@expressive/jsx)
 packages/react  - React adapter (@expressive/react; /compat for preact)
 packages/router - Router built on Component (@expressive/router)
 packages/inspect - In-page inspector for agents and devtools (@expressive/inspect)
@@ -142,7 +143,7 @@ A green `tsc --noEmit` + `bun run build` says nothing about whether a browser-fa
 
 ### Releasing
 
-- `@expressive/mvc`, `@expressive/react`, `@expressive/router`, `@expressive/inspect`, `@expressive/dom`, `@expressive/steps`, `@expressive/rpc`, `@expressive/cli`, `@expressive/env`, and `@expressive/dev` are published.
+- `@expressive/mvc`, `@expressive/jsx`, `@expressive/react`, `@expressive/router`, `@expressive/inspect`, `@expressive/dom`, `@expressive/steps`, `@expressive/rpc`, `@expressive/cli`, `@expressive/env`, and `@expressive/dev` are published.
 - Merged changesets accumulate on `main`; CI maintains a "Version Packages" PR (`changeset version`). Merging that PR triggers `changeset publish` from CI. No local publishing.
 
 ## Guardrails
@@ -152,7 +153,7 @@ A green `tsc --noEmit` + `bun run build` says nothing about whether a browser-fa
 - Don't introduce framework-specific imports in `packages/mvc`.
 - Instructions (`def`, `ref`, `get`, `set`) are re-exported from adapters - don't duplicate implementations.
 - `new()` lifecycle hook is optional; don't add it unnecessarily.
-- `@expressive/router` is strictly client-side - no SSR or server coupling. Its roadmap priority is stability over features: `to`, `as`, `none`, `fallback`, `redirect`, the protected `children` getter, `Component.catch`, `Link`, and `BrowserRouter` form a de facto compatibility contract consumed by downstream tooling, so treat changes to them as breaking and design new seams once, carefully.
-- `@expressive/mvc` and `@expressive/router` declare `"sideEffects": false`, so a bundler may drop any module a consumer does not import from. Import must therefore mutate nothing outside the module - no registry writes, global patching, or feature probes at module scope. Anything that must run belongs behind a call. (`@expressive/react` opts specific files back in via a glob - see its `package.json`.)
+- `@expressive/router` is strictly client-side - no SSR or server coupling. Its roadmap priority is stability over features: `to`, `as`, `none`, `fallback`, `redirect`, the `Redirect` error, the protected `children` getter, `Component.catch`, `Link`, and `BrowserRouter` form a de facto compatibility contract consumed by downstream tooling, so treat changes to them as breaking and design new seams once, carefully.
+- `@expressive/mvc`, `@expressive/jsx`, `@expressive/dom`, `@expressive/router` and most other packages declare `"sideEffects": false` (check each `package.json`), so a bundler may drop any module a consumer does not import from. Import must therefore mutate nothing outside the module - no registry writes, global patching, or feature probes at module scope. Anything that must run belongs behind a call. (`@expressive/react` opts specific files back in via a glob - see its `package.json`.)
 - Event dispatch is batched via `queueMicrotask()` - not synchronous.
 - `Model.new()` constructs + activates; plain `new Model()` doesn't dispatch ready.

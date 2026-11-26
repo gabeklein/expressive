@@ -218,7 +218,9 @@ describe("route guard / auth gate", () => {
 
   class Guard extends Route {
     render() {
-      return authed ? <>{this.children}</> : <Redirect to="/login" replace />;
+      if (!authed) throw new Redirect("/login");
+
+      return <>{this.children}</>;
     }
   }
 
@@ -234,6 +236,21 @@ describe("route guard / auth gate", () => {
   it("redirects unauthenticated access away from the protected scope", async () => {
     location("/admin");
     const root = await mount(Tree);
+    expect(root.textContent).toBe("login");
+  });
+
+  it("redirects past a Catch rather than into it", async () => {
+    const Err = ({ error }: { error: Error }) => <p>caught: {error.message}</p>;
+    const Moved = () => { throw new Redirect("/login"); };
+    const Caught = () => (
+      <Route>
+        <Route to="login" as={Login} />
+        <Route to="admin" as={Moved} Catch={Err} />
+      </Route>
+    );
+
+    location("/admin");
+    const root = await mount(Caught);
     expect(root.textContent).toBe("login");
   });
 
