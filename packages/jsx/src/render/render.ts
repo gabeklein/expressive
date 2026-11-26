@@ -20,6 +20,11 @@ let passiveRender = false;
 let rendering: Fiber | undefined;
 let depth = 0;
 
+/**
+ * Render `node` into `container` through `host`. Returns a function that unmounts it.
+ *
+ * Replaces what the container holds, releasing a root rendered there before.
+ */
 function render(node: RenderNode, container: Container, host: Host): () => void {
   roots.get(container)?.();
   container.replaceChildren();
@@ -27,6 +32,11 @@ function render(node: RenderNode, container: Container, host: Host): () => void 
   return mountRoot(node, container, host);
 }
 
+/**
+ * Render `node` over markup already in `container`, adopting its nodes. Returns a function that unmounts it.
+ *
+ * Adopts through `host.hydration`; a host without one renders instead, replacing the markup.
+ */
 function hydrate(node: RenderNode, container: Container, host: Host): () => void {
   const { hydration } = host;
 

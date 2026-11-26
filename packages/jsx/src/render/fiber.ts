@@ -7,6 +7,7 @@ import { hydrationOf } from './host';
 import { activeRoot } from './host';
 import type { Root } from './host';
 
+/** A node a root or portal renders into. */
 type Container = Element | DocumentFragment;
 
 type Kind = 'collection' | 'component' | 'element' | 'fragment' | 'function' | 'portal' | 'text';
@@ -21,6 +22,11 @@ interface Boundary {
 
 type Placement = Pick<Component, 'fallback' | 'catch'>;
 
+/**
+ * The core's record of one mounted node or range.
+ *
+ * Hosts read `start`, `end`, `props`, `claimed`, `root` and `children`, and may keep their own entries keyed by fiber. Other fields are the core's.
+ */
 interface Fiber {
   kind: Kind;
   key?: Key;

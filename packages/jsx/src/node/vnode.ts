@@ -3,6 +3,7 @@ import type { Element as Created } from '../jsx-runtime';
 import type { has, map } from '@expressive/mvc';
 import type { JSX as Runtime } from '../jsx-runtime';
 
+/** Element type of a portal - `<Portal>` creates it; hosts match it to place or redirect one. */
 const PORTAL = Symbol('@expressive/jsx.portal');
 const ELEMENT = Symbol.for('@expressive/mvc.element');
 const authors = new WeakMap<object, object>();
@@ -16,6 +17,7 @@ interface ComponentInstance {
 }
 type ComponentType<P = any> = FunctionComponent<P> | (abstract new (...args: any[]) => object);
 
+/** Anything a component can render: elements, instances, text, numbers, empties, arrays and Expressive collections. */
 type Node =
   | VNode
   | ComponentInstance
@@ -30,10 +32,12 @@ type Node =
   | has.Pool<Node, any, any>
   | map.Managed<unknown, Node>;
 
+/** An element - a tag, a component, `Fragment` or `PORTAL` - with its props and key. */
 interface VNode<P = any> extends Created<P & { children?: Node }> {
   readonly type: string | symbol | ComponentType<P>;
 }
 
+/** Create an element through the registered JSX runtime - `jsx(type, props, key)` for host code. */
 function vnode<P>(type: VNode<P>['type'], props: P, key?: unknown): VNode<P> {
   return jsx(type, props as object, key) as VNode<P>;
 }
@@ -92,6 +96,7 @@ declare namespace createElement {
   }
 }
 
+/** True for an element made by the JSX runtime - this package's own, whichever copy made it. */
 function isVNode(value: unknown): value is VNode {
   return !!value && typeof value == 'object' && (value as { [ELEMENT]?: true })[ELEMENT] === true;
 }

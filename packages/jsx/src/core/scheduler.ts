@@ -43,6 +43,11 @@ function flushUrgent() {
   for (const run of after.splice(0)) run();
 }
 
+/**
+ * Run `run` after the next flush of queued updates, scheduling one if none is due.
+ *
+ * For work that must see state settled into the tree, as dom restoring a controlled input after an event.
+ */
 function afterFlush(run: () => void) {
   after.push(run);
 

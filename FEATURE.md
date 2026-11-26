@@ -44,15 +44,12 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - Unused root exports dropped: `mountRoot`, `rootOf` and the root `JSX` type (`JSX` stays on `/jsx-runtime`).
 - The core resolves element styling (`styleElement`), assigns `fiber.props` and reconciles element children; `Host.patch` applies the claim and may return `false`; `Host.settle` runs after children with the last settled props. `claim`, `unmatched`, `reserved` and `reconcileChildren` leave the root export.
 - mvc's `./jsx-runtime` subpath is renamed `./host` - it holds no runtime, only the seams hosts share. A custom host augments `declare module '@expressive/mvc/host'`.
+- Every `@expressive/jsx` root export carries JSDoc.
 - `Host.mount` creates or adopts its node and returns it; the core sets the fiber's range and runs `patch` inside `complete`; `complete` is no longer exported.
 
 ## Before release
 
 - **A /jsx skill** (`packages/jsx/skills/`) once its public shape settles.
-- **Public API**, iterated once the first extraction exists:
-  - trimming /jsx's root export to what hosts actually use;
-  - the `Host` type;
-  - `render(node, el, options)`, with options as partial `Host` overrides over `plain`.
 - **Fat cutting, after the extraction:**
   - `Fiber.root` required;
   - revisit `methodOf`/`onElement` once the runtime entry is mandatory.
