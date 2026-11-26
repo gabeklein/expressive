@@ -70,7 +70,7 @@ describe("launch", { timeout: 30_000 }, () => {
   it("will report where a page redirects", async () => {
     const root = project({
       "app/index.tsx": `export const Page = () => <p>home</p>;`,
-      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => <Redirect to="/" />;`,
+      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("/"); };`,
     });
     const renderer = await launch(root);
 
