@@ -41,13 +41,18 @@ Component.on({
     if (typeof render?.value == 'function')
       Object.defineProperty(type.prototype, 'render', { ...render, configurable: false });
 
-    if (type === Component)
-      for (const key of Runtime.ignore)
+    for (const key of Runtime.ignore) {
+      const own = Object.getOwnPropertyDescriptor(type.prototype, key);
+
+      if (type === Component)
         Object.defineProperty(Component.prototype, key, {
           set(value) {
             Object.defineProperty(this, key, { value, writable: true });
           }
         });
+      else if (own?.get && !own.set)
+        Object.defineProperty(type.prototype, key, { ...own, set() {} });
+    }
 
     subcomponents(type.prototype);
   },

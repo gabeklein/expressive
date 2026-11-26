@@ -24,6 +24,22 @@ it('will create and provide instance', () => {
   expect(screen).toHaveText('bar');
 });
 
+it('will render a Component whose own getter shares a host instance key', () => {
+  class Box extends Component {
+    get base() {
+      return 'box';
+    }
+
+    render() {
+      return this.base;
+    }
+  }
+
+  render(<Box />);
+
+  expect(screen).toHaveText('box');
+});
+
 it('will not enumerate react internals on instance', () => {
   class Control extends Component {
     foo = 'bar';
