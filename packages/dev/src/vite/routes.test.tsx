@@ -83,13 +83,37 @@ describe("app/ routing (codegen)", () => {
     ]);
   });
 
+  it("will count leaf defaults in page patterns, prerender paths and the gate tree", async () => {
+    const root = mkdtempSync(join(tmpdir(), "routes-"));
+    dirs.push(root);
+    const appDir = join(root, "app");
+    const files = {
+      "index.tsx": PAGE,
+      "(about).tsx": "export default () => null;",
+      "blog/[slug].tsx": "export default () => null; export const paths = () => [];",
+      "locked/(secret).tsx": "export default () => null;",
+      "locked/remote.ts": "export default () => {};",
+    };
+    for (const [path, source] of Object.entries(files)) {
+      mkdirSync(dirname(join(appDir, path)), { recursive: true });
+      writeFileSync(join(appDir, path), source);
+    }
+    expect((await pagePatterns(appDir, scanExports)).sort()).toEqual(["/", "/about", "/blog/:slug", "/locked/secret"]);
+    const { paths, sources } = await staticPaths(appDir, scanExports);
+    expect(paths.sort()).toEqual(["/", "/about"]);
+    expect(sources.map(file => relative(appDir, file))).toEqual(["blog/[slug].tsx"]);
+    const out = await generateRoutes(appDir, join(root, "out"), scanExports);
+    expect(out).toContain('"to":"about","page":1');
+    expect(out).toContain('"to":"secret","page":1');
+  });
+
 
   const PAGE = "export function Page(){ return null }";
   const LAYOUT = "export function Layout({ children }){ return children }";
   const LOADING = "export function Loading(){ return null }";
   const CATCH = "export function Catch(){ return null }";
   const NOTFOUND = "export function NotFound(){ return null }";
-  const ENTER = "export default () => '/login'";
+  const ENTER = "export default ({ children }) => children";
   const SCOPE = "export default class Session extends Model {}";
 
   it("root is always a scope; lone index becomes the \"/\" page + implicit 404", async () => {
@@ -217,16 +241,17 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('import { Page as Blog, Layout as BlogLayout, Catch as BlogCatch } from "../app/blog/index.tsx";');
   });
 
-  it("default entry hook rides as the `enter` prop on a leaf", async () => {
+  it("will render a function default as a leaf wrapper", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\n${ENTER}` });
-    expect(out).toContain('const AdminEnterHook = () => import("../app/(admin).tsx").then(m => hook(m.default, "app/(admin).tsx"));');
-    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnterHook} />');
+    expect(out).toContain('const AdminScope = () => import("../app/(admin).tsx").then(m => props => wrap(m.default, props.children, "app/(admin).tsx"));');
+    expect(out).toContain('<Route to="admin" as={AdminScoped}>');
+    expect(out).not.toContain('AdminEnterHook');
   });
 
-  it("default entry hook gates a section (rides on the scope)", async () => {
+  it("will render a function default around a section", async () => {
     const out = await generate({ "admin/index.tsx": `${PAGE}\n${LAYOUT}\n${ENTER}`, "admin/[id].tsx": PAGE });
-    expect(out).toContain('const AdminEnter = () => import("../app/admin/index.tsx").then(m => m.default);');
-    expect(out).toMatch(/<Route to="admin" as={AdminLayout} enter={AdminEnterHook}>/);
+    expect(out).toContain('const AdminScoped = props => <AdminScope>{<AdminLayout>{props.children}</AdminLayout>}</AdminScope>;');
+    expect(out).toMatch(/<Route to="admin" as={AdminScoped}>/);
   });
 
   it("will place a folder's missing route last, unless a [...] page catches it", async () => {
@@ -246,7 +271,7 @@ describe("app/ routing (codegen)", () => {
     const GATE = "export default () => {}";
     const out = await generate({
       "index.tsx": PAGE,
-      "admin/index.tsx": `${PAGE}\n${ENTER}`,
+      "admin/index.tsx": `${PAGE}\n${SCOPE}`,
       "admin/remote.ts": GATE,
       "admin/users/index.tsx": PAGE,
       "admin/users/remote/index.ts": GATE,
@@ -261,7 +286,7 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
     expect(out).toContain('import { call } from "@expressive/rpc";');
     expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
-    expect(out).toContain('<Route to="admin" enter={checked(AdminEnterHook, () => import("../app/admin/index.tsx"))}>');
+    expect(out).toContain('<Route to="admin" enter={checked(watching(() => AdminScope(), "app/admin/index.tsx"), () => import("../app/admin/index.tsx"))}>');
     expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
     expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
     expect(out).toContain('<Route to="tally" as={Tally} />');
@@ -275,53 +300,55 @@ describe("app/ routing (codegen)", () => {
 
   it("a module with a default loads on first entry", async () => {
     const out = await generate({ "index.tsx": PAGE, "(account).tsx": `${PAGE}\n${SCOPE}` });
-    expect(out).toContain('const AccountScope = () => import("../app/(account).tsx").then(m => props => wrap(m.default, props.children));');
+    expect(out).toContain('const AccountScope = () => import("../app/(account).tsx").then(m => m.default);');
     expect(out).toContain('const Account = () => import("../app/(account).tsx").then(m => m.Page);');
   });
 
   it("the root's default stays a static import", async () => {
     const out = await generate({ "index.tsx": `${PAGE}\n${ENTER}` });
-    expect(out).toContain('import RootEnter, { Page as Root } from "../app/index.tsx";');
+    expect(out).toContain('import RootScope, { Page as Root } from "../app/index.tsx";');
   });
 
   it("a default class renders around the route's content", async () => {
     const out = await generate({ "index.tsx": PAGE, "account/index.tsx": `${PAGE}\n${SCOPE}`, "account/[id].tsx": PAGE });
-    expect(out).toMatch(/<Route to="account" as={AccountScope}>\s*<Route as={Account} \/>/);
-    expect(out).not.toContain("enter={AccountScope}");
+    expect(out).toContain('<Route to="account" enter={watching(() => AccountScope(), "app/account/index.tsx")}>');
+    expect(out).toContain('<Route as={Account} />');
   });
 
   it("a default class wraps the Layout", async () => {
     const out = await generate({ "index.tsx": PAGE, "account/index.tsx": `${PAGE}\n${LAYOUT}\n${SCOPE}` });
-    expect(out).toContain("const AccountScoped = props => <AccountScope><AccountLayout {...props} /></AccountScope>;");
-    expect(out).toMatch(/<Route to="account" as={AccountScoped}>/);
+    expect(out).toContain('<Route to="account" as={AccountLayout} enter={watching(() => AccountScope(), "app/account/index.tsx")}>');
   });
 
-  it("will declare nested wrappers innermost first, and none for a scope with nothing to render", async () => {
+  it("will enter nested default classes without wrapper components", async () => {
     const out = await generate({
       "index.tsx": `${PAGE}\n${LAYOUT}\n${SCOPE}`,
       "account/index.tsx": `${PAGE}\n${LAYOUT}\n${SCOPE}`,
       "account/settings/index.tsx": `${PAGE}\n${LAYOUT}\n${SCOPE}`,
       "void/index.tsx": `${LAYOUT}\n${SCOPE}`,
     });
-    const wrappers = out.split("\n").filter(line => line.includes(" = props =>")).map(line => line.split(" ")[1]);
-
-    expect(wrappers).toEqual(["AccountSettingsScoped", "AccountScoped", "RootScoped"]);
+    expect(out).toContain('enter={watching(() => RootScope, "app/index.tsx")}');
+    expect(out).toContain('enter={watching(() => AccountScope(), "app/account/index.tsx")}');
+    expect(out).toContain('enter={watching(() => AccountSettingsScope(), "app/account/settings/index.tsx")}');
+    expect(out).not.toContain('AccountScoped');
   });
 
   it("a default class makes a lone page a scope", async () => {
     const out = await generate({ "index.tsx": PAGE, "(settings).tsx": `${PAGE}\nclass Panel extends Model {}\nexport { Panel as default }` });
-    expect(out).toMatch(/<Route to="settings" as={SettingsScope}>\s*<Route as={Settings} \/>/);
+    expect(out).toContain('<Route to="settings" enter={watching(() => SettingsScope(), "app/(settings).tsx")}>');
+    expect(out).toContain('<Route as={Settings} />');
   });
 
   it("will read a class exported as the default by name as a scope, not an entry hook", async () => {
     const out = await generate({ "index.tsx": PAGE, "(settings).tsx": `${PAGE}\nexport class Panel extends Model {}\nexport default Panel;` });
-    expect(out).toMatch(/<Route to="settings" as={SettingsScope}>\s*<Route as={Settings} \/>/);
+    expect(out).toContain('<Route to="settings" enter={watching(() => SettingsScope(), "app/(settings).tsx")}>');
+    expect(out).toContain('<Route as={Settings} />');
     expect(out).not.toContain("SettingsEnter");
   });
 
-  it("will read a function exported as the default by name as an entry hook", async () => {
+  it("will read a function exported as the default by name as a wrapper", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\nconst gate = () => "/login";\nexport default gate` });
-    expect(out).toContain('<Route to="admin" as={Admin} enter={AdminEnterHook} />');
+    expect(out).toContain('<Route to="admin" as={AdminScoped}>');
   });
 
   it("[slug] is a dynamic segment → to=\":slug\"", async () => {
@@ -374,7 +401,7 @@ describe("app/ routing (codegen)", () => {
         export const Layout = (p: Props) => <div>{p.n}</div>;
         export default async function (props: Props): Promise<void> {}`,
     });
-    expect(out).toContain("import RootEnter, { Page as Root, Layout as RootLayout }");
+    expect(out).toContain("import RootScope, { Page as Root, Layout as RootLayout }");
   });
 
   it("will ignore files that are not modules", async () => {
@@ -390,7 +417,7 @@ describe("app/ routing (codegen)", () => {
   it("will import a lone default and provide it around the children", async () => {
     const out = await generate({ "index.tsx": SCOPE, "a/index.tsx": PAGE });
     expect(out).toContain('import RootScope from "../app/index.tsx";');
-    expect(out).toContain("const RootScoped = props => wrap(RootScope, props.children);");
+    expect(out).toContain('enter={watching(() => RootScope, "app/index.tsx")}');
     expect(out).not.toContain("const hook =");
   });
 
@@ -398,15 +425,29 @@ describe("app/ routing (codegen)", () => {
     const IMPORTED = `import { Auth } from "../lib/auth";\nexport default Auth;`;
     const out = await generate({ "index.tsx": `${PAGE}\n${IMPORTED}`, "(x).tsx": `${PAGE}\nexport { default } from "../lib/auth";` });
 
-    expect(out).toContain('import { Component, Model } from "@expressive/mvc";');
-    expect(out).toContain('const RootEnterHook = hook(RootScope, "app/index.tsx");');
-    expect(out).toContain('const XEnterHook = () => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx"));');
+    expect(out).toContain('import { Model } from "@expressive/mvc";');
+    expect(out).toContain('const RootEnterHook = watching(() => hook(RootScope, "app/index.tsx"), "app/index.tsx");');
+    expect(out).toContain('const XEnterHook = watching(() => import("../app/(x).tsx").then(m => hook(m.default, "app/(x).tsx")), "app/(x).tsx");');
     expect(out).toMatch(/<Route as={RootScoped} enter={RootEnterHook} Catch={DefaultCatch}>/);
-    expect(out).toMatch(/<Route to="x" as={XScope} enter={XEnterHook}>\s*<Route as={X} \/>/);
+    expect(out).toMatch(/<Route to="x" as={XScoped} enter={XEnterHook}>\s*<Route as={X} \/>/);
   });
 
-  it("will not route a leaf without a page", async () => {
-    expect(await generate({ "index.tsx": PAGE, "go/index.tsx": ENTER })).not.toContain('to="go"');
+  it("will route a leaf default as its page", async () => {
+    expect(await generate({ "index.tsx": PAGE, "go/index.tsx": ENTER })).toContain('to="go"');
+  });
+
+  it("will skip a leaf helper and an empty Layout folder", async () => {
+    const out = await generate({ "index.tsx": PAGE, "(helper).tsx": "export const x = 1;", "empty/index.tsx": LAYOUT });
+    expect(out).not.toContain('to="helper"');
+    expect(out).not.toContain('to="empty"');
+  });
+
+  it("will warn when a leaf Model default has no Page", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = await generate({ "index.tsx": PAGE, "(empty).tsx": `export default class Empty extends Model {}` });
+    expect(out).toContain('to="empty"');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("(empty).tsx: a Model default without Page renders nothing."));
+    warn.mockRestore();
   });
 
   it("will mount the root's Router export in place of dev's", async () => {
@@ -811,6 +852,24 @@ describe("app/ routing (generated)", () => {
     await shows(() => root.textContent, "ada");
   });
 
+  it("will render a function default around Layout and Page", async () => {
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/x/index.tsx": `export default function Frame({ children }) { return <section>outer:{children}</section>; } export const Layout = ({ children }) => <main>middle:{children}</main>; ${PAGE}`,
+    }, "/x");
+    await shows(() => root.textContent, "outer:middle:page");
+  });
+
+  it("will render a function default as a leaf page", async () => {
+    const root = await app({ "app/index.tsx": PAGE, "app/(leaf).tsx": `export default () => <p>leaf</p>;` }, "/leaf");
+    await shows(() => root.textContent, "leaf");
+  });
+
+  it("will render a Component default as a leaf page", async () => {
+    const root = await app({ "app/index.tsx": PAGE, "app/(leaf).tsx": `import { Component } from "@expressive/mvc"; export default class Leaf extends Component { render() { return <p>leaf</p>; } }` }, "/leaf");
+    await shows(() => root.textContent, "leaf");
+  });
+
   it("will reject a string returned by a default function, naming its module", async () => {
     const root = await app({
       "app/index.tsx": `${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`,
@@ -826,6 +885,14 @@ describe("app/ routing (generated)", () => {
     const root = await app({ "app/index.tsx": `${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`, "app/(x).tsx": `${PAGE} export default () => "/";` }, "/x");
     await shows(() => root.textContent, "app/(x).tsx: a function default returned a string. Throw new Redirect(...) instead.");
     expect(window.location.pathname).toBe("/x");
+  });
+
+  it("will reject a string resolved by an async default function", async () => {
+    const root = await app({
+      "app/index.tsx": `${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`,
+      "app/(x).tsx": `${PAGE} export default async () => "/";`,
+    }, "/x");
+    await shows(() => root.textContent, "app/(x).tsx: a function default returned a string. Throw new Redirect(...) instead.");
   });
 
   it("will send unmatched children of a leaf Catch to the root splat", async () => {
@@ -863,8 +930,8 @@ describe("app/ routing (generated)", () => {
   });
 
   it("will throw naming the route for a default imported from elsewhere that is a class but not a Model", async () => {
-    await expect(app({ "app/index.tsx": `import { Plain } from "../lib/plain"; export default Plain; ${PAGE}`, "lib/plain.ts": "export class Plain {}" }, "/"))
-      .rejects.toThrow("app/index.tsx: the default export Plain is a class but not a Model or Component.");
+    const root = await app({ "app/index.tsx": `import { Plain } from "../lib/plain"; export default Plain; ${PAGE} export const Catch = ({ error }) => <p>{error.message}</p>;`, "lib/plain.ts": "export class Plain {}" }, "/");
+    await shows(() => root.textContent, "app/index.tsx: the default export Plain is a class but not a Model or Component.");
   });
 
   it("will render the root index alone at /, and a root [...] page below", async () => {

@@ -14,11 +14,12 @@ export const scanExports: ExportScanner = async (source, path) => {
   const entries = parse(code)[1];
   const value = moduleOf(path, source).exports.get("default");
   const classDefault = entries.some(entry => entry.n === "default") ? kindOf(value) : false;
+  const modelDefault = (value?.type === "ClassDeclaration" || value?.type === "ClassExpression") && value.superClass?.type === "Identifier" && value.superClass.name === "Model";
   const routeParameter = !!value && "params" in value && Array.isArray(value.params) && value.params[0]?.type === "Identifier" && value.params[0].name === "route";
 
   const label = labelOf(code, entries.find(entry => entry.n === "label")?.ln);
 
-  return { exports: entries.map(entry => entry.n), classDefault, label, routeParameter };
+  return { exports: entries.map(entry => entry.n), classDefault, modelDefault, label, routeParameter };
 };
 
 function kindOf(value: Value): boolean | undefined {
