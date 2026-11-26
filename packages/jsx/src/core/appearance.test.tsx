@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Component, has } from '@expressive/mvc';
 
 import { style } from '../style/stylesheet';
+import { renderComponent } from './appearance';
 import { flushMicrotasks, mount, place, render, rules, styled, useHost } from '../../test.setup';
 
 useHost(styled);
@@ -370,5 +371,27 @@ describe('authoring scope without macros', () => {
 
     expect(node.className).toBe('Sheet_box');
     expect(rules('.Sheet_box ')).toEqual(['.Sheet_box { color: red; background: green; }']);
+  });
+});
+
+describe('host steps', () => {
+  it('will style a subcomponent a host renders through its own wrapper', () => {
+    class Panel extends Component {
+      Title() {
+        return null;
+      }
+    }
+
+    style(Panel, { _Title: { color: 'red' } });
+
+    const owner = Panel.new();
+    const wrapper = () => null;
+    const wrapped = renderComponent({ kind: 'function', type: wrapper, props: {}, method: { owner, key: 'Title' } }, () => 'title');
+    const unknown = renderComponent({ kind: 'function', type: wrapper, props: {} }, () => 'title');
+
+    expect(wrapped.output).toBe('title');
+    expect(wrapped.appearance!.context!.base).toBeDefined();
+    expect(wrapped.appearance!.entries).toEqual([{ hops: 0, style: wrapped.appearance!.context!.base }]);
+    expect(unknown.appearance!.context).toBeUndefined();
   });
 });

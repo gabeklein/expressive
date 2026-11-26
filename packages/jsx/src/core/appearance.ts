@@ -1,5 +1,5 @@
 import { unbind } from '@expressive/mvc';
-import type { Component } from '@expressive/mvc';
+import type { Component, Model } from '@expressive/mvc';
 
 import { authoring, authorOf } from '../node/vnode';
 import type { Node as RenderNode } from '../node/vnode';
@@ -10,6 +10,7 @@ import { enterAppearance } from '../style/protocol';
 import { owner } from './adapter';
 import { latest } from './hot';
 
+/** A rendering component as the style engine tracks it - a host keeps one per mounted component. */
 interface Rendered {
   kind: string;
   type?: unknown;
@@ -18,6 +19,8 @@ interface Rendered {
   appearance?: Appearance;
   consumed?: boolean;
   dev?: object;
+  /** Owner and key of a subcomponent whose `type` is a host's wrapper rather than the bound method. */
+  method?: { owner: Model; key: string };
 }
 
 let rendering: object | undefined;
@@ -25,10 +28,11 @@ let rendering: object | undefined;
 let touched = false;
 
 const observed = new WeakMap<object, Record<string, any>>();
+const outputs = new WeakSet<object>();
 const bare = new WeakMap<Rendered, Appearance>();
 
 function observe(props: Record<string, any>) {
-  if (!('style' in props)) return props;
+  if (!('style' in props) || outputs.has(props)) return props;
 
   let output = observed.get(props);
 
@@ -49,6 +53,7 @@ function observe(props: Record<string, any>) {
       }
     });
     observed.set(props, output);
+    outputs.add(output);
   }
 
   return output;
@@ -76,7 +81,7 @@ function renderedAppearance(fiber: Rendered): Appearance | undefined {
 
   const style = fiber.props?.style as Style;
   const entries = (fiber.appearance?.entries || []).map(({ hops, style }) => ({ hops: hops + 1, style }));
-  const sub = owner(fiber.type);
+  const sub = fiber.method || owner(fiber.type);
   const { instance } = fiber;
   let context = sub
     ? enterAppearance(latest(sub.owner.constructor), sub.key)
@@ -100,8 +105,15 @@ function renderedAppearance(fiber: Rendered): Appearance | undefined {
 }
 
 function authored(value: RenderNode, appearance: Appearance | undefined): Appearance | undefined {
-  const author = authorOf(value);
+  return authorAppearance(authorOf(value), appearance);
+}
 
+/**
+ * Appearance for an element `author` wrote, placed under `appearance` - children passed in keep their author's rules.
+ *
+ * For hosts with their own reconciler, which record authors themselves.
+ */
+function authorAppearance(author: object | undefined, appearance: Appearance | undefined): Appearance | undefined {
   if (!author || !appearance || author === appearance.author) return appearance;
 
   for (let fiber = appearance.author as Rendered | undefined; fiber; fiber = fiber.appearance?.author as Rendered | undefined)
@@ -111,5 +123,18 @@ function authored(value: RenderNode, appearance: Appearance | undefined): Appear
   return appearance;
 }
 
-export { authored, consume, observe, renderedAppearance };
+/**
+ * Run a component's render under style tracking; returns its output and the appearance that output renders under.
+ *
+ * Replaces `fiber.props` with a copy that notes a read of `style` - a component reading it takes over forwarding. `render` should read `fiber.props` when called.
+ */
+function renderComponent<T>(fiber: Rendered, render: () => T) {
+  fiber.props &&= observe(fiber.props);
+
+  const output = consume(fiber, render as () => RenderNode) as T;
+
+  return { output, appearance: renderedAppearance(fiber) };
+}
+
+export { authorAppearance, authored, consume, observe, renderComponent, renderedAppearance };
 export type { Rendered };

@@ -115,7 +115,14 @@ const host: Host = {
 
 The core resolves rules, warns in dev on an unmatched `_flag`, throws on a reserved `_Name`, and passes children their style context. `_` props, `className` and `style` reach `patch` but are already in `fiber.claimed` - a styled `patch` skips them. Without `styles` nothing claims them: `plain` writes `_` props and `className` as attributes.
 
-A host with its own reconciler styles each element with `styleElement(styles, type, props, appearance?, dev?)` - it returns the element's `claim` and the `inner` appearance its children render under. Call `syncRoots(styles)` before a pass so pack variable defaults are written - the core does this for its own roots. `flatten(claim)` folds rule declarations into inline ones. React styling is planned on this seam; the adapter doesn't use it yet.
+A host with its own reconciler drives the same steps the core runs:
+
+- `styleElement(styles, type, props, appearance?, dev?)` per host element - returns its `claim` and the `inner` appearance its children render under.
+- `placeComponent(type, props, appearance)` per component element - returns the `props` to render with (a caller's rules ride in `style`) and the `appearance` to keep on the component's `Rendered` record.
+- `renderComponent(record, render)` per component render - returns the output and the appearance it renders under. A subcomponent rendered through a host wrapper sets `record.method` to its owner and key.
+- `authorAppearance(author, appearance)` per element - children passed in keep their author's rules. The host records each element's author itself.
+
+Call `syncRoots(styles)` before a pass so pack variable defaults are written - the core does this for its own roots. `flatten(claim)` folds rule declarations into inline ones.
 
 ## Hydration
 
