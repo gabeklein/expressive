@@ -43,6 +43,7 @@ Each package ships its skill at `node_modules/@expressive/<pkg>/skills/expressiv
 
 ## DOM renderer
 - [@expressive/dom](/llm/expressive-dom/SKILL.md): Rendering without React - render(), native events, style composition and component appearance rules, boundaries, transitions, portals
+- [@expressive/jsx](/llm/expressive-jsx/SKILL.md): The base host - the Host contract, plain, styles, hydration, typing a host, portable components
 
 ## Router
 - [Router](/llm/expressive-router/SKILL.md): @expressive/router - nested Route declarations, navigation state, reactive query, Link/NavLinks/Redirect
