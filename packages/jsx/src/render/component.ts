@@ -14,6 +14,7 @@ import { latest, track, untrack } from '../core/hot';
 import { complete } from './mount';
 import { attempt, passiveRender } from './render';
 import { claim as dequeue, schedule, settle as absorb, transition } from '../core/scheduler';
+import type { Schedulable } from '../core/scheduler';
 import { consume, observe } from '../core/appearance';
 import { isThenable } from '../node/kind';
 
@@ -155,7 +156,7 @@ function probing(fiber: Fiber) {
   const scope = fiber.scope!;
 
   scope.empty = () => !fiber.children.length;
-  scope.bounds = () => [fiber.start, fiber.end];
+  scope.encloses = (inner) => contains(fiber, inner);
   scope.probe = () => {
     try {
       scope.probed = { output: consume(fiber, fiber.render!) };
@@ -163,6 +164,10 @@ function probing(fiber: Fiber) {
       if (isThenable(thrown)) return thrown;
     }
   };
+}
+
+function contains(fiber: Fiber, scope: Schedulable): boolean {
+  return fiber.children.some((child) => child.scope === scope || contains(child, scope));
 }
 
 function patchFunction(fiber: Fiber, value: VNode, appearance?: Appearance) {

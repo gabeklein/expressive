@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component, Context, has, Model } from '@expressive/mvc';
+import { Component, Context, has, Model, pending } from '@expressive/mvc';
 
-import { flushMicrotasks, mockPromise, mount, place, render } from '../../test.setup';
+import { flushMicrotasks, mockPromise, mount, place, render, until } from '../../test.setup';
 
 describe('component', () => {
   it('will run an effect from new() once inserted', async () => {
@@ -155,6 +155,51 @@ describe('component', () => {
     expect(message.get(null)).toBe(false);
     expect(cleanup).not.toHaveBeenCalled();
     message.set(null);
+  });
+
+  it('will update an empty scope after one around it leaves, with no DOM globals', async () => {
+    const stale = vi.fn();
+
+    class Nav extends Model {
+      page = 'a';
+    }
+
+    function Stale() {
+      return stale();
+    }
+
+    function Inner() {
+      return Nav.get().page == 'b' ? <Stale /> : null;
+    }
+
+    function Outer() {
+      return Nav.get().page == 'a' ? <div><Inner /></div> : null;
+    }
+
+    function Next() {
+      return Nav.get().page == 'b' ? <p>B</p> : null;
+    }
+
+    class App extends Component {
+      nav = new Nav();
+
+      render() {
+        return <><Outer /><Next /></>;
+      }
+    }
+
+    const [app, root] = mount(App);
+
+    vi.stubGlobal('Node', undefined);
+
+    try {
+      await pending(() => (app.nav.page = 'b'));
+      await until(() => expect(root.textContent).toBe('B'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(stale).not.toHaveBeenCalled();
   });
 });
 
