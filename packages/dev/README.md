@@ -32,10 +32,40 @@ reading its params through `Route.get().match`, or `class Page extends Route` (f
 express nesting. dev's `Route` owns no suspense boundary unless given a `fallback` or `Catch`, so a
 page's waits show its slot's `Loading`.
 
-The `default` export is read by kind. A function default runs before render; returning a string fails with a migration error. Throw `new Redirect(to)` from a `Page` while rendering to redirect. A class - Model or
-Component - renders around the route's content and is provided to everything below it; with a
-`Layout`, it wraps the `Layout`. A Component's `render()` places that content as `props.children`.
-A default imported from another module is told apart when the route loads.
+Route content nests `default` → `Layout` → `Page`; each is optional, and a missing one passes its content through.
+
+| Export | Use it for |
+| --- | --- |
+| `default` | Route state as a Model, a Component that also wraps, or the page itself in a leaf. |
+| `Layout` | A frame around the page. |
+| `Page` | A folder's index page, or a leaf whose state and view are separate. |
+| `Catch` | The folder's error and not-found screen. |
+
+A class `default` is built during the navigation hold. Its `new()` may await and throw `Redirect` or `NotFound` before anything below renders. The route provides the instance below, so `X.get()` finds it; a Component default places `Layout` and `Page` through `props.children`. A function default renders as a wrapper, or as a leaf page. A function returning a string fails with a migration error naming its module. A leaf Model default without `Page` renders nothing and warns during generation.
+
+A route can guard itself:
+
+```tsx
+// app/me/index.tsx
+import { Redirect } from "@expressive/dev";
+import { Component, get, set } from "@expressive/mvc";
+import { Session } from "../session";
+import * as account from "./remote";
+
+export default class Me extends Component {
+  session = get(Session);
+  profile = set(() => account.profile());
+
+  protected new() {
+    if (!this.session.me) throw new Redirect("/signin");
+  }
+}
+
+export function Page() {
+  const { profile } = Me.get();
+  return <h1>Hi, {profile.name}</h1>;
+}
+```
 
 In a page, throw `new NotFound()` for a missing record or `new Redirect("/login")` to navigate:
 
@@ -56,7 +86,7 @@ export function Catch({ error, retry }) {
 `Catch` replaces the folder's `Layout` while showing an error. A folder `Catch` claims every unmatched path below it ahead of a root `[...]` page. A redirect followed immediately by another shows `Catch`: an `a → b → c` chain stops at `b`.
 
 `Loading` is the placeholder for the content slot of the `Layout` beside it: any page rendered
-there that cannot show anything yet - its code, its entry hook or its data still pending - shows
+there that cannot show anything yet - its code, its default guard or its data still pending - shows
 it in place, inside the layout. It reaches pages at any depth until a nested `Layout`, which starts
 its own slot. A page's own `Loading` covers that page first. Navigation inside the app never shows
 it - the current page holds until the next is ready (`Router.get().navigating` meanwhile); it is
@@ -281,7 +311,7 @@ export default config({
   route matches, so the nearest `Catch` handles `NotFound`. Anything else is a bare 404, so a stale chunk
   never comes back as HTML; a built app answers other methods than GET and HEAD with 404 too. A
   single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
-  the `app/` files exporting `Page` - a deep link into a route the scan can't see (a custom root
+  the `app/` files exporting `Page` or a leaf `default` - a deep link into a route the scan can't see (a custom root
   `Router`, a `<Route>` in a `Layout`) gets the shell with 404; a `[...]` page claims those paths.
 - Remote calls and gate checks ignore a non-root Vite `base` for now - they post to the app's
   paths from `/`.
@@ -679,7 +709,7 @@ export default async () => {
 - A network failure, or a reply that isn't rpc's, lets the page in without remembering a pass - the
   page's own calls still meet the gates.
 - A newer navigation drops an in-flight check's verdict; its cookies still land.
-- The folder's entry hook, and its module's code, run after the pass.
+- The folder's default class is built after the pass; its `new()` can guard before render.
 - Not security: every call still runs its gates. Gates run for checks and calls alike, possibly
   concurrently, so they must be idempotent; rate limits and logs count checks too.
 - Gated folders are not prerendered, and a root gate (`app/remote.ts`) gates every page.
@@ -749,14 +779,13 @@ and leaves that page to the browser, counted in the build's summary. So a `remot
 loads its data on render does not.
 
 - A call from `new()` counts; one from an event handler or effect never runs.
-- An entry hook or `Layout` that calls the server leaves every page below it to the browser.
+- A default class or `Layout` that calls the server leaves every page below it to the browser.
 - A `paths()` that calls the server lists nothing.
 
 A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
-An async `new()` that rejects while its page renders counts as a throw; one rejecting after the page
-rendered keeps the page and warns.
+An async `new()` on a default class settles before render; a rejection fails that page. A class built during render may reject after its page renders and warn.
 
-`new()` runs during the render and effects never do, so DOM listeners and browser-only reads
+A default class runs `new()` before render; other classes run it during render. Effects never run at build, so DOM listeners and browser-only reads
 belong in effects; `typeof window` tells the build apart, since `import.meta.env.SSR` is false
 there. A module that reads `window` or `document` at load fails the step, leaving every page to
 the browser.

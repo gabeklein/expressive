@@ -1,11 +1,11 @@
-import { Component } from "@expressive/mvc";
+import { Component, Model } from "@expressive/mvc";
 import { Link } from "@expressive/dev";
 
 import { served } from "./remote";
 
-export default async () => {
-  await served();
-};
+export default class Note extends Model {
+  protected async new() { await served(); }
+}
 
 export class Page extends Component {
   shown = "";
