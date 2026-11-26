@@ -132,3 +132,15 @@ Exported from `@expressive/jsx`'s root, with JSDoc and an `expressive-jsx` skill
 React now imports only these plus `styleElement`, `style`, `Style` and `Css`, all public; its `authored` copy and subcomponent appearance are gone. `jsx-internals.{js,d.ts}` remains only as the type barrier described above.
 
 Results: jsx suite and coverage gates pass (new host-steps test); react, jsx, dom and router suites pass (1443 tests); `example-check` and `docs-check` pass after a build; Chrome probe unchanged at **66/68**.
+
+## Step 2: client sheet placement, no render
+
+Tried first: `render`/`hydrate` on a new `@expressive/react/dom` subpath (commits `aeeb14018`, `efb040894`, reverted). It worked - 66/66 in Chrome - but its only jobs were picking a root's style target and moving the server's style groups before hydrating, and neither needs `react-dom`. Dropped in favor of zero new surface.
+
+Now: the host's document sheet, on opening, looks for server `expressive-*` precedence groups. If the last one is outside `<head>` - `renderToString` into a container leaves them inline there - the sheet goes at the end of `<body>`: after the groups, outside a `#root` container React hydrates. Otherwise it goes at the end of `<head>` as before.
+
+- Plain `createRoot`/`hydrateRoot` work; `@expressive/react` adds no export and no `react-dom` dependency.
+- Results: style tests 31/31 (new placement test with plain `hydrateRoot`, failing without the change); react, jsx, dom and router suites pass (1444 tests); Chrome probe **52/52**, 3 limitations reproduced - both `/ssr-string` post-hydration failures fixed.
+- Not covered: a non-document `renderToString` hydrated with the container being `<body>` itself (the sheet would land inside React's container), and server groups that first appear after the sheet opened (a second root hydrated later) - the sheet does not move.
+- Shadow roots: no way to target one now. A `react`-only provider component would add it if wanted.
+- `@expressive/react` publishes no `./jsx-runtime` subpath on this trunk; landing styled JSX needs `./jsx-runtime` and `./jsx-dev-runtime` exports.

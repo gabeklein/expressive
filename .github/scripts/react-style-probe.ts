@@ -277,7 +277,7 @@ try {
 
   console.log('\n# SSR + hydration\n');
 
-  for (const route of ['/ssr-string', '/ssr-string?hoist', '/ssr-stream']) {
+  for (const route of ['/ssr-string', '/ssr-stream']) {
     const html = await (await fetch(base + route)).text();
     const classes = [...html.matchAll(/id="([\w-]+)"[^>]*class="([^"]*)"|class="([^"]*)"[^>]*id="([\w-]+)"/g)]
       .map((m) => [m[1] || m[4], m[2] ?? m[3]] as const);

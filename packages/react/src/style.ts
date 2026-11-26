@@ -153,9 +153,16 @@ function document(): Styles {
 
   return client = {
     open() {
+      const { head, body } = window.document;
+      const groups = window.document.querySelectorAll('style[data-precedence^="expressive-"]');
+      const last = groups[groups.length - 1];
+
       element = window.document.createElement('style');
       element.dataset.expressive = 'react';
-      window.document.head.append(element);
+
+      // renderToString leaves its groups in the container; follow them, but outside the container React hydrates.
+      if (last && !head.contains(last)) body.append(element);
+      else head.append(element);
     },
     live: () => !!element?.sheet,
     insert: (rule, index) => void element!.sheet!.insertRule(rule, index),

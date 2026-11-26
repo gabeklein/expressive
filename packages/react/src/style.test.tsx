@@ -652,3 +652,34 @@ describe('hmr probes', () => {
     expect(view.container.textContent).toBe('A');
   });
 });
+
+describe('client sheet placement', () => {
+  it('will follow server style groups a container render left in the body', async () => {
+    class Lamp extends Component {
+      on = false;
+
+      render() {
+        return <p _on={this.on} onClick={() => (this.on = true)}>lamp</p>;
+      }
+    }
+
+    style(Lamp, { color: 'gray', _on: { color: 'green' } });
+
+    document.querySelector('style[data-expressive="react"]')?.remove();
+
+    const html = onServer(() => renderToString(<Lamp />));
+    const container = document.body.appendChild(document.createElement('div'));
+    container.innerHTML = html;
+
+    await act(async () => void hydrateRoot(container, <Lamp />));
+    await act(async () => container.querySelector('p')!.click());
+
+    const sheet = document.querySelector('style[data-expressive="react"]')!;
+    const groups = [...container.querySelectorAll('style[data-precedence]')];
+
+    expect(container.querySelector('p')!.className).toBe('Lamp_on Lamp');
+    expect(groups.length).toBeGreaterThan(0);
+    expect(sheet.parentNode).toBe(document.body);
+    expect(groups.every((group) => group.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+});
