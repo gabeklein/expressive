@@ -39,7 +39,7 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
  * and releases a hold. `this` is the instance. The factory must declare no parameters -
  * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
  * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
- * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * once it resolves. A synchronous throw rethrows to the reader - a lazy factory retries on the next read.
  * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
  * it settles - unless it resolves to itself.
  * With `true` it runs after constructor args apply; while async it holds `ready`, effects and
@@ -145,16 +145,7 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
       function init() {
         if (!owned) return;
 
-        let output: unknown;
-
-        try {
-          output = attempt(factory);
-        } catch (err) {
-          console.warn(
-            `Generating initial value for ${subject}.${key} failed.`
-          );
-          throw err;
-        }
+        const output = attempt(factory);
 
         if (owned) config.get = argument !== false;
 
