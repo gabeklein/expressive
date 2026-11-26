@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderToString } from '@expressive/dom/server';
 import { Component, Context } from '@expressive/mvc';
 
@@ -51,13 +51,16 @@ describe('Redirect on the server', () => {
     ['one applied at once', Sync]
   ])('will render the target after %s', async (_, Type) => {
     let router!: Router;
-    const { html } = await renderToString(
+    const rendering = renderToString(
       <Component for={Type} is={(r: Router) => { router = r; r.path = '/old'; }}>
         <Route to="/old" as={() => { throw new Redirect('/'); }} />
         <Route to="/" as={() => <h1>Home</h1>} />
       </Component>,
       { markers: false }
     );
+
+    await vi.runAllTimersAsync();
+    const { html } = await rendering;
 
     expect(html).toBe('<h1>Home</h1>');
     expect(router.path).toBe('/');
