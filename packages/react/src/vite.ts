@@ -7,6 +7,42 @@ type Node = { type: string; [key: string]: any };
 const SOURCE = /\.[cm]?[jt]sx?$/;
 const INSTALLED = /[\\/]node_modules[\\/]/;
 const RUNTIMES = ['@expressive/mvc', '@expressive/mvc/hot'];
+const STYLED = '@expressive/react/jsx-dev-runtime';
+const REFRESH_REG = 'function $RefreshReg$(';
+const REFRESH_SIG = 'function $RefreshSig$(';
+
+/**
+ * React Refresh for styled components: the JSX runtime renders each function
+ * component through a host wrapper, so the wrapper is registered and signed
+ * beside the component it wraps. Rewrites the module's own `$RefreshReg$` and
+ * `$RefreshSig$` from `@vitejs/plugin-react`.
+ */
+function refresh(code: string) {
+  if (!code.includes(STYLED) || !code.includes(REFRESH_REG) || !code.includes(REFRESH_SIG)) return;
+
+  return code
+    .replace(REFRESH_REG, 'function __reg$(')
+    .replace(REFRESH_SIG, 'function __sig$(') + `
+import { hosted as __hosted } from '${STYLED}';
+function $RefreshReg$(type, id) {
+  const host = __hosted(type);
+  if (host) __reg$(host, id + '%styled');
+  return __reg$(type, id);
+}
+function $RefreshSig$() {
+  const own = __sig$();
+  const host = __sig$();
+  return function (type, key, forceReset, getCustomHooks) {
+    if (typeof key != 'string') host();
+    else {
+      const wrapper = __hosted(type);
+      if (wrapper) host(wrapper, key, forceReset, getCustomHooks);
+    }
+    return own(type, key, forceReset, getCustomHooks);
+  };
+}
+`;
+}
 
 /**
  * Top-level classes a module can reassign, those declaring private members,
@@ -165,23 +201,42 @@ export default function expressive(): Plugin {
       return { optimizeDeps: { include } };
     },
     configResolved(config) {
+      const from = createRequire(resolve(config.root, 'package.json'));
+      const installed = (id: string) => {
+        try {
+          return INSTALLED.test(from.resolve(id));
+        } catch {
+          return false;
+        }
+      };
+
       root = config.root;
+
+      // A linked @expressive package is served from source; prebundling one of its entries alone (plugin-react adds the JSX runtime) would load a second copy.
+      if (config.optimizeDeps.include)
+        config.optimizeDeps.include = config.optimizeDeps.include.filter((id) => !id.startsWith('@expressive/') || installed(id));
     },
-    async transform(code, id, options) {
+    async transform(source, id, options) {
       const [file] = id.split('?');
 
-      if (!SOURCE.test(file) || file.includes('/node_modules/') || !code.includes('class'))
+      if (!SOURCE.test(file) || file.includes('/node_modules/'))
         return;
+
+      const styled = options?.ssr ? undefined : refresh(source);
+      const code = styled || source;
+
+      if (!code.includes('class'))
+        return styled && { code, map: null };
 
       runtime ||= this.resolve('@expressive/mvc/hot').then((found) => found && dirname(found.id));
 
       const own = await runtime;
 
-      if (own && file.startsWith(own)) return;
+      if (own && file.startsWith(own)) return styled && { code, map: null };
 
       const output = inject(file.startsWith(root + '/') ? file.slice(root.length) : file, this.parse(code).body as Node[], options?.ssr);
 
-      if (output) return { code: code + output, map: null };
+      if (output || styled) return { code: code + output, map: null };
     }
   };
 }

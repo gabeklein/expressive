@@ -1,5 +1,4 @@
-import * as Refresh from '/@react-refresh';
-import { refresh, style, wrap } from '@expressive/react/style';
+import { style } from '@expressive/react/style';
 import { useState } from 'react';
 
 export function Counter() {
@@ -15,8 +14,3 @@ export function Plain() {
 }
 
 style(Plain, { _plain: { color: 'rgb(255, 0, 0)' } });
-
-if (import.meta.hot) {
-  refresh(Counter, '/refreshed.tsx Counter', Refresh.register);
-  Refresh.createSignatureFunctionForTransform()(wrap(Counter), 'KEY-1');
-}

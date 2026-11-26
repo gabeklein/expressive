@@ -21,7 +21,7 @@ Rules, base declarations, `:hover`/`@media`, pack macros, `$` variables, caller 
 - **memo** never bails out while a caller `_rule` targets it - the resolved token is new each render.
 - **Reused elements** keep the appearance from their last walk; a change in the placing scope without a new element does not restyle them.
 - **Class names** of `memo`/`forwardRef` need `displayName`, else `style_*`.
-- **Fast refresh** needs the bundler plugin to register each host beside its component (`refresh()`), and forward its `$RefreshSig$` signature - without the signature, a hooks edit throws instead of remounting. Not yet wired into `@expressive/react/vite`.
+- **Fast refresh** needs the bundler plugin to register each host beside its component and forward its signature - wired into `@expressive/react/vite` in step 3.
 - **SSR ordering.** React orders precedence groups by first sight. Depth-ordered groups (`expressive-0..3`, led by placeholders) keep caller rules after callee bases; ordinal order within one depth follows discovery and can invert in rare cross-component cases. Groups interleave with app `precedence` groups by first sight.
 - **SSR class names** must match the client: name collisions (two components with one name) suffix in emission order, which can differ between server and client and mismatch hydration.
 - **Server Components.** `@expressive/react` itself does not load under `react-server` (on `main` too): React's server build has no `Component` to extend. The style host does, with hooks made optional - styled plain server components render through Flight with class names, caller rules across server components and precedence styles. Caller rules and author stamps do not survive a `'use client'` boundary (identity tokens and a symbol key; Flight serializes neither) - inferred, not tested. Probe scripts: scratchpad `rsc/`.
@@ -144,3 +144,17 @@ Now: the host's document sheet, on opening, looks for server `expressive-*` prec
 - Not covered: a non-document `renderToString` hydrated with the container being `<body>` itself (the sheet would land inside React's container), and server groups that first appear after the sheet opened (a second root hydrated later) - the sheet does not move.
 - Shadow roots: no way to target one now. A `react`-only provider component would add it if wanted.
 - `@expressive/react` publishes no `./jsx-runtime` subpath on this trunk; landing styled JSX needs `./jsx-runtime` and `./jsx-dev-runtime` exports.
+
+## Step 3: @expressive/react/vite
+
+The existing hot plugin now also:
+
+- **Keeps one engine copy.** In `configResolved` it drops any `@expressive/*` id from `optimizeDeps.include` that does not resolve into `node_modules` - plugin-react force-includes `<jsxImportSource>/jsx-dev-runtime`, which for a linked package prebundled the runtime alone and split the engine. Installed packages stay prebundled together.
+- **Registers styled components with React Refresh.** In dev, a module importing `@expressive/react/jsx-dev-runtime` gets plugin-react's local `$RefreshReg$`/`$RefreshSig$` renamed and wrapped: each registration also registers the component's host wrapper as `<id>%styled`, and each signature also signs the wrapper with the same key (custom hooks collected for it too). Skipped on the server and in modules without the styled runtime.
+- One new dev-runtime export the plugin injects: `hosted(type)` from `@expressive/react/jsx-dev-runtime` - the wrapper the runtime renders `type` through, or `undefined`.
+
+Results: probe drops its hand `refresh()` wiring and its own `optimizeDeps` workaround - Chrome **54/54**, 1 limitation (third-party) reproduced. The two refresh limitations are gone: an unregistered second component keeps state across an edit, and a hooks edit with no hand-kept signature remounts cleanly (`v4 0 0 0`). react, jsx, dom and router suites pass (1452 tests); new plugin and `hosted` tests.
+
+- React Refresh retries roots that failed, so the third-party crash re-logs on every edit - the probe filters it from refresh checks.
+- Depends on plugin-react's emitted `function $RefreshReg$(` / `function $RefreshSig$(` text (5.2); a change there leaves modules untouched - refresh then behaves as before, not broken.
+- react coverage gate: the new code is fully covered; older spike code is not (`style.ts` stamp cleanup and lazy retry branches, `jsx-runtime.ts`'s production `jsx`/`jsxs`) - to close before any landing.

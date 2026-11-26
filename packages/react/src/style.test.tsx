@@ -13,6 +13,7 @@ import { renderToReadableStream, renderToString } from 'react-dom/server';
 import * as Refresh from 'react-refresh/runtime';
 import '.';
 import { Css, refresh, style, wrap } from './style';
+import { hosted } from './jsx-dev-runtime';
 
 let error: ReturnType<typeof vi.spyOn>;
 
@@ -681,5 +682,19 @@ describe('client sheet placement', () => {
     expect(groups.length).toBeGreaterThan(0);
     expect(sheet.parentNode).toBe(document.body);
     expect(groups.every((group) => group.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+});
+
+describe('hosted', () => {
+  it('will name the wrapper a component renders through', () => {
+    function Badge() {
+      return null;
+    }
+
+    expect(hosted(Badge)).toBe(wrap(Badge));
+    expect(hosted(memo(Badge))).toBeDefined();
+    expect(hosted('div')).toBeUndefined();
+    expect(hosted(null)).toBeUndefined();
+    expect(hosted(class extends Component {})).toBeUndefined();
   });
 });
