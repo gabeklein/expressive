@@ -87,7 +87,7 @@ Object.defineProperty(Route.prototype, "catch", {
         const initial = this.fallback;
         const path = this.router.path;
         let done = false;
-        let unwatch = () => false;
+        let unwatch: () => boolean;
         const retry = () => {
           if (done) return;
           done = true;

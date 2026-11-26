@@ -65,7 +65,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...(scoped ? ['import { Component, Model } from "@expressive/mvc";'] : either ? ['import { Model } from "@expressive/mvc";'] : []),
+    ...(scoped ? ['import { Component, Model } from "@expressive/mvc";'] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
