@@ -17,11 +17,13 @@ A library meant for any host compiles against jsx's runtime:
 { "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "@expressive/jsx" } }
 ```
 
-Its elements are host-neutral and render under whichever host renders the tree. Tag types come from the host the app installs - see [Typing a host](#typing-a-host).
+Its elements are host-neutral and render under whichever host renders the tree. Built alone it has no intrinsic tags - `IntrinsicElements` comes from the host the app installs (see [Typing a host](#typing-a-host)) - so it renders Components and tags typed by its own consumers.
+
+Depend on `@expressive/jsx` with a range the app's host also satisfies, so one copy installs. A second copy logs an error at first render: each copy renders and styles on its own, and a `PORTAL` from one isn't recognized by the other.
 
 ## Rendering through a host
 
-```ts
+```tsx
 import { hydrate, plain, render, settled } from '@expressive/jsx';
 
 const release = render(<App />, container, plain);
@@ -32,7 +34,7 @@ const release = render(<App />, container, plain);
 - `settled(node, container, host, signal?)` resolves once nothing is suspended - no fallbacks drawn. The base of server rendering.
 - `plain` is the opinion-free host: tags as written, props as attributes, `on*` handlers attached. No styles, selector portal targets or hydration. Override parts with a spread - `{ ...plain, hoist }`.
 
-Several roots, each with its own host, can render in one process. A root renders inside its container only - a host embedded in another host's tree inherits no context, boundaries or suspense.
+Several roots, each with its own host, can render in one process. A root renders into its container and the targets of its portals - a host embedded in another host's tree inherits no context, boundaries or suspense.
 
 ## Writing a host
 
@@ -40,18 +42,21 @@ Several roots, each with its own host, can render in one process. A root renders
 
 ```ts
 const scene: Host = {
-  text: (root, value) => new TextItem(value),
-  marker: (root, kind) => new Marker(kind),
-  fragment: () => new Group(),
-  mount: (fiber, value, parent, before) => parent.insertBefore(new Item(value.type as string), before),
+  text: (root, value) => new TextItem(value) as never,
+  marker: (root, kind) => new Marker(kind) as never,
+  fragment: () => new Group() as never,
+  mount: (fiber, value, parent, before) => parent.insertBefore(new Item(value.type as string) as never, before),
   patch(fiber, value) {
-    (fiber.start as Item).set(value.props, fiber.props);
+    const { children, key, ...props } = value.props;
+    (fiber.start as unknown as Item).set(props, fiber.props);
   },
   unmount(fiber) {}
 };
 ```
 
-Nodes must be DOM-shaped: the core walks `parentNode`/`nextSibling`, calls `getRootNode()`, writes a text node's `nodeValue`, empties a container with `replaceChildren()`, and moves nodes with `insertBefore`, `appendChild`, `prepend`, `append` and `remove`. Inserting a fragment moves its children. A non-DOM platform wraps its objects to fit.
+`value.props` includes `children` and `key` - the core handles both, so `patch` skips them.
+
+Nodes must be DOM-shaped: the core walks `parentNode`/`nextSibling`, writes a text node's `nodeValue`, empties a container with `replaceChildren()`, and moves nodes with `insertBefore`, `appendChild`, `prepend`, `append` and `remove`. Inserting a fragment moves its children. `getRootNode()` returns the topmost ancestor - a detached fragment's own node, so commits for content built off-page wait until it attaches. `Host` is typed in DOM nodes: a non-DOM platform wraps its objects to fit, needs lib `dom` and casts at the seam.
 
 | Member | Role |
 |---|---|
@@ -59,7 +64,7 @@ Nodes must be DOM-shaped: the core walks `parentNode`/`nextSibling`, calls `getR
 | `mount(fiber, value, parent, before)` | Create (or adopt) an intrinsic element's node, insert it, return it. Set no props here - a throw in `mount` is not parked |
 | `patch(fiber, value, previous?)` | Write props. `fiber.props` holds what was last applied. Return `false` when the host set the content itself |
 | `settle?(fiber, value, previous)` | After children - props that need them, as a `<select>`'s `value` |
-| `unmount(fiber)` | Release what `mount`/`patch` attached; the core removes the node |
+| `unmount(fiber)` | Release what `mount`/`patch` attached - per element, children first; the core removes the node |
 | `target?`, `styles?` | Turn on styling - see [Styles](#styles) |
 | `hydration?` | Adopt existing markup - see [Hydration](#hydration) |
 | `locate?(into, parent)` | Resolve a string `Portal` target; without it targets must be nodes |
@@ -74,7 +79,7 @@ Nodes must be DOM-shaped: the core walks `parentNode`/`nextSibling`, calls `getR
 4. The core reconciles `value.props.children` into the node - unless `patch` returned `false`.
 5. `settle` runs, getting the props of the last pass that reached it.
 
-Children that suspend during step 4 end the pass there; the retry runs again from step 2. `patch` diffs against what it applied; `settle` catches up from the last props it saw.
+Children that suspend during step 4 end the pass there, and the element is patched again when they resolve. `patch` diffs against what it applied; `settle` catches up from the last props it saw.
 
 Returning `false` leaves earlier-reconciled children mounted - unmount them first (`unmountFiber` each, then empty `fiber.children`).
 
@@ -88,6 +93,7 @@ Read `start` (the node), `props`, `claimed`, `root`, `children`, `dead`, and `po
 - `hostOf(parent)` - the live parent when content mounts into a suspended boundary's stash.
 - `text`, `marker`, `activeRoot` - read the active root; outside a render pass wrap calls in `within(root, run)`.
 - `vnode`, `isVNode`, `PORTAL`, `LEAD` - build or recognize elements and portals.
+- `fragment(root)` - a fragment whose commits wait until it attaches; `isComment(node, data)` - recognize a marker; `isBare(property)` - CSS properties that take unitless numbers.
 
 ## Styles
 
@@ -107,13 +113,13 @@ const host: Host = {
 
 `styles(target)` returns a `Styles`: `open()` a sheet, `live()` while it lasts, `insert(rule, index)`, `root(key, css)` for pack variable defaults, `serialize(declarations)`. `hashed` names rules by content; `inline` writes unconditional rules into `style` - both for server output.
 
-The core resolves rules, warns in dev on an unmatched `_flag`, throws on a reserved `_Name`, and passes children their style context. `_` props are the core's - `patch` skips them. Without `styles`, `_` props reach `patch` as ordinary props.
+The core resolves rules, warns in dev on an unmatched `_flag`, throws on a reserved `_Name`, and passes children their style context. `_` props, `className` and `style` reach `patch` but are already in `fiber.claimed` - a styled `patch` skips them. Without `styles` nothing claims them: `plain` writes `_` props and `className` as attributes.
 
-A host with its own reconciler (React) styles each element with `styleElement(styles, type, props, appearance?, dev?)` - it returns the element's `claim` and the `inner` appearance its children render under. `flatten(claim)` folds rule declarations into inline ones.
+A host with its own reconciler styles each element with `styleElement(styles, type, props, appearance?, dev?)` - it returns the element's `claim` and the `inner` appearance its children render under. Call `syncRoots(styles)` before a pass so pack variable defaults are written - the core does this for its own roots. `flatten(claim)` folds rule declarations into inline ones. React styling is planned on this seam; the adapter doesn't use it yet.
 
 ## Hydration
 
-`Hydration` adopts markup instead of creating nodes: `adopt`, `adoptText` and `adoptRange` place nodes, reusing existing ones; `hydrating` runs a pass and removes what went unadopted; `keep`/`reserve` hold a suspended range's server markup until it renders; `aside` creates without adopting. dom's implementation is the reference.
+`Hydration` adopts markup instead of creating nodes: `adopt`, `adoptText` and `adoptRange` place nodes, reusing existing ones; `adopted(node)` tells which were reused; `hydrating` runs a pass and removes what went unadopted; `keep`/`reserve` hold a suspended range's server markup until it renders; `aside` creates without adopting. dom's implementation is the reference.
 
 A `Hydration` calls `text`/`marker`, which need an active root. To unit-test one outside a render, run it inside `within({ host, container }, () => ...)`.
 
