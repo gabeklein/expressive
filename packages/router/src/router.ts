@@ -27,6 +27,7 @@ interface LocationRouter extends Navigation {
 }
 
 const ACTIVE = new WeakMap<object, object>();
+const UNCOMMITTED = new WeakSet<object>();
 const LOCATING = new WeakSet<object>();
 const READY = new WeakSet<object>();
 
@@ -221,6 +222,9 @@ export async function navigate(
   ACTIVE.set(router, token);
   router.navigating = true;
 
+  if (commit) UNCOMMITTED.add(router);
+  else UNCOMMITTED.delete(router);
+
   try {
     await stage(() => {
       if (ACTIVE.get(router) === token && !router.get(null)) work();
@@ -229,9 +233,15 @@ export async function navigate(
   } finally {
     if (ACTIVE.get(router) === token) {
       ACTIVE.delete(router);
+      UNCOMMITTED.delete(router);
       if (!router.get(null)) router.navigating = false;
     }
   }
+}
+
+/** Whether a navigation in flight has yet to write its history entry - the URL on screen is still the committed one. */
+export function uncommitted(router: object) {
+  return UNCOMMITTED.has(router);
 }
 
 export function bindLocation(router: LocationRouter) {

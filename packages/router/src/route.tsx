@@ -1,13 +1,14 @@
-import { Component, set, unbind } from '@expressive/mvc';
+import { Component, Model, set, unbind } from '@expressive/mvc';
 import { childrenOf, Fragment, isElement, propsOf, typeOf } from '@expressive/mvc/jsx-runtime';
 import type { JSX } from '@expressive/mvc/jsx-runtime';
 
 import { Redirect } from './redirect';
-import { Router } from './router';
+import { Router, uncommitted } from './router';
 import { fillParams, fullPattern, matchPattern, paramNames, patternSegment } from './url';
 
 const PARAMS = new WeakMap<Route, Record<string, string> | undefined>();
 const CHILDREN = new WeakMap<Route, Route[]>();
+const REDIRECTING = new WeakSet<Router>();
 
 type Async<T> = T | Promise<T>;
 
@@ -235,6 +236,16 @@ export class Route extends Component {
   }
 
   /**
+   * Handles a thrown `Redirect` - navigates to its `to`, showing `fallback` until the navigation
+   * lands. Any other error passes on to the next boundary up.
+   *
+   * An override handling its own errors returns `super.catch(error)` for the rest.
+   */
+  catch(error: Error): Promise<void> {
+    return redirect(this, error) || Promise.reject(error);
+  }
+
+  /**
    * Content shown while matched - the `as` element around `children`, or
    * `children` alone. A subclass override is its page: Route still gates it on
    * match, guards and redirects, and runs it only when matched. Call
@@ -252,6 +263,9 @@ export class Route extends Component {
   }
 }
 
+let mounted = 0;
+let release: (() => boolean) | undefined;
+
 Route.on({
   setup(self) {
     Object.defineProperty(self, 'render', {
@@ -259,13 +273,55 @@ Route.on({
       writable: true,
       value: frame
     });
+
+    if (!mounted++)
+      release = Model.on({ catch: setup });
+
+    return () => {
+      if (!--mounted) release!();
+    };
   }
 });
+
+/** A `Redirect` rejected from an async `new()` - the nearest Route navigates. */
+function setup(this: Model, error: unknown, kind: string) {
+  if (kind == 'setup') {
+    const route = this.get(Route, false);
+
+    if (route && redirect(route, error)) return;
+  }
+
+  return error;
+}
+
+/** Navigate to a caught `Redirect`, settling once the navigation lands; `undefined` if not one, or one caught mid-redirect. */
+function redirect(route: Route, error: unknown): Promise<void> | undefined {
+  const { router } = route;
+
+  if (!(error instanceof Redirect) || REDIRECTING.has(router)) return;
+
+  REDIRECTING.add(router);
+
+  return (async () => {
+    try {
+      route.goto(error.to, !uncommitted(router));
+      await new Promise<void>((done) => {
+        router.get(($) => {
+          if ($.navigating) return;
+          done();
+          return null;
+        });
+      });
+    } finally {
+      REDIRECTING.delete(router);
+    }
+  })();
+}
 
 function frame(this: Route): Component.Node {
   const { is: self, matched, parent, redirect, router } = this;
 
-  if (!matched && typeof redirect === 'function')
+  if (!matched && redirect)
     GUARD.delete(self);
 
   if (parent) {
@@ -276,14 +332,12 @@ function frame(this: Route): Component.Node {
       return null;
   }
 
-  if (typeof redirect === 'string')
-    return matched
-      ? <Redirect to={redirect} replace />
-      : null;
+  if (typeof redirect === 'string' && !matched)
+    return null;
 
-  if (typeof redirect === 'function'){
+  if (redirect) {
     const target = guard(self, redirect);
-    if (target) return <Redirect to={target} replace />;
+    if (target) return send(self, target);
     if (router.rejected === router.path) return null;
   }
 
@@ -301,7 +355,7 @@ function frame(this: Route): Component.Node {
   return allRoutes(children) ? children : null;
 }
 
-const GUARD = new WeakMap<Route, { redirect: Function; space: string; to?: string; promise?: Promise<string | undefined>; error?: unknown }>();
+const GUARD = new WeakMap<Route, { redirect: Route['redirect']; space: string; to?: string; sent?: boolean; promise?: Promise<string | undefined>; error?: unknown }>();
 
 /**
  * Resolve a function `redirect` guard for an entered route. Caches the verdict
@@ -311,7 +365,7 @@ const GUARD = new WeakMap<Route, { redirect: Function; space: string; to?: strin
  * is returned on retry. The cache is dropped on leave (see render), so returning
  * to the space re-runs the guard.
  */
-function guard(route: Route, redirect: () => Async<string | void | null>): string | undefined {
+function guard(route: Route, redirect: NonNullable<Route['redirect']>): string | undefined {
   if(!route.matched){
     GUARD.delete(route);
     return;
@@ -321,7 +375,7 @@ function guard(route: Route, redirect: () => Async<string | void | null>): strin
   const at = space(route);
 
   if (!g || g.redirect !== redirect || g.space !== at)
-    GUARD.set(route, g = { redirect, space: at });
+    GUARD.set(route, g = typeof redirect == 'string' ? { redirect, space: at, to: redirect } : { redirect, space: at });
 
   if ('to' in g) return g.to;
   if ('error' in g) throw g.error;
@@ -335,7 +389,7 @@ function guard(route: Route, redirect: () => Async<string | void | null>): strin
     return g!.to = to || undefined;
   }
 
-  const result = redirect();
+  const result = (redirect as () => Async<string | void | null>)();
 
   if (result instanceof Promise)
     throw g.promise = result.then(gate, (error) => {
@@ -344,6 +398,18 @@ function guard(route: Route, redirect: () => Async<string | void | null>): strin
     });
 
   return gate(result);
+}
+
+/** Navigate to a route's redirect verdict - once per verdict, however often the route renders. */
+function send(route: Route, to: string) {
+  const verdict = GUARD.get(route)!;
+
+  if (!verdict.sent) {
+    verdict.sent = true;
+    route.goto(to, !uncommitted(route.router));
+  }
+
+  return null;
 }
 
 /**

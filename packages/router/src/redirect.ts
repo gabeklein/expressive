@@ -1,26 +1,17 @@
-import { Component, get } from '@expressive/mvc';
-
-import { Route } from './route';
-
 /**
- * Navigate to `to` on activation; renders nothing.
+ * Thrown to navigate elsewhere - the nearest Route catches it and goes to `to`.
  *
- * Resolves `to` against the nearest Route. Pushes history unless `replace`.
+ * Throw while rendering or from a Component's `new()`, sync or async. `to` resolves against the
+ * catching Route. History is replaced when the URL being left is the committed entry (a cold load),
+ * pushed during a navigation. The current screen stays up until the target is ready. A second
+ * redirect caught before the first lands passes on as an error.
+ *
+ * @example
+ * if (!this.session.user) throw new Redirect('/login');
  */
-export class Redirect extends Component {
-  to = '';
-  replace = false;
-  /** Navigate only when true. Default true. */
-  when: boolean = true;
-  fallback = false;
-
-  private route = get(Route);
-
-  protected new() {
-    if (this.when) this.route.goto(this.to, this.replace);
-  }
-
-  render() {
-    return null;
+export class Redirect extends Error {
+  constructor(readonly to: string) {
+    super(`Redirect to ${to}`);
+    this.name = 'Redirect';
   }
 }
