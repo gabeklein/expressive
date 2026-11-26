@@ -84,7 +84,10 @@ function Element(this: Component){
   const render = useFactory(() => {
     let from = this;
     const context = outer.push(this);
-    const Content = () => from.render(from.props);
+    const Content = () => {
+      const placement = (from as any)[Symbol.for('@expressive/mvc.placed')];
+      return from.render(placement ? { ...from.props, children: placement.children } : from.props);
+    };
 
     return () => {
       from = useWatch(this, () => () => context.pop());

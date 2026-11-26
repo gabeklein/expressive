@@ -20,6 +20,7 @@ declare module '@expressive/mvc' {
 // pushes a child context, registers the instance for teardown, and installs its
 // per-instance render host. Host-specific descriptors stay in each adapter.
 const PLACING = new WeakMap<Component, { placed: Promise<void>; place(): void }>();
+const NESTED = new WeakMap<Component, Function>();
 
 Object.defineProperties(Component.prototype, {
   state: {
@@ -99,8 +100,9 @@ function bootstrap(this: Component, parent: Context){
  */
 function createFrame(from: Component, context: Context, children: unknown) {
   const { createElement } = Runtime;
+  const placed = (from as any)[Symbol.for('@expressive/mvc.placed')];
 
-  if(from.fallback !== false)
+  if(!placed && from.fallback !== false)
     children = createElement(
       Runtime.Suspense,
       { fallback: from.fallback, name: String(from) },
@@ -109,7 +111,7 @@ function createFrame(from: Component, context: Context, children: unknown) {
 
   children = createProvider(context, children);
 
-  return from.props.catch || from.catch
+  return !placed && (from.props.catch || from.catch)
     ? createElement(Runtime.ErrorBoundary, { self: from, children })
     : children;
 }
@@ -132,18 +134,24 @@ function render(from: Component, context: Context) {
   };
 
   let nested: Component | undefined;
-  let Nested: Function | undefined;
+  let children: unknown;
+  let element: unknown;
   const Render = () => {
     const output = (own || Object.getPrototypeOf(owner).render).call(from, from.props);
 
-    if (from.constructor !== Component || !(output instanceof Component)) return output;
+    if (!(output instanceof Component)) return output;
     const provided = output as Component;
-    if (provided !== nested) {
+    let Nested = NESTED.get(provided);
+    if (!Nested) NESTED.set(provided, Nested = elementType(provided));
+
+    const next = (provided as any)[Symbol.for('@expressive/mvc.placed')]?.children;
+    if (nested !== provided || children !== next) {
       nested = provided;
-      Nested = elementType(provided);
+      children = next;
+      element = createElement(Nested);
     }
 
-    return createElement(Nested!);
+    return element;
   };
   const HostComponent = () => {
     from = useWatch(from, () => {

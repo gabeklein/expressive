@@ -1513,6 +1513,128 @@ describe('for', () => {
     expect(panel.get(null)).toBe(false);
   });
 
+  it.each([false, true])('will preserve placed field state and clear children (strict: %s)', async (reactStrictMode) => {
+    class Panel extends Component {
+      label = 'a';
+      render(props: { children?: React.ReactNode }) {
+        return <b>{this.label}{props.children}</b>;
+      }
+    }
+    const panel = Panel.new({ label: 'a' });
+    panel.label = 'b';
+    const view = render(<Component for={panel}>one</Component>, { reactStrictMode });
+    expect(view.container.textContent).toBe('bone');
+    expect(panel.label).toBe('b');
+    view.rerender(<Component for={panel}>two</Component>);
+    await act(async () => {});
+    expect(view.container.textContent).toBe('btwo');
+    expect(panel.label).toBe('b');
+    view.unmount();
+    expect(panel.props.children).toBeUndefined();
+    const again = render(<div>{panel}</div>);
+    expect(again.container.textContent).toBe('b');
+    again.unmount();
+  });
+
+  it('will use the element fallback for a placed render and children', async () => {
+    class Panel extends Component {
+      value = set<string>();
+      render(props: { children?: React.ReactNode }) {
+        return <section>{props.children}{this.value}</section>;
+      }
+    }
+    const panel = Panel.new();
+    const Child = () => panel.value;
+    const view = render(<Component for={panel} fallback={<i>loading</i>}><Child /></Component>);
+    expect(view.container.textContent).toBe('loading');
+    await act(async () => { panel.value = 'ready'; });
+    expect(view.container.textContent).toBe('readyready');
+  });
+
+  it('will use the element catch for a placed render error', async () => {
+    const caught = vi.fn();
+    class Panel extends Component {
+      broken = true;
+      render(): React.ReactNode {
+        if (this.broken) throw new Error('broken');
+        return <b>ready</b>;
+      }
+    }
+    const panel = Panel.new();
+    const view = render(<Component<Panel> for={panel} fallback={<i>recovering</i>} catch={(error: Error, instance: Component) => { caught(error.message, instance); panel.broken = false; }} />);
+    await act(async () => {});
+    expect(caught).toHaveBeenCalledWith('broken', expect.any(Component));
+    expect(view.container.textContent).toMatch(/^(ready|recovering)$/);
+  });
+
+  it('will render subclass children when it has a for field', () => {
+    class Panel extends Component {}
+    class Slot extends Component {
+      for?: Component;
+    }
+    const panel = Panel.new();
+    const view = render(<Slot for={panel}>kids</Slot>);
+    expect(view.container.textContent).toBe('kids');
+  });
+
+  it('will render once per child change', async () => {
+    const calls = vi.fn();
+    class Panel extends Component {
+      render(props: { children?: React.ReactNode }) {
+        calls();
+        return <b>{props.children}</b>;
+      }
+    }
+    const panel = Panel.new();
+    const view = render(<Component for={panel}>one</Component>);
+    await act(async () => {});
+    await flushMicrotasks();
+    const before = calls.mock.calls.length;
+    view.rerender(<Component for={panel}>two</Component>);
+    expect(calls.mock.calls.length).toBe(before + 1);
+    await act(async () => {});
+    expect(view.container.textContent).toBe('two');
+    expect(calls.mock.calls.length).toBe(before + 1);
+  });
+
+  it('will let the latest provider own shared children', () => {
+    class Panel extends Component {
+      render(props: { children?: React.ReactNode }) {
+        return <b>{props.children}</b>;
+      }
+    }
+    const panel = Panel.new();
+    const view = render(<><Component for={panel} fallback="first">one</Component><Component for={panel} fallback="second">two</Component></>);
+    expect(view.container.textContent).toContain('two');
+    view.rerender(<><Component for={panel} fallback="second">two</Component></>);
+    expect(view.container.textContent).toBe('two');
+    view.unmount();
+    expect(panel.props.children).toBeUndefined();
+  });
+
+  it('will clear children after swapping Component, Model, then undefined', async () => {
+    class Panel extends Component {
+      render(props: { children?: React.ReactNode }) {
+        return <b>{props.children}</b>;
+      }
+    }
+    const panel = Panel.new();
+    class Store extends Model {}
+    const model = Store.new();
+    const view = render(<Component for={panel}>kids</Component>);
+    expect(view.container.textContent).toBe('kids');
+    view.rerender(<Component for={model}>kids</Component>);
+    await act(async () => {});
+    expect(panel.props.children).toBeUndefined();
+    expect(view.container.textContent).toBe('kids');
+    const again = render(<div>{panel}</div>);
+    expect(again.container.textContent).toBe('');
+    again.unmount();
+    view.rerender(<Component for={undefined as Panel | undefined}>kids</Component>);
+    await act(async () => {});
+    expect(view.container.textContent).toBe('kids');
+  });
+
   it('will destroy an adopted Component and swap provided instances', async () => {
     class Panel extends Component {
       label = '';
@@ -1686,6 +1808,13 @@ describe('for', () => {
     }
 
     class Sub extends Component {}
+    class Panel extends Component {
+      label = '';
+      render(props: { tone?: string }) {
+        return props.tone;
+      }
+    }
+    const panel = Panel.new();
 
     const plain: Component = Component.new();
     const list: Component[] = [new Component(), plain];
@@ -1701,6 +1830,11 @@ describe('for', () => {
       <Component for={Typed} nope="x" />,
       // @ts-expect-error
       <Component for={Typed.new()} is={() => {}} />,
+      <Component for={panel} label="ok" />,
+      // @ts-expect-error
+      <Component for={panel} render={() => null} />,
+      // @ts-expect-error
+      <Component for={panel} tone="blue" />,
       // @ts-expect-error
       <Sub for={Typed} />
     ]);
