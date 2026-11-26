@@ -38,11 +38,12 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #803 render through a `Host` (dom, `plain`, custom-host tests).
 - #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
 - #806 `renderToString` through the reconciler: jsx `settled()`, dom's string-tree host; the second walker is gone.
-- Runtime move: /jsx owns the JSX runtime and host registry; mvc's `jsx-runtime` keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.
+- Runtime move: /jsx owns the JSX runtime and host registry; mvc's host subpath keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.
 - Test split: jsx and dom run only their own suites; DOM-only behaviours (selector portals, head hoisting, SVG, refs, autofocus, style targets) moved to dom; jsx covers `settled()` and its seams on `plain`.
 - jsx's suite without dom: style tests render through a stylesheet test host, JSX compiles against jsx's runtime with test-only intrinsics; the jsx→dom edge in `affected.ts` is gone.
 - Unused root exports dropped: `mountRoot`, `rootOf` and the root `JSX` type (`JSX` stays on `/jsx-runtime`).
 - The core resolves element styling (`styleElement`), assigns `fiber.props` and reconciles element children; `Host.patch` applies the claim and may return `false`; `Host.settle` runs after children with the last settled props. `claim`, `unmatched`, `reserved` and `reconcileChildren` leave the root export.
+- mvc's `./jsx-runtime` subpath is renamed `./host` - it holds no runtime, only the seams hosts share. A custom host augments `declare module '@expressive/mvc/host'`.
 - `Host.mount` creates or adopts its node and returns it; the core sets the fiber's range and runs `patch` inside `complete`; `complete` is no longer exported.
 
 ## Before release
