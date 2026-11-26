@@ -641,16 +641,16 @@ const FETCH: UserConfig = {
 
 const CALL_MODULE = `\
 import { call as send, client, define } from "@expressive/rpc";
-import { Router } from "@expressive/dev";
 
 const { pathOf } = client();
 const fixed = at => !at.some(part => part[0] === ":" || part === "*");
 const PATH = Symbol.for("@expressive/dev#path");
+const ACTIVE = Symbol.for("@expressive/dev#router");
 
 export { define };
 const entering = (at, name) => {
   try {
-    return pathOf(at, name, globalThis[PATH] || Router.get().path);
+    return pathOf(at, name, globalThis[PATH] || globalThis[ACTIVE]?.path);
   } catch {
     return pathOf(at, name);
   }

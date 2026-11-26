@@ -81,6 +81,7 @@ Object.defineProperty(Route.prototype, "catch", {
     const Boundary = this.Catch;
 
     const caught = (error: Error) => {
+      if (typeof window === "undefined") return Promise.reject(error);
       if (!Boundary) return Promise.reject(error);
       return new Promise<void>(resolve => {
         const initial = this.fallback;

@@ -3,6 +3,7 @@
 
 import { set } from "@expressive/mvc";
 import { Link, Redirect } from "@expressive/router";
+import type { BrowserRouter } from "@expressive/router";
 import { NotFound, Redirect as Moved } from "@expressive/rpc";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -87,7 +88,7 @@ it("bubbles to an ancestor Catch when the throwing Page has none", async () => {
 });
 
 describe("render-time HTTP errors", () => {
-  const router = browserRouter();
+  const router = browserRouter() as unknown as { current: BrowserRouter };
 
   it("will show the folder Catch for NotFound with the original error and retry", async () => {
     const missing = new NotFound("Record missing");

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { client } from "@expressive/rpc";
 
 import { entering, Router } from "./router";
 
@@ -35,10 +36,17 @@ it("will push history in a browser", async () => {
   vi.stubGlobal("history", { pushState, replaceState: vi.fn() });
 
   const router = Router.new();
+  const active = () => (globalThis as any)[Symbol.for("@expressive/dev#router")];
+  expect(active()).toBe(router);
 
   router.goto("/next");
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(pushState).toHaveBeenCalledWith(null, "", "/next");
+  expect(active().path).toBe("/next");
+  router.goto("/blog/new");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(client().pathOf(["blog", ":id"], "save", active().path)).toBe("/blog/new");
   router.set(null);
+  expect(active()).toBeUndefined();
 });
