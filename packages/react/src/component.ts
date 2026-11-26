@@ -33,6 +33,7 @@ Object.defineProperties(Component.prototype, {
 /**
  * On the root Component, host own-property keys are trapped so each lands as a
  * plain own property (out of observed state); each adapter assigns its own set.
+ * A subclass getter on a public one drops the host's write.
  */
 Component.on({
   type(type) {
@@ -41,13 +42,21 @@ Component.on({
     if (typeof render?.value == 'function')
       Object.defineProperty(type.prototype, 'render', { ...render, configurable: false });
 
-    if (type === Component)
-      for (const key of Runtime.ignore)
+    for (const key of Runtime.ignore) {
+      if (type === Component) {
         Object.defineProperty(Component.prototype, key, {
           set(value) {
             Object.defineProperty(this, key, { value, writable: true });
           }
         });
+        continue;
+      }
+
+      const own = Object.getOwnPropertyDescriptor(type.prototype, key);
+
+      if (own?.get && !own.set && key[0] != '_')
+        Object.defineProperty(type.prototype, key, { ...own, set() {} });
+    }
 
     subcomponents(type.prototype);
   },
