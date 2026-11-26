@@ -13,6 +13,8 @@
     "strict": true,
     "types": ["react", "node"],
     "paths": {
+      "@expressive/react/jsx-runtime": ["./src/jsx-runtime"],
+      "@expressive/react/jsx-dev-runtime": ["./src/jsx-dev-runtime"],
       "@expressive/mvc/*": ["../mvc/src/*"],
       "@expressive/jsx/*": ["../jsx/src/*"],
       "@expressive/*": ["../*/src"]

@@ -1,6 +1,7 @@
 import { Component, unbind } from '@expressive/mvc';
 import { createProvider, type Context } from './context';
 import { Runtime, useWatch } from './runtime';
+import { hostComponent, subcomponent } from './style';
 
 declare module '@expressive/mvc' {
   interface Component {
@@ -130,7 +131,7 @@ function render(from: Component, context: Context) {
     context.pop();
   };
 
-  const Render = () => (own || Object.getPrototypeOf(owner).render).call(from, from.props);
+  const Render = () => hostComponent(from, own || Object.getPrototypeOf(owner).render, own, from.props);
   const Component = () => {
     from = useWatch(from, () => {
       PLACING.get(owner)!.place();
@@ -169,6 +170,8 @@ function subcomponents(target: object) {
         let render = unbind(value);
         const Component = (props: unknown) =>
           render.call(useWatch(owner), props);
+
+        subcomponent(Component, owner, key);
 
         Object.defineProperty(owner, key, {
           configurable: true,

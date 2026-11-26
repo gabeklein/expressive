@@ -18,7 +18,9 @@ const skipFiles = [
   'jsx-runtime.test.tsx',
   'vite.test.ts',
   // react's ErrorBoundary; compat has its own suite beside compat/boundary.ts
-  'boundary.test.tsx'
+  'boundary.test.tsx',
+  // spike: the style host is react-only
+  'style.test.tsx'
 ];
 
 for (const file of skipFiles)
