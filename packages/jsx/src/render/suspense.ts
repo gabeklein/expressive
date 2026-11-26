@@ -135,7 +135,7 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
   let boundary = fiber.boundary;
 
   for (let above = boundary; above; above = above.parent)
-    if (above.fallback() !== false) {
+    if (above.fallback?.() !== false) {
       boundary = above;
       break;
     }
