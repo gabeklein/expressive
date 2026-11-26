@@ -19,5 +19,5 @@ export function Page() {
 }
 
 export function Catch({ error, retry }: { error: Error; retry: () => void }) {
-  return <section role="alert">{error instanceof NotFound ? "Blog post not found" : error.message} <button onClick={retry}>Retry</button></section>;
+  return <section role="alert"><h1>{error instanceof NotFound ? "Blog post not found" : error.message}</h1><button onClick={retry}>Retry</button></section>;
 }
