@@ -168,7 +168,10 @@ class Account extends Component {
 }
 ```
 
-In an event handler or effect, navigate with `Route.get().goto()` instead.
+An async `new()` redirects after the page has shown - throw before the first
+`await` to decide before render. In an event handler or effect, navigate with
+`Route.get().goto()` instead. On React, filter `Redirect` out of `createRoot`'s
+`onCaughtError`, which logs every error a boundary catches.
 
 `Route.redirect` also accepts a synchronous or async entry guard. A non-empty
 string redirects by the same history rule, a falsy value allows the route, and `null`

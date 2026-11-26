@@ -3,8 +3,9 @@
  *
  * Throw while rendering or from a Component's `new()`, sync or async; elsewhere navigate with
  * `goto`. `to` resolves against the catching Route. History is replaced on a cold load, pushed during
- * in-app navigation. A render-time throw shows the Route's `fallback` until the target is ready. A
- * redirect caught before the previous one lands passes on as an error.
+ * in-app navigation. A render-time throw shows the Route's `fallback` until the target is ready; an
+ * async `new()` redirects after the page has shown. A redirect caught before the previous one lands
+ * passes on as an error.
  *
  * @example
  * if (!session.user) throw new Redirect('/login');

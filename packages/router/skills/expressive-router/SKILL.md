@@ -320,9 +320,11 @@ class Account extends Component {
 ```
 
 - A render-time throw shows the Route's `fallback` until the target is ready.
+- An async `new()` redirects after the page has shown. To decide before render, throw before the first `await`, or use the `redirect` prop.
 - Effects and event handlers navigate with `Route.get().goto()` - a throw there is just an error.
 - A redirect caught before the previous one lands passes on as an error - the loop guard.
-- Every `Route` is a `catch` boundary: it handles `Redirect` and passes any other error to the next boundary up. A subclass overriding `catch` returns `super.catch(error)` for what it doesn't handle.
+- Every `Route` is a `catch` boundary: it handles `Redirect` and passes any other error to the next boundary up. Any `catch` between the throw and the Route sees it first - a `Route` subclass returns `super.catch(error)`, any other rejects what it doesn't handle.
+- React logs every error a boundary catches through `onCaughtError`. Pass one to `createRoot` that skips `Redirect`.
 
 ## Extending Route: contributing child routes
 

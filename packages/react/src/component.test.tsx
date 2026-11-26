@@ -1,5 +1,5 @@
 import { render, screen, act, waitFor } from '@testing-library/react';
-import { beforeEach, vi, expect, it, describe } from 'vitest';
+import { afterEach, beforeEach, vi, expect, it, describe } from 'vitest';
 import React, { Suspense } from 'react';
 
 import { collect, mockError, mockPromise, mockWarn, flushMicrotasks, revisions, preactDiffers, reactOnly, suspender } from '../test.setup';
@@ -1855,6 +1855,18 @@ reactOnly.describe('abandoned render', () => {
 });
 
 reactOnly.describe('router Redirect', () => {
+  let error: { mock: { calls: unknown[][] }; mockRestore(): void; mockClear(): void };
+
+  beforeEach(() => {
+    error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    const logged = error.mock.calls.map((call) => call[1]);
+    error.mockRestore();
+    expect(logged.every((e) => e instanceof Redirect)).toBe(true);
+  });
+
   function held() {
     const gate = mockPromise<void>();
     let open = false;
@@ -1973,6 +1985,8 @@ reactOnly.describe('router Redirect', () => {
     await act(flushMicrotasks);
 
     expect(caught).toEqual([failure]);
+    expect(error).toHaveBeenCalledWith(expect.anything(), failure, expect.anything(), expect.anything());
+    error.mockClear();
   });
 
   it('will navigate under StrictMode', async () => {

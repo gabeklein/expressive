@@ -6,7 +6,9 @@
 
 History is replaced on a cold load and pushed during in-app navigation, so Back still reaches the page the user came from. A `redirect` prop verdict follows the same rule (it always replaced before) and navigates once per verdict.
 
-Every `Route` is now a `catch` boundary: it handles `Redirect` and passes any other error to the next boundary up. A `Route` subclass overriding `catch` returns `super.catch(error)` for what it doesn't handle.
+Every `Route` is now a `catch` boundary: it handles `Redirect` and passes any other error to the next boundary up. A `Route` subclass overriding `catch` returns `super.catch(error)` for what it doesn't handle. On dom, an error with no boundary above its Route now surfaces as an unhandled rejection rather than a throw from `render()`. On React, `createRoot`'s default `onCaughtError` logs each caught `Redirect` - pass one that skips it.
+
+A redirect caught before the previous one lands passes on as an error, so a redirect loop fails instead of spinning.
 
 Migrating:
 
