@@ -120,21 +120,15 @@ Branch `spike/react-style-jsx`, cut from `feat/jsx` (#845). The host no longer r
 
 Results: react, jsx, dom and router suites pass (61 files, 1442 tests); style tests 30/30; Chrome probe unchanged at **66/68** - the same two `renderToString` post-hydration failures, the same 3 limitations reproduced.
 
-### Proposed /jsx surface (needs sign-off)
+### /jsx surface (approved, added)
 
-Three root exports, each wrapping what the core already does, plus one optional field:
+Exported from `@expressive/jsx`'s root, with JSDoc and an `expressive-jsx` skill entry:
 
-```ts
-/** Resolve a caller's rules onto a component element's props (componentProps + observe). */
-placeComponent(type, props, appearance): { props, appearance }
+- `placeComponent(type, props, appearance)` - the core's `componentProps`, renamed. It does not wrap `props.style`: React copies props when it creates an element, so a getter set at placement would be read and lost.
+- `renderComponent(record, render)` - wraps `record.props` so a `style` read is noticed (idempotent, so the core's already-wrapped props pass through), runs the render under tracking, returns `{ output, appearance }`. The core's render pass uses it.
+- `authorAppearance(author, appearance)` - the core's `authored` with the author passed in; `authored` now delegates to it.
+- `Rendered.method` - a subcomponent's owner and key when its type is a host wrapper; the core's `renderedAppearance` reads it before `methodOf`.
 
-/** Run a component's render under style tracking; returns output and the appearance it renders under (consume + renderedAppearance). */
-renderComponent(fiber: Rendered, render): { output, appearance }
+React now imports only these plus `styleElement`, `style`, `Style` and `Css`, all public; its `authored` copy and subcomponent appearance are gone. `jsx-internals.{js,d.ts}` remains only as the type barrier described above.
 
-/** Appearance for an element `author` wrote - children keep their author's rules (core's authored, author passed in). */
-authorAppearance(author, appearance)
-
-interface Rendered { ...; method?: { owner: Model; key: string } }  // subcomponent behind a host wrapper
-```
-
-With these the React host drops `jsx-internals`, its `authored` copy and `appearanceOf`; the core's `authored` becomes `authorAppearance(authorOf(value), appearance)`.
+Results: jsx suite and coverage gates pass (new host-steps test); react, jsx, dom and router suites pass (1443 tests); `example-check` and `docs-check` pass after a build; Chrome probe unchanged at **66/68**.

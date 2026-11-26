@@ -1,10 +1,10 @@
-import type { Component } from '@expressive/mvc';
+import type { Component, Model } from '@expressive/mvc';
 import * as React from 'react';
 import { Fragment, forwardRef, isValidElement, lazy, memo } from 'react';
 import { jsx as base, jsxs } from 'react/jsx-runtime';
 
-import { componentProps, consume, enterAppearance, observe, renderedAppearance, styleElement } from './jsx-internals';
-import type { Appearance, Declaration, Rendered as Tracked, Style as StyleValue, Styles } from './jsx-internals';
+import { authorAppearance, placeComponent, renderComponent, styleElement } from './jsx-internals';
+import type { Appearance, Declaration, Rendered as Tracked, Styles } from './jsx-internals';
 
 export { style, Style, Css } from './jsx-internals';
 
@@ -34,7 +34,7 @@ const FORWARD = Symbol.for('react.forward_ref');
 const LAZY = Symbol.for('react.lazy');
 const PORTAL = Symbol.for('react.portal');
 const INCOMING = new WeakMap<object, Appearance | undefined>();
-const SUBS = new WeakMap<Function, { owner: object; key: string }>();
+const SUBS = new WeakMap<Function, { owner: Model; key: string }>();
 const WRAPPED = new WeakMap<object, Function>();
 const WRAPPERS = new WeakSet<Function>();
 
@@ -216,7 +216,7 @@ function hash(text: string) {
   return (value >>> 0).toString(36);
 }
 
-function subcomponent(fn: Function, owner: object, key: string) {
+function subcomponent(fn: Function, owner: Model, key: string) {
   SUBS.set(fn, { owner, key });
 }
 
@@ -226,60 +226,27 @@ function host(fiber: Rendered, render: () => unknown) {
 
   author = fiber;
 
-  let output: unknown;
+  let rendered: { output: unknown; appearance: Appearance | undefined };
 
   try {
-    output = consume(fiber, render as any);
+    rendered = renderComponent(fiber, render);
   } finally {
     author = previous;
   }
 
-  if (!onServer()) return walk(output, appearanceOf(fiber));
+  if (!onServer()) return walk(rendered.output, rendered.appearance);
 
   const outer = used;
   used = new Set();
 
   try {
-    const resolved = walk(output, appearanceOf(fiber));
+    const resolved = walk(rendered.output, rendered.appearance);
     const emitted = tags();
 
     return emitted.length ? jsxs(Fragment, { children: [...emitted, resolved] }) : resolved;
   } finally {
     used = outer;
   }
-}
-
-/**
- * jsx core's `renderedAppearance`, except for subcomponents: the core finds
- * their owner through the bound method, but React renders them through a
- * wrapper the core cannot see.
- */
-function appearanceOf(fiber: Rendered): Appearance | undefined {
-  const sub = SUBS.get(fiber.type as Function);
-
-  if (!sub) return renderedAppearance(fiber);
-
-  const style = fiber.props?.style as StyleValue;
-  const entries = (fiber.appearance?.entries || []).map(({ hops, style }) => ({ hops: hops + 1, style }));
-  const context = enterAppearance((sub.owner as any).constructor, sub.key);
-
-  if (context?.base) entries.push({ hops: 0, style: context.base as StyleValue });
-  if (style && !fiber.consumed) entries.push({ hops: 0, style });
-
-  return { author: fiber, context, entries };
-}
-
-/** jsx core's `authored`, reading React's author stamp instead of a vnode's. */
-function authored(value: unknown, appearance: Appearance | undefined): Appearance | undefined {
-  const by = authorOf(value);
-
-  if (!by || !appearance || by === appearance.author) return appearance;
-
-  for (let fiber = appearance.author as Rendered | undefined; fiber; fiber = fiber.appearance?.author as Rendered | undefined)
-    if (fiber.appearance?.author === by)
-      return { author: by, context: fiber.appearance.lexical, entries: appearance.entries };
-
-  return appearance;
 }
 
 function walk(value: unknown, appearance: Appearance | undefined): unknown {
@@ -311,7 +278,7 @@ function place(value: unknown, inherited: Appearance | undefined): unknown {
 
   if (!isValidElement(value) || Object.getPrototypeOf(value) !== Object.prototype) return value;
 
-  const appearance = authored(value, inherited);
+  const appearance = authorAppearance(authorOf(value), inherited);
   const { type } = value as any;
   const props = value.props as Record<string, any>;
 
@@ -328,7 +295,7 @@ function place(value: unknown, inherited: Appearance | undefined): unknown {
 
   if (typeof type != 'function' && !HOSTED.has(type)) return value;
 
-  const resolved = componentProps(typeof type == 'function' ? type : () => {}, props, appearance);
+  const resolved = placeComponent(typeof type == 'function' ? type : () => {}, props, appearance);
 
   if (resolved.props === props) {
     INCOMING.set(props, resolved.appearance);
@@ -379,7 +346,8 @@ function useRecord(type: object, props: Record<string, any>) {
   const record = (ref.current ||= { kind: 'function', type, props });
 
   record.type = type;
-  record.props = observe(props);
+  record.props = props;
+  record.method = SUBS.get(type as Function);
   record.appearance = INCOMING.get(props);
   return record;
 }

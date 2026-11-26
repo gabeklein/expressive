@@ -1,7 +1,2 @@
-// SPIKE: /jsx internals by path, until the component-side steps are exported.
-export { consume, observe, renderedAppearance } from '../../jsx/src/core/appearance';
-export { componentProps } from '../../jsx/src/style/claim';
-export { enterAppearance } from '../../jsx/src/style/protocol';
-export { styleElement } from '../../jsx/src/style/claim';
-export { Style, style } from '../../jsx/src/style/stylesheet';
-export { Css } from '../../jsx/src/style/css';
+// SPIKE: React type-checks /jsx from source, where React's Host augmentation breaks jsx's own Node types; the .d.ts beside this stands in.
+export { Css, Style, authorAppearance, placeComponent, renderComponent, style, styleElement } from '@expressive/jsx';
