@@ -116,14 +116,11 @@ No `useCallback`, no dependency arrays, no stale closures. The method reads live
 
 ## Refreshing async data
 
-Factory-backed properties are **read-only** - assigning to `this.posts` throws (`Feed.posts is read-only.`). To refresh, either make the property writable by pairing the factory with a callback:
+Factory-backed properties are writable - assign a fresh value to refresh:
 
 ```tsx
 class Feed extends Model {
-  posts = set(
-    async () => fetch('/api/posts').then((r) => r.json()),
-    (posts) => console.log('posts arrived:', posts.length)
-  );
+  posts = set(async () => fetch('/api/posts').then((r) => r.json()));
 
   async refresh() {
     this.posts = await fetch('/api/posts').then((r) => r.json());
@@ -131,16 +128,9 @@ class Feed extends Model {
 }
 ```
 
-Or push a value through the descriptor form of `set`, which bypasses the setter entirely:
+A write takes over from the factory: if the first load is still pending, its result is discarded and anything suspended on `posts` settles to the written value. A `readonly` field rejects direct assignment at compile time.
 
-```tsx
-async refresh() {
-  const data = await fetch('/api/posts').then(r => r.json());
-  this.set('posts', { value: data });
-}
-```
-
-Either way, subscribers update as normal. If you want the factory itself to re-run from scratch, destroy and recreate the instance - or build the refresh semantic into a regular async method, like the `Query` base below.
+Subscribers update as normal. If you want the factory itself to re-run from scratch, destroy and recreate the instance - or build the refresh semantic into a regular async method, like the `Query` base below.
 
 <br />
 

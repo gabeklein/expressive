@@ -7,7 +7,7 @@ export default () => (
     <h1>Factories</h1>
     <p>
       A zero-argument function makes the slot a factory: it runs on first access,
-      caches its result, and the field is read-only. An <code>async</code> factory
+      caches its result, and the field stays writable. An <code>async</code> factory
       throws suspense while it pends, so the component's <code>fallback</code>{' '}
       decides what waiting looks like - no loading flag, no effect, no deps. The
       fallback belongs on the component that owns the pending value: a boundary
