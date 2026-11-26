@@ -1,5 +1,4 @@
 import type { Route } from "./route";
-import { entering } from "./router";
 
 type Verdict = string | void | null;
 
@@ -11,7 +10,7 @@ interface Hot {
   on(event: string, listener: () => void): void;
 }
 
-/** A route in the generated tree: its segment, whether its folder is gated, has a page or a `NotFound`, and the routes inside a folder. */
+/** A route in the generated tree: its segment, whether its folder is gated, has a page or a missing-path route, and the routes inside a folder. */
 export interface GateNode {
   to?: string;
   gate?: 1;
@@ -98,7 +97,7 @@ export function gateCheck(call: Call, tree: GateNode, hot?: Hot): (hook?: EntryH
         if (!current()) return;
         if (verdict === true) passed = at;
 
-        return entering(router.path, () => hook?.(route));
+        return hook?.(route);
       },
       error => {
         if (!current()) return;

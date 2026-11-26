@@ -1,10 +1,10 @@
 /** @jsxImportSource @expressive/jsx */
 
 import { set, type Component } from "@expressive/mvc";
-import { Route as Base, Redirect as RouterRedirect } from "@expressive/router";
+import { Route as Base, Redirect as RouterRedirect, fullPattern, matchPattern } from "@expressive/router";
 import { Redirect } from "@expressive/rpc";
+import { childrenOf, propsOf, typeOf } from "@expressive/jsx/jsx-runtime";
 
-import { entering } from "./router";
 
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
@@ -42,18 +42,12 @@ function arm(route: Route, hook: EntryHook | undefined) {
     try {
       return redirected(error);
     } catch (error) {
-      REFUSED.add(route);
-
-      if (!WATCHED.has(route)) {
-        WATCHED.add(route);
-        route.set(null, () => void REFUSED.delete(route));
-      }
-
+      remember(route);
       throw error;
     }
   };
 
-  const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
+  const enter = (run: EntryHook) => run(route);
 
   route.redirect = hook && (() => {
     try {
@@ -64,6 +58,19 @@ function arm(route: Route, hook: EntryHook | undefined) {
       return refused(error);
     }
   });
+}
+
+function remember(route: Route) {
+  REFUSED.add(route);
+  if (!WATCHED.has(route)) {
+    WATCHED.add(route);
+    route.set(null, () => void REFUSED.delete(route));
+  }
+}
+
+export function report(route: Route, error: Error) {
+  remember(route);
+  route.redirect = () => { throw error; };
 }
 
 function redirected(error: unknown): string {
@@ -102,6 +109,7 @@ Object.defineProperty(Route.prototype, "catch", {
         unwatch = this.router.set("path", () => {
           if (this.router.path !== path) retry();
         });
+        this.set(null, () => { unwatch(); });
       });
     };
 
@@ -109,11 +117,41 @@ Object.defineProperty(Route.prototype, "catch", {
       if (error instanceof RouterRedirect || (error instanceof Redirect && error.location)) {
         const router = this.router.is;
         if (REDIRECTING.has(router)) return caught(error);
+        if (typeof window === "undefined") {
+          const moved = error instanceof RouterRedirect ? error : new RouterRedirect(error.location);
+          return redirect.call(this, moved);
+        }
+        const to = error instanceof RouterRedirect ? error.to : error.location;
+        let url: URL;
+        try {
+          url = new URL(this.resolve(to), window.location.href);
+        } catch {
+          return caught(error);
+        }
+        if (!/^https?:$/.test(url.protocol)) return caught(error);
+        if (url.origin !== window.location.origin || !routed(this, url.pathname)) {
+          window.location.assign(url.href);
+          return new Promise<void>(() => {});
+        }
         REDIRECTING.add(router);
         const moved = error instanceof RouterRedirect ? error : new RouterRedirect(error.location);
-        return redirect.call(this, moved).catch(() => caught(error)).finally(() => REDIRECTING.delete(router));
+        return redirect.call(this, moved).finally(() => REDIRECTING.delete(router));
       }
       return caught(error);
     };
   }
 });
+
+function routed(route: Route, path: string): boolean {
+  let root: Base = route;
+  while (root.parent) root = root.parent;
+  const visit = (children: unknown, base: string): boolean => childrenOf(children).some(node => {
+    const props = propsOf(node);
+    const Type = typeOf(node);
+    if (!Base.is(Type)) return visit(props.children, base);
+    if (props.none) return false;
+    const pattern = fullPattern(base, String(props.to ?? ""));
+    return (!!props.as && !props.children && !!matchPattern(pattern, path)) || visit(props.children, pattern);
+  });
+  return visit(root.props.children, "");
+}
