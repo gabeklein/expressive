@@ -1,4 +1,5 @@
-import type { Component, Model } from '@expressive/mvc';
+import { Component } from '@expressive/mvc';
+import type { Model } from '@expressive/mvc';
 import * as React from 'react';
 import { Fragment, forwardRef, isValidElement, lazy, memo } from 'react';
 import { jsx as base, jsxs } from 'react/jsx-runtime';
@@ -300,7 +301,8 @@ function place(value: unknown, inherited: Appearance | undefined): unknown {
       : clone(value, type, { ...props, children, fallback });
   }
 
-  if (typeof type != 'function' && !HOSTED.has(type)) return value;
+  // A library's element carries no author of its own - a stamp here was copied in by spreading props.
+  if (!hosts(type)) return handoff(value, type, props, inherited);
 
   const resolved = placeComponent(typeof type == 'function' ? type : () => {}, props, appearance);
 
@@ -313,6 +315,51 @@ function place(value: unknown, inherited: Appearance | undefined): unknown {
 
   INCOMING.set(output.props as object, resolved.appearance);
   return output;
+}
+
+/** Types whose renders this host walks: wrappers it made at creation, and Expressive Components. */
+function hosts(type: any) {
+  return WRAPPERS.has(type) || HOSTED.has(type) || type === Component || type?.prototype instanceof Component;
+}
+
+/**
+ * A component this host does not walk - one a library created with React's
+ * own runtime - gets plain React props: forwarded rules resolve to
+ * `className` and a `style` object, `_` props are dropped, and children
+ * passed in keep their author's rules. A library forwarding `className`
+ * applies the rules; one that does not drops them.
+ */
+function handoff(value: unknown, type: unknown, props: Record<string, any>, appearance: Appearance | undefined) {
+  const plain: Record<string, any> = {};
+  let changed = false;
+
+  for (const name in props)
+    if (name[0] == '_') changed = true;
+    else plain[name] = props[name];
+
+  const { claim, inner } = styleElement(styles(), '', plain, appearance && { author: appearance.author, entries: appearance.entries });
+  const style = plain.style;
+  const declarations = claim.declarations;
+  const keys = Object.keys(declarations);
+
+  if (claim.className !== (plain.className || '')) changed = true;
+  if (style === undefined ? keys.length : typeof style != 'object' || Array.isArray(style) || Object.getOwnPropertySymbols(style).length || keys.length != Object.keys(style).length || keys.some((key) => style[key] !== declarations[key]))
+    changed = true;
+
+  if (used) for (const name of claim.className.split(' ')) if (name) used.add(name);
+
+  delete plain.className;
+  delete plain.style;
+
+  if (claim.className) plain.className = claim.className;
+  if (keys.length) plain.style = declarations;
+
+  if ('children' in props) {
+    plain.children = walk(props.children, inner || appearance && { author: appearance.author, entries: [] });
+    if (plain.children !== props.children) changed = true;
+  }
+
+  return changed ? clone(value, type, plain) : value;
 }
 
 function element(value: unknown, type: string, props: Record<string, any>, appearance: Appearance | undefined) {

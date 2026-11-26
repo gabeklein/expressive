@@ -17,7 +17,7 @@ Rules, base declarations, `:hover`/`@media`, pack macros, `$` variables, caller 
 - **JSX runtime required.** Elements built with React's own runtime are not author-stamped and their function components are not hosted: `_rule` still resolves on host elements in a hosted render, but their output and passed-in children fall back to the placing component's scope.
 - **Element type identity.** Function, `memo`, `forwardRef` and `lazy` types are replaced by hosts - `child.type === Button` fails. Compare a marker instead.
 - **Render props** resolve against the component that calls them, not the one that wrote them. Same in dom.
-- **Third-party components** (anything rendered by another library's JSX) are not walked: their output stays unresolved, and a caller `_rule` reaches them as a token array in `style` - spread onto a DOM element it breaks. Needs a `className` handoff at that boundary.
+- **Third-party components** (anything rendered by another library's JSX) are not walked; a caller `_rule` reaches them as `className` - see step 4.
 - **memo** never bails out while a caller `_rule` targets it - the resolved token is new each render.
 - **Reused elements** keep the appearance from their last walk; a change in the placing scope without a new element does not restyle them.
 - **Class names** of `memo`/`forwardRef` need `displayName`, else `style_*`.
@@ -158,3 +158,16 @@ Results: probe drops its hand `refresh()` wiring and its own `optimizeDeps` work
 - React Refresh retries roots that failed, so the third-party crash re-logs on every edit - the probe filters it from refresh checks.
 - Depends on plugin-react's emitted `function $RefreshReg$(` / `function $RefreshSig$(` text (5.2); a change there leaves modules untouched - refresh then behaves as before, not broken.
 - react coverage gate: the new code is fully covered; older spike code is not (`style.ts` stamp cleanup and lazy retry branches, `jsx-runtime.ts`'s production `jsx`/`jsxs`) - to close before any landing.
+
+## Step 4: third-party handoff
+
+A component element the host does not walk - a type a library created with React's own runtime, not a host wrapper or an Expressive `Component` - gets plain React props instead of engine values:
+
+- forwarded rules (`style` tokens, the caller's entries when it is a hosted component's root) resolve through `styleElement` to `className`, merged with any existing one, and a plain `style` object;
+- `_` props are dropped;
+- `children` are walked, so elements passed through keep their author's rules;
+- its author stamp is ignored. A library spreading props into React's `jsx` copies the caller's stamp (an enumerable symbol) onto its own element, which pointed passed-through children at the wrong scope - found in Chrome on a Radix-style `Slot`, missed by a `createElement` unit test, since `createElement` drops symbol keys.
+
+No new surface. A library forwarding `className` applies the rules; one that does not drops them, without crashing. Inside the library there are no descendant scopes, and precedence between handed-off classes follows CSS order.
+
+Results: style tests 36/36 (forwarding component, existing `className`/`style` kept, `Slot` with `createElement` and with a `jsx` spread - the latter fails without the stamp fix, server output); react, jsx, dom and router suites pass (1456 tests). Chrome probe **56/56, no limitations left**: the unhosted inner component that used to crash the root now takes the caller's color, a `Slot` merges caller and child rules, and the console is clean with every third-party case mounted.

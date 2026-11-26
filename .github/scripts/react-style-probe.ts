@@ -139,9 +139,6 @@ const sheets = () =>
 const strayAttributes = () =>
   browser.eval(`[...document.querySelectorAll('*')].flatMap((node) => [...node.attributes].filter((a) => a.name[0] == '_').map((a) => node.tagName.toLowerCase() + '#' + node.id + '[' + a.name + ']'))`) as Promise<string[]>;
 
-// React Refresh re-renders roots that failed, so the unhosted third-party case crashes again on every edit.
-const thirdParty = (line: string) => line.includes('CSSStyleDeclaration') || line.includes('non-boolean attribute');
-
 const RED = 'rgb(255, 0, 0)';
 const BLUE = 'rgb(0, 0, 255)';
 const GREEN = 'rgb(0, 128, 0)';
@@ -253,7 +250,7 @@ try {
   const deepConsole = [...browser.errors.slice(beforeDeep.errors), ...browser.warnings.slice(beforeDeep.warnings)];
   console.log('third-deep console:', JSON.stringify(deepConsole.map((line) => line.slice(0, 300))));
 
-  await scenario('[limitation] third party: caller _rule through an unhosted inner component', async () => {
+  await scenario('third party: caller _rule through an unhosted inner component', async () => {
     const error = await browser.text('#third-deep-root .third-error');
     check(!error, `third-party root crashed: ${error}`);
     const attrs = await browser.eval(`(() => { const n = document.querySelector('#third-deep'); return n && JSON.stringify({ class: n.className, style: n.getAttribute('style') }); })()`);
@@ -267,8 +264,15 @@ try {
   const clientErrors = browser.errors.slice(0, beforeDeep.errors);
   const clientWarnings = browser.warnings.slice(0, beforeDeep.warnings);
 
-  await scenario('client console clean before the unhosted third-party case mounts', async () => {
-    check(!clientErrors.length && !clientWarnings.length, [...clientErrors, ...clientWarnings].join(' | ').slice(0, 1200));
+  await scenario('third party: slot merges a caller rule onto an authored child', async () => {
+    const caller = await expectStyle('#third-slot', RED);
+    const own = await expectStyle('#third-slot', '700', 'fontWeight');
+    return `${caller}; ${own}`;
+  });
+
+  await scenario('client console clean, third-party cases included', async () => {
+    const all = [...clientErrors, ...clientWarnings, ...deepConsole];
+    check(!all.length, all.join(' | ').slice(0, 1200));
   });
 
   console.log('client console:', JSON.stringify({ errors: clientErrors, warnings: clientWarnings }, null, 2));
@@ -403,7 +407,7 @@ try {
     const text = await browser.text('#counter');
     check(text == 'v3 0 0', `counter shows "${text}", expected remount to "v3 0 0"`);
     check(await alive(), 'page reloaded');
-    const logged = browser.errors.slice(before).filter((line) => !thirdParty(line));
+    const logged = browser.errors.slice(before);
     check(!logged.length, logged.join(' | ').slice(0, 800));
     return `${await expectStyle('#counter', BLUE)}; text "${text}" (state reset by design), no reload, no errors`;
   });
@@ -437,7 +441,7 @@ try {
       `const doubled = useMemo(() => count * 2, [count]);\n  const tripled = useMemo(() => count * 3, [count]);\n  return <p id="counter" _count onClick={() => setCount(count + 1)}>v4 {count} {doubled} {tripled}</p>;`);
     await Bun.sleep(2500);
     const text = await browser.text('#counter');
-    const logged = browser.errors.slice(before).filter((line) => !thirdParty(line));
+    const logged = browser.errors.slice(before);
     check(text == 'v4 0 0 0' && !logged.length, `counter "${text}", alive ${await alive()}, errors: ${logged.join(' | ').slice(0, 600)}`);
   });
 

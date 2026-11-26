@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Counter, Plain } from './refreshed';
 import { Exotic, Lexical, Own, Toggle, Toolbar } from './shared';
 import { Swatch } from './swatch';
-import { Third, ThirdDeep } from './third';
+import { Third, ThirdDeep, Trigger } from './third';
 
 const never = new Promise(() => {});
 
@@ -46,9 +46,14 @@ export function ThirdParty() {
 }
 
 export function ThirdDeepCase() {
-  return <ThirdDeep id="third-deep" _accent />;
+  return (
+    <div>
+      <ThirdDeep id="third-deep" _accent />
+      <Trigger _accent><a id="third-slot" href="#" _link>slot</a></Trigger>
+    </div>
+  );
 }
 
-style(ThirdDeepCase, { _accent: { color: 'rgb(255, 0, 0)' } });
+style(ThirdDeepCase, { _accent: { color: 'rgb(255, 0, 0)' }, _link: { fontWeight: 700 } });
 
 style(ThirdParty, { _note: { color: 'rgb(0, 128, 0)' }, _accent: { color: 'rgb(255, 0, 0)' } });

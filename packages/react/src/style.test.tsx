@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Component } from '@expressive/mvc';
 import * as hot from '@expressive/mvc/hot';
 import { act } from '@testing-library/react';
-import { Children, Fragment, StrictMode, Suspense, cloneElement, forwardRef, lazy, memo, use, useMemo, useState } from 'react';
+import { Children, Fragment, StrictMode, createElement, Suspense, cloneElement, forwardRef, lazy, memo, use, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToReadableStream, renderToString } from 'react-dom/server';
+import { jsx as reactJsx } from 'react/jsx-runtime';
 import * as Refresh from 'react-refresh/runtime';
 import '.';
 import { Css, refresh, style, wrap } from './style';
@@ -696,5 +697,94 @@ describe('hosted', () => {
     expect(hosted('div')).toBeUndefined();
     expect(hosted(null)).toBeUndefined();
     expect(hosted(class extends Component {})).toBeUndefined();
+  });
+});
+
+describe('third-party handoff', () => {
+  function Leaf(props: Record<string, unknown>) {
+    return createElement('div', props);
+  }
+
+  function Library(props: Record<string, unknown>) {
+    return createElement('section', null, createElement(Leaf, props), createElement(Leaf, { id: 'untouched' }));
+  }
+
+  it('will hand resolved rules to a component it does not host', () => {
+    function Page() {
+      return <Library id="forwarded" _accent />;
+    }
+
+    style(Page, { _accent: { color: 'red' } });
+
+    const { container } = render(<Page />);
+    const node = container.querySelector('#forwarded')!;
+
+    expect(node.className).toMatch(/^Page_accent-d1/);
+    expect(node.hasAttribute('_accent')).toBe(false);
+    expect(getComputedStyle(node).color).toBe('red');
+    expect(container.querySelector('#untouched')!.hasAttribute('class')).toBe(false);
+  });
+
+  it('will keep inline declarations and an existing className', () => {
+    function Page() {
+      return <Library id="merged" className="external" style={{ margin: 2 }} _accent />;
+    }
+
+    style(Page, { _accent: { color: 'red' } });
+
+    const node = render(<Page />).container.querySelector('#merged') as HTMLElement;
+
+    expect(node.className).toMatch(/^Page_accent\S* external$|^external Page_accent/);
+    expect(node.style.margin).toBe('2px');
+  });
+
+  it('will style children passed through a slot', () => {
+    const Slot = forwardRef<HTMLElement, { children: ReactElement<any>; className?: string }>(({ children, ...props }, ref) =>
+      cloneElement(Children.only(children), {
+        ...props,
+        ref,
+        className: [props.className, children.props.className].filter(Boolean).join(' ')
+      })
+    );
+
+    function Trigger({ children, ...props }: { children: ReactNode }) {
+      return createElement(Slot, props as any, children);
+    }
+
+    function Spread(props: { children: ReactNode }) {
+      return reactJsx(Slot, { ...props } as any);
+    }
+
+    function Page() {
+      return (
+        <div>
+          <Trigger _accent><a href="#" _link>open</a></Trigger>
+          <Spread _accent><b _link>spread</b></Spread>
+        </div>
+      );
+    }
+
+    style(Page, { _accent: { fontWeight: 700 }, _link: { color: 'blue' } });
+
+    const { container } = render(<Page />);
+
+    for (const node of [container.querySelector('a')!, container.querySelector('b')!]) {
+      expect(node.className).toMatch(/Page_accent/);
+      expect(node.className).toMatch(/Page_link/);
+      expect(node.hasAttribute('_link')).toBe(false);
+    }
+  });
+
+  it('will emit handed-off rules on the server', () => {
+    function Page() {
+      return <Library id="served" _accent />;
+    }
+
+    style(Page, { _accent: { color: 'teal' } });
+
+    const html = onServer(() => renderToString(<Page />));
+
+    expect(html).toMatch(/id="served" class="Page_accent[^"]*"/);
+    expect(html).toMatch(/\.Page_accent[^{]*\{color: teal;\}/);
   });
 });
