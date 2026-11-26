@@ -140,3 +140,5 @@ declare module '@expressive/mvc/host' {
 One augmentation per TypeScript program - two hosts with different tag types cannot share one. A second host in the same build keeps to Components, without intrinsic tags.
 
 A host adapter that replaces element creation itself (React) registers with `host()` from `@expressive/jsx/jsx-runtime`; one such runtime per realm.
+
+For a host that renders `Component` instances, `placement(instance)` from `@expressive/mvc/host` returns a `<Component for>` provider's children, or `undefined` when unplaced.

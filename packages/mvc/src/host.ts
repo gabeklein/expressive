@@ -31,3 +31,6 @@ export type { Renderable } from './element';
 
 /** Host-side: owner and key of a bound method - see `model.ts`. */
 export { methodOf } from './model';
+
+/** Host-side: provider placement of a Component instance - see `component.ts`. */
+export { placement } from './component';
