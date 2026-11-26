@@ -13,13 +13,13 @@ npm install @expressive/dev @expressive/mvc
 
 tsconfig: `"jsxImportSource": "@expressive/dev"` - dom's runtime and its `Model` augmentation. `include` must list `api`, `index.ts`, `index.dev.ts` beside `app` - nothing imports them: `["app", "api", "index.ts", "index.dev.ts", "env.d.ts"]`.
 
-`@expressive/dev` exports `Route`, `Router` and `NotFound`, and re-exports `Link`, `NavLinks` and the `Redirect` error from `expressive-router` and `render`, `style`, `Css`, `Style`, `Portal`, `Fragment`, `createElement` and `JSX` from `expressive-dom`. `Model`, `Component` and instructions come from `@expressive/mvc`. The dev server's inspector is `expressive-inspect`. Per-symbol contracts are JSDoc on hover.
+`@expressive/dev` exports `Route`, `Router`, `Redirect`, `NotFound` and rpc's `HttpError` family, plus `Link` and `NavLinks` and `render`, `style`, `Css`, `Style`, `Portal`, `Fragment`, `createElement` and `JSX` from `expressive-dom`. `Model`, `Component` and instructions come from `@expressive/mvc`. The dev server's inspector is `expressive-inspect`. Per-symbol contracts are JSDoc on hover.
 
 ## Layout
 
 ```
 app/                  file-based routes
-  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, label, Router, default
+  index.tsx           /            exports: Page, Layout, Loading, Catch, label, Router, default
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the page
   blog/[slug].tsx     /blog/:slug  param leaf
@@ -42,12 +42,11 @@ Bare-named files under `app/` and `api/` are support modules. Siblings match sta
 - `Page` - a function (params via `Route.get().match`) or `class Page extends Route` (from `@expressive/dev`) with `this.match`, fields and `render()`.
 - `Layout` - wraps the folder's pages; `children` is the content slot.
 - `Loading` - placeholder for the slot of the `Layout` beside it, for any page below still loading code, an entry hook or data, until a nested `Layout`. A page's own `Loading` covers it first. Shown on cold arrival only - in-app navigation holds the current page (`Router.get().navigating`).
-- `Catch` - error boundary for the route, given `{ error, retry }`.
-- `NotFound` - replaces the default 404 below the folder.
+- `Catch` - error boundary for the folder, given `{ error, retry }`. Handle `error instanceof NotFound` here. An unmatched path below the folder also throws `NotFound`; without `Catch`, the root shows a plain 404 or generic error.
 - `label` - names the route for breadcrumbs (`Route.get().parent.label`). `const` string literal only - inlined into the tree; anything else fails generation. A folder's `index.tsx` labels the folder - or, with no other routes inside, the one route it collapses to (`Route.get().label`). In dev, an edit shows after a restart.
 - `Router` - root `index.tsx` only: a subclass of `Router` from `@expressive/dev` (not router's `BrowserRouter`), mounted in its place - override `navigate()`, add methods. `Router.get()` and the subclass's `get()` both find it. Prerendering constructs it and runs `new()` without `window` - guard what touches it there.
 - `default`, read by kind:
-  - a function is the entry hook: runs with the Route before render, may be async; a returned string redirects, `null` falls through to the 404. A thrown error with a 3xx `status` and `location` redirects; any other reaches `Catch`.
+  - a function runs before render; returning a string fails, naming the module. Throw `new Redirect(to)` from a `Page` during render to redirect.
   - a Model or Component class renders around the content (around `Layout` if present) and is provided below - a Component's `render()` gets that content as `props.children`. Declared in the module or imported, either works.
 - `paths` - below a `[param]` or `[...]`, the absolute paths a prerendering build renders; may be async. Bundled with the client - no Node APIs; use static imports, `import.meta.glob` or an absolute-URL `fetch`.
 
@@ -68,10 +67,10 @@ export async function add(by: number) { return (total += by); }
 import { add } from "./remote";
 ```
 
-- A call POSTs to the folder's path, params filled from the current location (`/blog/a` for `app/blog/[slug]/remote.ts`). An entry hook's call before its first `await` fills from the path being entered.
+- A call POSTs to the folder's path, params filled from `Router.path` (`/blog/a` for `app/blog/[slug]/remote.ts`), including while entering a route.
 - Only the folder and those below it may import its sidecar - the build throws otherwise.
 - A `remote/` folder holds several; every module in it belongs to the parent folder and is never a route.
-- Module rules, errors (`HttpError` family from `@expressive/rpc`), ids and `opaque` are rpc's - `expressive-rpc`. Turn off hashed ids with `config({ remote: { opaque: false } })` in `index.ts`.
+- Module rules, errors (`HttpError` family from `@expressive/dev` or `/server`), ids and `opaque` are rpc's - `expressive-rpc`. Turn off hashed ids with `config({ remote: { opaque: false } })` in `index.ts`.
 - Only stubs the client loaded (dev) or the build generated are callable; a helper in `remote/` is never an endpoint.
 
 ## Server Model
@@ -96,7 +95,7 @@ export async function profile() {
 }
 ```
 
-- Gate check: a folder's gate also guards its pages - the browser runs the gates before showing a page under the folder. Recipe: `export default () => { if (!AppCookies.get().session) throw new Redirect("/login"); }` with `Redirect` from `@expressive/rpc` (dev's root `Redirect` is the router component). Gates read their folder's params: `Current.get().params.id`.
+- Gate check: a folder's gate also guards its pages - the browser runs the gates before showing a page under the folder. Recipe: `export default () => { if (!AppCookies.get().session) throw new Redirect("/login"); }` with `Redirect` from `@expressive/dev/server`. Gates read their folder's params: `Current.get().params.id`.
   - One request to the deepest gated folder on the path, answered `{}` on a pass. A pass covers the folder and those above until a param changes; moving inside it sends nothing.
   - Refusal reaches `Catch`; `retry` checks again. A 3xx `status` with `location`, or a 3xx `Response` from the gate, redirects: a path a page route matches through the router; another path or `http(s):` origin through `location.assign`; into the refusing folder, a second hop in a row, or another scheme - `Catch`.
   - A network failure or non-rpc reply lets the page in, remembering nothing. A newer navigation drops an in-flight verdict.
@@ -143,7 +142,7 @@ export default config({
 - `next()` resolves a `Response` with mutable headers (101 as is); a throw below resolves its error reply. A discarded reply's body is cancelled.
 - Outside the request's scope: `Current`, `Cookies`, `get(Model)` throw in `handle`, work inside `next()`. Cookies go on the returned `Response`; after-work through `ctx.waitUntil`.
 - A thrown `HttpError` answers its status - a call's error on a call, else JSON `{ message }` (`Redirect` sets `Location`). Else a logged 500, message in dev only.
-- Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: from `public/`. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `NotFound` renders. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
+- Below it: a remote call, else an `api/` route under `/api`, else the file or `<path>/index.html` - Node: from `dist/client`; `fetch` target: from `assets`, default `env.ASSETS`; dev: from `public/`. Else the shell (`200.html`, else `index.html`) for GET or HEAD outside `build.assetsDir` - 200 where a page route matches, 404 for an unmatched navigation (`accept` has `text/html`), so `Catch` handles `NotFound`. Else a bare 404 - a stale chunk never gets HTML. Built, other methods get 404. Single-file (`app.tsx`): every navigation gets the shell with 200.
 - Page routes are `app/` files exporting `Page`. A route the scan can't see (custom root `Router`, `<Route>` in a `Layout`) gets the shell with 404 on a deep link - add a `[...]` page to claim its paths.
 - Remote calls and gate checks ignore a non-root Vite `base` for now - they post from `/`.
 - Dev skips it for Vite's requests: outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`, `/node_modules/*`, `/.expressive/*` but calls, `/__inspect`, `/__open-in-editor`, `server.proxy` prefixes, bare `?import`/`?url`/`?raw`, source files outside `public/`. Calls and `/api` paths never skip. A passed request that is neither file nor navigation continues to Vite's middlewares with `handle`'s headers and forwarded request. Navigations get the shell first - a `vite.config.ts` plugin serving pages from its `configureServer` middleware needs `enforce: "pre"`.

@@ -1,5 +1,5 @@
 import { Component } from "@expressive/mvc";
-import { Link } from "@expressive/dev";
+import { Link, NotFound } from "@expressive/dev";
 
 export function Layout(props: { children?: Component.Node }) {
   return (
@@ -8,6 +8,7 @@ export function Layout(props: { children?: Component.Node }) {
         <Link to="/">Home</Link> {" | "}
         <Link to="/blog">Blog</Link> {" | "}
         <Link to="/blog/hello">Hello post</Link> {" | "}
+        <Link to="/blog/missing">Missing post</Link> {" | "}
         <Link to="/about">About</Link> {" | "}
         <Link to="/tally">Tally</Link> {" | "}
         <Link to="/gate">Gate</Link> {" | "}
@@ -40,11 +41,8 @@ export function Loading() {
   return <p>Loading…</p>;
 }
 
-export function NotFound() {
-  return <h1>404</h1>;
-}
-
 export function Catch({ error, retry }: { error: Error; retry: () => void }) {
+  if (error instanceof NotFound) return <h1>404 - Not found</h1>;
   return (
     <p role="alert">
       Something broke: {error.message} <button onClick={retry}>Retry</button>

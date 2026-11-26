@@ -1,4 +1,4 @@
-import { Forbidden } from "@expressive/rpc";
+import { Forbidden } from "@expressive/dev/server";
 import { Current } from "@expressive/dev/server";
 
 export default () => {

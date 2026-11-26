@@ -8,7 +8,7 @@ on the dev server.
 
 ```
 app/                  file-based routes
-  index.tsx           /            exports: Page, Layout, Loading, Catch, NotFound, label, Router, default
+  index.tsx           /            exports: Page, Layout, Loading, Catch, label, Router, default
   (about).tsx         /about       static leaf
   blog/index.tsx      /blog        folder = scope; its index is the "/blog" page
   blog/[slug].tsx     /blog/:slug  param leaf
@@ -32,8 +32,7 @@ reading its params through `Route.get().match`, or `class Page extends Route` (f
 express nesting. dev's `Route` owns no suspense boundary unless given a `fallback` or `Catch`, so a
 page's waits show its slot's `Loading`.
 
-The `default` export is read by kind. A function is the entry hook: it runs with the Route before
-it renders, and a returned string redirects (`null` falls through to the 404). A class - Model or
+The `default` export is read by kind. A function default runs before render; returning a string fails with a migration error. Throw `new Redirect(to)` from a `Page` while rendering to redirect. A class - Model or
 Component - renders around the route's content and is provided to everything below it; with a
 `Layout`, it wraps the `Layout`. A Component's `render()` places that content as `props.children`.
 A default imported from another module is told apart when the route loads.
@@ -134,7 +133,7 @@ folder - throw to refuse.
 ```ts
 // api/admin/index.ts
 import { Current } from "@expressive/dev/server";
-import { Forbidden } from "@expressive/rpc";
+import { Forbidden } from "@expressive/dev/server";
 
 export default () => {
   if (Current.get().cookies.admin !== "root") throw new Forbidden("Admins only.");
@@ -148,7 +147,7 @@ the pages too - the browser asks the server before showing one ([Server Model](#
 ```ts
 // app/account/remote.ts
 import { Current } from "@expressive/dev/server";
-import { Redirect } from "@expressive/rpc";
+import { Redirect } from "@expressive/dev/server";
 
 export default () => {
   if (!Current.get().cookies.session) throw new Redirect("/login");
@@ -261,7 +260,7 @@ export default config({
   `dist/client`; on the `fetch` target, from `assets` (`env.ASSETS` by default); in dev, the file
   or `<path>/index.html` from `public/`. Else the shell (`200.html`, else `index.html`) for a GET or HEAD outside `build.assetsDir`:
   with 200 on a path a page route matches, with 404 for a navigation (`accept` has `text/html`) no
-  route matches, so the router's `NotFound` renders. Anything else is a bare 404, so a stale chunk
+  route matches, so the nearest `Catch` handles `NotFound`. Anything else is a bare 404, so a stale chunk
   never comes back as HTML; a built app answers other methods than GET and HEAD with 404 too. A
   single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
   the `app/` files exporting `Page` - a deep link into a route the scan can't see (a custom root
@@ -549,8 +548,7 @@ import { add } from "./remote";
 A call is `POST` to the folder's path with its params filled from the current location (`/blog/a`
 for `app/blog/[slug]/remote.ts`), an `x-expressive-call` header naming the function (`add`, or
 `feed/latest:add` inside `remote/`), and the arguments as a JSON array. The reply is `{ value }`.
-Only the folder and those below it may import its sidecar. A call an entry hook makes before its
-first `await` fills params from the path being entered; after it, from the current location.
+Only the folder and those below it may import its sidecar. Calls from an entering route fill params from `Router.path`.
 
 Only what the client imports is callable: the server accepts calls to the stubs the browser loaded in
 dev, and to those the client build generated in production - a helper module in `remote/` is never
@@ -560,8 +558,7 @@ in `index.ts` keeps readable names, for clients that must outlive a deploy.
 
 A sidecar may also export `Error` subclasses. Thrown on the server, one rejects the call on the
 client as the same class - `instanceof` works - with its message and own fields; a numeric
-`status` field in 400-599 sets the reply's status (409 below, else 500); a 3xx `status` with a
-`location` field redirects an entry hook that awaits the call and replies 500. Any other thrown error
+`status` field in 400-599 sets the reply's status (409 below, else 500); a thrown `Redirect` with a `location` navigates during render. Any other thrown error
 rejects with its message in dev and a generic one in production.
 
 ```ts
@@ -626,7 +623,7 @@ asks the server to run the gates, and shows the page only if they pass.
 
 ```ts
 // app/account/remote.ts
-import { Redirect } from "@expressive/rpc";
+import { Redirect } from "@expressive/dev/server";
 import { Cookies } from "@expressive/dev/server";
 
 class AppCookies extends Cookies {
@@ -638,14 +635,13 @@ export default () => {
 };
 ```
 
-`Redirect` here is rpc's error class. The `Redirect` exported by `@expressive/dev` is the router's
-component - a different thing.
+`@expressive/dev` and `@expressive/dev/server` export rpc's `Redirect` error. The client Route also catches the router's `Redirect`.
 
 A gate reads its own folder's params from `Current` - a gate above sees only those of its folder:
 
 ```ts
 // app/team/[id]/remote.ts
-import { Forbidden } from "@expressive/rpc";
+import { Forbidden } from "@expressive/dev/server";
 import { Current } from "@expressive/dev/server";
 
 export default async () => {
