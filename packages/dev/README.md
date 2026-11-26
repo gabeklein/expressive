@@ -41,7 +41,7 @@ Route content nests `default` → `Layout` → `Page`; each is optional, and a m
 | `Page` | A folder's index page, or a leaf whose state and view are separate. |
 | `Catch` | The folder's error and not-found screen. |
 
-A class `default` is built during the navigation hold. Its `new()` may await and throw `Redirect` or `NotFound` before anything below renders. The route provides the instance below, so `X.get()` finds it; a Component default places `Layout` and `Page` through `props.children`. A function default renders as a wrapper, or as a leaf page. A function returning a string fails with a migration error naming its module. A leaf Model default without `Page` renders nothing and warns during generation.
+A class `default` is built during the navigation hold. Its `new()` may await and throw `Redirect` or `NotFound` before anything below renders. The route provides the instance below, so `X.get()` finds it; a Component default places `Layout` and `Page` through `props.children`. It is destroyed after navigation settles away from the route, then rebuilt on re-entry or a param change. `new()` runs once per instance: a sign-out guard there does not re-run; read the session in `render()` when the page must react. Calls after the first `await` in `new()` use params from the old URL during a hold. A function default renders as a wrapper, or as a leaf page. It must return an element; wrap text in a fragment. A leaf Model default without `Page` renders nothing and warns.
 
 A route can guard itself:
 

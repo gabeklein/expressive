@@ -1527,6 +1527,70 @@ export function Catch({ error }: { error: Error }) {
   return ok ? 0 : 1;
 }
 
+async function routeDefault() {
+  const dir = join(ROOT, 'route-default');
+  const packages = ['mvc', 'dom', 'router', 'env', 'inspect', 'dev'];
+  const file = join(dir, 'app/(counter).tsx');
+  const page = (label: string, title: string, initial: number, field: string) => `import { Component } from '@expressive/mvc';
+export default class Counter extends Component {
+  count = ${field};
+  protected new() { this.count = ${initial}; }
+  render(props: { children?: Component.Node }) { return <section><h1>${title}</h1>{props.children}</section>; }
+}
+export function Page() {
+  const counter = Counter.get();
+  return <button id="count" onClick={() => counter.count++}>${label} {counter.count}</button>;
+}
+`;
+  write(dir, {
+    'app/index.tsx': `import { Link } from '@expressive/dev'; export const Page = () => <Link to="/counter">Counter</Link>;`,
+    'app/(counter).tsx': page('count', 'old', 1, '0'),
+  });
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-route-default'),
+    plugins: [expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+  await vite.listen();
+  const { port } = vite.httpServer!.address() as { port: number };
+  const browser = new Browser();
+  const count = (value: string) => until(async () => (await browser.text('#count')) == value);
+  let ok = false;
+  try {
+    await browser.open(`http://127.0.0.1:${port}/`, join(ROOT, '.chrome-route-default'));
+    await until(() => browser.text('a'), 20000);
+    await browser.eval(`document.querySelector('a[href="/counter"]').click()`);
+    await count('count 1');
+    await browser.eval(`document.getElementById('count').click()`);
+    await count('count 2');
+    await Bun.write(file, page('count', 'new', 1, '0'));
+    await until(async () => (await browser.text('h1')) == 'new');
+    await count('count 2');
+    await Bun.write(file, page('total', 'new', 1, '0'));
+    await count('total 2');
+    await Bun.write(file, page('total', 'new', 3, '0'));
+    await count('total 3');
+    await browser.eval(`document.getElementById('count').click()`);
+    await count('total 4');
+    await Bun.write(file, page('total', 'new', 3, '5'));
+    await count('total 3');
+    ok = true;
+    console.log('PASS [dev] routed default keeps state across render and Page edits, rebuilds for new and field edits');
+  } catch (error) {
+    console.log(`FAIL [dev] routed default edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await browser.close();
+    await vite.close();
+  }
+  return ok ? 0 : 1;
+}
+
+
 let failed = 0;
 
 try {
@@ -1536,6 +1600,7 @@ try {
 
   if (chrome) {
     failed += await gates();
+    failed += await routeDefault();
     for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
   } else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);
 } finally {
