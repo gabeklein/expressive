@@ -160,7 +160,7 @@ dev's `Route` (already a subclass of the router's) overrides `catch()` and check
 - once it passes, the route provides it below: a Model through `<Component for={instance}>`, a Component placed as `{instance}` with `Layout`/`Page` as its `children`. `X.get()` finds it from everything below, as now;
 - the route destroys it when the route is left.
 
-Checked on dom and on React, with and without `StrictMode`: the context resolves, a guard throw is caught before render and its lazy loads never run, a Component `default` renders around its children, and the instance is destroyed with the route. Under preact compat a Model `default` works but a Component placed as `{instance}` renders nothing (open question 1).
+Checked on dom, on React with and without `StrictMode`, and on preact compat: the context resolves, a guard throw is caught before render and its lazy loads never run, a Component `default` renders around its children (a page suspending below it recovers - compat takes a few more ticks), and the instance is destroyed with the route.
 
 A `default`'s required `set(fn, true)` factories hold its `ready`, so they decide before render too.
 
@@ -282,9 +282,8 @@ A function `default` can't be told apart from a 0.5 entry hook by shape - a wrap
 
 ## Open questions
 
-1. **Preact compat and a pre-built Component.** A Component instance placed as `{instance}` renders nothing under compat; a Model `default` works. Fix in the adapter, or build a Component `default` in the tree under compat.
-2. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
-3. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
+1. **Prerender noise.** A redirect at build warns for every self-gated page on every build. A quiet skip may suit better.
+2. **An index `default` ignoring `children`** hides the whole folder. A dev warning is possible.
 
 ## New public surface
 
