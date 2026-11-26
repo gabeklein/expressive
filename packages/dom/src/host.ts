@@ -2,7 +2,7 @@ import { LEAD, PORTAL, activeRoot, documentOf, hostOf, hydrate as hydrateWith, i
 import type { Container, Fiber, Host, RenderNode, StyleTarget } from '@expressive/jsx';
 
 import { hydration } from './hydrate';
-import { mountElement, patchProps, unmountElement } from './render/element';
+import { mountElement, patchProps, settleProps, unmountElement } from './render/element';
 import { stylesOf } from './style';
 import { SVG, isHoisted } from './tags';
 
@@ -14,6 +14,7 @@ const dom: Host = {
   fragment: (root) => documentOf(root.target!).createDocumentFragment(),
   mount: mountElement,
   patch: patchProps,
+  settle: settleProps,
   unmount: unmountElement,
   hoist,
   hydration,

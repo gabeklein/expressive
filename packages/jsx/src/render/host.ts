@@ -1,10 +1,9 @@
 import type { Node as RenderNode, VNode } from '../node/vnode';
-import type { Appearance } from '../style/claim';
+import type { Claim } from '../style/claim';
 import { documentOf } from '../style/protocol';
 import type { Styles, StyleTarget } from '../style/protocol';
 import { syncRoots } from '../style/root';
 import type { Container, Fiber } from './fiber';
-import { reconcileChildren } from './reconcile';
 
 /** Where a render lands: its host, the node it renders into, and that node's style target, if any. */
 interface Root {
@@ -38,8 +37,17 @@ interface Host {
    * Set no props and reconcile no children here - the core calls `patch` next, where a suspension is parked; a throw in `mount` is not.
    */
   mount(fiber: Fiber, value: VNode, parent: globalThis.Node, before: globalThis.Node | null): globalThis.Node;
-  /** Set props and reconcile `value.props.children` - after `mount` and on every update. */
-  patch(fiber: Fiber, value: VNode, appearance?: Appearance): void;
+  /**
+   * Write `value.props` to the node - after `mount` and on every update.
+   *
+   * `fiber.props` still holds the previous props; the core replaces them after `settle`.
+   * With `styles`, the core has already styled the element: apply `fiber.claimed`, replacing `previous`. `_` props are the core's.
+   * The core then reconciles `value.props.children` into the node, unless this returns `false` - the host set the content itself.
+   * Children reconciled on an earlier pass stay mounted on `false` - unmount them first with `unmountFiber`.
+   */
+  patch(fiber: Fiber, value: VNode, previous?: Claim): boolean | void;
+  /** Called after children reconcile - for props that depend on them, as dom's `value` on a `<select>`. */
+  settle?(fiber: Fiber, value: VNode): void;
   /** Release what `mount` attached - the core removes the node. */
   unmount(fiber: Fiber): void;
   /** Adopt existing markup instead of creating nodes - dom's hydration. Without it, `hydrate()` renders instead, clearing the container. */
@@ -93,8 +101,6 @@ const plain: Host = {
       else element.setAttribute(key, next[key] === true ? '' : String(next[key]));
     }
 
-    fiber.props = next;
-    reconcileChildren(fiber, element, null, next.children, fiber.context, fiber.boundary);
   },
   unmount(fiber) {
     for (const key of Object.keys(fiber.props!))

@@ -1,14 +1,15 @@
-import { afterPass, afterFlush, claim, hostOf, inserted, reconcileChildren, reserved, unmatched, unmountFiber } from '@expressive/jsx';
+import { afterPass, afterFlush, hostOf, inserted, unmountFiber } from '@expressive/jsx';
 import { activeDocument } from '../host';
 import { adopt, adopted, touch } from '../hydrate';
 import { applyClaim } from '../style';
 import { ALIASES, SVG, isEvent, isStringified } from '../tags';
-import type { Appearance, Fiber, VNode } from '@expressive/jsx';
+import type { Claim, Fiber, VNode } from '@expressive/jsx';
 
 const CONTROLS = ['checked', 'value'];
 const CONTENT = ['dangerouslySetInnerHTML', 'innerHTML', 'innerText', 'textContent'];
 const controlled = new WeakMap<Element, Fiber>();
 const attached = new WeakMap<Fiber, unknown>();
+const wanted = new WeakMap<Fiber, unknown>();
 const restoring = new WeakSet<Document | ShadowRoot>();
 const mounting = new WeakMap<Fiber, boolean>();
 
@@ -56,7 +57,7 @@ function prune(element: Element, props: Record<string, any>) {
     if (name == 'style' || !expected.has(name.toLowerCase())) element.removeAttribute(name);
 }
 
-function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance) {
+function patchProps(fiber: Fiber, value: VNode, claimed?: Claim) {
   const next = value.props as Record<string, any>;
   const element = fiber.start as Element;
   const adopting = mounting.get(fiber);
@@ -71,9 +72,6 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance) {
 
   const previous = fiber.props!;
   const raw = 'dangerouslySetInnerHTML' in next;
-  const resolved = appearance?.context?.resolve(next, fiber.type as string);
-
-  unmatched(value.source, next, [appearance?.context], appearance?.author, undefined, fiber.type as string);
 
   if (raw) {
     for (let index = fiber.children.length - 1; index >= 0; index--)
@@ -82,36 +80,21 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance) {
   }
 
   for (const key of Object.keys({ ...previous, ...next })) {
-    if (key[0] == '_') {
-      reserved(key);
-      continue;
-    }
-
-    if (key == 'children' || key == 'className' || key == 'key' || key == 'ref' || key == 'style' || CONTROLS.includes(key)) continue;
+    if (key[0] == '_' || key == 'children' || key == 'className' || key == 'key' || key == 'ref' || key == 'style' || CONTROLS.includes(key)) continue;
     if (previous[key] === next[key]) continue;
     if (adopting && unchanged(element, key, next[key])) continue;
     patchProp(fiber, element, key, previous[key], next[key]);
   }
 
-  const claimed = claim(fiber.root!.styles!, appearance, resolved, next.className, next.style);
+  applyClaim(element, claimed, fiber.claimed!);
 
-  applyClaim(element, fiber.claimed, claimed);
-  fiber.claimed = claimed;
-  fiber.appearance = appearance;
+  return !raw;
+}
 
-  if (!raw) {
-    reconcileChildren(
-      fiber,
-      element,
-      null,
-      next.children,
-      fiber.context,
-      fiber.boundary,
-      claimed.context || appearance?.author
-        ? { author: appearance?.author, context: claimed.context, entries: [] }
-        : undefined
-    );
-  }
+function settleProps(fiber: Fiber, value: VNode) {
+  const next = value.props as Record<string, any>;
+  const element = fiber.start as Element;
+  const previous = fiber.props!;
 
   for (const key of CONTROLS) {
     const value = next[key];
@@ -135,16 +118,15 @@ function patchProps(fiber: Fiber, value: VNode, appearance?: Appearance) {
     }
   }
 
-  fiber.props = next;
-
   if (previous.ref !== next.ref) patchProp(fiber, element, 'ref', previous.ref, next.ref);
 }
 
 function patchProp(fiber: Fiber, element: Element, key: string, previous: any, next: any) {
   if (key == 'ref') {
     detachRef(fiber);
+    wanted.set(fiber, next);
     inserted(fiber, () => {
-      if (fiber.props!.ref !== next) return;
+      if (wanted.get(fiber) !== next) return;
       attached.set(fiber, next);
       applyRef(next, element);
     });
@@ -260,4 +242,4 @@ function unmountElement(fiber: Fiber) {
   }
 }
 
-export { mountElement, patchProps, unmountElement };
+export { mountElement, patchProps, settleProps, unmountElement };

@@ -1,5 +1,6 @@
 import { appearanceToken, createAppearanceToken, emitClass, reserved, sheetGeneration } from './protocol';
 import type { AppearanceContext, Block, ResolvedAppearance, Styles } from './protocol';
+import { unmatched } from './diagnose';
 
 type Style = string | Record<string, unknown> | false | null | undefined | readonly Style[];
 
@@ -155,7 +156,32 @@ function compose(
   };
 }
 
-function flatten({ declarations, plain }: Claimed) {
+/**
+ * Style an intrinsic element: its rule classes and declarations, and the appearance its children render under.
+ *
+ * Warns in dev for a `_flag` no rule matches, and throws for a reserved `_Name` key.
+ * `dev` is the element's dev source - without one, nothing warns.
+ */
+function styleElement(styles: Styles, type: string, props: Record<string, any>, appearance?: Appearance, dev?: object) {
+  const resolved = appearance?.context?.resolve(props, type);
+
+  unmatched(dev, props, [appearance?.context], appearance?.author, undefined, type);
+
+  for (const key in props)
+    if (key[0] == '_') reserved(key);
+
+  const claimed = claim(styles, appearance, resolved, props.className, props.style);
+  const inner: Appearance | undefined = claimed.context || appearance?.author
+    ? { author: appearance?.author, context: claimed.context, entries: [] }
+    : undefined;
+
+  return { claim: claimed as Claim, inner };
+}
+
+/** A claim's declarations with its unconditional rule declarations folded in, for inline output. */
+function flatten(claimed: Claim) {
+  const { declarations, plain } = claimed as Claimed;
+
   return Object.assign(
     {},
     ...[...plain]
@@ -202,5 +228,5 @@ function appendClasses(classes: string[], value: unknown) {
   if (typeof value == 'string') classes.push(...value.split(/\s+/).filter(Boolean));
 }
 
-export { claim, componentProps, door, flatten, placed };
+export { claim, componentProps, door, flatten, placed, styleElement };
 export type { Appearance, Claim, Style };

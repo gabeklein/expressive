@@ -10,7 +10,7 @@ import { patchComponent, patchFunction } from './component';
 import { move } from './fiber';
 import type { Boundary, Fiber } from './fiber';
 import { same } from '../core/hot';
-import { mount, patchFragment, patchText, unmountFiber } from './mount';
+import { mount, patchElement, patchFragment, patchText, unmountFiber } from './mount';
 import { patchPortal } from './portal';
 import { activeRoot } from './host';
 import { authored } from '../core/appearance';
@@ -91,7 +91,7 @@ function patch(old: Fiber | undefined, value: RenderNode, parent: globalThis.Nod
 
   if (old.kind == 'collection') patchCollection(old, appearance);
   else if (old.kind == 'text') patchText(old, value);
-  else if (old.kind == 'element') old.root!.host.patch(old, value as VNode, appearance);
+  else if (old.kind == 'element') patchElement(old, value as VNode, appearance);
   else if (old.kind == 'fragment') patchFragment(old, value as VNode, context, appearance);
   else if (old.kind == 'function') patchFunction(old, value as VNode, appearance);
   else if (old.kind == 'component') patchComponent(old, value, appearance);
