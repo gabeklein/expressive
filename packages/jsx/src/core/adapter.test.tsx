@@ -935,7 +935,7 @@ describe('import', () => {
   it('will install a resolver only once rendering', async () => {
     vi.resetModules();
 
-    const { resolver } = await vi.importActual<typeof import('@expressive/mvc/jsx-runtime')>('@expressive/mvc/jsx-runtime');
+    const { resolver } = await vi.importActual<typeof import('@expressive/mvc/host')>('@expressive/mvc/host');
     const sentinel: Parameters<typeof resolver>[0] = (_Type, compute) => compute(Context.root);
 
     resolver(sentinel);

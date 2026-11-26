@@ -1,6 +1,6 @@
 import type { Style } from './src/style/claim';
 
-declare module '@expressive/mvc/jsx-runtime' {
+declare module '@expressive/mvc/host' {
   interface Host {
     intrinsics: Record<string, Record<string, any>>;
   }

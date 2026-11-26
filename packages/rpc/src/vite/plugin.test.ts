@@ -105,7 +105,7 @@ async function install(root: string) {
     writeFileSync(join(outDir, "package.json"), JSON.stringify({ name: `@expressive/${name}`, type: "module", exports }));
   };
 
-  await lib("mvc", { index: "src/index.ts", "jsx-runtime": "src/jsx-runtime.ts" }, { ".": "./index.js", "./jsx-runtime": "./jsx-runtime.js" });
+  await lib("mvc", { index: "src/index.ts", host: "src/host.ts" }, { ".": "./index.js", "./host": "./host.js" });
   await lib(
     "rpc",
     { index: "src/server.ts", client: "src/client.ts", http: "src/http.ts", protocol: "src/protocol.ts", calls: "src/calls.ts" },

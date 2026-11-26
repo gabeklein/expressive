@@ -49,7 +49,7 @@ Each adapter's peer range on the core states the compatible window - a caret on 
 
 All packages ship ESM only (`"type": "module"`) - no `require()` entry. Bundlers (vite, esbuild, webpack, rollup) and Metro consume this directly. Jest is the notable exception: its default `transformIgnorePatterns` skips `node_modules`, so add an allowance for `@expressive` if your tests import it (`jest-expo` included). Vitest needs nothing.
 
-Beyond its main entry, `@expressive/mvc` publishes a few subpaths: `@expressive/mvc/observable` (the low-level observable helpers - see [API: Utilities](/docs/api/utilities)), `@expressive/mvc/hot` (the class hot-reload registry that build integrations such as `@expressive/react/vite` call into), and `@expressive/mvc/jsx-runtime` (the seams a host builds on). Apps rarely import the last two directly. The JSX runtime itself - with the host registry an adapter registers into - is `@expressive/jsx/jsx-runtime`; portable components set it as their `jsxImportSource`.
+Beyond its main entry, `@expressive/mvc` publishes a few subpaths: `@expressive/mvc/observable` (the low-level observable helpers - see [API: Utilities](/docs/api/utilities)), `@expressive/mvc/hot` (the class hot-reload registry that build integrations such as `@expressive/react/vite` call into), and `@expressive/mvc/host` (the seams a host builds on). Apps rarely import the last two directly. The JSX runtime itself - with the host registry an adapter registers into - is `@expressive/jsx/jsx-runtime`; portable components set it as their `jsxImportSource`.
 
 <br />
 

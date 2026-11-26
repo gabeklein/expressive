@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { Context, Model } from "@expressive/mvc";
-import { resolver } from "@expressive/mvc/jsx-runtime";
+import { resolver } from "@expressive/mvc/host";
 
 interface Layer {
   prefix: string;

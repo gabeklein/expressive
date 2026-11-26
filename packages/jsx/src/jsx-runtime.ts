@@ -1,5 +1,5 @@
 import type { Component } from '@expressive/mvc';
-import type { Host } from '@expressive/mvc/jsx-runtime';
+import type { Host } from '@expressive/mvc/host';
 
 /**
  * Host runtime an adapter (e.g. `@expressive/react`) registers to replace the default {@link Element}.

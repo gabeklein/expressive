@@ -76,7 +76,7 @@ type Intrinsics = {
   [K in keyof SVGElementTagNameMap]: Attributes<SVGElementTagNameMap[K]> & SVGAttributes;
 };
 
-declare module '@expressive/mvc/jsx-runtime' {
+declare module '@expressive/mvc/host' {
   interface Host {
     node: Node;
     intrinsics: Intrinsics;

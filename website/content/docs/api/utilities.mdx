@@ -41,7 +41,7 @@ import {
 import { accept, replaced } from '@expressive/mvc/hot';
 ```
 
-`@expressive/mvc/jsx-runtime` also exists, holding the seams hosts build on - you don't import it by hand. The JSX transform's runtime is `@expressive/jsx/jsx-runtime`.
+`@expressive/mvc/host` also exists, holding the seams hosts build on - you don't import it by hand. The JSX transform's runtime is `@expressive/jsx/jsx-runtime`.
 
 An adapter such as `@expressive/react` is imported once, for its side effect, in your app's entry (`import '@expressive/react'`). It exports nothing for app code; `Model`, `Component`, the instructions and friends come from `@expressive/mvc`. The core package is a peer dependency of the adapter, so install both.
 
@@ -323,7 +323,7 @@ Context.root;                         // process-wide registry
 - `ctx.add(state, explicit?)` registers without activating. Explicit entries (`true`) win priority on lookup.
 - `ctx.pop()` recursively destroys descendant contexts and runs all cleanup.
 - `state.get(Type, ...args)` and the `get` instruction resolve `Type.get` from `state`'s home context with `state` as origin, tracked through `state` when it is a tracking proxy.
-- Hosts install `resolver((Type, compute) => ...)` from `@expressive/mvc/jsx-runtime` to supply render context; its return value is what the caller receives. It is not consulted under an origin. Both hosts return the render's context for bare `Context.get()` in a render, and root elsewhere.
+- Hosts install `resolver((Type, compute) => ...)` from `@expressive/mvc/host` to supply render context; its return value is what the caller receives. It is not consulted under an origin. Both hosts return the render's context for bare `Context.get()` in a render, and root elsewhere.
 
 ### Home context
 

@@ -5,7 +5,7 @@
  * `Component`, `has` lists and pools, `map` collections. Each promises the same
  * small protocol: `is` names the instance behind a view (`Object.create(pool)`
  * renders the pool), and `render()` returns what to show. A host seams every
- * declared class through `elements` (re-exported by `jsx-runtime`), installing
+ * declared class through `elements` (exported from `@expressive/mvc/host`), installing
  * its element seam on each prototype; declarations made before the host loaded
  * are replayed, so import order does not matter.
  *

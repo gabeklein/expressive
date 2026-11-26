@@ -23,7 +23,7 @@ const PACKAGES = ['mvc', 'jsx', 'react', 'router', 'inspect'];
 
 const SUBPATHS = [
   '@expressive/mvc',
-  '@expressive/mvc/jsx-runtime',
+  '@expressive/mvc/host',
   '@expressive/mvc/observable',
   '@expressive/mvc/hot',
   '@expressive/jsx/jsx-runtime',
