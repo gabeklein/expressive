@@ -71,14 +71,16 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   ].filter(Boolean).join(", ")} }`;
   const scoped = some(root, node => !!scopeOf(node));
   const either = some(root, node => !!hookOf(node));
+  const uncertainLeaf = some(root, node => node.isLeaf && node.classDefault === undefined && !!node.alias.default && !node.alias.Page);
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...((scoped || either) ? ['import { Model } from "@expressive/mvc";'] : []),
+    ...((scoped || either) ? [`import { ${uncertainLeaf ? "Component, " : ""}Model } from "@expressive/mvc";`] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
-    ...(scoped ? ["", `const wrap = (Type, children, file) => { if (Model.is(Type)) return children; if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component."); const check = result => { if (typeof result === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return result; }; const result = Type({ children }); return result instanceof Promise ? result.then(check) : check(result); };`] : []),
+    ...(uncertainLeaf ? ["const warned = new Set();"] : []),
+    ...(scoped ? ["", `const wrap = (Type, children, file, leaf) => { if (Model.is(Type)) { ${uncertainLeaf ? 'if (leaf && !Component.is(Type) && !warned.has(file)) { warned.add(file); console.warn(file + ": a Model default without Page renders nothing."); }' : ""} return children; } if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component."); const check = result => { if (typeof result === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return result; }; const result = Type({ children }); return result instanceof Promise ? result.then(check) : check(result); };`] : []),
     ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
     ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source) => Object.assign(enter, { source });"] : []),
     "const missing = () => { throw new NotFound(); };",
@@ -304,8 +306,9 @@ const isRoot = (node: RouteNode): boolean => !node.name;
 const lazy = (node: RouteNode): boolean => !isRoot(node) && !node.alias.Loading && !node.alias.Catch;
 
 function loaderFor(node: RouteNode, role: Role, spec: string, file: string): string {
+  const leaf = node.isLeaf && !node.alias.Page && node.classDefault === undefined;
   const load = role === "default" && node.classDefault !== true
-    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}))`
+    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}, ${leaf}))`
     : `() => import(${spec}).then(m => m.${role})`;
   return `const ${node.alias[role]} = ${load};`;
 }
@@ -336,7 +339,8 @@ function collectWrappers(root: RouteNode, project: string): string[] {
     const file = JSON.stringify(relative(project, node.file!).split(sep).join("/"));
     const alias = node.alias.default + "d";
     const layout = node.alias.Layout ? `<${node.alias.Layout}>{props.children}</${node.alias.Layout}>` : "props.children";
-    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file})`};`);
+    const leaf = node.isLeaf && !node.alias.Page && node.classDefault === undefined;
+    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file}, ${leaf})`};`);
   })(root);
 
   return wrappers;

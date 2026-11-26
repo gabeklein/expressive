@@ -243,7 +243,7 @@ describe("app/ routing (codegen)", () => {
 
   it("will render a function default as a leaf wrapper", async () => {
     const out = await generate({ "index.tsx": PAGE, "(admin).tsx": `${PAGE}\n${ENTER}` });
-    expect(out).toContain('const AdminScope = () => import("../app/(admin).tsx").then(m => props => wrap(m.default, props.children, "app/(admin).tsx"));');
+    expect(out).toContain('const AdminScope = () => import("../app/(admin).tsx").then(m => props => wrap(m.default, props.children, "app/(admin).tsx", false));');
     expect(out).toContain('<Route to="admin" as={AdminScoped}>');
     expect(out).not.toContain('AdminEnterHook');
   });
@@ -868,6 +868,37 @@ describe("app/ routing (generated)", () => {
   it("will render a Component default as a leaf page", async () => {
     const root = await app({ "app/index.tsx": PAGE, "app/(leaf).tsx": `import { Component } from "@expressive/mvc"; export default class Leaf extends Component { render() { return <p>leaf</p>; } }` }, "/leaf");
     await shows(() => root.textContent, "leaf");
+  });
+
+  it("will warn once for an imported Model leaf without Page", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(empty).tsx": `export { State as default } from "../lib/state";`,
+      "lib/state.ts": `import { Model } from "@expressive/mvc"; export class State extends Model {}`,
+    }, "/empty");
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith("app/(empty).tsx: a Model default without Page renders nothing."));
+    expect(root.textContent).toBe("");
+    window.history.pushState(null, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await shows(() => root.textContent, "page");
+    window.history.pushState(null, "", "/empty");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await shows(() => root.textContent, "");
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("will render an imported Component leaf without a Model warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = await app({
+      "app/index.tsx": PAGE,
+      "app/(view).tsx": `export { View as default } from "../lib/view";`,
+      "lib/view.tsx": `import { Component } from "@expressive/mvc"; export class View extends Component { render() { return <p>view</p>; } }`,
+    }, "/view");
+    await shows(() => root.textContent, "view");
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("will reject a string returned by a default function, naming its module", async () => {
