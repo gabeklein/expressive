@@ -34,7 +34,7 @@ Trunk for extracting `@expressive/jsx` from `@expressive/dom` and giving every h
 - #800 mvc default element and `onElement`; dom registers no host; per-element dev marks.
 - #801 one tag table; nodes from the root's document (fixes iframes).
 - #802 one `Styles` facility for document, shadow root and server sink.
-- #803 render through a `Host` (dom, plain, custom-host tests).
+- #803 render through a `Host` (dom, `plain`, custom-host tests).
 - #805 extraction step 1: `@expressive/jsx` package; dom is its DOM host; duplicate copies reported.
 - #806 `renderToString` through the reconciler: jsx `settled()`, dom's string-tree host; the second walker is gone.
 - Runtime move: /jsx owns the JSX runtime and host registry; mvc's `jsx-runtime` keeps the `Host` manifest, `resolver`, `methodOf`, `elements`. DOM element types live in dom. Apps keep `jsxImportSource` on their host (`@expressive/dom`, `@expressive/dev`); portable code (router, libraries) uses `@expressive/jsx`.

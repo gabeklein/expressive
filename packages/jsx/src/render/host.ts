@@ -64,6 +64,11 @@ function ownerOf(root: Root) {
   return documentOf(root.container);
 }
 
+/**
+ * Host without opinions: tags as written, props as attributes, `on*` handlers attached.
+ *
+ * No styles, selector portal targets or hydration.
+ */
 const plain: Host = {
   text: (root, value) => ownerOf(root).createTextNode(value),
   marker: (root, kind) => ownerOf(root).createComment(kind),
