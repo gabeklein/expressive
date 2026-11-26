@@ -80,7 +80,21 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     "",
     ...imports,
     ...(uncertainLeaf ? ["const warned = new Set();"] : []),
-    ...(scoped ? ["", `const wrap = (Type, children, file, leaf) => { if (Model.is(Type)) { ${uncertainLeaf ? 'if (leaf && !Component.is(Type) && !warned.has(file)) { warned.add(file); console.warn(file + ": a Model default without Page renders nothing."); }' : ""} return children; } if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component."); const check = result => { if (typeof result === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return result; }; const result = Type({ children }); return result instanceof Promise ? result.then(check) : check(result); };`] : []),
+    ...(scoped ? ["", `const wrapped = new WeakMap();
+const wrap = (Type, children, file, leaf) => {
+  if (Model.is(Type)) { ${uncertainLeaf ? 'if (leaf && !Component.is(Type) && !warned.has(file)) { warned.add(file); console.warn(file + ": a Model default without Page renders nothing."); }' : ""} return children; }
+  if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component.");
+  let View = wrapped.get(Type);
+  if (!View) {
+    View = new Proxy(Type, { apply(target, receiver, args) {
+      const check = result => { if (typeof result === "string") throw new Error(file + ": a function default returned a string. Throw new Redirect(...) instead."); return result; };
+      const result = Reflect.apply(target, receiver, args);
+      return result instanceof Promise ? result.then(check) : check(result);
+    } });
+    wrapped.set(Type, View);
+  }
+  return <View>{children}</View>;
+};`] : []),
     ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
     ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source) => Object.assign(enter, { source });"] : []),
     "const missing = () => { throw new NotFound(); };",
