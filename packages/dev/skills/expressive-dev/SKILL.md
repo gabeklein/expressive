@@ -13,7 +13,7 @@ npm install @expressive/dev @expressive/mvc
 
 tsconfig: `"jsxImportSource": "@expressive/dev"` - dom's runtime and its `Model` augmentation. `include` must list `api`, `index.ts`, `index.dev.ts` beside `app` - nothing imports them: `["app", "api", "index.ts", "index.dev.ts", "env.d.ts"]`.
 
-`@expressive/dev` exports `Route`, `Router` and `NotFound`, and re-exports `Link`, `NavLinks` and `Redirect` from `expressive-router` and `render`, `style`, `Css`, `Style`, `Portal`, `Fragment`, `createElement` and `JSX` from `expressive-dom`. `Model`, `Component` and instructions come from `@expressive/mvc`. The dev server's inspector is `expressive-inspect`. Per-symbol contracts are JSDoc on hover.
+`@expressive/dev` exports `Route`, `Router` and `NotFound`, and re-exports `Link`, `NavLinks` and the `Redirect` error from `expressive-router` and `render`, `style`, `Css`, `Style`, `Portal`, `Fragment`, `createElement` and `JSX` from `expressive-dom`. `Model`, `Component` and instructions come from `@expressive/mvc`. The dev server's inspector is `expressive-inspect`. Per-symbol contracts are JSDoc on hover.
 
 ## Layout
 

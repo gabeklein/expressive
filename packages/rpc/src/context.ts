@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { Context, Model } from "@expressive/mvc";
-import { resolver } from "@expressive/mvc/jsx-runtime";
+import { resolver } from "@expressive/mvc/host";
 
 import { bodyOf, capped, originOf, parsed } from "./body";
 import { refusal, toReply, withHeaders, type Source } from "./reply";

@@ -17,15 +17,7 @@
     "skills"
   ],
   "type": "module",
-  "sideEffects": [
-    "./src/*.ts",
-    "./src/core/adapter.ts",
-    "./src/core/placement.ts",
-    "./dist/index.js",
-    "./dist/jsx-runtime.js",
-    "./dist/jsx-dev-runtime.js",
-    "./dist/server.js"
-  ],
+  "sideEffects": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -61,6 +53,9 @@
     "typecheck": "tsc --noEmit --incremental",
     "coverage": "vitest run --coverage",
     "test": "bun run typecheck && bun run coverage"
+  },
+  "dependencies": {
+    "@expressive/jsx": "^0.0.0"
   },
   "peerDependencies": {
     "@expressive/mvc": "^0.97.1",

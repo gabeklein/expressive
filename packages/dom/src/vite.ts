@@ -6,10 +6,10 @@ type Node = { type: string; [key: string]: any };
 
 const SOURCE = /\.[cm]?[jt]sx?$/;
 const INSTALLED = /[\\/]node_modules[\\/]/;
-const RUNTIMES = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
+const RUNTIMES = ['@expressive/mvc', '@expressive/mvc/hot', '@expressive/jsx/jsx-runtime', '@expressive/jsx/jsx-dev-runtime', '@expressive/dom/jsx-runtime', '@expressive/dom/jsx-dev-runtime'];
 
 const COMPONENT = /^[A-Z]/;
-const RENDERER = /^@expressive\/dom(\/|$)/;
+const RENDERER = /^@expressive\/(dom|jsx)(\/|$)/;
 const FUNCTION = ['ArrowFunctionExpression', 'FunctionExpression'];
 
 /**
@@ -185,11 +185,13 @@ export default function expressive(): Plugin {
 
       if (!SOURCE.test(file) || file.includes('/node_modules/')) return;
 
-      runtime ||= Promise.all(
-        ['@expressive/mvc/hot', '@expressive/dom/jsx-dev-runtime'].map((entry) =>
-          this.resolve(entry).then((found) => found && dirname(found.id))
-        )
-      );
+      runtime ||= (async () => {
+        const mvc = await this.resolve('@expressive/mvc/hot');
+        const dom = await this.resolve('@expressive/dom/jsx-dev-runtime');
+        const jsx = dom && await this.resolve('@expressive/jsx/jsx-dev-runtime', dom.id);
+
+        return [mvc, dom, jsx].map((found) => found && dirname(found.id));
+      })();
 
       for (const own of await runtime) if (own && file.startsWith(own)) return;
 

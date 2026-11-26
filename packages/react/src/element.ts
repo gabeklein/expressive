@@ -1,6 +1,6 @@
 import { Component } from '@expressive/mvc';
-import { elements } from '@expressive/mvc/jsx-runtime';
-import type { Renderable } from '@expressive/mvc/jsx-runtime';
+import { elements } from '@expressive/mvc/host';
+import type { Renderable } from '@expressive/mvc/host';
 import { useAmbient } from './context';
 import { Runtime, useFactory, useWatch } from './runtime';
 import { createFrame } from './component';

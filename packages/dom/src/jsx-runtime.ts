@@ -1,10 +1,6 @@
-import { Fragment, host } from '@expressive/mvc/jsx-runtime';
 import type { Component, Model } from '@expressive/mvc';
-import type { JSX as Base } from '@expressive/mvc/jsx-runtime';
-
-import { childrenOf, isVNode, vnode } from './node/vnode';
-import type { Node, VNode } from './node/vnode';
-import type { Attributes as Loaded, Module } from './node/loader';
+import type { RenderNode as Node, VNode } from '@expressive/jsx';
+import type { JSX as Base } from '@expressive/jsx/jsx-runtime';
 
 type Words =
   | 'AnimationCancel' | 'AnimationEnd' | 'AnimationIteration' | 'AnimationStart'
@@ -80,7 +76,7 @@ type Intrinsics = {
   [K in keyof SVGElementTagNameMap]: Attributes<SVGElementTagNameMap[K]> & SVGAttributes;
 };
 
-declare module '@expressive/mvc/jsx-runtime' {
+declare module '@expressive/mvc/host' {
   interface Host {
     node: Node;
     intrinsics: Intrinsics;
@@ -108,7 +104,7 @@ declare module '@expressive/mvc' {
   }
 }
 
-declare module '@expressive/mvc/jsx-runtime' {
+declare module '@expressive/jsx/jsx-runtime' {
   namespace JSX {
     interface IntrinsicAttributes {
       style?: Style;
@@ -117,25 +113,16 @@ declare module '@expressive/mvc/jsx-runtime' {
   }
 }
 
-host({
-  jsx: vnode,
-  jsxs: vnode,
-  Fragment,
-  childrenOf,
-  isElement: isVNode,
-  typeOf(node: unknown) {
-    return isVNode(node) ? node.type : undefined;
-  },
-  propsOf(node: unknown) {
-    return isVNode(node) ? node.props : {};
-  }
-});
-
-const jsx = vnode;
-const jsxs = vnode;
-
-export { Fragment, jsx, jsxs };
+export { Fragment, jsx, jsxs } from '@expressive/jsx/jsx-runtime';
 export type { VNode as JSXElement };
+type Loadable = ((props: any) => Node) | (abstract new (...args: any[]) => object);
+type Module<T extends Loadable = Loadable> = T | { default: T };
+
+type Loaded<T> = [T] extends [never] ? {}
+  : T extends abstract new (...args: any[]) => infer I
+  ? JSX.LibraryManagedAttributes<T, I>
+  : T extends (props: infer P) => any ? P : never;
+
 export declare namespace JSX {
   type Element = Base.Element;
   type ElementType =

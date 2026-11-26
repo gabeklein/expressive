@@ -72,6 +72,7 @@
   },
   "devDependencies": {
     "@expressive/mvc": "^0.97.0",
+    "@expressive/router": "workspace:^",
     "@testing-library/preact": "^3.2.3",
     "@testing-library/react": "^16.3.0",
     "@types/react": "^19",
@@ -84,6 +85,9 @@
     "react-refresh": "^0.18.0",
     "tsdown": "^0.20.1",
     "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "@expressive/jsx": "^0.0.0"
   },
   "peerDependencies": {
     "@expressive/mvc": "^0.97.0",

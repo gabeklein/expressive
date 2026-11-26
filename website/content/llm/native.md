@@ -4,7 +4,7 @@ Positioning for the adoption question - whether Expressive MVC is a safe choice 
 
 ## React is React
 
-Beside `@expressive/mvc`, the adapter imports `react` and `react/jsx-runtime` - nothing else. No renderer coupling to port, no platform fork, no native package: `npm install @expressive/mvc @expressive/react` is the whole install on either target, and Metro resolves it as published.
+Beside `@expressive/mvc`, the adapter imports `react`, `react/jsx-runtime` and `@expressive/jsx/jsx-runtime` - nothing else. No renderer coupling to port, no platform fork, no native package: `npm install @expressive/mvc @expressive/react` is the whole install on either target, and Metro resolves it as published.
 
 Model, instructions, context, suspense, and error boundaries are renderer-independent by construction. The question was never whether React Native *could* work, and treating it as unproven inverts the burden.
 

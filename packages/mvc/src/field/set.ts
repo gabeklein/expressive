@@ -34,10 +34,12 @@ function set<T>(value?: undefined, onUpdate?: set.Callback<T>): T;
 /**
  * Value from a factory, run once - lazily on first read, or on activation if `required` is `true`.
  *
- * Read-only and non-enumerable. `this` is the instance. The factory must declare no parameters -
+ * Writable and non-enumerable - `readonly` rejects direct assignment only. A write before the factory
+ * runs skips it; a write while async discards the result, settles suspended reads, drops a rejection
+ * and releases a hold. `this` is the instance. The factory must declare no parameters -
  * one parameter makes it a computed. An async result (any thenable) suspends reads until resolved;
  * a rejection rethrows on later reads. A factory that suspends on another pending field re-runs
- * once it resolves. A synchronous throw warns and rethrows - a lazy factory retries on the next read.
+ * once it resolves. A synchronous throw rethrows to the reader - a lazy factory retries on the next read.
  * A thenable Model it returns, not yet active, activates owned by the instance and is destroyed once
  * it settles - unless it resolves to itself.
  * With `true` it runs after constructor args apply; while async it holds `ready`, effects and
@@ -53,7 +55,7 @@ function set<T>(factory: () => T | PromiseLike<NoInfer<T>>, required?: true): Aw
 /**
  * Lazy factory - with `false`, reads `undefined` while pending instead of suspending.
  *
- * Read-only and non-enumerable. Runs on first read. The field updates when the result resolves.
+ * Writable and non-enumerable. Runs on first read. The field updates when the result resolves, unless written first.
  * Passing `true` behaves as the required overload.
  */
 function set<T>(
@@ -128,52 +130,51 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
       set: false
     };
 
-    let computed = false;
+    let owned = true;
+    let release: (() => void) | undefined;
 
     // One-shot factory
     if (typeof value == 'function') {
       const factory = () => {
+        if (!owned) return;
+
         const output = value.call(subject, key);
         return output instanceof Model && thenable(output) ? interim(subject, output) : output;
       };
 
-      computed = true;
-
       function init() {
-        let output: unknown;
+        if (!owned) return;
 
-        try {
-          output = attempt(factory);
-        } catch (err) {
-          console.warn(
-            `Generating initial value for ${subject}.${key} failed.`
-          );
-          throw err;
-        }
+        const output = attempt(factory);
 
-        config.get = argument !== false;
+        if (owned) config.get = argument !== false;
 
         function assign(next: any, silent?: boolean) {
           if (typeof argument == 'function') subject[key] = next;
-          else update(subject, key, next, silent, true);
+          else if (owned) update(subject, key, next, silent, true);
         }
 
         if (output instanceof Promise) {
           output.then((next) => {
             if (observer(subject) !== null) assign(next);
           }, (error) => {
-            if (observer(subject) === null) return;
+            if (!owned || observer(subject) === null) return;
             event(subject, key);
             config.get = () => {
               throw error;
             };
           });
 
+          if (!owned) return argument ? undefined : subject[key];
+
           if (argument === true)
-            return output.catch((err) => {
-              if (observer(subject) !== null)
-                REPORT.as('setup', subject, err, key);
-            });
+            return Promise.race([
+              output.catch((err) => {
+                if (owned && observer(subject) !== null)
+                  REPORT.as('setup', subject, err, key);
+              }),
+              new Promise<void>((resolve) => (release = resolve))
+            ]);
 
           if (argument === undefined)
             return access(subject, key, true);
@@ -205,10 +206,12 @@ function set<T = any>(value?: unknown, argument?: unknown): any {
           };
         });
       };
-    } else if (!computed)
+    } else
       config.set = () => {
+        owned = false;
         config.get = undefined;
         config.set = undefined;
+        release?.();
       };
 
     return config;

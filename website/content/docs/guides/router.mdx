@@ -183,17 +183,28 @@ and `Group` subcomponents to match the application navigation.
 
 ## Redirects and entry guards
 
-`Redirect` navigates when it mounts:
+`Redirect` is an error. Throw it while rendering, or from a Component's `new()`,
+and the nearest `Route` catches it and navigates:
 
 ```tsx
-<Redirect to="/login" when={!session.authorized} replace />
+class Account extends Component {
+  session = get(Session);
+
+  protected new() {
+    if (!this.session.authorized) throw new Redirect('/login');
+  }
+}
 ```
+
+A redirect replaces the history entry on a cold load and pushes during in-app
+navigation, so Back still reaches the page the visitor came from. In an event
+handler or effect, call `Route.get().goto()` instead.
 
 The `Route.redirect` prop runs before a matched route enters:
 
 | Guard result         | Outcome                                           |
 | -------------------- | ------------------------------------------------- |
-| non-empty string     | Redirect there, replacing history.                |
+| non-empty string     | Redirect there, by the same history rule.         |
 | `undefined` or `''`  | Allow the route.                                  |
 | `null`               | Cede the path to the nearest scoped `none` Route. |
 

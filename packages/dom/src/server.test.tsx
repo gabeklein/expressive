@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Component, get, has, map, Model, set } from '@expressive/mvc';
 
-import { createElement, Css, Fragment, Portal, render, style } from './index';
+import { createElement, Css, Fragment, Portal, render, style } from '@expressive/dom';
 import { renderToString } from './server';
-import { flushMicrotasks, mockPromise, mount } from '../test.setup';
+import { attached, flushMicrotasks, mockPromise, mockWarn, mount } from '../test.setup';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -28,7 +28,7 @@ function unhashed(html: string, css = '') {
 }
 
 async function parity(node: () => any) {
-  const root = document.body.appendChild(document.createElement('main'));
+  const root = attached();
   const unmount = render(node(), root);
   const expected = root.innerHTML;
 
@@ -320,12 +320,13 @@ describe('renderToString', () => {
       }
     }
 
-    const { html } = await renderToString(
-      <main><Note /><Portal into="body"><i>away</i></Portal></main>,
+    const { html, head } = await renderToString(
+      <main><Note /><Portal into="body"><i>away</i></Portal><title>Note</title></main>,
       { markers: false }
     );
 
     expect(html).toBe('<main><p><b>a</b></p></main>');
+    expect(head).toBe('<title>Note</title>');
   });
 
   it('will inline plain class rules in cascade order, before inline style', async () => {
@@ -548,10 +549,8 @@ describe('renderToString', () => {
   it('will await a suspended render and retry it in place', async () => {
     class Data extends Component {
       value = set(async () => 'loaded');
-      renders = 0;
 
       render() {
-        this.renders++;
         return <p>{this.value}</p>;
       }
     }
@@ -561,7 +560,7 @@ describe('renderToString', () => {
     expect(html).toContain('<p>loaded</p>');
   });
 
-  it('will render a get consumer once a void required factory settles', async () => {
+  it('will not wait on a void required factory, which holds only ready', async () => {
     let done = false;
 
     class Session extends Model {
@@ -582,7 +581,7 @@ describe('renderToString', () => {
       </Component>
     );
 
-    expect(html).toContain('<span>true</span>');
+    expect(html).toContain('<span>false</span>');
   });
 
 
@@ -837,6 +836,142 @@ describe('renderToString', () => {
     root.remove();
   });
 
+  it('will leave a portal its marker, rendering nothing into it', async () => {
+    const made = vi.fn();
+
+    class Away extends Component {
+      new() {
+        made();
+      }
+
+      render() {
+        return <i>away</i>;
+      }
+    }
+
+    style(Away, { color: 'red' });
+
+    const { html, css } = await serve(<main><Portal into={null as any}><Away /></Portal><Portal into="#x"><Away /></Portal></main>);
+
+    expect(html).toBe('<!--fragment--><main><!--portal--><!--portal--></main><!--/fragment-->');
+    expect(css).not.toContain('.Away');
+    expect(made).not.toHaveBeenCalled();
+  });
+
+  it('will not wait on a suspension its subtree no longer renders', async () => {
+    class Gate extends Model {
+      open = true;
+    }
+
+    function Slow(): any {
+      throw new Promise(() => {});
+    }
+
+    class Shell extends Component {
+      gate = new Gate();
+
+      new() {
+        setTimeout(() => this.gate.open = false);
+      }
+
+      render() {
+        return <main>{this.gate.open && <Slow />}</main>;
+      }
+    }
+
+    const { html } = await serve(<Shell />, AbortSignal.timeout(1000));
+
+    expect(html).toContain('<main></main>');
+  });
+
+  it('will reject a late error once, logging nothing', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const renders = vi.fn();
+    let pending = true;
+
+    function Late(): any {
+      renders();
+
+      if (pending) {
+        pending = false;
+        throw Promise.resolve();
+      }
+
+      throw new Error('late');
+    }
+
+    try {
+      await expect(serve(<Component catch={() => {}}><Late /></Component>)).rejects.toThrow('late');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(renders).toHaveBeenCalledTimes(3);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('will order head elements as the document does, whatever settles first', async () => {
+    class Slow extends Component {
+      value = set(async () => 'a');
+
+      render() {
+        return <meta name={this.value} />;
+      }
+    }
+
+    const { head } = await serve(<main><Slow /><meta name="b" /></main>);
+
+    expect(head).toBe('<meta name="a"><meta name="b">');
+  });
+
+  it('will not draw a fallback, nor emit its styles', async () => {
+    const drawn = vi.fn();
+    let ready = false;
+
+    function Spinner() {
+      drawn();
+      return <i>wait</i>;
+    }
+
+    style(Spinner, { color: 'red' });
+
+    function Slow() {
+      if (!ready) throw new Promise((resolve) => setTimeout(resolve)).then(() => ready = true);
+      return <p>done</p>;
+    }
+
+    const { html, css } = await serve(<Component fallback={<Spinner />}><Portal into="#x" /><Slow /></Component>);
+
+    expect(html).toContain('<!--portal--><!--function--><p>done</p>');
+    expect(css).not.toContain('.Spinner');
+    expect(drawn).not.toHaveBeenCalled();
+  });
+
+  it('will skip catch boundaries once aborted, even for an error already on its way', async () => {
+    const pending = mockPromise<string>();
+    const handled = vi.fn();
+    const controller = new AbortController();
+
+    class Slow extends Component {
+      value = set(() => pending);
+
+      render() {
+        return <p>{this.value}</p>;
+      }
+    }
+
+    const rendering = serve(<Component catch={handled}><Slow /></Component>, controller.signal);
+
+    pending.reject(new Error('failed'));
+    await flushMicrotasks();
+    controller.abort('stop');
+
+    await expect(rendering).rejects.toBe('stop');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(handled).not.toHaveBeenCalled();
+  });
+
   it('will throw what render() throws for what it cannot render', async () => {
     class Plain extends Model {}
 
@@ -866,5 +1001,20 @@ describe('renderToString', () => {
     }
 
     await expect(serve(<Holder />)).rejects.toThrow('Cannot render a plain object in Holder.');
+  });
+});
+
+describe('diagnostics', () => {
+  const warn = mockWarn();
+
+  it('will warn for a flag that matches no rule', async () => {
+    function Badge() {
+      return <i _smal />;
+    }
+
+    style(Badge, { _small: { color: 'red' } });
+    await renderToString(<Badge />);
+
+    expect(warn.mock.calls).toEqual([['"_smal" matches no rule in Badge. Did you mean "_small"?']]);
   });
 });

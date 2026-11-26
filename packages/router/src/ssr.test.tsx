@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderToString } from '@expressive/dom/server';
-import { Context } from '@expressive/mvc';
+import { Component, Context } from '@expressive/mvc';
 
+import { Redirect } from './redirect';
 import { Route } from './route';
 import { BrowserRouter } from './browser';
 import { Router } from './router';
@@ -35,5 +36,33 @@ describe('router SSR probe (no window)', () => {
     } finally {
       (globalThis as any).window = saved;
     }
+  });
+});
+
+describe('Redirect on the server', () => {
+  class Sync extends Router {
+    protected async next(url: string) {
+      this.locate(url);
+    }
+  }
+
+  it.each([
+    ['a held navigation', Router],
+    ['one applied at once', Sync]
+  ])('will render the target after %s', async (_, Type) => {
+    let router!: Router;
+    const rendering = renderToString(
+      <Component for={Type} is={(r: Router) => { router = r; r.path = '/old'; }}>
+        <Route to="/old" as={() => { throw new Redirect('/'); }} />
+        <Route to="/" as={() => <h1>Home</h1>} />
+      </Component>,
+      { markers: false }
+    );
+
+    await vi.runAllTimersAsync();
+    const { html } = await rendering;
+
+    expect(html).toBe('<h1>Home</h1>');
+    expect(router.path).toBe('/');
   });
 });
