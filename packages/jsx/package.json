@@ -1,7 +1,7 @@
 {
   "name": "@expressive/jsx",
   "version": "0.0.0",
-  "description": "Base JSX host for Expressive: renderer, style engine and renderToString.",
+  "description": "Base JSX host for Expressive: renderer, style engine and JSX runtime.",
   "license": "MIT",
   "author": {
     "name": "Gabe Klein",

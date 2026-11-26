@@ -187,7 +187,6 @@ export function propsOf(node: unknown): Record<string, unknown> {
   return registry().host.propsOf(node);
 }
 
-
 export declare namespace JSX {
   type Element = Component.Node;
   type ElementType =

@@ -7,7 +7,7 @@ description: Version alignment, building libraries on Expressive, and the one-co
 
 `@expressive/mvc` holds module state: the context registry, prototype brands, and the JSX host registration all live in the loaded module. Two copies of the core in one application are two disconnected worlds - a `<Component for>` in one and a `Model.get()` resolving through the other do not see each other. The classic symptom is `Could not find X in context.` from a component that visibly sits under the right provider.
 
-The packages are shaped to make one copy the default outcome: `@expressive/react`, `@expressive/router`, `@expressive/dom` and `@expressive/inspect` declare `@expressive/mvc` as a **peer dependency**, so the core is installed once, by the app, and every adapter resolves that copy. A React app installs both, and imports `Model`, `Component` and the instructions from the core:
+The packages are shaped to make one copy the default outcome: `@expressive/react`, `@expressive/router`, `@expressive/dom` and `@expressive/inspect` declare `@expressive/mvc` as a **peer dependency**, so the core is installed once, by the app, and every adapter resolves that copy. `@expressive/jsx`, the base host under `@expressive/dom`, holds the JSX host registry the same way and arrives with its host - a library compiled against it depends on a range the app's host also satisfies, so one copy installs. A React app installs both, and imports `Model`, `Component` and the instructions from the core:
 
 ```bash
 npm install @expressive/mvc @expressive/react
