@@ -1,7 +1,7 @@
 import { Component } from "@expressive/mvc";
 import { HttpError } from "@expressive/dev";
 
-import { Closed, Overflow, add, close, fail, reset, where } from "./remote";
+import { Closed, Overflow, add, close, fail, reset, where } from "../../api/(tally)";
 
 export class Page extends Component {
   shown = "";

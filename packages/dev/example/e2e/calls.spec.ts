@@ -1,6 +1,6 @@
 import { expect, test } from "./fixture";
 
-test("calls a sidecar's functions on the server", async ({ page, open }, { project }) => {
+test("calls an api/ route's functions on the server", async ({ page, open }, { project }) => {
   await open("/tally");
   const output = page.locator("output");
 
@@ -18,56 +18,36 @@ test("calls a sidecar's functions on the server", async ({ page, open }, { proje
   await expect(output).toHaveText("Overflow at 9");
 
   await page.getByRole("button", { name: "Where" }).click();
-  await expect(output).toHaveText("/tally");
+  await expect(output).toHaveText("/api/tally");
 
   await page.getByRole("button", { name: "Fail" }).click();
   await expect(output).toHaveText(project.name == "dev" ? "Nope" : "Internal error.");
 });
 
-test("calls the root sidecar from a nested page", async ({ page, open }) => {
+test("calls the same route from any page", async ({ page, open }) => {
   await open("/blog/hello");
 
   await page.getByRole("button", { name: "Where" }).click();
-  await expect(page.locator("output")).toHaveText("/");
+  await expect(page.locator("output")).toHaveText("/api/served");
 });
 
-test("calls a param folder's sidecar from its own page, params filled", async ({ page, open }) => {
-  await open("/note/7");
+test("passes a param page's id to its route default's call, on load and in-app", async ({ page, open }) => {
+  const sent: string[] = [];
 
-  await page.getByRole("button", { name: "Where" }).click();
-  await expect(page.locator("output")).toHaveText("/note/7");
-});
-
-test("calls a param folder's sidecar from its default during an in-app navigation", async ({ page, open }) => {
-  await open("/");
-  await page.getByRole("link", { name: "Note 7" }).click();
-
-  await expect(page.getByRole("heading")).toHaveText("Note");
-  await expect(page.getByRole("alert")).toHaveCount(0);
-});
-
-test("calls the outgoing page's sidecar while a navigation is held, from its own location", async ({ page, open }) => {
-  const held: string[] = [];
-
-  await page.route(url => url.pathname == "/gate" || url.pathname == "/note/8", async route => {
-    if (route.request().method() != "POST") return route.continue();
-    held.push(new URL(route.request().url()).pathname);
+  page.on("request", request => {
+    if (new URL(request.url()).pathname == "/api/note") sent.push(request.postData()!);
   });
 
   await open("/note/7");
-  await page.getByRole("link", { name: "Gate" }).click();
-  await expect.poll(() => held).toEqual(["/gate"]);
-  await page.getByRole("button", { name: "Where" }).click();
-  await expect(page.locator("output")).toHaveText("/note/7");
+  await expect(page.locator("output")).toHaveText("Note 7 from the server");
 
-  await open("/note/7");
   await page.getByRole("link", { name: "Note 8" }).click();
-  await expect.poll(() => held).toEqual(["/gate", "/note/8"]);
-  await page.getByRole("button", { name: "Where" }).click();
-  await expect(page.locator("output")).toHaveText("/note/7");
+  await expect(page.locator("output")).toHaveText("Note 8 from the server");
+  await expect(page).toHaveURL("/note/8");
+  expect(sent).toEqual(['["7"]', '["8"]']);
 });
 
-test("rebuilds a sidecar's http error subclass as an HttpError", async ({ page, open }) => {
+test("rebuilds a route's http error subclass as an HttpError", async ({ page, open }) => {
   await open("/tally");
 
   await page.getByRole("button", { name: "Close" }).click();

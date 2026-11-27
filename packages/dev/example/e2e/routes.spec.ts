@@ -114,7 +114,7 @@ test("shows the layout's Loading while a page's code arrives on a cold load, or 
   await expect(page.getByText("Loading…")).toHaveCount(0);
 });
 
-test("prerenders pages beside a remote, leaving those that call the server to the browser", async ({ request }, { project }) => {
+test("prerenders pages, leaving those that call the server to the browser", async ({ request }, { project }) => {
   test.skip(project.name == "dev", "prerendering runs at build");
 
   const html = async (path: string) => (await request.get(path, { headers: { accept: "text/html" } })).text();
