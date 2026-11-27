@@ -100,6 +100,14 @@ test("calls once on entry with the id, none inside the folder, and once on a par
   expect(sent).toEqual(['["1"]', '["2"]']);
 });
 
+test("guards a param folder's page below its index by the folder's id", async ({ page, open }) => {
+  const sent = calls(page, "/api/room");
+
+  await open("/room/3/notes");
+  await expect(page.getByRole("heading")).toHaveText("Notes");
+  expect(sent).toEqual(['["3"]']);
+});
+
 test("calls nothing for a static page beside a guarded param folder, or outside it", async ({ page, open }) => {
   const sent = calls(page, "/api/room");
 
