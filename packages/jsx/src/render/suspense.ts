@@ -1,4 +1,3 @@
-import type { Component } from '@expressive/mvc';
 import { isThenable } from '../node/kind';
 import { attach, fragment } from './commits';
 import { move, moveRange, range } from './fiber';
@@ -13,10 +12,12 @@ import { activeRoot, within } from './host';
 
 const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();
-let holding: { thrown: unknown; fiber?: Fiber } | undefined;
+let holding: { thrown: unknown; fiber?: Fiber; handler?: Boundary } | undefined;
 let settling = false;
 const REDIRECT = Symbol.for('@expressive/router#redirect');
 const HOLD = Symbol.for('@expressive/router#hold-redirect');
+
+type Branded = { [key: symbol]: unknown };
 
 function park(fiber: Fiber) {
   move(fiber, fragment(activeRoot()), null);
@@ -195,17 +196,22 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
     return thrown;
   }
 
-  return recover(fiber, thrown, fiber.boundary, passive);
+  return recover(fiber, thrown, fiber.boundary, passive, empty);
 }
 
 function descendants(fiber: Fiber): number {
   return fiber.children.reduce((count, child) => count + 1 + descendants(child), 0);
 }
 
-function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined, passive = false): PromiseLike<unknown> | void {
+function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined, passive = false, empty = false): PromiseLike<unknown> | void {
   const error = thrown instanceof Error ? thrown : new Error(String(thrown));
+  const propagated = holding?.thrown === thrown ? holding!.handler : undefined;
 
-  if (fiber.root?.waiting) {
+  if (propagated) {
+    boundary = propagated;
+    holding = undefined;
+  }
+  else if (fiber.root?.waiting) {
     const reached = descendants(fiber);
 
     if (fiber.retried && reached <= fiber.reached!) boundary = fiber.handled!.parent;
@@ -219,9 +225,16 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined, 
   if (!boundary) throw error;
 
   const handler = boundary;
-  const instance = handler.owner!.instance;
-  const heldCatch = passive && (error as Error & { [REDIRECT]?: boolean })[REDIRECT] &&
-    (instance as Component & { [HOLD]?: boolean } | undefined)?.[HOLD];
+  let heldCatch = passive && redirects(error, handler);
+
+  if (heldCatch && depth > 1) {
+    if (empty) {
+      holding = { thrown, handler };
+      throw thrown;
+    }
+
+    heldCatch = false;
+  }
 
   const token = {};
 
@@ -243,32 +256,36 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined, 
 
   const scope = fiber.scope!;
   let held = heldCatch ? scope.holds : undefined;
-
-  if (heldCatch) scope.holds = undefined;
-
-  const restore = () => {
-    if (held) (scope.holds ||= []).push(...held);
+  const clear = () => {
+    fiber.suspended!.delete(clear);
+    release(held);
     held = undefined;
   };
 
+  if (heldCatch) scope.holds = undefined;
+  (fiber.suspended ||= new Set()).add(clear);
+
   caught.then(
     () => {
-      if (fiber.recovering !== token) return release(held);
+      if (fiber.recovering !== token) return clear();
       fiber.recovering = undefined;
-      if (!scope.active || fiber.retried) return release(held);
+      if (!scope.active || fiber.retried) return clear();
       fiber.retried = true;
-      restore();
+      fiber.suspended!.delete(clear);
+      if (held) (scope.holds ||= []).push(...held);
       heldCatch ? transition(() => schedule(scope)) : schedule(scope);
     },
     (next) => {
-      if (fiber.recovering !== token || !scope.active) return release(held);
-      release(held);
-      held = undefined;
-      pass(() => recover(fiber, next, handler.parent));
+      clear();
+      if (fiber.recovering === token && scope.active) pass(() => recover(fiber, next, handler.parent));
     }
   );
 
   if (heldCatch) return caught;
+}
+
+function redirects(error: Error, handler: Boundary) {
+  return !!(error as Error & Branded)[REDIRECT] && !!(handler.owner!.instance as Branded | undefined)?.[HOLD];
 }
 
 

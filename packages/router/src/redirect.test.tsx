@@ -83,6 +83,41 @@ describe('Redirect', () => {
     expect(window.location.pathname).toBe('/');
   });
 
+  it.each(['immediately', 'after suspending'])('will hold the screen through a redirect thrown %s', async (when) => {
+    location('/');
+    const page = mockPromise<void>();
+    const target = mockPromise<void>();
+    let paged = when == 'immediately';
+    let ready = false;
+
+    page.then(() => (paged = true));
+    target.then(() => (ready = true));
+
+    const Me = () => {
+      if (!paged) throw page;
+      throw new Redirect('/login');
+    };
+    const Login = () => {
+      if (!ready) throw target;
+      return <h1>login</h1>;
+    };
+    const view = await renderAct(
+      <>
+        <Route to="/" as={() => <h1>home</h1>} />
+        <Route to="/me" as={Me} />
+        <Route to="/login" as={Login} />
+      </>
+    );
+
+    await act(() => router.current.goto('/me'));
+    await act(() => page.resolve());
+    expect(router.current.path).toBe('/login');
+    expect(view.container.textContent).toBe('home');
+
+    await act(() => target.resolve());
+    expect(view.container.textContent).toBe('login');
+  });
+
   it('will not navigate from a tree abandoned mid-hold', async () => {
     location('/');
     const module = mockPromise<{ default: () => never }>();

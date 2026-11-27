@@ -744,46 +744,154 @@ describe('suspense and recovery', () => {
     await until(() => expect(caught).toHaveBeenCalledWith('broken'));
   });
 
-  it('will hold current content through a pending catch during a transition', async () => {
-    const gate = mockPromise<void>();
-    const caught = vi.fn();
-    const redirect = new Error('redirecting');
-    let fixed = false;
+  describe('a held redirect', () => {
+    const REDIRECT = Symbol.for('@expressive/router#redirect');
+    const HOLD = Symbol.for('@expressive/router#hold-redirect');
 
-    Object.defineProperty(redirect, Symbol.for('@expressive/router#redirect'), { value: true });
-
-    class Flag extends Model {
-      next = false;
+    function redirect() {
+      return Object.defineProperty(new Error('redirecting'), REDIRECT, { value: true });
     }
 
-    function Screen() {
-      if (Flag.get().next && !fixed) throw redirect;
-      return <p>{Flag.get().next ? 'next' : 'current'}</p>;
-    }
+    function held(view: 'screen' | 'fresh' | 'prop' = 'screen') {
+      const thrown = redirect();
+      const caught = vi.fn<() => Promise<void>>();
+      const parent = vi.fn(() => new Promise<void>(() => {}));
+      let fixed = false;
 
-    class App extends Component {
-      flag = new Flag();
-      fallback = <i>recovering</i>;
-
-      catch() {
-        caught();
-        return gate.then(() => void (fixed = true));
+      class Flag extends Model {
+        next = false;
+        count = 0;
       }
 
-      render() {
-        return <Screen />;
+      function Screen(props: { next?: boolean }) {
+        const flag = Flag.get();
+        const next = view == 'prop' ? props.next : flag.next;
+
+        void flag.count;
+        if (next && !fixed) throw thrown;
+        return <p>{next ? 'next' : 'current'}</p>;
       }
+
+      class App extends Component {
+        flag = new Flag();
+        fallback = <i>recovering</i>;
+
+        catch() {
+          return caught().then(() => void (fixed = true));
+        }
+
+        render() {
+          if (view == 'prop') return <Screen next={this.flag.next} />;
+          if (view == 'fresh' && this.flag.next) return <b><Screen /></b>;
+          return <Screen />;
+        }
+      }
+
+      class Root extends Component {
+        app!: App;
+
+        render() {
+          return <Component catch={parent}>
+            <App is={(app) => {
+              this.app = app;
+              Object.defineProperty(app, HOLD, { value: true });
+            }} />
+          </Component>;
+        }
+      }
+
+      const [{ app }, root, release] = mount(Root);
+
+      return { app, root, release, caught, parent, thrown };
     }
 
-    const [app, root] = mount(App);
-    Object.defineProperty(app, Symbol.for('@expressive/router#hold-redirect'), { value: true });
+    it('will hold current content through a pending catch', async () => {
+      const gate = mockPromise<void>();
+      const { app, root, caught } = held();
 
-    pending(() => (app.flag.next = true));
-    await until(() => expect(caught).toHaveBeenCalled());
-    expect(root.textContent).toBe('current');
+      caught.mockReturnValue(gate);
 
-    gate.resolve();
-    await until(() => expect(root.textContent).toBe('next'));
+      const settled = track(pending(() => (app.flag.next = true)));
+      await until(() => expect(caught).toHaveBeenCalled());
+      expect(root.textContent).toBe('current');
+      expect(settled()).toBe(false);
+
+      gate.resolve();
+      await until(() => expect(root.textContent).toBe('next'));
+      expect(settled()).toBe(true);
+    });
+
+    it('will hold through a redirect from a view mounted in the update', async () => {
+      const gate = mockPromise<void>();
+      const { app, root, caught } = held('fresh');
+
+      caught.mockReturnValue(gate);
+
+      pending(() => (app.flag.next = true));
+      await until(() => expect(caught).toHaveBeenCalledTimes(1));
+      expect(root.textContent).toBe('current');
+
+      gate.resolve();
+      await until(() => expect(root.textContent).toBe('next'));
+    });
+
+    it('will show the fallback for a redirect from a view patched in the update', async () => {
+      const gate = mockPromise<void>();
+      const { app, root, caught } = held('prop');
+
+      caught.mockReturnValue(gate);
+
+      pending(() => (app.flag.next = true));
+      await until(() => expect(caught).toHaveBeenCalled());
+      expect(root.textContent).toBe('recovering');
+
+      gate.resolve();
+      await until(() => expect(root.textContent).toBe('next'));
+    });
+
+    it('will settle the transition when unmounted mid-hold', async () => {
+      const { app, root, caught, release } = held();
+
+      caught.mockReturnValue(new Promise(() => {}));
+
+      const settled = track(pending(() => (app.flag.next = true)));
+      await until(() => expect(caught).toHaveBeenCalled());
+      expect(settled()).toBe(false);
+
+      release();
+      await flushMicrotasks();
+      expect(settled()).toBe(true);
+      expect(root.textContent).toBe('');
+    });
+
+    it('will settle a transition whose catch was superseded', async () => {
+      const first = mockPromise<void>();
+      const { app, root, caught } = held();
+
+      caught.mockReturnValueOnce(first).mockReturnValue(new Promise(() => {}));
+
+      const settled = track(pending(() => (app.flag.next = true)));
+      await until(() => expect(caught).toHaveBeenCalledTimes(1));
+
+      pending(() => app.flag.count++);
+      await until(() => expect(caught).toHaveBeenCalledTimes(2));
+
+      first.resolve();
+      await flushMicrotasks();
+      expect(settled()).toBe(true);
+      expect(root.textContent).toBe('current');
+    });
+
+    it('will pass a rejected catch to the next boundary', async () => {
+      const { app, root, caught, parent, thrown } = held();
+
+      caught.mockImplementation(() => Promise.reject(thrown));
+
+      const settled = track(pending(() => (app.flag.next = true)));
+      await until(() => expect(parent).toHaveBeenCalledWith(thrown, expect.anything()));
+      expect(settled()).toBe(true);
+      expect(root.textContent).toBe('');
+    });
   });
 
   it('will retry a caught error once, then wait for an update', async () => {
