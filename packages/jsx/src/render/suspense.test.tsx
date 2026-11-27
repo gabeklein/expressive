@@ -744,6 +744,48 @@ describe('suspense and recovery', () => {
     await until(() => expect(caught).toHaveBeenCalledWith('broken'));
   });
 
+  it('will hold current content through a pending catch during a transition', async () => {
+    const gate = mockPromise<void>();
+    const caught = vi.fn();
+    const redirect = new Error('redirecting');
+    let fixed = false;
+
+    Object.defineProperty(redirect, Symbol.for('@expressive/router#redirect'), { value: true });
+
+    class Flag extends Model {
+      next = false;
+    }
+
+    function Screen() {
+      if (Flag.get().next && !fixed) throw redirect;
+      return <p>{Flag.get().next ? 'next' : 'current'}</p>;
+    }
+
+    class App extends Component {
+      flag = new Flag();
+      fallback = <i>recovering</i>;
+
+      catch() {
+        caught();
+        return gate.then(() => void (fixed = true));
+      }
+
+      render() {
+        return <Screen />;
+      }
+    }
+
+    const [app, root] = mount(App);
+    Object.defineProperty(app, Symbol.for('@expressive/router#hold-redirect'), { value: true });
+
+    pending(() => (app.flag.next = true));
+    await until(() => expect(caught).toHaveBeenCalled());
+    expect(root.textContent).toBe('current');
+
+    gate.resolve();
+    await until(() => expect(root.textContent).toBe('next'));
+  });
+
   it('will retry a caught error once, then wait for an update', async () => {
     const caught = vi.fn();
 

@@ -1,3 +1,4 @@
+import type { Component } from '@expressive/mvc';
 import { isThenable } from '../node/kind';
 import { attach, fragment } from './commits';
 import { move, moveRange, range } from './fiber';
@@ -14,6 +15,8 @@ const dirty = new Set<Boundary>();
 const stashes = new WeakMap<globalThis.Node, Fiber>();
 let holding: { thrown: unknown; fiber?: Fiber } | undefined;
 let settling = false;
+const REDIRECT = Symbol.for('@expressive/router#redirect');
+const HOLD = Symbol.for('@expressive/router#hold-redirect');
 
 function park(fiber: Fiber) {
   move(fiber, fragment(activeRoot()), null);
@@ -192,14 +195,14 @@ function suspend(fiber: Fiber, thrown: unknown, passive: boolean, empty: boolean
     return thrown;
   }
 
-  recover(fiber, thrown, fiber.boundary);
+  return recover(fiber, thrown, fiber.boundary, passive);
 }
 
 function descendants(fiber: Fiber): number {
   return fiber.children.reduce((count, child) => count + 1 + descendants(child), 0);
 }
 
-function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) {
+function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined, passive = false): PromiseLike<unknown> | void {
   const error = thrown instanceof Error ? thrown : new Error(String(thrown));
 
   if (fiber.root?.waiting) {
@@ -216,10 +219,13 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) 
   if (!boundary) throw error;
 
   const handler = boundary;
+  const instance = handler.owner!.instance;
+  const heldCatch = passive && (error as Error & { [REDIRECT]?: boolean })[REDIRECT] &&
+    (instance as Component & { [HOLD]?: boolean } | undefined)?.[HOLD];
 
   const token = {};
 
-  wait(fiber, handler);
+  if (!heldCatch) wait(fiber, handler);
   fiber.recovering = token;
 
   fiber.handled = handler;
@@ -233,20 +239,36 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) 
     caught.then(done, done);
   }
 
-  if (handler.owner!.placeholder && !handler.owner!.dead) draw(handler.owner!, handler);
+  if (!heldCatch && handler.owner!.placeholder && !handler.owner!.dead) draw(handler.owner!, handler);
+
+  const scope = fiber.scope!;
+  let held = heldCatch ? scope.holds : undefined;
+
+  if (heldCatch) scope.holds = undefined;
+
+  const restore = () => {
+    if (held) (scope.holds ||= []).push(...held);
+    held = undefined;
+  };
 
   caught.then(
     () => {
-      if (fiber.recovering !== token) return;
+      if (fiber.recovering !== token) return release(held);
       fiber.recovering = undefined;
-      if (!fiber.scope!.active || fiber.retried) return;
+      if (!scope.active || fiber.retried) return release(held);
       fiber.retried = true;
-      schedule(fiber.scope!);
+      restore();
+      heldCatch ? transition(() => schedule(scope)) : schedule(scope);
     },
     (next) => {
-      if (fiber.recovering === token && fiber.scope!.active) pass(() => recover(fiber, next, handler.parent));
+      if (fiber.recovering !== token || !scope.active) return release(held);
+      release(held);
+      held = undefined;
+      pass(() => recover(fiber, next, handler.parent));
     }
   );
+
+  if (heldCatch) return caught;
 }
 
 
