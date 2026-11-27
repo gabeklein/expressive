@@ -62,10 +62,16 @@ describe("compose", () => {
   it("will serve api/ routes from the modules in the entry's order", async () => {
     const hello = { GET: () => ({ hello: Current.get().params.id }) };
     const gate = { default: () => {} };
-    const { fetch } = compose({}, [], [], [gate, hello], { prefix: "/api", routes: [{ name: "api/index.ts", path: [], index: true }, { name: "api/[id].ts", path: [":id"], index: false }] });
+    const account = { async rename(name: string) { return `${name}!`; }, Taken };
+    const { fetch } = compose({}, [], [], [gate, hello, account], { prefix: "/api", routes: [
+      { name: "api/index.ts", path: [], index: true },
+      { name: "api/[id].ts", path: [":id"], index: false },
+      { name: "api/account/index.ts", path: ["account"], index: true, calls: { r1: "rename" }, classes: { t1: "Taken" } },
+    ] });
 
     expect(await json(fetch(new Request("http://localhost/api/a")))).toEqual({ hello: "a" });
     expect((await fetch(new Request("http://localhost/api/a/b"))).status).toBe(404);
+    expect(await json(fetch(post("r1", ["ada"], "/api/account")))).toEqual({ value: "ada!" });
   });
 
   it("will reply a thrown error class with its status", async () => {

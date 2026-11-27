@@ -245,3 +245,72 @@ describe("api routes", () => {
     expect(gate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("api calls", () => {
+  const callable = (path: string[], exports: Exports, calls: Record<string, string>, classes: Record<string, string> = {}, index = false): ApiRoute => ({ ...route(path, exports, index), calls, classes });
+
+  const call = (name: string, body: unknown = []) => ({
+    method: "POST",
+    headers: { "content-type": "application/json", "x-expressive-call": name },
+    body: JSON.stringify(body),
+  });
+
+  class Taken extends Error {
+    status = 409;
+  }
+
+  it("will run the call the header names, and the verbs without it, at the same URL", async () => {
+    const fetch = serve([callable(["account"], { POST: () => "verb", async rename(name: string) { return `${name}!`; } }, { r1: "rename" })]);
+    const missing = await fetch("/api/account", call("nope"));
+    const malformed = await fetch("/api/account", call("r1", { name: "ada" }));
+
+    expect(await (await fetch("/api/account", call("r1", ["ada"]))).json()).toEqual({ value: "ada!" });
+    expect(await (await fetch("/api/account", { method: "POST", headers: { "content-type": "application/json" }, body: "[]" })).text()).toBe("verb");
+    expect([missing.status, await missing.json()]).toEqual([404, { message: "Not found." }]);
+    expect([malformed.status, await malformed.json()]).toEqual([400, { message: "Expected a JSON array of arguments." }]);
+  });
+
+  it("will run the folder gates before a call, keeping their Models in context, and let a gate wrap it with next", async () => {
+    class Session extends Model {
+      user = "";
+
+      async new() {
+        const user = Current.get().request.headers.get("x-user");
+        if (!user) throw new Forbidden("Sign in.");
+        this.user = user;
+      }
+    }
+
+    const fetch = serve([
+      route([], { async default() {
+        const reply = await Current.get().next();
+        reply.headers.set("x-wrapped", String(reply.status));
+        return reply;
+      } }, true),
+      route(["account"], { default: () => void Session.new() }, true),
+      callable(["account", "me"], { async who() { return Session.get().user; } }, { who: "who" }),
+    ]);
+    const signed = await fetch("/api/account/me", { ...call("who"), headers: { ...call("who").headers, "x-user": "ada" } });
+    const refused = await fetch("/api/account/me", call("who"));
+
+    expect([await signed.json(), signed.headers.get("x-wrapped")]).toEqual([{ value: "ada" }, "200"]);
+    expect([refused.status, await refused.json(), refused.headers.get("x-wrapped")]).toEqual([403, expect.objectContaining({ message: "Sign in." }), "403"]);
+  });
+
+  it("will keep a call's error class on its reply, and answer a failure to load as a call's 500", async () => {
+    const fetch = serve([callable(["shop"], { async buy() { throw new Taken("Sold out."); }, Taken }, { buy: "buy" }, { "/api/shop#Taken": "Taken" })]);
+    const broken = compose({}, { api: { prefix: "/api", routes: () => { throw new Error("misnamed"); } }, dev: true });
+    const taken = await fetch("/api/shop", call("buy"));
+    const failed = await broken(new Request("http://localhost/api/shop", call("buy")));
+
+    expect([taken.status, await taken.json()]).toEqual([409, { error: "/api/shop#Taken", message: "Sold out.", status: 409 }]);
+    expect([failed.status, (await failed.json()).message]).toEqual([500, "misnamed"]);
+  });
+
+  it("will answer a call under another prefix, and none for a route with only error classes", async () => {
+    const fetch = serve([callable(["shop"], { async buy() { return 1; } }, { buy: "buy" }), { ...route(["plain"], { POST: () => "verb", Taken }), classes: { Taken: "Taken" } }], "/base/api");
+
+    expect(await (await fetch("/base/api/shop", call("buy"))).json()).toEqual({ value: 1 });
+    expect((await fetch("/base/api/plain", call("buy"))).status).toBe(404);
+  });
+});

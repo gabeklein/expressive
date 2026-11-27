@@ -3,7 +3,7 @@ import { isCall } from "@expressive/rpc/http";
 import { bind, dispatch, failure, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 
 import type { App, AppOptions, HandleArgs, Settings } from "../settings";
-import { owns, serveApi, type Api } from "./api";
+import { callApi, owns, serveApi, type Api } from "./api";
 import { check } from "./check";
 
 export interface Parts {
@@ -52,8 +52,11 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
     const below = async (forward: Request): Promise<Response> => {
       bind(forward, env as Env, filled);
 
+      const owned = api && owns(api, new URL(forward.url).pathname);
+
+      if (owned && isCall(forward)) return callApi(forward, api!, dev).then(mutable);
       if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
-      if (api && owns(api, new URL(forward.url).pathname)) return serveApi(forward, api, dev).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
+      if (owned) return serveApi(forward, api!, dev).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
       if (!assets) return new Response("Not found.", { status: 404 });
 
       try {
