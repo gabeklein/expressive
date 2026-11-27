@@ -1,13 +1,13 @@
 import { isThenable } from '../node/kind';
 import { attach, fragment } from './commits';
-import { move, moveRange, range } from './fiber';
+import { enclose, move, moveRange, range } from './fiber';
 import { hydrationOf } from './host';
 import type { Boundary, Fiber } from './fiber';
 import { unmountFiber } from './mount';
 import { place } from './portal';
 import { reconcile } from './reconcile';
 import { depth, pass } from './render';
-import { release, schedule, transition } from '../core/scheduler';
+import { release, schedule, seal, transition } from '../core/scheduler';
 import { activeRoot, within } from './host';
 
 const dirty = new Set<Boundary>();
@@ -214,6 +214,8 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) 
   while (boundary && !boundary.catch) boundary = boundary.parent;
 
   if (!boundary) throw error;
+
+  seal(fiber.scope!, enclose(fiber, new Set()));
 
   const handler = boundary;
 
