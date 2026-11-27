@@ -1061,6 +1061,8 @@ describe("vite host", () => {
     "public/robots.txt": "robots",
     "public/map/index.html": "map",
     "api/[id].ts": `import { Current } from "@expressive/rpc"; export const GET = () => (((globalThis as any).hostCurrent ?? Current).get().params);`,
+    "api/(desk).ts": "export class Taken extends Error { status = 409; } export async function desk(n: number) { if (n > 1) throw new Taken('big'); return n; }",
+    "app/(desk).tsx": "import { desk, Taken } from '../api/(desk)'; export const Page = () => [desk, Taken]",
   };
 
   const post = (path: string, name: string, body: string, deny = false) =>
@@ -1088,6 +1090,9 @@ describe("vite host", () => {
     expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod" });
     expect(await (await handler.fetch(new Request("http://localhost/api/7"), env, ctx)).json()).toEqual({ id: "7" });
+    expect(code).toMatch(/calls:\s*\{\s*"?desk"?:\s*"desk"\s*\},\s*classes:\s*\{\s*"\/api\/desk#Taken":\s*"Taken"\s*\}/);
+    expect(await (await handler.fetch(post("/api/desk", "desk", "[1]"), env, ctx)).json()).toEqual({ value: 1 });
+    expect(await (await handler.fetch(post("/api/desk", "desk", "[2]"), env, ctx)).json()).toEqual({ error: "/api/desk#Taken", message: "big", status: 409 });
     expect((await handler.fetch(new Request("http://localhost/api/7/x", { headers: { accept: "text/html" } }), env, ctx)).status).toBe(404);
     expect((await handler.fetch(new Request("http://localhost/"), env, ctx)).headers.get("x-handled")).toBe("1");
 
@@ -1359,6 +1364,12 @@ describe("vite host", () => {
       const stub = await at("/api/(hello).ts");
 
       expect([stub.status, await stub.text()]).toEqual([200, expect.stringContaining('const at = ["api", "hello"];')]);
+
+      for (const method of ["POST", "PUT"]) {
+        const raw = await at("/api/(hello).ts", { method });
+        expect([method, raw.status, await raw.text()]).toEqual([method, 404, expect.not.stringContaining("world")]);
+      }
+
       expect((await at("/api/admin/store.ts", { headers: { "x-admin": "1" } })).status).toBe(404);
       expect((await at("/api/%E0%A4%A")).status).toBe(400);
       const helper = await at("/api/admin/store", { headers: { "x-admin": "1" } });
@@ -1468,7 +1479,7 @@ describe("vite host", () => {
     it("will answer a call the browser loaded by its header, and the verbs without it at the same URL, under the folder's gate", async () => {
       const root = realpathSync(project({
         "app/index.tsx": PAGE,
-        "api/admin/index.ts": `${RPC} import { Admin } from './admin'; export default () => { if (!Current.get().request.headers.has('x-admin')) throw new Forbidden('Admins only.'); Admin.new(); };`,
+        "api/admin/index.ts": `${RPC} import { Admin } from './admin'; export class Staff extends Forbidden {} export default () => { if (!Current.get().request.headers.has('x-admin')) throw new Staff('Admins only.'); Admin.new(); };`,
         "api/admin/admin.ts": "const { Model } = (globalThis as any).hostMvc; export class Admin extends Model { name = 'root'; }",
         "api/admin/(desk).ts": "import { Admin } from './admin'; export const GET = () => 'verb'; export class Locked extends Error { status = 423; } export async function who() { return Admin.get().name; } export async function lock() { throw new Locked('Locked.'); }",
       }));
@@ -1487,7 +1498,7 @@ describe("vite host", () => {
       const verb = await at({ method: "POST", headers: { ...admin, "content-type": "application/json" }, body: "[]" });
 
       expect(await (await call("who", admin)).json()).toEqual({ value: "root" });
-      expect([refused.status, (await refused.json()).message]).toEqual([403, "Admins only."]);
+      expect([refused.status, await refused.json()]).toEqual([403, { error: "/api/admin#Staff", message: "Admins only.", status: 403 }]);
       expect([locked.status, await locked.json()]).toEqual([423, { error: "/api/admin/desk#Locked", message: "Locked.", status: 423 }]);
       expect(await (await at({ headers: admin })).text()).toBe("verb");
       expect([verb.status, verb.headers.get("allow")]).toEqual([405, "GET, HEAD"]);
@@ -1500,6 +1511,7 @@ describe("vite host", () => {
         "api/admin/index.ts": "export default () => {}; export async function staff() { return 1; } export async function unused() { return 2; }",
         "api/(account).ts": "export const GET = () => 'verb'; export class Taken extends Error {} export async function account() { return 'acct'; } export async function rename() { return 1; }",
         "api/(other).ts": "export async function hidden() { return 3; }",
+        "api/vault/index.ts": "export class Sealed extends Error {} export default () => { throw new Sealed('no'); };",
       };
       const hashed = await buildBoth(files);
       const readable = await buildBoth({ ...files, "index.ts": "export default { remote: { opaque: false } };" });
@@ -1511,6 +1523,16 @@ describe("vite host", () => {
       expect(readable.server).toMatch(/calls: \{\s*"?account"?: "account"\s*\},\s*classes: \{\s*"\/api\/account#Taken": "Taken"/);
       expect(readable.server).toMatch(/calls: \{\s*"?staff"?: "staff"\s*\}/);
       expect(readable.server).not.toMatch(/"(rename|unused)"/);
+      expect(readable.server).toMatch(/path: \["vault"\],\s*index: true,\s*calls: \{\},\s*classes: \{\s*"\/api\/vault#Sealed": "Sealed"\s*\}/);
+    });
+
+    it("will guard an api/ import from any client importer, a virtual or non-script one too", async () => {
+      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/(a).ts": "export async function a() {}", "api/db.ts": "export const db = {};" }));
+      const server = await serve(root);
+      const resolve = (spec: string, importer: string) => server.environments.client.pluginContainer.resolveId(spec, join(root, importer));
+
+      await expect(resolve("../api/db", "app/notes.mdx")).rejects.toThrow("app/notes.mdx imports api/db.ts - a helper in api/ is server-only");
+      expect((await resolve("../api/(a)", "app/virtual.vue"))?.id).toBe(join(root, "api/(a).ts"));
     });
 
     it("will fail the build on a call under a param, imported by the client or not", async () => {
@@ -1526,7 +1548,7 @@ describe("vite host", () => {
       await server.listen(0);
 
       const reply = await fetch(new URL("/api/hello", server.resolvedUrls!.local[0]));
-      const message = "api/(hello).ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function. helper() is not async - every call to it crosses the wire.";
+      const message = "api/(hello).ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function. helper() is not async - every call to it crosses the wire. Move helpers to a bare-named or _ file beside the route.";
 
       expect([reply.status, (await reply.json()).message]).toEqual([500, message]);
 

@@ -202,7 +202,7 @@ describe("verifyApi", () => {
     const route = (path: string[], index = false) => ({ name: "api/a.ts", path, index });
 
     expect(() => verifyApi(route(["a"]), { async rename() {}, Taken })).not.toThrow();
-    expect(() => verifyApi(route(["a"]), { rename() {}, Row })).toThrow("api/a.ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function. rename() is not async - every call to it crosses the wire. Row is a class but not an Error - only error classes reach the client.");
+    expect(() => verifyApi(route(["a"]), { rename() {}, Row })).toThrow("api/a.ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function. rename() is not async - every call to it crosses the wire. Move helpers to a bare-named or _ file beside the route. Row is a class but not an Error - only error classes reach the client.");
     expect(() => verifyApi(route([], true), { default: () => {}, async rename() {} })).toThrow("api/a.ts: `rename` - api/index.ts's other exports are reserved");
   });
 });
@@ -220,7 +220,7 @@ describe("scanCalls", () => {
     expect(problems).toEqual([
       "`limit` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts.",
       "`other` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts.",
-      "sync() is not async - every call to it crosses the wire.",
+      "sync() is not async - every call to it crosses the wire. Move helpers to a bare-named or _ file beside the route.",
     ]);
   });
 });

@@ -17,11 +17,11 @@ import { Exposure, type Exposed } from "./remote";
 import { CALL, generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
 import { isCall, send, toRequest } from "@expressive/rpc/http";
 import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
-import { SCRIPT, guardScript, moduleOf, type Sources } from "@expressive/rpc/vite";
+import { SCRIPT, guardScript, isClass, moduleOf, type Module, type Sources } from "@expressive/rpc/vite";
 import { staticFile } from "../server/listen";
 import { install } from "../server/install";
 import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
-import { apiErrors, helperAt, leafOf, reservedApi, scanApi, scanCalls, verifyApi, type ApiHelper } from "./api";
+import { apiErrors, helperAt, leafOf, reservedApi, scanApi, scanCalls, verifyApi, type ApiFile, type ApiHelper, type RouteScan } from "./api";
 
 const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
@@ -130,13 +130,24 @@ export function host(dotenv: boolean): Plugin<Host> {
   const apiFiles = () => {
     if (!existsSync(apiDir)) return;
 
-    const { problems, ...files } = scanApi(root, apiDir);
+    const { problems, ...files } = apiScanned();
 
     if (problems.length) throw new Error(problems.join("\n"));
     return files;
   };
 
-  const apiRoute = (file: string) => (file.startsWith(apiDir + sep) ? scanApi(root, apiDir).routes.find(route => route.file === file) : undefined);
+  let apiScan: ReturnType<typeof scanApi> | undefined;
+
+  const apiScanned = () => {
+    if (apiScan) return apiScan;
+
+    const scan = scanApi(root, apiDir);
+
+    if (!scan.problems.length) apiScan = scan;
+    return scan;
+  };
+
+  const apiRoute = (file: string) => (file.startsWith(apiDir + sep) ? apiScanned().routes.find(route => route.file === file) : undefined);
 
   const apiAt = (file: string): Remote => ({ file, pattern: ["api", ...apiRoute(file)!.path], module: "", folder: dirname(file) });
 
@@ -244,7 +255,8 @@ export function host(dotenv: boolean): Plugin<Host> {
           exposure.modules.set(remote.file, { ...remote, ...scanned, calls: [] });
         }
 
-        const errors = existsSync(apiDir) ? await apiErrors(root, resolving(this)) : [];
+        const declared = (route: ApiFile, { errors }: RouteScan) => errors.length && exposure.api.set(route.file, { ...apiAt(route.file), calls: [], errors });
+        const errors = existsSync(apiDir) ? await apiErrors(root, resolving(this), declared) : [];
 
         if (errors.length) this.error(errors.join("\n"));
       }
@@ -273,9 +285,9 @@ export function host(dotenv: boolean): Plugin<Host> {
       if (id === htmlId && !existsSync(htmlId)) return htmlId;
       if (id === DOM_SERVER && importer === prerenderId) return this.resolve(id, fileURLToPath(import.meta.url), { skipSelf: true });
 
-      if (options.ssr || !importer || !SCRIPT.test(importer.split("?")[0])) return;
+      if (options.ssr || !importer) return;
 
-      const named = REMOTE_IMPORT.test(id);
+      const named = SCRIPT.test(importer.split("?")[0]) && REMOTE_IMPORT.test(id);
 
       if (!named && !existsSync(apiDir)) return;
 
@@ -285,8 +297,8 @@ export function host(dotenv: boolean): Plugin<Host> {
         const file = resolved.id.split("?")[0];
 
         if ("scan" in options && options.scan) return { id: `\0${resolved.id}`, external: true };
-        if (importer.startsWith(apiDir + sep)) return resolved;
         if (!apiRoute(file)) this.error(`${relative(root, importer)} imports ${relative(root, file)} - a helper in api/ is server-only; import a route's calls, or move what both need outside api/.`);
+        if (importer.startsWith(apiDir + sep)) return resolved;
 
         const served = await servedImports(importer.split("?")[0], file, resolving(this));
 
@@ -387,7 +399,10 @@ export function host(dotenv: boolean): Plugin<Host> {
         const rendered = new Map<string, string[]>();
 
         for (const chunk of Object.values(bundle))
-          for (const [id, module] of Object.entries((chunk as Rollup.OutputChunk).modules ?? {})) rendered.set(id.split("?")[0], module.renderedExports);
+          for (const [id, module] of Object.entries((chunk as Rollup.OutputChunk).modules ?? {})) {
+            const file = id.split("?")[0];
+            rendered.set(file, [...(rendered.get(file) ?? []), ...module.renderedExports]);
+          }
 
         for (const [file, exposed] of exposure.api) exposed.calls = exposed.calls.filter(name => rendered.get(file)?.includes(name));
       }
@@ -423,7 +438,10 @@ export function host(dotenv: boolean): Plugin<Host> {
               return exposure.idsOf(file).calls;
             },
             get classes() {
-              return exposure.idsOf(file).classes;
+              const { exports } = moduleOf(file, readFileSync(file, "utf8"));
+              const names = [...exports].filter(([name, value]) => name !== "default" && isClass(value)).map(([name]) => name);
+
+              return Object.fromEntries(names.map(name => [exposure.classId(apiAt(file), name), name]));
             },
             async load() {
               const exports = await host.import(file);
@@ -443,13 +461,13 @@ export function host(dotenv: boolean): Plugin<Host> {
         },
       };
 
-      const moved = (file: string) => file.startsWith(apiDir + sep) && (table = undefined);
+      const moved = (file: string) => file.startsWith(apiDir + sep) && (table = apiScan = undefined);
 
       const saved = async (file: string) => {
         if (!file.startsWith(apiDir + sep)) return;
 
         try {
-          for (const error of await apiErrors(root, sourcesOf(async (spec, importer) => (await server.environments.client.pluginContainer.resolveId(spec, importer))?.id.split("?")[0]))) server.config.logger.error(error);
+          for (const error of await apiErrors(root, sourcesOf(async (spec, importer) => (await server.environments.ssr.pluginContainer.resolveId(spec, importer))?.id.split("?")[0]))) server.config.logger.error(error);
         } catch (error) {
           server.config.logger.error(`${error}`);
         }
@@ -483,6 +501,8 @@ export function host(dotenv: boolean): Plugin<Host> {
       const skipped = skipList(server);
 
       const stubbed = (request: Request) => {
+        if (request.method !== "GET" && request.method !== "HEAD") return false;
+
         const path = new URL(request.url).pathname.slice(server.config.base.length - 1);
 
         try {
@@ -714,8 +734,15 @@ const resolving = (context: Pick<Rollup.PluginContext, "resolve">) => sourcesOf(
 /** What `importer` takes from the route in `file` that serves HTTP - its verbs and default. */
 async function servedImports(importer: string, file: string, sources: Sources): Promise<string[]> {
   const served: string[] = [];
+  let imports: Module["imports"];
 
-  for (const { from, name, type } of moduleOf(importer, sources.read(importer)).imports.values())
+  try {
+    imports = moduleOf(importer, sources.read(importer)).imports;
+  } catch {
+    return served;
+  }
+
+  for (const { from, name, type } of imports.values())
     if (!type && (name === "default" || VERBS.includes(name)) && (await sources.resolve(from, importer)) === file) served.push(name);
 
   return served;

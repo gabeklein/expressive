@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 
 import { VERBS, type ApiRoute, type Exports } from "../server/api";
-import { isClass as isClassNode, moduleOf, scanModule, type ErrorClass, type Sources, type Value } from "@expressive/rpc/vite";
+import { isClass as isClassNode, isFunction, moduleOf, notAsync, notError, scanModule, type ErrorClass, type Sources } from "@expressive/rpc/vite";
 import { scanExports } from "./scan";
 
 const EXT = new Set([".ts", ".tsx", ".js", ".jsx"]);
@@ -22,6 +22,8 @@ export interface ApiHelper {
 const OTHER = `${VERBS.join(", ")}, a default, async functions or Error subclasses`;
 
 const served = (name: string) => name === "default" || VERBS.includes(name);
+
+const sync = (name: string) => `${notAsync(name)} Move helpers to a bare-named or _ file beside the route.`;
 
 /**
  * What is wrong with a module's exports - `names` its runtime exports, `classDefault` whether its `default` is a class.
@@ -54,9 +56,9 @@ export function verifyApi({ name, index, path }: Omit<ApiRoute, "load">, exports
   let calls = 0;
 
   for (const key of declared)
-    if (isClass(exports[key])) (exports[key] as Function).prototype instanceof Error || wrong.push(`${key} is a class but not an Error - only error classes reach the client.`);
+    if (isClass(exports[key])) (exports[key] as Function).prototype instanceof Error || wrong.push(notError(key));
     else if (Object.prototype.toString.call(exports[key]) === "[object AsyncFunction]") calls++;
-    else wrong.push(`${key}() is not async - every call to it crosses the wire.`);
+    else wrong.push(sync(key));
 
   const found = [...problems(Object.keys(exports), index, root, isClass(exports.default), declared, calls), ...wrong];
 
@@ -74,16 +76,15 @@ export interface RouteScan {
   problems: string[];
 }
 
-const isFunction = (value: Value) => value?.type === "FunctionDeclaration" || value?.type === "FunctionExpression" || value?.type === "ArrowFunctionExpression";
-
 /** Classify a route's exports: verbs and a default serve HTTP, async functions are calls, Error subclasses cross to the client beside them. */
 export async function scanCalls({ file, index, path }: Pick<ApiFile, "file" | "index" | "path">, source: string, sources: Sources, owned: (file: string) => boolean): Promise<RouteScan> {
   const { exports: names, classDefault } = await scanExports(source, file);
   const { exports } = moduleOf(file, source);
   const root = index && !path.length;
   const declared = new Set(root ? [] : [...names].filter(name => !served(name) && (isFunction(exports.get(name)) || isClassNode(exports.get(name)))));
-  const { calls, errors, problems: wrong } = await scanModule(file, source, sources, owned, {}, declared);
-  const found = [...problems(names, index, root, !!classDefault, declared, calls.length), ...wrong];
+  const plain = [...declared].filter(name => { const value = exports.get(name); return isFunction(value) && !value.async && !value.generator; });
+  const { calls, errors, problems: wrong } = await scanModule(file, source, sources, owned, {}, new Set([...declared].filter(name => !plain.includes(name))));
+  const found = [...problems(names, index, root, !!classDefault, declared, calls.length), ...wrong, ...plain.map(sync)];
   const param = path.find(part => part.startsWith(":") || part === "*");
 
   if (param && calls.length)
@@ -183,14 +184,17 @@ export function helperProblems({ name, file }: ApiHelper, source: string): strin
 const STAR = "re-exports with `export *` - list the verbs by name: export { GET } from \"...\".";
 
 /** What is wrong with the folder - its names, each route's exports, and helpers that export verb handlers. */
-export async function apiErrors(root: string, sources: Sources): Promise<string[]> {
+export async function apiErrors(root: string, sources: Sources, scanned?: (route: ApiFile, scan: RouteScan) => void): Promise<string[]> {
   const { routes, helpers, problems: found } = scanApi(root);
   const owned = (file: string) => routes.some(route => route.file === file);
 
   for (const route of routes) {
     const source = readFileSync(route.file, "utf8");
     const star = moduleOf(route.file, source).body.some(node => node.type === "ExportAllDeclaration" && !node.exported && node.exportKind !== "type");
-    const wrong = (await scanCalls(route, source, sources, owned)).problems.map(problem => (star && problem.startsWith("No handler") ? STAR : problem));
+    const scan = await scanCalls(route, source, sources, owned);
+    const wrong = scan.problems.map(problem => (star && problem.startsWith("No handler") ? STAR : problem));
+
+    scanned?.(route, scan);
 
     if (wrong.length) found.push(`${route.name}: ${wrong.join(" ")}`);
   }

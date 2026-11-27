@@ -1368,6 +1368,8 @@ export const GET = () => label + suffix + ' old';
 `,
     'api/label.ts': `export const label = 'hello';
 `,
+    'api/(greet).ts': `export async function greet(name: string) { return 'hi ' + name; }
+`,
     'server/suffix.ts': `export const suffix = '';
 `,
     'app/index.tsx': `export const Page = () => <h1>hi</h1>;
@@ -1431,7 +1433,6 @@ export const GET = () => label + suffix + ' old';
       return (await call(name)) == expected;
     };
 
-    await Bun.write(join(dir, 'api/(greet).ts'), "export async function greet(name: string) { return 'hi ' + name; }\n");
     await until(() => loaded('greet', '200 {"value":"hi ada"}'));
 
     await Bun.write(join(dir, 'api/(greet).ts'), "export async function greet(name: string) { return 'hello ' + name; }\nexport async function wave() { return 'wave'; }\n");

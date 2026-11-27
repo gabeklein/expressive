@@ -208,7 +208,7 @@ export interface ApiEntry {
 const apiImports = (from: string, { routes = [] }: ApiEntry) => routes.map(({ file }, i) => `import * as a${i} from ${JSON.stringify(importRel(from, file))};`);
 
 const apiRef = ({ name, path, index, calls, classes }: ApiFile) => {
-  const ids = Object.keys({ ...calls, ...classes }).length ?`, calls: ${JSON.stringify(calls)}, classes: ${JSON.stringify(classes)}` : "";
+  const ids = Object.keys({ ...calls, ...classes }).length ? `, calls: ${JSON.stringify(calls)}, classes: ${JSON.stringify(classes)}` : "";
 
   return `{ name: ${JSON.stringify(name)}, path: ${JSON.stringify(path)}, index: ${index}${ids} }`;
 };
