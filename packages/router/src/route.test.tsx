@@ -564,6 +564,22 @@ describe('Route', () => {
           expect(window.location.pathname).toBe('/login');
           expect(getByText('login')).toBeDefined();
         });
+
+        it('will redirect to another value of its own param', async () => {
+          location('/room/old');
+          const redirect = () => Promise.resolve(router.current.path == '/room/old' ? '/room/1' : undefined);
+          const view = await renderAct(
+            <Route>
+              <Route to="room/:id" redirect={redirect}>
+                <Route as={Post} />
+              </Route>
+            </Route>
+          );
+
+          expect(window.location.pathname).toBe('/room/1');
+          expect(view.container.textContent).toBe('id: 1');
+        });
+
         it('will rethrow the pending verdict to a render retried before it settles', async () => {
           location('/admin');
           let ran = 0;
