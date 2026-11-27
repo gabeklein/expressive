@@ -23,8 +23,6 @@ export {
 
 const ABSOLUTE = /^[a-z][a-z\d+.-]*:/i;
 
-const REFUSED = new WeakSet<object>();
-
 export type Transport = (request: Request) => Promise<Response>;
 
 export interface ClientOptions {
@@ -110,22 +108,10 @@ export function client<T = any>(initial: ClientOptions = {}) {
 
     if (res.ok) return body;
 
-    const error = rebuild(body);
-
-    if (res.status !== 404 || body.error) REFUSED.add(error);
-    throw error;
+    throw rebuild(body);
   }
 
   async function call(path: string, name: string, args: unknown[], options?: CallOptions): Promise<unknown> {
-    if (!name)
-      return send(path, { "x-expressive-get": "gates" }, args, options).then(
-        () => true,
-        error => {
-          if (REFUSED.has(error)) throw error;
-          return false;
-        },
-      );
-
     const reply = await send(path, { "x-expressive-call": name }, args, options);
 
     return reply.value;

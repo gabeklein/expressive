@@ -759,7 +759,7 @@ export class Current extends Model {
     readOnly();
   }
 
-  /** The matched route's params, decoded - a sidecar call's are its folder's. `{}` where the host gives none. */
+  /** The matched route's params, decoded - a call's are its folder's. `{}` where the host gives none. */
   get params(): Record<string, string> {
     const { stage, params } = frame();
 
