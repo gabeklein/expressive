@@ -379,11 +379,15 @@ function watch<T extends object, R>(
       const current = latest = (proxy as Observed)[Observing]!;
       const output = callback.call(proxy, proxy, events);
 
-      if (observer(target) === null) {
-        if (release) release(null);
+      const destroyed = observer(target) === null;
+
+      if (destroyed || reset === null) {
+        const key = destroyed ? null : false;
+
+        if (release) release(key);
         if (output instanceof Promise) output.catch(() => {});
-        else if (typeof output == 'function') output(null);
-        return fail('is destroyed.');
+        else if (typeof output == 'function') output(key);
+        return destroyed ? fail('is destroyed.') : undefined;
       }
 
       if (previous && argument === false && !current.watching.size)
@@ -430,8 +434,7 @@ function watch<T extends object, R>(
     }
 
     try {
-      if (argument !== false) capture(run);
-      else run();
+      capture(argument !== false ? run : () => run());
     } catch (err) {
       if (err instanceof Promise) return suspend(err);
 

@@ -418,6 +418,59 @@ describe('effect', () => {
     expect(test.bar).toBe(3);
   });
 
+  it('will release what was read through a re-run proxy of an uncaptured effect', async () => {
+    class Child extends Model {
+      value = 1;
+    }
+
+    class Test extends Model {
+      child = new Child();
+      n = 1;
+    }
+
+    const test = Test.new();
+    const own = observer(test)!.listeners;
+    const nested = observer(test.child)!.listeners;
+    const before = [own.size, nested.size];
+    let proxy!: Test;
+
+    const stop = watch(test, ($) => void (proxy = $), false);
+
+    void proxy.n;
+    test.n++;
+    await expect(test).toHaveUpdated();
+
+    void proxy.n;
+    void proxy.child.value;
+    stop();
+
+    expect([own.size, nested.size]).toEqual(before);
+  });
+
+  it('will stay stopped when an effect stops itself', async () => {
+    class Test extends Model {
+      n = 1;
+    }
+
+    const test = Test.new();
+    const cleanup = vi.fn();
+    const effect = vi.fn(($: Test) => {
+      if ($.n == 2) stop();
+      return cleanup;
+    });
+
+    const stop = watch(test, effect);
+
+    test.n = 2;
+    await expect(test).toHaveUpdated();
+    expect(effect).toHaveBeenCalledTimes(2);
+    expect(cleanup).toHaveBeenCalledWith(false);
+
+    test.n = 3;
+    await expect(test).toHaveUpdated();
+    expect(effect).toHaveBeenCalledTimes(2);
+  });
+
   it('will release nested subscriptions of an uncaptured effect when stopped', () => {
     class Child extends Model {
       value = 1;

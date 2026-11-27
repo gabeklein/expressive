@@ -128,7 +128,7 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
   let waiting: Promise<unknown> | undefined;
   let proxy: any;
 
-  const connect = () => capture(() => {
+  const connect = () => {
     reset = watch(
       target,
       (current) => {
@@ -145,7 +145,7 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
       },
       false
     );
-  });
+  };
 
   const run = (initial?: boolean) => {
     let next: unknown;
