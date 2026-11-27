@@ -1,0 +1,5 @@
+---
+"@expressive/dev": minor
+---
+
+Calls in `api/` routes. Beside its verbs and `default`, a route may export async functions - calls - and `Error` subclasses. The app imports them from the route module and gets typed stubs: a call is a `POST` to the module's own path carrying `x-expressive-call` and a JSON array of arguments, answered `{ value }`, while a `POST` without the header still goes to the verbs. The folder gates run before a call as before a verb - a refusal rejects it with the gate's error, its Models are in context and `next` wraps it - and a thrown `Error` subclass rejects on the client as the same class. In a build only the calls the client imports are callable, under per-build hashed ids unless `remote: { opaque: false }`; in dev, those of every route the browser loaded. A call under a `[param]` or `[...]` path fails the build, as does any other runtime export from a route; the client may import a route's calls, error classes and types, but not its verbs, its `default` or a helper. Served in dev, on Node and on the fetch target. `app/` sidecars keep working.

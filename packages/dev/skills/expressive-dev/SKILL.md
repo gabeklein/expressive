@@ -223,7 +223,24 @@ export const GET = () => legacy.fetch;
 - No route for the path, or an `index.ts` with only a gate: JSON 404, never the shell. In dev, a helper where the path would be (`api/webhook.ts` for `/api/webhook`) is named in the 404, with its `(name).ts` rename.
 - Exact, case-sensitive, on decoded segments (`/api/caf%C3%A9` → `api/(café).ts`); fixed beats `[param]` beats `[...]`, no backtracking - `/api/admin/users` 404s under `api/admin/` without `users`, even beside `api/[org]/(users).ts`. A bad `%` escape is 400; an empty segment never matches, except inside `[...]`'s rest after its first.
 - Params arrive decoded, slashes included - never join one onto a file path.
-- Fail dev and the build: a route with no verbs and no `default` (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports from a route (types fine; `api/index.ts`'s reserved); `export *` in a route (build only - list verbs by name); a helper exporting a verb-named function (build; dev logs on save) - helpers shouldn't export verb-named handlers, name the file `(name).ts` (values and re-exports not flagged); a nameless `().ts`, `(name)` folders, a `[...]` folder, `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*`, two `[param]`s in a folder, two modules on one path (`api/(dev).ts` + `api/dev/index.ts`); `app/api/`, `app/(api)/`, `app/(api).tsx`, `public/api/` beside `api/`, any case; a client import from `api/`, helpers and aliases included.
+- Calls: any other exported async function in a route. The app imports it and gets a typed stub; it runs on the server. A call is a `POST` to the module's path with `x-expressive-call` naming it and a JSON array of arguments, answered `{ value }`; a `POST` without the header goes to the verbs. Always `POST` - export `GET` to serve a GET.
+
+  ```ts
+  // api/(account).ts
+  export const GET = () => Session.get().user;
+  export class Taken extends Error { status = 409; }
+  export async function rename(name: string) { /* throw new Taken(...) to refuse */ }
+
+  // app/me/index.tsx
+  import { rename, Taken } from "../../api/(account)";
+  ```
+
+  - Folder gates run before a call as before a verb - a refusal rejects it with the gate's error, gate Models are `X.get()`-able in it, `next` wraps it.
+  - An exported `Error` subclass rejects on the client as the same class, fields kept.
+  - Only calls the client build imports are callable, under per-build hashed ids unless `remote: { opaque: false }`. Dev: every call of a route the browser loaded.
+  - Static paths only: a call under `[param]` or `[...]` fails the build - take the id as an argument. `api/index.ts`'s calls are reserved.
+  - The client may import a route's calls, `Error` subclasses and types - not its verbs or `default`, nothing from a helper.
+- Fail dev and the build: a route with no verbs, no `default` and no calls (a gate-only `index.ts` is fine); `default` beside verbs outside `index.ts`; a class gate; other runtime exports from a route - a sync function, a non-`Error` class, a value, a re-export (types fine; `api/index.ts`'s reserved); a call under a param; `export *` in a route (build only - list verbs by name); a helper exporting a verb-named function (build; dev logs on save) - helpers shouldn't export verb-named handlers, name the file `(name).ts` (values and re-exports not flagged); a nameless `().ts`, `(name)` folders, a `[...]` folder, `[...name]` (use `[...]` or `[name]`), a name starting with `:` or `*`, two `[param]`s in a folder, two modules on one path (`api/(dev).ts` + `api/dev/index.ts`); `app/api/`, `app/(api)/`, `app/(api).tsx`, `public/api/` beside `api/`, any case; a client import of a route's verb or `default`, or of a helper, through aliases too.
 - Dev loads routes per request on the module runner - edits to routes and their helpers, and added, removed or renamed files, land on the next one. A save logs these errors; a broken route's requests answer a 500 naming it; a helper that doesn't parse fails only the routes importing it. Never prerendered.
 
 ## env and index.dev.ts
