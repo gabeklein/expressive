@@ -24,7 +24,6 @@ export type Locate = (file: string) => Located | undefined;
 export interface Stub {
   from?: string;
   at?: unknown;
-  lines?: string[];
 }
 
 export function locate(dir: string, file: string): Located | undefined {
@@ -57,11 +56,11 @@ export class Manifest<E extends Exposed = Exposed> {
     return this.seal(globalId(at, name));
   }
 
-  parentId(parent: Parent, locate: Locate): string {
+  protected parentId(parent: Parent, locate: Locate): string {
     return "id" in parent ? parent.id : this.classId(locate(parent.file)!, parent.name);
   }
 
-  stub(exposed: E, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), lines = [] }: Stub = {}): string {
+  stub(exposed: E, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed) }: Stub = {}): string {
     const json = JSON.stringify;
 
     return [
@@ -70,7 +69,6 @@ export class Manifest<E extends Exposed = Exposed> {
       `const at = ${json(at)};`,
       ...exposed.calls.map(name => `export const ${name} = (...args) => call(at, ${json(this.callId(exposed, name))}, args);`),
       ...this.errorLines(exposed, locate),
-      ...lines,
       "",
     ].join("\n");
   }
@@ -156,7 +154,7 @@ export class Calls extends Manifest {
     return name;
   }
 
-  stub(exposed: Exposed, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), lines = [] }: Stub = {}): string {
+  stub(exposed: Exposed, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), lines = [] }: Stub & { lines?: string[] } = {}): string {
     this.check(exposed);
 
     const node = "api" + String(at).split("/").filter(Boolean).map(member).join("");

@@ -95,11 +95,10 @@ describe("stub", () => {
 });
 
 describe("stub for a host", () => {
-  it("will import from the host's runtime, with its own path and lines after the errors", () => {
+  it("will import from the host's runtime, with its own path", () => {
     const stub = new Manifest().stub(exposed("/app/api/todos.ts", { calls: ["list"], errors: [{ name: "Over" }] }), at, {
       from: "/runtime.ts",
       at: ["blog", ":slug"],
-      lines: ["export default list;"],
     });
 
     expect(stub).toBe([
@@ -107,7 +106,6 @@ describe("stub for a host", () => {
       `const at = ["blog",":slug"];`,
       `export const list = (...args) => call(at, "todos:list", args);`,
       `export const Over = define("/#todos:Over", "Over");`,
-      "export default list;",
       "",
     ].join("\n"));
   });
