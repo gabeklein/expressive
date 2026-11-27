@@ -8,20 +8,21 @@ import { replaced } from "@expressive/mvc/hot";
 
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
-type Verdict = string | void | null;
-
-type EntryHook = (route: Route) => Verdict | Model.Extends | Promise<Verdict | Model.Extends>;
+type EntryHook = (route: Route) => Model.Extends | void | Promise<Model.Extends | void>;
 
 const DEFAULTS = new WeakMap<Route, Model>();
 const DISPOSE = new WeakMap<Route, () => void>();
 const TOKENS = new WeakMap<Route, object>();
-const OWNED = new WeakSet<Model>();
+const OWNED = new WeakMap<Model, () => boolean>();
 const WRAPPED = new WeakSet<Route>();
 const WARNED = new WeakSet<EntryHook>();
 const HOT = "expressive:route-update";
 const EXTERNAL = /^([a-z][a-z\d+.-]*:|\/\/)/i;
 
 export const owns = (instance: Model) => OWNED.has(instance);
+
+/** Whether the navigation that built an owned default has moved on - its refusal is no longer shown. */
+export const superseded = (instance: Model) => !!OWNED.get(instance)?.();
 
 const methodSource = (type: Model.Extends, key: string) => {
   const { get, value } = Object.getOwnPropertyDescriptor(type.prototype, key) ?? {};
@@ -46,7 +47,28 @@ export class Route extends Base {
 
   /** Error UI for this route - `retry` re-renders the content. */
   Catch?: CatchUI = undefined;
+
+  /** Captured params - a folder's on the pages below it too, so its `default` reads them there. */
+  get match(): Record<string, string> | undefined {
+    const own = super.match;
+
+    if (own || !childrenOf(this.props.children).some(node => Base.is(typeOf(node)))) return own;
+
+    const found = this.router.match(this.path, "*")?.params;
+
+    if (!found) return;
+
+    const { "*": _, ...params } = found;
+    const prev = PREFIX.get(this.is);
+
+    if (prev && Object.keys(prev).length === Object.keys(params).length && Object.keys(params).every(key => prev[key] === params[key])) return prev;
+
+    PREFIX.set(this.is, params);
+    return params;
+  }
 }
+
+const PREFIX = new WeakMap<Route, Record<string, string>>();
 
 const REFUSED = new Set<Route>();
 const WATCHED = new WeakSet<Route>();
@@ -63,9 +85,9 @@ function arm(route: Route, hook: EntryHook | undefined) {
     }
   };
 
-  const built = async (value: Verdict | Model.Extends, token: object): Promise<Verdict> => {
+  const built = async (value: Model.Extends | void, token: object): Promise<void> => {
     if (TOKENS.get(route.is) !== token || !route.matched) return;
-    if (!Model.is(value)) return value as Verdict;
+    if (!Model.is(value)) return;
     const { source, leaf } = hook as EntryHook & { source?: string; leaf?: boolean };
     if (leaf && source && hook && !Component.is(value) && !WARNED.has(hook)) {
       WARNED.add(hook);
@@ -73,7 +95,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
     }
     const context = new Context(Context.get(route));
     const instance = (value as Model.Type<Model>).new(context);
-    OWNED.add(instance);
+    OWNED.set(instance, () => TOKENS.get(route.is) !== token || !route.matched);
     try {
       await instance.set();
     } catch (error) {
@@ -152,7 +174,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
 
       return verdict instanceof Promise
         ? verdict.then(next => built(next, token)).catch(error => refused(error, token))
-        : Model.is(verdict) ? built(verdict, token).catch(error => refused(error, token)) : verdict;
+        : Model.is(verdict) ? built(verdict, token).catch(error => refused(error, token)) : undefined;
     } catch (error) {
       return refused(error, token);
     }

@@ -1,16 +1,17 @@
 import { Model } from "@expressive/mvc";
-import { BrowserRouter, Route } from "@expressive/router";
-import { NotFound, Redirect } from "@expressive/rpc";
+import { BrowserRouter, Route, Redirect as RouterRedirect } from "@expressive/router";
+import { HttpError, NotFound, Redirect } from "@expressive/rpc";
 
-import { owns, report } from "./route";
+import { owns, report, superseded } from "./route";
 
 /** The app's `BrowserRouter` - `Router.get().navigating` is true while a navigation holds the current page. */
 export class Router extends BrowserRouter {
   protected new() {
     const stop = Model.on({
-      catch(this: Model, error, kind) {
+      catch(this: Model, error, kind, key) {
         if (kind !== "setup") return error;
-        if (owns(this)) return;
+        if (owns(this) && key === undefined)
+          return superseded(this) && !(error instanceof HttpError || error instanceof RouterRedirect) ? error : undefined;
         if (!(error instanceof Redirect || error instanceof NotFound)) return error;
         let route = this instanceof Route ? this : this.get(Route, false);
         if (route && !route.matched) return;
