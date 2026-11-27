@@ -13,7 +13,6 @@ interface Layer {
   children: Map<string, Layer>;
   seat?: Entry;
   calls: number;
-  pooled: number;
 }
 
 interface Entry {
@@ -74,7 +73,6 @@ const SEATED = new WeakSet<Owned>();
 const GATED = new WeakSet<Model>();
 const FAILED = new WeakMap<Model, unknown>();
 let top: Layer | undefined;
-let built: ((instance: Model) => void) | undefined;
 
 function frame(): Frame {
   const frame = store.getStore();
@@ -84,7 +82,7 @@ function frame(): Frame {
 
 function newLayer(prefix: string, parent?: Layer): Layer {
   const context = parent ? scope(parent).push() : Context.root.push(Current);
-  return { prefix, context, parent, children: new Map(), calls: 0, pooled: 0 };
+  return { prefix, context, parent, children: new Map(), calls: 0 };
 }
 
 function scope(layer: Layer): Context {
@@ -136,7 +134,7 @@ function seat(layer: Layer, Seat: Seat) {
   hold(frame().exchange.held, layer.seat);
 }
 
-const isEmpty = (layer: Layer) => !layer.calls && !layer.pooled && !layer.seat && !layer.children.size;
+const isEmpty = (layer: Layer) => !layer.calls && !layer.seat && !layer.children.size;
 
 function prune(layer: Layer) {
   let at = layer;
@@ -514,7 +512,6 @@ function create(Type: Owned, layer: Layer): Entry {
   const ready = Promise.resolve(instance.get(() => {}));
   const entry: Entry = { Type, layer, context, instance, ready, remove, refs: 0 };
 
-  built?.(instance);
   instance.set(null, () => drop(entry));
 
   return entry;
@@ -526,46 +523,6 @@ function hold(held: Set<Entry>, entry: Entry) {
   held.add(entry);
   entry.refs++;
   clearTimeout(entry.timer);
-}
-
-let detached: Context | undefined;
-
-function detachedContext(): Context {
-  if (!detached) {
-    detached = Context.root.push(Current);
-  }
-
-  return detached;
-}
-
-export function construct(Type: Model.Type, off = false): { instance: Model; drop(): void; current(): boolean } {
-  const layer = off ? undefined : frame().layer;
-  const context = (layer ? scope(layer) : detachedContext()).push(Type);
-  const instance = context.get(Type)!;
-
-  built?.(instance);
-
-  if (layer) {
-    layer.pooled++;
-    instance.set(null, () => {
-      layer.pooled--;
-      prune(layer);
-    });
-  }
-
-  return {
-    instance,
-    drop: () => void (instance.get(null) || context.pop()),
-    current: () => !instance.get(null) && (!layer || frame().layer === layer),
-  };
-}
-
-export function seated(): Model | undefined {
-  return frame().layer.seat?.instance;
-}
-
-export function onBuild(hook: (instance: Model) => void) {
-  built = hook;
 }
 
 let watching = false;

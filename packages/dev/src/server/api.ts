@@ -167,7 +167,7 @@ export async function callApi(request: Request, api: Api, dev: boolean): Promise
       if (gate) return (await gate.load()).default as () => unknown;
     };
 
-    return await dispatch(request, () => endpoints, dev, gates, undefined, skip);
+    return await dispatch(request, () => endpoints, dev, gates, skip);
   } catch (error) {
     return failure(error, endpoints, dev);
   }

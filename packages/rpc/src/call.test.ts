@@ -1,54 +1,40 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Model } from "@expressive/mvc";
 
-import { classId, fault, invoke, resolve, verify, walkOf, type Endpoint } from "./call";
+import { attempt, fault, inFolder, locate, verify, type Endpoint, type Seats } from "./call";
 import { Current, install } from "./context";
 
 const at = (...pattern: string[]): Endpoint => ({ pattern, exports: async () => ({ calls: {}, classes: {} }) });
+const resolve = async (endpoints: Endpoint[], path: string[]) => (await locate(endpoints, path)).found;
 
 describe("call endpoints", () => {
   const endpoints = [at("blog", ":slug"), at("blog", "new"), at("docs", "*"), at()];
 
-  it("will match a path to the most specific sidecar", () => {
-    expect(resolve(endpoints, ["blog", "new"])?.endpoint.pattern).toEqual(["blog", "new"]);
-    expect(resolve(endpoints, ["blog", "hello"])?.endpoint.pattern).toEqual(["blog", ":slug"]);
-    expect(resolve(endpoints, ["docs", "a", "b"])?.endpoint.pattern).toEqual(["docs", "*"]);
-    expect(resolve(endpoints, [])?.endpoint.pattern).toEqual([]);
+  it("will match a path to the most specific endpoint", async () => {
+    expect((await resolve(endpoints, ["blog", "new"]))?.endpoint.pattern).toEqual(["blog", "new"]);
+    expect((await resolve(endpoints, ["blog", "hello"]))?.endpoint.pattern).toEqual(["blog", ":slug"]);
+    expect((await resolve(endpoints, ["docs", "a", "b"]))?.endpoint.pattern).toEqual(["docs", "*"]);
+    expect((await resolve(endpoints, []))?.endpoint.pattern).toEqual([]);
   });
 
-  it("will bind a path's segments to the sidecar's pattern", () => {
-    expect(resolve(endpoints, ["blog", "hello"])?.segments).toEqual(["blog", "hello"]);
-    expect(resolve(endpoints, ["docs", "a", "b"])?.segments).toEqual(["docs", "a/b"]);
+  it("will bind a path's segments to the endpoint's pattern", async () => {
+    expect((await resolve(endpoints, ["blog", "hello"]))?.segments).toEqual(["blog", "hello"]);
+    expect((await resolve(endpoints, ["docs", "a", "b"]))?.segments).toEqual(["docs", "a/b"]);
   });
 
-  it("will prefer a param to a catch-all", () => {
-    expect(resolve([at("docs", "*"), at("docs", ":page")], ["docs", "a"])?.endpoint.pattern).toEqual(["docs", ":page"]);
+  it("will prefer a param to a catch-all", async () => {
+    expect((await resolve([at("docs", "*"), at("docs", ":page")], ["docs", "a"]))?.endpoint.pattern).toEqual(["docs", ":page"]);
   });
 
-  it("will prefer a folder to its catch-all sibling for the folder's own path", () => {
-    expect(resolve([at("blog", "*"), at("blog")], ["blog"])?.endpoint.pattern).toEqual(["blog"]);
-    expect(resolve([at("*"), at()], [])?.endpoint.pattern).toEqual([]);
-    expect(resolve([at("*"), at()], ["a"])?.endpoint.pattern).toEqual(["*"]);
+  it("will prefer a folder to its catch-all sibling for the folder's own path", async () => {
+    expect((await resolve([at("blog", "*"), at("blog")], ["blog"]))?.endpoint.pattern).toEqual(["blog"]);
+    expect((await resolve([at("*"), at()], []))?.endpoint.pattern).toEqual([]);
+    expect((await resolve([at("*"), at()], ["a"]))?.endpoint.pattern).toEqual(["*"]);
   });
 
-  it("will not match a path no sidecar owns", () => {
-    expect(resolve(endpoints, ["blog"])).toBeUndefined();
-    expect(resolve(endpoints, ["blog", "a", "b"])).toBeUndefined();
-  });
-});
-
-describe("walk", () => {
-  it("will take each segment's pattern from the folder that claims it, else the segment itself", () => {
-    const list = [at("blog"), at("blog", ":slug"), at("blog", "new")];
-
-    expect(walkOf(list, ["blog", "hello", "edit"])).toEqual({ pattern: ["blog", ":slug", "edit"], segments: ["blog", "hello", "edit"] });
-    expect(walkOf(list, ["blog", "new"])).toEqual({ pattern: ["blog", "new"], segments: ["blog", "new"] });
-    expect(walkOf(list, ["about"])).toEqual({ pattern: ["about"], segments: ["about"] });
-    expect(walkOf(list, [])).toEqual({ pattern: [], segments: [] });
-  });
-
-  it("will end at a catch-all, which takes the rest of the path", () => {
-    expect(walkOf([at("docs", "*")], ["docs", "a", "b"])).toEqual({ pattern: ["docs", "*"], segments: ["docs", "a/b"] });
+  it("will not match a path no endpoint owns", async () => {
+    expect(await resolve(endpoints, ["blog"])).toBeUndefined();
+    expect(await resolve(endpoints, ["blog", "a", "b"])).toBeUndefined();
   });
 });
 
@@ -60,7 +46,7 @@ describe("verify", () => {
   });
 });
 
-describe("invoke", () => {
+describe("a call", () => {
   class Limit extends Error {
     status = 409;
     constructor(public limit: number) { super(`Over ${limit}`); }
@@ -83,8 +69,12 @@ describe("invoke", () => {
     { pattern: ["tally", ":id"], exports: async () => ({ calls, classes: { "/tally#Limit": Limit, "/tally#Odd": Odd, "/tally#Known": Known } }) },
   ];
   const request = new Request("http://localhost/tally/a");
-  const run = (name: string, args: unknown[] = [], options?: Parameters<typeof invoke>[2]) =>
-    invoke({ request, at: ["tally", "a"], name, args }, endpoints, options);
+  const invoke = async (at: string[], name: string, args: unknown[], { seats = async () => undefined, dev = false, errors }: { seats?: Seats; dev?: boolean; errors?: Record<string, unknown> } = {}) => {
+    const { found, fn } = await locate(endpoints, at, name);
+
+    if (fn) return attempt(() => inFolder({ request, found, seats }, () => fn(...args)), endpoints, dev, errors);
+  };
+  const run = (name: string, args: unknown[] = [], options?: Parameters<typeof invoke>[3]) => invoke(["tally", "a"], name, args, options);
 
   beforeAll(() => install());
 
@@ -101,7 +91,7 @@ describe("invoke", () => {
 
   it("will give back nothing for a name or a path no endpoint has", async () => {
     expect(await run("subtract")).toBeUndefined();
-    expect(await invoke({ request, at: ["nope"], name: "add", args: [] }, endpoints)).toBeUndefined();
+    expect(await invoke(["nope"], "add", [])).toBeUndefined();
   });
 
   it("will give back an exported error's id, fields and numeric status", async () => {
@@ -140,15 +130,15 @@ describe("fault", () => {
   });
 });
 
-describe("classId", () => {
+describe("error ids", () => {
   it("will find the nearest exported or known class of an error", async () => {
     class Base extends Error {}
     class Mid extends Base {}
     class Leaf extends Mid {}
     const endpoints: Endpoint[] = [{ pattern: [], exports: async () => ({ calls: {}, classes: { "#Base": Base } }) }];
 
-    expect(await classId(endpoints, new Leaf())).toBe("#Base");
-    expect(await classId(endpoints, new Leaf(), { "#Mid": Mid })).toBe("#Mid");
-    expect(await classId(endpoints, new Error())).toBeUndefined();
+    expect((await fault(new Leaf(), endpoints, false)).error.error).toBe("#Base");
+    expect((await fault(new Leaf(), endpoints, false, { "#Mid": Mid })).error.error).toBe("#Mid");
+    expect((await fault(new Error(), endpoints, false)).error.error).toBeUndefined();
   });
 });

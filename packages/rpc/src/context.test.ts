@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Context, get, set, Model } from "@expressive/mvc";
 
-import { bind, construct, Current, headersOf, install, layer, onBuild, seated, within, type Gate, type Seat } from "./context";
+import { bind, Current, headersOf, install, layer, within, type Gate, type Seat } from "./context";
 import { Cookies } from "./cookies";
 import { Forbidden, Redirect } from "./errors";
 
@@ -302,16 +302,6 @@ describe("seats", () => {
     expect(again).not.toBe(blog);
     expect(fresh).not.toBe(post);
   });
-
-  it("will evict the unseated layers below a seat that ends", async () => {
-    class Shop extends Model {}
-    class Cart extends Model {}
-
-    const [shop, cart] = await walk(request(), ["shop", "a"], [undefined, Shop], () => [Shop.get(), construct(Cart)] as const);
-    shop.set(null);
-
-    expect(cart.instance.get(null)).toBe(true);
-  });
 });
 
 describe("gates", () => {
@@ -552,74 +542,6 @@ describe("Current", () => {
 
     expect(headers.get("cache-control")).toBe("private");
     expect(headers.getSetCookie()).toEqual(["raw=1", "raw=2"]);
-  });
-});
-
-describe("pool", () => {
-  class Cart extends Model {}
-
-  const parentOf = (state: Model) => Context.get(state).parent;
-
-  it("will build an instance of its own in the call's layer, holding the layer alive", async () => {
-    const a = await call(["shop"], () => construct(Cart));
-    const b = await call(["shop"], () => construct(Cart));
-
-    expect(a.instance).not.toBe(b.instance);
-    expect(parentOf(a.instance)).toBe(parentOf(b.instance));
-
-    a.drop();
-    a.drop();
-    expect(a.instance.get(null)).toBe(true);
-
-    const c = await call(["shop"], () => construct(Cart));
-    expect(parentOf(c.instance)).toBe(parentOf(b.instance));
-
-    expect(await call(["shop"], () => b.current())).toBe(true);
-    expect(await call(["other"], () => b.current())).toBe(false);
-
-    b.drop();
-    expect(await call(["shop"], () => b.current())).toBe(false);
-    c.drop();
-
-    const d = await call(["shop"], () => construct(Cart));
-    expect(parentOf(d.instance)).not.toBe(parentOf(b.instance));
-    d.drop();
-  });
-
-  it("will build off any layer when detached", async () => {
-    const a = construct(Cart, true);
-    const b = construct(Cart, true);
-
-    expect(parentOf(a.instance)).toBe(parentOf(b.instance));
-    expect(Context.get(a.instance).get(Current)).toBeInstanceOf(Current);
-
-    expect(await call(["any"], () => a.current())).toBe(true);
-    a.drop();
-    expect(a.instance.get(null)).toBe(true);
-    expect(a.current()).toBe(false);
-  });
-});
-
-describe("hooks", () => {
-  it("will find the seat of the call's layer", async () => {
-    class Blog extends Model {}
-
-    expect(await within(request(), ["unseated"], () => seated())).toBeUndefined();
-    expect(await walk(request(), ["blog"], [undefined, Blog], () => seated() === Blog.get())).toBe(true);
-  });
-
-  it("will hand each seat and construction it builds to the build hook", async () => {
-    class Blog extends Model {}
-    class Cart extends Model {}
-    const built = vi.fn();
-
-    onBuild(built);
-
-    const seat = await walk(request(), ["shelf"], [undefined, Blog], () => Blog.get());
-    const cart = await call(["shelf"], () => construct(Cart));
-
-    expect(built.mock.calls).toEqual([[seat], [cart.instance]]);
-    cart.drop();
   });
 });
 
