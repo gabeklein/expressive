@@ -194,7 +194,7 @@ function warn({ constructor: Type }: Error) {
   if (builtin || warned.has(Type)) return;
 
   warned.add(Type);
-  console.warn(`${Type.name} is not a known error class, so a build replies "Internal error." for it - export it from a server module, or list it in errors.`);
+  console.warn(`${Type.name} is not a known error class, so a build replies "Internal error." for it - export it from a module the client calls, or list it in errors.`);
 }
 
 export async function classId(endpoints: Endpoint[], error: Error, errors: Record<string, unknown> = {}): Promise<string | undefined> {

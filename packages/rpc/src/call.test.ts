@@ -133,7 +133,7 @@ describe("fault", () => {
       await fault(new TypeError("Bug"), [], true);
       await fault(new Unlisted("Built"), [], false);
 
-      expect(warn.mock.calls).toEqual([[`Unlisted is not a known error class, so a build replies "Internal error." for it - export it from a server module, or list it in errors.`]]);
+      expect(warn.mock.calls).toEqual([[`Unlisted is not a known error class, so a build replies "Internal error." for it - export it from a module the client calls, or list it in errors.`]]);
     } finally {
       warn.mockRestore();
     }

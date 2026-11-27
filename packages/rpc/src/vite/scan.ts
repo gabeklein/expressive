@@ -58,11 +58,15 @@ const INDEX = /^index\.[cm]?[jt]sx?$/;
 
 export const DECLARED = "An index declares its gate itself - `export default () => guard()`, or a class extending an imported one.";
 
-const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression =>
+export const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression =>
   value?.type === "FunctionDeclaration" || value?.type === "FunctionExpression" || value?.type === "ArrowFunctionExpression";
 
 export const isClass = (value: Value): value is ESTree.Class =>
   value?.type === "ClassDeclaration" || value?.type === "ClassExpression";
+
+export const notAsync = (name: string) => `${name}() is not async - every call to it crosses the wire.`;
+
+export const notError = (name: string) => `${name} is a class but not an Error - only error classes reach the client.`;
 
 export const nameOf = (node: ESTree.ModuleExportName) => (node.type === "Identifier" ? node.name : String(node.value));
 
@@ -106,8 +110,9 @@ export async function scanModule(file: string, source: string, sources: Sources,
     }
 
     if (isFunction(value)) {
-      if (value.async) scan.calls.push(name);
-      else scan.problems.push(`${name}() is not async - every call to it crosses the wire.`);
+      if (value.generator) scan.problems.push(`${name}() is a generator - a call answers one value; return an array, or stream it from a route.`);
+      else if (value.async) scan.calls.push(name);
+      else scan.problems.push(notAsync(name));
       continue;
     }
 
@@ -122,7 +127,7 @@ export async function scanModule(file: string, source: string, sources: Sources,
 
     if (end.kind === "error") found.push([{ name, ...(end.parent && { parent: end.parent }) }, value.start]);
     else if (end.kind === "problem") scan.problems.push(end.problem);
-    else scan.problems.push(`${name} is a class but not an Error - only error classes reach the client.`);
+    else scan.problems.push(notError(name));
   }
 
   scan.errors = found.sort((a, b) => a[1] - b[1]).map(([error]) => error);
