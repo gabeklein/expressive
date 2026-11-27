@@ -12,6 +12,7 @@ type EntryHook = (route: Route) => Model.Extends | void | Promise<Model.Extends 
 
 const DEFAULTS = new WeakMap<Route, Model>();
 const DISPOSE = new WeakMap<Route, () => void>();
+const RETIRE = new WeakMap<Route, () => void>();
 const TOKENS = new WeakMap<Route, object>();
 const OWNED = new WeakMap<Model, () => boolean>();
 const WRAPPED = new WeakSet<Route>();
@@ -108,28 +109,33 @@ function arm(route: Route, hook: EntryHook | undefined) {
       context.pop();
       return;
     }
-    const previous = DISPOSE.get(route.is);
-    if (previous && route.router.navigating)
-      route.router.set("navigating", () => {
-        previous();
-        return null;
-      });
-    else previous?.();
+    (route.router.navigating ? RETIRE : DISPOSE).get(route.is)?.();
     DEFAULTS.set(route.is, instance);
     const originalNew = methodSource(value, "new");
     let retired = false;
     let disposed = false;
+    const detach = () => {
+      unreplace();
+      if (typeof window !== "undefined") window.removeEventListener(HOT, onHot);
+    };
+    const retire = () => {
+      detach();
+      route.router.set("navigating", () => {
+        dispose();
+        return null;
+      });
+    };
     const dispose = () => {
       if (disposed) return;
       disposed = true;
+      detach();
       unwatch();
       unready();
-      unreplace();
       unregister();
-      if (typeof window !== "undefined") window.removeEventListener(HOT, onHot);
       if (DISPOSE.get(route.is) === dispose) {
         DEFAULTS.delete(route.is);
         DISPOSE.delete(route.is);
+        RETIRE.delete(route.is);
       }
       instance.set(null);
       context.pop();
@@ -161,6 +167,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
     if (typeof window !== "undefined") window.addEventListener(HOT, onHot);
     const unregister = route.set(null, dispose);
     DISPOSE.set(route.is, dispose);
+    RETIRE.set(route.is, retire);
   };
 
   if (hook && !WRAPPED.has(route.is)) {
