@@ -44,7 +44,7 @@ type Resolve = (spec: string, importer: string) => Promise<string | undefined>;
 
 interface Runtime {
   bind: typeof import("../context").bind;
-  handler: typeof import("../http/call").handler;
+  handler: (tree: import("../route").Tree, options: import("../http/call").HandlerOptions & { dev: boolean }) => (request: Request) => Promise<Response | undefined>;
   route: typeof import("../route").route;
   scoped: typeof import("../http/call").scoped;
   verify: typeof import("../call").verify;

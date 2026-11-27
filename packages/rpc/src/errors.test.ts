@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Endpoint } from "./call";
 import { handler } from "./http/call";
 import { client } from "./client";
 import * as errors from "./errors";
@@ -33,8 +32,7 @@ class Payment extends HttpError {
 const throws = (error: unknown) => async () => { throw error; };
 
 function serve(fn: () => unknown) {
-  const endpoints: Endpoint[] = [{ pattern: ["shop"], exports: async () => ({ calls: { fn }, classes: { "/shop#Payment": Payment } }) }];
-  const handle = handler(endpoints);
+  const handle = handler({ shop: { fn } }, { errors: { "/shop#Payment": Payment } });
   const fetch = vi.fn(async (url: string, init: RequestInit) => (await handle(new Request(new URL(url, "http://localhost"), init)))!);
 
   vi.stubGlobal("fetch", fetch);
@@ -63,7 +61,7 @@ describe("http errors", () => {
   });
 
   it("will reply with an error's status and fixed id", async () => {
-    const handle = handler([{ pattern: [], exports: async () => ({ calls: { fn: throws(new NotFound("No such cart")) }, classes: {} }) }]);
+    const handle = handler({ fn: throws(new NotFound("No such cart")) });
     const response = await handle(new Request("http://localhost/", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "fn" }, body: "[]" }));
 
     expect(response!.status).toBe(404);

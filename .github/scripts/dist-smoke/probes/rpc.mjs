@@ -24,7 +24,7 @@ const calls = {
   }
 };
 
-const handle = handler([{ pattern: ['clock'], exports: async () => ({ calls, classes: {} }) }]);
+const handle = handler({ clock: calls });
 const rpc = client({ base: 'http://localhost', transport: async request => (await handle(request)) });
 
 const at = await rpc.call('/clock', 'later', [new Date('2026-01-01T00:00:00.000Z'), 1000n]);

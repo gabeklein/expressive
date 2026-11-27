@@ -73,15 +73,15 @@ interface Folder {
   seats: Seats;
 }
 
-export async function locate<E extends Exports>(list: Endpoint<E>[], at: string[], name?: string): Promise<Located<E>> {
+export async function locate<E extends Exports>(list: Endpoint<E>[], at: string[], name: string | null): Promise<Located<E>> {
   const found = resolve(list, at);
   const exports = found && await found.endpoint.exports();
-  const fn = exports && name !== undefined ? callOf(exports, name) : undefined;
+  const fn = exports && name !== null ? callOf(exports, name) : undefined;
 
   return { found, fn };
 }
 
-export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: boolean, errors?: Record<string, unknown>): Promise<Outcome> {
+export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: boolean, errors: Record<string, unknown>): Promise<Outcome> {
   try {
     return { value: await run() };
   } catch (error) {
@@ -90,7 +90,7 @@ export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: bo
 }
 
 /** `within` along the folder `found` names, its seats and gates from `seats`. */
-export async function inFolder<T>({ request, found, seats }: Folder, run: () => T, fail?: (error: unknown) => Awaited<T> | Promise<Awaited<T>>): Promise<Awaited<T>> {
+export async function inFolder<T>({ request, found, seats }: Folder, run: () => T, fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>>): Promise<Awaited<T>> {
   const { endpoint, segments } = found!;
   const along = await seatsAlong(seats, endpoint.pattern);
 
@@ -128,7 +128,7 @@ function callOf({ calls }: Exports, name: string): Call | undefined {
   return typeof fn === "function" ? (fn as Call) : undefined;
 }
 
-export async function fault(error: unknown, endpoints: Endpoint[], dev: boolean, errors?: Record<string, unknown>): Promise<{ error: Fault; status?: number }> {
+export async function fault(error: unknown, endpoints: Endpoint[], dev: boolean, errors: Record<string, unknown>): Promise<{ error: Fault; status?: number }> {
   if (!(error instanceof Error)) return { error: { message: "Internal error." } };
 
   const id = await classId(endpoints, error, errors);
@@ -153,7 +153,7 @@ function warn({ constructor: Type }: Error) {
   console.warn(`${Type.name} is not a known error class, so a build replies "Internal error." for it - export it from a module the client calls, or list it in errors.`);
 }
 
-async function classId(endpoints: Endpoint[], error: Error, errors: Record<string, unknown> = {}): Promise<string | undefined> {
+async function classId(endpoints: Endpoint[], error: Error, errors: Record<string, unknown>): Promise<string | undefined> {
   const ids = new Map<unknown, string>();
 
   for (const { exports } of endpoints)

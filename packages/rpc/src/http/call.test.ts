@@ -103,28 +103,8 @@ describe("call dispatch", () => {
     expect(seen).toEqual([["room", {}], ["room/:id", { id: "1" }], ["room/:id/note", { id: "1" }], ["room/:id/note/:id", { id: "2" }]]);
   });
 
-  it("will reply 404 to a request naming no call, a seat method or a pool method", async () => {
-    class Tally extends Model {
-      total = 0;
-      async add() { return ++this.total; }
-    }
-
-    const exports = {
-      calls,
-      classes: {},
-      seat: { fields: ["total"], methods: { "default.add": "add" } },
-      pool: { "/tally#Tally": { Type: Tally, fields: ["total"], methods: { "/tally#Tally.add": "add" } } },
-    };
-    const twinned: Endpoint[] = [{ pattern: ["tally"], exports: async () => exports }];
-    const seats: Seats = async pattern => (pattern.join("/") === "tally" ? Tally : undefined);
-    const as = (name: string | undefined, extra: Record<string, string>) =>
-      send(twinned, request("/tally", name, "[]", "application/json", { "x-expressive-twin": "Tally-A", ...extra }), false, seats);
-    const missing = { status: 404, body: { message: "Not found." } };
-
-    expect(await as(undefined, {})).toEqual(missing);
-    expect(await as("default.add", {})).toEqual(missing);
-    expect(await as("/tally#Tally.add", {})).toEqual(missing);
-    expect(await as("none", {})).toEqual({ status: 200, body: {} });
+  it("will reply 404 to a request naming no call", async () => {
+    expect(await send(endpoints, request("/tally", undefined, "[]"))).toEqual({ status: 404, body: { message: "Not found." } });
   });
 
   it("will identify a call by method, name header and JSON body", () => {
@@ -174,21 +154,20 @@ describe("call dispatch", () => {
 });
 
 describe("handler", () => {
-  const endpoints: Endpoint[] = [{ pattern: ["tally"], exports: async () => ({ calls: { add: async (a: number, b: number) => a + b }, classes: {} }) }];
+  const tree = { tally: { add: async (a: number, b: number) => a + b } };
 
-  it("will answer a call, from a list or a function of one", async () => {
-    for (const handle of [handler(endpoints), handler(() => endpoints, { dev: true })]) {
-      const response = await handle(fetched(request("/tally", "add", "[1, 2]")));
-      expect(await response!.json()).toEqual({ value: 3 });
-    }
+  it("will answer a call", async () => {
+    const response = await handler(tree)(fetched(request("/tally", "add", "[1, 2]")));
+
+    expect(await response!.json()).toEqual({ value: 3 });
   });
 
   it("will pass on a request that is not a call", async () => {
-    expect(await handler(endpoints)(new Request("http://localhost/tally"))).toBeUndefined();
+    expect(await handler(tree)(new Request("http://localhost/tally"))).toBeUndefined();
   });
 
   it("will answer calls only under its base, matching folders beneath it", async () => {
-    const handle = handler(endpoints, { base: "/api/v1" });
+    const handle = handler(tree, { base: "/api/v1" });
     const response = await handle(fetched(request("/api/v1/tally", "add", "[1, 2]")));
 
     expect(await response!.json()).toEqual({ value: 3 });

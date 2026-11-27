@@ -3,7 +3,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Endpoint } from "./call";
 import { handler } from "./http/call";
 import * as shared from "./client";
 
@@ -179,8 +178,7 @@ describe("reply", () => {
 
 describe("configure", () => {
   const add = vi.fn(async (a: number, b: number) => a + b);
-  const endpoints: Endpoint[] = [{ pattern: ["tally"], exports: async () => ({ calls: { add }, classes: {} }) }];
-  const inProcess = handler(endpoints);
+  const inProcess = handler({ tally: { add } });
   const transport = vi.fn(async (request: Request) => (await inProcess(request))!);
 
   beforeEach(() => {
@@ -269,8 +267,7 @@ describe("configure", () => {
 describe("values", () => {
   it("will carry what JSON loses both ways through a call, in process", async () => {
     const later = vi.fn(async (when: Date, step: bigint | undefined, tags: Set<string>) => ({ at: new Date(when.getTime() + Number(step ?? 1000n)), tags: [...tags], step }));
-    const endpoints: Endpoint[] = [{ pattern: ["clock"], exports: async () => ({ calls: { later }, classes: {} }) }];
-    const inProcess = handler(endpoints);
+    const inProcess = handler({ clock: { later } });
     const rpc = client({ base: "http://localhost", transport: async request => (await inProcess(request))! });
     const when = new Date("2026-11-08T12:00:00.000Z");
 
@@ -287,8 +284,7 @@ describe("values", () => {
     const check = async () => {
       throw new Late("Overdue.");
     };
-    const endpoints: Endpoint[] = [{ pattern: ["clock"], exports: async () => ({ calls: { check }, classes: { "clock#Late": Late } }) }];
-    const inProcess = handler(endpoints);
+    const inProcess = handler({ clock: { check } }, { errors: { "clock#Late": Late } });
     const rpc = client({ base: "http://localhost", transport: async request => (await inProcess(request))! });
     const Remote = rpc.define("clock#Late", "Late");
     const error = await rpc.call("/clock", "check", []).catch(error => error);
