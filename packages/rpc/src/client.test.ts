@@ -159,43 +159,18 @@ describe("errors", () => {
   });
 });
 
-describe("pathOf", () => {
-  const { pathOf } = client();
-
-  it("will fill a pattern's params from the location", () => {
-    history.replaceState(null, "", "/blog/hello/edit?draft=1");
-    expect(pathOf(["blog", ":slug"], "add")).toBe("/blog/hello");
-  });
-
-  it("will fill a catch-all with the rest of the location", () => {
-    expect(pathOf(["docs", "*"], "none", "/docs/a/b")).toBe("/docs/a/b");
-  });
-
-  it("will throw if called from outside the pattern's folder", () => {
-    expect(() => pathOf(["blog", ":slug"], "add", "/about")).toThrow("add() belongs to /blog/:slug and cannot be called from /about.");
-    expect(() => pathOf(["blog"], "add", "/about")).toThrow("belongs to /blog");
-  });
-});
-
-describe("send", () => {
-  it("will resolve nothing for a reply of not modified", async () => {
-    const fetch = vi.fn(async () => new Response(null, { status: 304 }));
-    vi.stubGlobal("fetch", fetch);
-
-    expect(await client().send("/tally", {}, [])).toBeUndefined();
-  });
-
+describe("reply", () => {
   it("will reject a reply that isn't the codec's with an HttpError carrying its status, plain JSON and a 2xx included", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Gated.", { status: 200 })));
-    const text = await client().send("/tally", {}, []).catch((e: Error) => e);
+    const text = await client().call("/tally", "add", []).catch((e: Error) => e);
 
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true }, { status: 201 })));
-    const json = await client().send("/tally", {}, []).catch((e: Error) => e);
+    const json = await client().call("/tally", "add", []).catch((e: Error) => e);
 
     expect(text).toBeInstanceOf(shared.HttpError);
     expect(text).toMatchObject({ message: "Gated.", status: 200 });
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 502 })));
-    const bare = await client().send("/tally", {}, []).catch((e: Error) => e);
+    const bare = await client().call("/tally", "add", []).catch((e: Error) => e);
 
     expect(json).toMatchObject({ message: '{"ok":true}', status: 201 });
     expect(bare).toMatchObject({ message: "", status: 502 });

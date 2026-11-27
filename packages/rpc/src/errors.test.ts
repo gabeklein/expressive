@@ -46,7 +46,7 @@ async function caught(fn: () => unknown, define?: (rpc: ReturnType<typeof client
   const rpc = client({ base: "http://localhost" });
   define?.(rpc);
 
-  return rpc.send("/shop", { "x-expressive-call": "fn" }, []).catch((error: Error) => error);
+  return rpc.call("/shop", "fn", []).catch((error: Error) => error) as Promise<any>;
 }
 
 afterEach(() => vi.unstubAllGlobals());
