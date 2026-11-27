@@ -1356,7 +1356,11 @@ describe("vite host", () => {
       expect(await (await at("/api/legacy/x/y")).json()).toEqual({ path: "/api/legacy/x/y" });
       expect([(await at("/api/admin/me")).status, await (await at("/api/admin/me", { headers: { "x-admin": "1" } })).text()]).toEqual([403, "root"]);
       expect([missing.status, missing.headers.get("content-type"), (await missing.json()).message]).toEqual([404, "application/json", "No route in api/ serves /api/nope - paths under /api belong to api/."]);
-      expect((await at("/api/(hello).ts")).status).toBe(404);
+      const stub = await at("/api/(hello).ts");
+
+      expect([stub.status, await stub.text()]).toEqual([200, expect.stringContaining('const at = ["api", "hello"];')]);
+      expect((await at("/api/admin/store.ts", { headers: { "x-admin": "1" } })).status).toBe(404);
+      expect((await at("/api/%E0%A4%A")).status).toBe(400);
       const helper = await at("/api/admin/store", { headers: { "x-admin": "1" } });
 
       expect([helper.status, (await helper.json()).message]).toEqual([404, "api/admin/store.ts is a helper - rename it api/admin/(store).ts to serve /api/admin/store."]);

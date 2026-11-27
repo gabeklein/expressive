@@ -482,6 +482,16 @@ export function host(dotenv: boolean): Plugin<Host> {
       const replayed = new WeakSet<object>();
       const skipped = skipList(server);
 
+      const stubbed = (request: Request) => {
+        const path = new URL(request.url).pathname.slice(server.config.base.length - 1);
+
+        try {
+          return !!apiRoute(join(root, decodeURIComponent(path)));
+        } catch {
+          return false;
+        }
+      };
+
       const unbound = layered();
       let bound: ReturnType<typeof bindings> | undefined;
 
@@ -520,7 +530,7 @@ export function host(dotenv: boolean): Plugin<Host> {
           const call = isCall(request);
           const owned = existsSync(apiDir) && owns(routing, new URL(request.url).pathname);
 
-          if (!call && !owned && skipped(request)) return next();
+          if (!call && (owned ? stubbed(request) : skipped(request))) return next();
 
           const settings = await api.config();
 
