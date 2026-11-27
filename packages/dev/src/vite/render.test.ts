@@ -79,6 +79,30 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
+  it("will report decisions from self-gating defaults", async () => {
+    const root = project({
+      "app/index.tsx": `export const Page = () => <p>home</p>;`,
+      "app/(signin).tsx": `export const Page = () => <p>signin</p>;`,
+      "app/(old).tsx": `
+        import { Redirect } from "@expressive/dev";
+        import { Model } from "@expressive/mvc";
+        export default class Gate extends Model { new() { throw new Redirect("/signin"); } }
+        export const Page = () => <p>old</p>;
+      `,
+      "app/(gone).tsx": `
+        import { NotFound } from "@expressive/dev";
+        import { Model } from "@expressive/mvc";
+        export default class Gate extends Model { new() { throw new NotFound(); } }
+        export const Page = () => <p>gone</p>;
+      `,
+    });
+    const renderer = await launch(root);
+
+    expect(await renderer.render("/old")).toMatchObject({ path: "/signin" });
+    await expect(renderer.render("/gone")).rejects.toMatchObject({ status: 404 });
+    renderer.close();
+  });
+
   it("will render pages beside a root remote and return null for one whose render calls it", async () => {
     const root = project({
       "app/remote.ts": `

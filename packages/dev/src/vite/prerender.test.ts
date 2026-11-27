@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NotFound } from "@expressive/rpc";
 
 import type { Page } from "./render";
 
@@ -73,20 +74,20 @@ describe("prerender", () => {
     expect(log).toHaveBeenCalledWith("Prerendered 4 pages.");
   });
 
-  it("will leave a page that moves, renders nothing or fails to the client", async () => {
+  it("will summarize route decisions and warn for empty or failed pages", async () => {
     const root = built({ "app/(a).tsx": PAGE, "app/(b).tsx": PAGE, "app/(c).tsx": PAGE, "app/(d).tsx": PAGE, "app/(e).tsx": PAGE });
 
     renderer(path => {
       if (path == "/a") return { path: "/" };
       if (path == "/e") return null;
       if (path == "/b") return { html: "<!--fragment--> <!--/fragment-->" };
+      if (path == "/d") throw new NotFound();
       if (path == "/c") throw new Error("broke");
-      return {};
+      return path == "/e" ? null : {};
     }, ["relative", "/x/../d", "/q?x=1", "/%E0%A4%A", 7 as any]);
 
-    expect(await prerender(root)).toEqual(["/d"]);
+    expect(await prerender(root)).toEqual([]);
     expect(warn.mock.calls.map(([message]: unknown[]) => message)).toEqual([
-      "/a redirected to / at build - left to the client.",
       "/b rendered nothing at build - left to the client.",
       "/c was not prerendered: broke",
       "relative is not an absolute path - not prerendered.",
@@ -95,7 +96,7 @@ describe("prerender", () => {
       "/%E0%A4%A is not an absolute path - not prerendered.",
       "7 is not an absolute path - not prerendered.",
     ]);
-    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 needs the server and renders in the browser.");
+    expect(log).toHaveBeenCalledWith("Prerendered 0 pages - 1 needs the server and renders in the browser - 2 redirect or not-found pages render in the browser.");
   });
 
   it("will render a path encoded, as a browser reports it, into its decoded folder", async () => {
@@ -109,6 +110,15 @@ describe("prerender", () => {
     expect(readFileSync(join(root, "dist", "client", "blog", "a b", "index.html"), "utf8")).toContain(`data-prerender="/blog/a%20b"`);
     expect(readFileSync(join(root, "dist", "client", "blog", "café", "index.html"), "utf8")).toContain(">/blog/caf%C3%A9</div>");
     expect(launch).toHaveBeenCalledWith(root, { pretty: true });
+  });
+
+  it("will summarize one route decision", async () => {
+    const root = built({ "app/index.tsx": PAGE, "app/(old).tsx": PAGE });
+    renderer(path => path == "/old" ? { path: "/" } : {});
+
+    expect(await prerender(root)).toEqual(["/"]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 redirect or not-found page renders in the browser.");
   });
 
   it("will render pages beside a root remote, leaving those that call it to the client quietly", async () => {
