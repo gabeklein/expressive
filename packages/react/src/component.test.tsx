@@ -2179,6 +2179,37 @@ describe('router Redirect', () => {
     expect(view).toHaveText('home');
   });
 
+  preactDiffers('will hold the screen through a render-time redirect', async () => {
+    const { gate, Page } = held();
+    const target = mockPromise<void>();
+    let ready = false;
+    target.then(() => (ready = true));
+
+    const Login = () => {
+      if (!ready) throw target;
+      return <h1>login</h1>;
+    };
+
+    const routes = <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Route to="/me" as={Page} />
+      <Route to="/login" as={Login} />
+    </>;
+    const { router, view } = await mount('/', routes);
+
+    await act(async () => router.goto('/me'));
+    await act(async () => gate.resolve());
+    await act(flushMicrotasks);
+    expect(router.path).toBe('/login');
+    expect(view).toHaveText('home');
+
+    view.rerender(<Component for={router}>{routes}</Component>);
+    expect(view).toHaveText('home');
+
+    await act(async () => target.resolve());
+    expect(view).toHaveText('login');
+  });
+
   it('will push from a navigation the page suspended', async () => {
     const { gate, router, view } = await suspended();
 

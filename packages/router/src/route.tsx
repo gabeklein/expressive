@@ -9,6 +9,7 @@ import { fillParams, fullPattern, matchPattern, paramNames, patternSegment } fro
 const PARAMS = new WeakMap<Route, Record<string, string> | undefined>();
 const CHILDREN = new WeakMap<Route, Route[]>();
 const REDIRECTING = new WeakSet<Router>();
+const HOLD = Symbol.for('@expressive/router#hold-redirect');
 
 type Async<T> = T | Promise<T>;
 
@@ -237,8 +238,8 @@ export class Route extends Component {
   }
 
   /**
-   * Handles a thrown `Redirect` - navigates to its `to`, showing `fallback` until the navigation
-   * lands. Any other error passes on to the next boundary up.
+   * Handles a thrown `Redirect` - navigates to its `to`. A cold load shows `fallback` until it lands;
+   * a held navigation keeps the current screen. Any other error passes to the next boundary up.
    *
    * An override handling its own errors returns `super.catch(error)` for the rest.
    */
@@ -269,6 +270,7 @@ let release: (() => boolean) | undefined;
 
 Route.on({
   setup(self) {
+    Object.defineProperty(self, HOLD, { get: () => uncommitted(self.router) });
     Object.defineProperty(self, 'render', {
       configurable: true,
       writable: true,
