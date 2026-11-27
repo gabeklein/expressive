@@ -129,8 +129,8 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
 
       if (surveyed.get(file) === mtimeMs) continue;
 
-      surveyed.set(file, mtimeMs);
       reach.set(file, leaves((await scanSurface(file, readFileSync(file, "utf8"), sources(resolve), owned)).tree));
+      surveyed.set(file, mtimeMs);
     }
   }
 

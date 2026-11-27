@@ -140,6 +140,13 @@ const decoded = (segment: string) => {
   }
 };
 
+/** The routes with calls or error classes, as rpc endpoints - the one at `path` under its `raw` segments. */
+export function endpointsOf(routes: ApiRoute[], path: string[] = [], raw = path): Endpoint[] {
+  return routes
+    .filter(route => Object.keys({ ...route.calls, ...route.classes }).length)
+    .map(route => ({ pattern: same(route.path, path) ? raw : route.path, exports: async () => { const exports = await route.load(); return { calls: pick(route.calls, exports), classes: pick(route.classes, exports) }; } }));
+}
+
 /**
  * Answer a call to a module under the folder: its folder gates outermost first, then the export its `x-expressive-call` names.
  * A route matches its decoded path, as in `serveApi`.
@@ -153,9 +160,7 @@ export async function callApi(request: Request, api: Api, dev: boolean): Promise
     const raw = new URL(request.url).pathname.split("/").filter(Boolean).slice(skip);
     const path = raw.map(decoded);
 
-    endpoints = routes
-      .filter(route => Object.keys({ ...route.calls, ...route.classes }).length)
-      .map(route => ({ pattern: same(route.path, path) ? raw : route.path, exports: async () => { const exports = await route.load(); return { calls: pick(route.calls, exports), classes: pick(route.classes, exports) }; } }));
+    endpoints = endpointsOf(routes, path, raw);
 
     const gates: Seats = async pattern => {
       const gate = routes.find(route => route.index && same(route.path, pattern.map(decoded)));

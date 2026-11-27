@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
-import { sep } from "node:path";
 import { init, parse } from "es-module-lexer";
 import { parseAst, transformWithOxc } from "vite";
-import { isClass, moduleOf, scanModule, type Module, type Scan, type Sources, type Value } from "@expressive/rpc/vite";
+import { isClass, moduleOf, type Value } from "@expressive/rpc/vite";
 
-import type { ExportScanner, Remote } from "./routes";
+import type { ExportScanner } from "./routes";
 
 export const scanExports: ExportScanner = async (source, path) => {
   const { code } = await transformWithOxc(source, path, { jsx: { runtime: "automatic" } });
@@ -71,18 +69,18 @@ function ignores({ params: [first], body }: Node): boolean {
 }
 
 function drops(value: Value): boolean {
-  if (isGate(value)) return ignores(value as Node);
+  if (isFunction(value)) return ignores(value as Node);
   if (!isClass(value)) return false;
 
   const render = (value.body.body as Node[]).find(member =>
     (member.type === "MethodDefinition" || member.type === "PropertyDefinition") && !member.computed && member.key.type === "Identifier" && member.key.name === "render");
 
-  return !!render && isGate(render.value) && ignores(render.value as Node);
+  return !!render && isFunction(render.value) && ignores(render.value as Node);
 }
 
 function kindOf(value: Value): boolean | undefined {
   if (value?.type === "ClassDeclaration" || value?.type === "ClassExpression") return true;
-  if (isGate(value)) return false;
+  if (isFunction(value)) return false;
 }
 
 function labelOf(code: string, local: string | undefined): string | undefined {
@@ -98,51 +96,5 @@ function labelOf(code: string, local: string | undefined): string | undefined {
   }
 }
 
-export async function scanRemote(remote: Remote, source: string, sources: Sources, locate: (file: string) => Remote | undefined): Promise<Scan> {
-  let gate = false;
-
-  const owned = (file: string) => {
-    const other = locate(file);
-    return !!other && (remote.folder + sep).startsWith(other.folder + sep);
-  };
-
-  const scan = await scanModule(remote.file, source, sources, owned, {
-    async default(value) {
-      gate = isGate(value);
-      return defaultProblems(remote, value);
-    },
-  });
-
-  return { ...scan, gate };
-}
-
-/** A remote entry's default alone - checked whether or not the client imports the entry. */
-export function scanGate(remote: Remote, source: string): { gate: boolean; problems: string[] } {
-  const { body, exports } = moduleOf(remote.file, source);
-
-  if (body.some(isDefaultReexport)) return { gate: false, problems: ["A remote default is declared in the entry - a re-exported one is not checked or run as the folder's gate."] };
-  if (!exports.has("default")) return { gate: false, problems: [] };
-
-  const value = exports.get("default");
-
-  return { gate: isGate(value), problems: defaultProblems(remote, value) };
-}
-
-const isGate = (value: Value): boolean =>
+const isFunction = (value: Value): boolean =>
   value?.type === "FunctionDeclaration" || value?.type === "FunctionExpression" || value?.type === "ArrowFunctionExpression";
-
-const isDefaultReexport = (node: Module["body"][number]) =>
-  node.type === "ExportNamedDeclaration" && !!node.source && node.specifiers.some(({ exported }) => (exported.type === "Identifier" ? exported.name : exported.value) === "default");
-
-export const NOT_GATE = "A remote default is its folder's gate - a function that refuses by throwing or by activating a Model whose new() fails: export default () => { Session.new() }";
-
-function defaultProblems(remote: Remote, value: Value): string[] {
-  if (remote.module) return ["Only a folder's remote entry - remote.ts or remote/index.ts - may export a default."];
-  if (!isGate(value)) return [NOT_GATE];
-
-  return [];
-}
-
-export function hasGate(file: string): boolean {
-  return isGate(moduleOf(file, readFileSync(file, "utf8")).exports.get("default"));
-}

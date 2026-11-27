@@ -4,7 +4,7 @@ Next-like host for Expressive: Vite, `@expressive/dom` rendering, file-based rou
 
 ## Workflow
 
-- `feat/dev-serve` is the trunk for the server entry: `config`'s `handle` and `host`, `index.dev.ts`, folder gates, `api/` routes, gate check. Scope and shape are in `packages/dev/docs/server-entry.md` (signed off in #808), whose PR split it follows - PR 1 lands on `main`, PRs 2-7 here. Its PRs fold the note into this file (lines superseded: the note's question 4) and delete the note before the trunk merges to `main`. Dogfood through `gh workflow run preview.yml --ref feat/dev-serve`.
+- `feat/dev-serve` is the trunk for the server entry: `config`'s `handle` and `host`, `index.dev.ts`, folder gates, `api/` routes and calls. Scope and shape are in `packages/dev/docs/server-entry.md` (signed off in #808), whose PR split it follows - PR 1 lands on `main`, PRs 2-7 here. Its PRs fold the note into this file (lines superseded: the note's question 4) and delete the note before the trunk merges to `main`. Dogfood through `gh workflow run preview.yml --ref feat/dev-serve`.
 - `feat/dev-server` is the trunk. Each feature lands as its own PR into it, small enough to hand-review; the trunk merges to `main` when release-ready.
 - Merge `main` into the trunk as it moves. Upstream fixes (mvc, dom, router) land on `main` as their own PRs, never only here.
 - `backup/dev-server-full` holds the pre-trunk prototype - source for the queued features below. Its POST dispatch and client stubs seed the MVP; its `app/api` lane becomes the rpc folder (RPC). Delete once nothing is left to carve.
@@ -20,7 +20,7 @@ Next-like host for Expressive: Vite, `@expressive/dom` rendering, file-based rou
 - **JSX.** `jsxImportSource: "@expressive/dev"` - dev's runtime re-exports dom's.
 - **Router.** dev exports its own `Router` (extends `BrowserRouter`) and `Route`, plus `Link`, `NavLinks`, `Redirect`. No `BrowserRouter` export.
 - **Config.** `index.ts` default-exports `config({...})` from `@expressive/dev`, an identity function read on the server: `target`, `port`, `remote`, `handle` (fetch middleware around every request the host forwards, outside the request scope) and `host` (the fetch target's default export, built from the composed app). Other keys fail dev and the build by name.
-- **Server modules, one model.** Sidecars (`app/**/remote.ts`) and the rpc folder (RPC) share one invocation path from the bundled client and one context model (below). The rpc folder has its own root; a sidecar call never passes through its `index.ts`. Process globals are the only layer both lanes share.
+- **Server modules live in `api/`.** `app/` is frontend only: calls are async exports of `api/` route modules beside the verbs, gated by `api/` folder defaults (`packages/dev/docs/api-calls.md`). A `remote.ts` or `remote/` left under `app/` fails generation. Standalone rpc folders are unchanged.
 - **Session is the app's concern.** dev does not detect or mint sessions or tabs; an app expresses identity through keys (Context model). Recipes may come later.
 - **dom on the server.** Needed for JSX rendered to HTML (responses, emails), not SSR.
 - **Monkey-patch first.** Where mvc or an adapter lacks a seam, dev patches it in one file, replaced when upstream catches up. Stress-tests the concept before committing upstream.
@@ -29,6 +29,7 @@ Next-like host for Expressive: Vite, `@expressive/dom` rendering, file-based rou
 
 ## Landed
 
+- `app/` frontend only (api-calls PR 2) - sidecars, the gate check, `gateCheck` and the entering path are removed; the sidecar and gate-check entries below are history. A page guards itself in its route `default` by awaiting an `api/` call.
 - Basics - `app/` route tree (`Page`, `Layout`, `Loading`, `Catch`, `NotFound`), single-file `app.tsx` mode, virtual shell/entry/router module, dev server with inspect, client + node service build, static `serve` with `index.html` fallback, example workspace.
 - Route chunks - a route module (not the root) loads on first entry, `default` included - an entry hook loads its module, then runs; a class resolves from it. `Loading` and `Catch` keep a module static: they must be on hand before anything below them waits or fails.
 - Route defaults - a page module's `default` function is its entry hook (runs with the Route before it renders, may be async; a returned string redirects, `null` forfeits to the 404). A `default` class - Model or Component alike - renders around the route's content (`<X>{children}</X>`, or `<X><Layout /></X>` with a `Layout`) and is provided to everything below it.

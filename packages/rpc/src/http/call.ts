@@ -2,7 +2,7 @@ import { attempt, fault, inFolder, locate, type Call, type Endpoint, type Export
 import { CODEC, parse, stringify } from "../codec";
 import { bodyOf } from "../body";
 import { ensureInstalled, pass, within } from "../context";
-import { ERRORS, Redirect } from "../errors";
+import { ERRORS } from "../errors";
 import { reserved, walk, type Tree } from "../route";
 
 export function isCall(request: Request): boolean {
@@ -90,12 +90,9 @@ export async function dispatch<E extends Exports>(request: Request, endpoints: (
   const list = endpoints();
   const { pathname } = new URL(request.url);
   const at = pathname.split("/").filter(Boolean).slice(skip);
-  const check = request.headers.get("x-expressive-get") === "gates";
   const name = request.headers.has("x-expressive-get") ? undefined : request.headers.get("x-expressive-call") ?? undefined;
   const { found, exports, fn } = await locate(list, at, name);
   const incoming = { request, list, at, pathname, found, exports, dev, seats };
-
-  if (check && found) return gateCheck(incoming);
   const handle = tier ? await tier(incoming, fn) : fn && plain(incoming, fn);
 
   if (!handle) return reply(404, { message: "Not found." });
@@ -133,23 +130,6 @@ function plain(incoming: Incoming, fn: Call): Handle {
 
   return args => inFolder(incoming, async () => respond(await attempt(() => fn(...args), list, dev, ERRORS)), fail).catch(fail);
 }
-
-async function gateCheck(incoming: Incoming): Promise<Response> {
-  const { list, dev } = incoming;
-  const fail = (error: unknown) => failure(error, list, dev);
-  const answer = await inFolder(incoming, () => reply(200, {}), fail).catch(fail);
-  const location = answer.status >= 300 && answer.status < 400 && answer.headers.get("location");
-
-  if (!location) return answer;
-
-  const moved = await failure(new Redirect(location, answer.status), list, dev);
-
-  answer.headers.forEach((value, name) => UNCOPIED.has(name) || moved.headers.append(name, value));
-
-  return moved;
-}
-
-const UNCOPIED = new Set(["location", "content-type", "content-length", "content-encoding", "connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer", "proxy-authenticate", "proxy-authorization", "proxy-connection"]);
 
 async function readArgs(request: Request): Promise<unknown[] | undefined> {
   try {

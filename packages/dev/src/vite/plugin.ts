@@ -13,14 +13,13 @@ import { check } from "../server/check";
 import { compose, routed, type Pages } from "../server/compose";
 import { layered } from "../server/env";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
-import { Exposure, type Exposed } from "./remote";
-import { CALL, generateRoutes, pagePatterns, remoteEntries, remoteOf, staticPaths, type ExportScanner, type Remote, type Scan } from "./routes";
+import { Exposure } from "./remote";
+import { CALL, generateRoutes, pagePatterns, staticPaths, type ExportScanner, type Scan } from "./routes";
 import { isCall, send, toRequest } from "@expressive/rpc/http";
-import { verify, type Endpoint, type Seats } from "@expressive/rpc/protocol";
-import { SCRIPT, guardScript, isClass, moduleOf, type Module, type Sources } from "@expressive/rpc/vite";
+import { guardScript, isClass, moduleOf, type Module, type Sources } from "@expressive/rpc/vite";
 import { staticFile } from "../server/listen";
 import { install } from "../server/install";
-import { hasGate, scanExports, scanGate, scanRemote } from "./scan";
+import { scanExports } from "./scan";
 import { apiErrors, helperAt, leafOf, reservedApi, scanApi, scanCalls, verifyApi, type ApiFile, type ApiHelper, type RouteScan } from "./api";
 
 const MAIN = "main.tsx";
@@ -30,7 +29,6 @@ const PRERENDER = "prerender.tsx";
 const DOM_SERVER = "@expressive/dom/server";
 const SETTINGS = "settings.ts";
 const INDEX = "settings-index.ts";
-const REMOTE_IMPORT = /(^|\/)remote(\/|\.[cm]?[jt]s$|$)/;
 
 /** The plugin's API - `config()` loads the app's settings: `index.dev.ts`'s when it exists, else `index.ts`'s. */
 export interface Host {
@@ -69,7 +67,7 @@ const SHARED = ["@expressive/mvc", "@expressive/jsx", "@expressive/dom", "@expre
 /**
  * The app host as a Vite plugin, for a hand-written Vite config.
  *
- * Serves the virtual shell, entry and route tree under `/.expressive/`, and builds sidecars.
+ * Serves the virtual shell, entry and route tree under `/.expressive/`, and the `api/` folder beside them.
  * Add `inspect()` from `@expressive/inspect/vite` beside it for the dev relay.
  * The built server's `index.js` copies `.env` files into `process.env` before the app loads.
  */
@@ -125,8 +123,6 @@ export function host(dotenv: boolean): Plugin<Host> {
     return id;
   };
 
-  const remoteAt = (file: string) => (project.appDir ? remoteOf(project.appDir, file) : undefined);
-
   const apiFiles = () => {
     if (!existsSync(apiDir)) return;
 
@@ -149,7 +145,7 @@ export function host(dotenv: boolean): Plugin<Host> {
 
   const apiRoute = (file: string) => (file.startsWith(apiDir + sep) ? apiScanned().routes.find(route => route.file === file) : undefined);
 
-  const apiAt = (file: string): Remote => ({ file, pattern: ["api", ...apiRoute(file)!.path], module: "", folder: dirname(file) });
+  const apiAt = (file: string) => ({ file, pattern: ["api", ...apiRoute(file)!.path], module: "" });
 
   const entries = () => [join(root, "index.ts"), join(root, "index.dev.ts")].map(file => existsSync(file) && file);
 
@@ -180,12 +176,6 @@ export function host(dotenv: boolean): Plugin<Host> {
     },
   };
 
-  const gateError = (remote: Remote) => {
-    const { gate, problems } = scanGate(remote, readFileSync(remote.file, "utf8"));
-
-    return { gate, error: problems.length ? `${relative(root, remote.file)}: ${problems.join(" ")}` : undefined };
-  };
-
   const readShell = () =>
     project.htmlPath ? ensureBootstrap(readFileSync(project.htmlPath, "utf8")) : SHELL;
 
@@ -207,7 +197,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       if (reserved.length) throw new Error(reserved.join("\n"));
 
       const entries = project.appDir
-        ? ["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*", "!app/**/remote.*", "!app/**/remote/**"]
+        ? ["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*"]
         : [importRel(root, project.appPath!)];
 
       return {
@@ -243,18 +233,6 @@ export function host(dotenv: boolean): Plugin<Host> {
         const salt = settings!.remote?.opaque === false ? undefined : randomBytes(16).toString("base64url");
         builds.set(root, (exposure = new Exposure(salt)));
 
-        for (const remote of project.appDir ? remoteEntries(project.appDir) : []) {
-          const { gate, error } = gateError(remote);
-          if (error) this.error(error);
-          if (!gate) continue;
-
-          const { problems, ...scanned } = await scanRemote(remote, readFileSync(remote.file, "utf8"), resolving(this), remoteAt);
-
-          if (problems.length) this.error(`${relative(root, remote.file)}: ${problems.join(" ")}`);
-
-          exposure.modules.set(remote.file, { ...remote, ...scanned, calls: [] });
-        }
-
         const declared = (route: ApiFile, { errors }: RouteScan) => errors.length && exposure.api.set(route.file, { ...apiAt(route.file), calls: [], errors });
         const errors = existsSync(apiDir) ? await apiErrors(root, resolving(this), declared) : [];
 
@@ -285,11 +263,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       if (id === htmlId && !existsSync(htmlId)) return htmlId;
       if (id === DOM_SERVER && importer === prerenderId) return this.resolve(id, fileURLToPath(import.meta.url), { skipSelf: true });
 
-      if (options.ssr || !importer) return;
-
-      const named = SCRIPT.test(importer.split("?")[0]) && REMOTE_IMPORT.test(id);
-
-      if (!named && !existsSync(apiDir)) return;
+      if (options.ssr || !importer || !existsSync(apiDir)) return;
 
       const resolved = await this.resolve(id, importer, { ...options, skipSelf: true });
 
@@ -307,22 +281,11 @@ export function host(dotenv: boolean): Plugin<Host> {
         return resolved;
       }
 
-      const remote = named && resolved && remoteAt(resolved.id);
-
-      if (!remote) return resolved;
-
-      const from = importer.split("?")[0];
-
-      if (!from.startsWith(remote.folder + sep) && !from.startsWith(generatedDir + sep))
-        this.error(`${relative(root, importer)} imports ${relative(root, resolved.id)} - only modules in ${relative(root, remote.folder)}/ and below may call it.`);
-
-      return "scan" in options && options.scan ? { id: `\0${resolved.id}`, external: true } : resolved;
+      return resolved;
     },
 
     async load(id, options) {
       const file = id.split("?")[0];
-      const remote = !options?.ssr && remoteAt(file);
-
       const route = !options?.ssr && apiRoute(file);
 
       if (route) {
@@ -333,25 +296,14 @@ export function host(dotenv: boolean): Plugin<Host> {
         const exposed = { ...apiAt(file), calls, errors };
         exposure.api.set(file, exposed);
 
-        return exposure.stub(exposed, apiAt, { from: `/${GENERATED}/${CALL}`, at: [...apiPrefix.split("/").filter(Boolean), ...route.path] });
-      }
-
-      if (remote) {
-        const { problems, ...scanned } = await scanRemote(remote, readFileSync(file, "utf8"), resolving(this), remoteAt);
-
-        if (problems.length) this.error(`${relative(root, file)}: ${problems.join(" ")}`);
-
-        const exposed = { ...remote, ...scanned };
-        exposure.modules.set(file, exposed);
-
-        return stub(exposure, exposed, remoteAt);
+        return exposure.stub(exposed, apiAt, { from: `/${GENERATED}/${CALL}`, at: [apiPrefix, ...route.path].join("/") });
       }
 
       switch (id) {
         case callId:
           if (prerendering) return PRERENDER_CALL;
 
-          return CALL_MODULE;
+          return `export { call, define } from "@expressive/rpc";\n`;
         case mainId:
           return bootstrap(project.appDir ? `./${ROUTES}` : importRel(generatedDir, project.appPath!));
         case routesId:
@@ -360,8 +312,8 @@ export function host(dotenv: boolean): Plugin<Host> {
           const api = { prefix: apiPrefix, routes: apiFiles()?.routes.map(route => ({ ...route, ...exposure.idsOf(route.file) })) };
 
           return settings?.target === "fetch"
-            ? fetchEntry(project, generatedDir, exposure, await namedExports(project), api, await pages(), gated(project))
-            : serverEntry(project, generatedDir, exposure, gated(project), api, await pages());
+            ? fetchEntry(project, generatedDir, await namedExports(project), api, await pages())
+            : serverEntry(project, generatedDir, api, await pages());
         }
         case prerenderId: {
           if (!project.appDir) return prerenderEntry(importRel(generatedDir, project.appPath!), []);
@@ -480,21 +432,6 @@ export function host(dotenv: boolean): Plugin<Host> {
       server.watcher.on("unlinkDir", moved);
       server.watcher.on("add", saved);
       server.watcher.on("change", saved);
-      server.watcher.on("change", file => {
-        const remote = remoteAt(file);
-
-        try {
-          if (remote && !remote.module && hasGate(file)) server.ws.send({ type: "custom", event: "expressive:gates" });
-        } catch {}
-      });
-
-      const endpoints = () => {
-        const exposed = exposure.byPattern().map(group => endpointOf(host, root, exposure, group));
-        const known = new Set(exposed.map(({ pattern }) => pattern.join("/")));
-        const bare = gated(project).filter(({ pattern }) => !known.has(pattern.join("/")));
-
-        return [...exposed, ...bare.map(remote => gateOnly(host, exposure, remote))];
-      };
       const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(error => server.config.logger.error(`waitUntil: ${error}`)) };
       const shell = (url: string) => server.transformIndexHtml("/index.html", readShell(), url);
       const replayed = new WeakSet<object>();
@@ -526,17 +463,6 @@ export function host(dotenv: boolean): Plugin<Host> {
         }
 
         return bound;
-      };
-
-      const gates: Seats = async pattern => {
-        const remote = project.appDir && remoteEntries(project.appDir).find(remote => remote.pattern.join("/") === pattern.join("/"));
-
-        if (!remote) return;
-
-        const { gate, error } = gateError(remote);
-
-        if (error) throw new Error(error);
-        if (gate) return (await host.import(remote.file)).default;
       };
 
       server.middlewares.use(async (req, res, next) => {
@@ -579,7 +505,7 @@ export function host(dotenv: boolean): Plugin<Host> {
             },
           };
 
-          const app = compose(settings, { sidecars: endpoints, gates, api: existsSync(apiDir) ? routing : undefined, dev: true });
+          const app = compose(settings, { api: existsSync(apiDir) ? routing : undefined, dev: true });
           const reply = await app(request, { env: await view(settings), ctx, assets });
 
           if (!fell || reply.status !== 404 || !reply.headers.has(FELL)) {
@@ -674,58 +600,10 @@ function hosted() {
   return alias;
 }
 
-function endpointOf(host: ModuleRunner, root: string, exposure: Exposure, group: Exposed[]): Endpoint {
-  return {
-    pattern: group[0].pattern,
-    exports: () => exposure.exports(group, file => host.import(file), (file, exports) => verify(relative(root, file), exports)),
-  };
-}
-
-function gateOnly(host: ModuleRunner, exposure: Exposure, remote: Remote): Endpoint {
-  return {
-    pattern: remote.pattern,
-    async exports() {
-      const module = await host.import(remote.file);
-      const errors = Object.entries(module).filter(([, value]) => typeof value == "function" && value.prototype instanceof Error);
-
-      return { calls: {}, classes: Object.fromEntries(errors.map(([name, Type]) => [exposure.classId(remote, name), Type])) };
-    },
-  };
-}
-
-function gated(project: Project): Remote[] {
-  if (!project.appDir) return [];
-
-  return remoteEntries(project.appDir).filter(remote => hasGate(remote.file));
-}
-
-function stub(exposure: Exposure, remote: Exposed, locate: (file: string) => Remote | undefined): string {
-  return exposure.stub(remote, locate, { from: `/${GENERATED}/${CALL}`, at: remote.pattern });
-}
-
 const FETCH: UserConfig = {
   environments: { ssr: { resolve: { noExternal: true } } },
   build: { rollupOptions: { preserveEntrySignatures: "strict", output: { entryFileNames: BOOT } } },
 };
-
-const CALL_MODULE = `\
-import { call as send, client, define } from "@expressive/rpc";
-
-const { pathOf } = client();
-const fixed = at => !at.some(part => part[0] === ":" || part === "*");
-const PATH = Symbol.for("@expressive/dev#path");
-
-export { define };
-const entering = (at, name) => {
-  try {
-    return pathOf(at, name, globalThis[PATH]);
-  } catch {
-    return pathOf(at, name);
-  }
-};
-
-export const call = async (at, name, args) => send(fixed(at) ? "/" + at.join("/") : entering(at, name), name, args);
-`;
 
 const sourcesOf = (resolve: Sources["resolve"]): Sources => ({ resolve, read: path => readFileSync(path, "utf8") });
 

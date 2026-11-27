@@ -2,6 +2,8 @@
 
 Design note for reshaping `@expressive/dev`'s server entry, for sign-off before any implementation. Once agreed, the root `FEATURE.md` takes its outcome (lines superseded: question 4), and this file goes when the work lands.
 
+`app/` sidecars and the gate check have since been removed (`api-calls.md`, PR 2): calls live in `api/` route modules, gates are `api/` folder defaults, and a page guards itself in its route `default`. Sidecar mentions below are history.
+
 ## Why
 
 0.5's `index.ts` default-exports `config({ port, target, remote, fetch, around, scheduled })`, and a named `bindings` export supplies dev's `env`. That shape has three problems:
@@ -17,7 +19,7 @@ Design note for reshaping `@expressive/dev`'s server entry, for sign-off before 
 - **`index.ts` default-exports `config({...})`.** `config` is an identity function for types, as Vite's `defineConfig` is, exported from `@expressive/dev`'s root. Processing stays in `/server`. There is no registry.
 - **`handle({ request, env, ctx, next })` is plain fetch middleware around the app.** It replaces `fetch` and `around`: wrap with `next`, answer with a `Response`, pass by returning nothing. It runs outside the request scope, so no `Current` and no gate Models. One object argument, so a fetch handler can't be assigned to it by accident.
 - **`host` is a `config` member**, the fetch bundle's default export built from the app.
-- **Gates live in folders:** an `api/` folder `index.ts`'s `default`, and a remote entry's `default`. One rule, rpc's function gate with `next` optional: finish to pass, throw (or fail a Model's `new()`) to refuse, call `next` to wrap. Models a gate activates are in context below it.
+- **Gates live in folders:** an `api/` folder `index.ts`'s `default`. One rule, rpc's function gate with `next` optional: finish to pass, throw (or fail a Model's `new()`) to refuse, call `next` to wrap. Models a gate activates are in context below it.
 - **Gates and `api/` routes take no parameters.** They read the request from `Current.get()`, so nothing needs a hand-typed `(request: Request, …)`.
 - **`Current` carries the request and the reply:** `params`, `json()`, `text()`, `ctx`, `next` and `send` join `request`, `url`, `cookies`, `env` and `setHeader`.
 - **`send` for after-work.** Code after `send` is after-work, which replaces an `after()` helper and a generator protocol. A route's returned value still answers; a gate answers only by `send` or a returned `Response` or function.
@@ -109,14 +111,14 @@ export interface AppOptions {
 /** The composed app: `handle` around calls, api routes and pages. */
 export type App = (request: Request, options?: AppOptions) => Promise<Response>;
 
-/** The app from an entry's settings. For tests: no remotes, api routes or pages. */
+/** The app from an entry's settings. For tests: no api routes or pages. */
 export function compose(settings?: Settings): App;
 ```
 
 ```ts
 // @expressive/rpc - additions to Current
 class Current {
-  /** The matched route's params, decoded; a `[...]` segment under "*". A sidecar call's are its folder's. `{}` elsewhere. */
+  /** The matched route's params, decoded; a `[...]` segment under "*". A call's are its folder's. `{}` elsewhere. */
   get params(): Record<string, string>;
   /** The request body as JSON; `undefined` when empty. Rejects with `BadRequest` on invalid JSON or a content type other than `application/json` or `+json`. */
   json(): Promise<unknown>;
@@ -158,7 +160,7 @@ The new getters keep a throwing setter, as `Current`'s do today, so mvc leaves t
 New public surface for sign-off (AGENTS.md):
 - **dev root:** `config` (moved from `/server`), the types `Settings` and `HandleArgs`, and rpc's `Env` re-exported for augmenting, in an import-free module emitted as its own chunk, so the fetch bundle pulls no router or dom code for them.
 - **dev `/server`:** `compose`, and the types `AppOptions`, `App`, `ExecutionCtx`. `Current` is already re-exported there.
-- **dev `/fetch`:** `compose(settings, sidecars, manifest, routes, apiManifest, pages)`, for generated entries only.
+- **dev `/fetch`:** `compose(settings, routes, apiManifest, pages)`, for generated entries only.
 - **rpc `Current`:** `params`, `json`, `text`, `ctx`, `next`, `send` and static `send`; the `ExecutionCtx` type; `next` in rpc's function gates, and a gate's returned `Response` or function answering.
 - **rpc `/protocol`:** `bind`'s `ctx`, and `layer`.
 - **rpc client:** a non-codec reply rejects with an `HttpError` carrying its status.
@@ -174,7 +176,7 @@ Apps augment `Env` through `@expressive/dev`, which re-exports rpc's interface; 
 ### Semantics
 
 - **`config`** returns its argument. Dev reads `index.ts`'s default export while Vite configures and when it composes the app. Node's entry needs `port` at runtime. Unknown keys fail the dev server and the build by name, the 0.5 ones included: "`fetch` and `around` became `handle`", "`scheduled` goes in `host`".
-- **`handle`** runs for every request the host forwards: remote calls, `/api/*`, and pages and static files. A host that answers static files itself first (Workers assets without `run_worker_first`) never forwards those.
+- **`handle`** runs for every request the host forwards: `/api/*` calls and routes, and pages and static files. A host that answers static files itself first (Workers assets without `run_worker_first`) never forwards those.
   - Without it, every request goes straight to the app.
   - Its reply is its returned `Response`. Returning nothing passes: through `next()`'s reply if it was called, else by calling it - after `handle` returned, so outside anything it wrapped. A wrapping `handle` returns the wrapper with `return next()` inside it; dev warns once when a 5xx follows a `handle` that returned nothing. Another return value throws. A second `next()`, or one after `handle` returned, throws. A `next()` reply `handle` discards has its body cancelled.
   - `next(request)` forwards a rewritten request; an argument that isn't a `Request` throws, so a wrapper that calls back with its own value (`db.transaction(next)`) fails loudly. To read the body and still pass it on, read `request.clone()`.
@@ -194,7 +196,7 @@ Apps augment `Env` through `@expressive/dev`, which re-exports rpc's interface; 
 
 ### Gates
 
-A gate is a folder's `default` function: an `api/` folder `index.ts`'s for that folder's paths (below), and a remote entry's for its folder's calls and gate checks. The same rule holds for both, and it is rpc's function gate with `next` added:
+A gate is a folder's `default` function: an `api/` folder `index.ts`'s, for that folder's calls and paths (below). It is rpc's function gate with `next` added:
 
 - **Finishing passes.** When the gate settles without deciding a reply and without calling `next`, the chain continues below it.
 - **Refusing.** A throw refuses: on a call request it replies as a call's error would, so a gate can throw `Unauthorized` and keep its class. Elsewhere an `HttpError` answers its status with a JSON `{ message }` (`Redirect` sets `Location`), and anything else is a 500 whose message shows in dev only, logged. Activating a Model whose `new()` fails refuses with that Model's error.
@@ -270,9 +272,8 @@ A throw mid-stream aborts the body and is logged; the status can't change by the
 
 Below `handle`:
 
-1. **Remote call** (`isCall`, a gate check included): the folder's gates, then the call. A missing call is a JSON 404, as today.
-2. **`/api/*`**: the folder's gates, then the matching `api/` route. An unmatched path is a JSON 404 and never the shell.
-3. **Pages and static files**: the file, else `<path>/index.html`, else the shell, else 404. One shell rule on every host: only for GET or HEAD, and never under the build's `assetsDir`, so a stale chunk stays a 404 instead of becoming HTML with the wrong MIME type. A path some page route matches gets the shell with 200; a navigation (`accept` has `text/html`) no route matches gets it with 404, so a route's `NotFound` still renders. Anything else is a bare 404. (Node today falls back for any method and path; this narrows it.) Every entry carries the page patterns for the match.
+1. **`/api/*`**: the folder's gates, then the call its `x-expressive-call` names, else the matching `api/` route. An unmatched path is a JSON 404 and never the shell.
+2. **Pages and static files**: the file, else `<path>/index.html`, else the shell, else 404. One shell rule on every host: only for GET or HEAD, and never under the build's `assetsDir`, so a stale chunk stays a 404 instead of becoming HTML with the wrong MIME type. A path some page route matches gets the shell with 200; a navigation (`accept` has `text/html`) no route matches gets it with 404, so a route's `NotFound` still renders. Anything else is a bare 404. (Node today falls back for any method and path; this narrows it.) Every entry carries the page patterns for the match.
    - **Node:** from `dist/client`, with the `assetsDir` cached immutable. The shell is `200.html`, else `index.html`.
    - **Dev:** a `public/` file, else its `<path>/index.html`, else the shell as Vite transforms it. Anything else falls through to Vite's middleware stack (below).
    - **Fetch target:** `assets.fetch(request)`; on a 404 that the shell rule covers, `assets.fetch` gets `/200.html` and then `/index.html`, keeping the method and following one same-origin redirect (an asset host that serves pretty URLs redirects these). This replaces the fallback each Workers app hand-writes today. `assets` defaults to `env.ASSETS` when that binding has a `fetch`; without either, the answer is 404. `<path>/index.html` is the asset host's job here, so a hand-written `assets` resolves it itself.
@@ -346,7 +347,7 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 **Other rules:**
 
 - Matching is exact and case-sensitive, on the decoded segments of the path `handle` forwards, so an escape (`/api/%61dmin`) cannot route around a fixed folder and its gate. A malformed `%` escape is a 400, and an empty segment (`//`) never matches. That rules out the router's client matcher (`url.ts` lowercases literals and trims slashes); the api table gets a strict one. Precedence follows the page tree's sort (`routes.ts`): fixed, then `:param`, then `*`, with no backtracking: once a fixed folder matches a segment, a sibling `[param]` never takes the path, so `/api/admin/users` stays under `api/admin/index.ts`'s gate and 404s there if `admin/` lacks `users`.
-- `api/` is server-only, helpers included. A client module importing from it fails the build, as it would for another folder's sidecar.
+- `api/` is server-only, helpers included. A client module importing a helper, a verb or a `default` from it fails the build.
 - When a root `api/` exists, `app/api/`, `app/(api)/`, `app/(api).tsx` and `public/api/` fail the dev server and the build, because `/api` belongs to the folder. A root `[slug]` page can't be reached at `/api` either, and the 404 there says so. Without `api/`, an app may still own `/api` itself.
 - `api/` routes are not prerendered.
 
@@ -359,7 +360,7 @@ Why gates by folder: a gate belongs to the routes it covers, so the gate and the
 - Export rules are checked by the build (statically, after types are stripped) and in dev as each module loads, which also catches an imported class gate and a verb or `default` that isn't a function - that request answers a 500 naming the file, and each save under `api/` logs the folder's errors. Built hosts don't re-check, so none of it ships in a bundle; an imported class gate in a build fails at its first request. A naming error fails every `/api` request in dev until fixed - adding, removing or renaming a file rebuilds the table, and a failed build of it is not kept. A helper that doesn't parse fails only the routes importing it; the reservations fail the dev server at start.
 - The client import guard checks every client import's resolved id, so an alias into `api/` is caught too.
 - The prefix is `base` + `api`, carried by each generated entry.
-- Generated tables: Node's `listen({ ..., api: { prefix, routes: [{ name, path, index, module }] } })`, and `/fetch`'s `compose(settings, sidecars, manifest, apiModules, apiRefs, pages)` with `apiRefs` `{ prefix, routes: [{ name, path, index }] }` in `apiModules`' order (`null` without `api/`), its type exported beside `FolderRefs` as entry plumbing.
+- Generated tables: Node's `listen({ ..., api: { prefix, routes: [{ name, path, index, module }] } })`, and `/fetch`'s `compose(settings, apiModules, apiRefs, pages)` with `apiRefs` `{ prefix, routes: [{ name, path, index }] }` in `apiModules`' order (`null` without `api/`), its type exported beside `FolderRefs` as entry plumbing.
 
 ### Dropping in a fetch handler
 
@@ -387,7 +388,7 @@ handle: async ({ request, env, ctx, next }) => {
 
 ## Alignment with sidecars
 
-`app/**/remote` calls and `api/` routes share `handle` around them, the request scope, `Current`'s request members (`request`, `url`, `cookies`, `env`, `ctx`, `params`, `setHeader`), `Cookies`, and one gate rule: a remote entry's `default` is its folder's function gate (#814), as an `api/` folder `index.ts`'s is. A sidecar gate covers its folder's calls and, through the gate check below, entry to its pages.
+Removed with `app/` sidecars: calls live in `api/` route modules beside the verbs, sharing `handle`, the request scope, `Current` and `Cookies` (`api-calls.md`).
 
 ## Request-wide state
 
@@ -398,30 +399,11 @@ There is no Model every request gets, and none is needed:
 - **Request id, timing, logging:** `handle`, shipping with `ctx.waitUntil`; read in scope through the app's own `AsyncLocalStorage` around `next` or a forwarded header.
 - **Rate limiting:** by IP in `handle` (`throw new TooManyRequests()`), by user in a folder gate after the session; the counter is a module-scope service.
 
-An eager Model for every call and route is two one-line gates (`app/remote.ts` and `api/index.ts`), and a forgotten one fails closed, since `X.get()` throws. Prefer the lazy forms: a root remote gate gates every page (Gate check).
+An eager Model for every call and route is a one-line gate in `api/index.ts`, and a forgotten one fails closed, since `X.get()` throws. Prefer the lazy forms.
 
 ## Gate check
 
-A page under a gated folder would otherwise render before anything checked the caller, and its first parallel calls would each meet the gates. The client runs the gates once on the way in instead.
-
-- **When.** A navigation sends one gate check for the deepest gated folder on its target path when that folder, at its concrete path (params filled), isn't covered by the last pass. First load counts. Leaving gated folders sends nothing. Every gated Route on the path waits on that one request. Only a pass is remembered; a refusal, a failure or a superseded check leaves nothing covered. Back and forward behave as any navigation. No opt-out.
-- **Where gates are known.** The scan marks folders whose remote entry has a `default`, and the generated tree wraps their Routes' `enter`, so dev's `Route` gains no prop. Adding or removing a gate regenerates the tree. The checker gets the rendering route tree (segments in the router's order, with gate, page and `NotFound` marks), and finds the deepest gated folder by walking it as the router matches - a static sibling before a `:param` before `*` - so `/room/new` with an `app/room/(new).tsx` beside a gated `[id]/` checks nothing. The check path is the tree's literals plus the URL's param values, so a case variant checks the folder's own spelling. The wrapper comes from `gateCheck(call, tree, import.meta.hot)`, exported from `@expressive/dev`'s root as entry plumbing (like `/fetch`'s `compose`), given the generated `call` module and every gated folder's pattern; for a folder loaded on demand it also starts the module's import beside the check.
-- **Wire.** A call request through rpc's client, so `configure({ base, headers, transport })` applies, to the deepest gated folder's path with its params, under rpc's existing `x-expressive-get` header with the value `gates` (non-empty, so no intermediary drops it). rpc's `call(path, "")` sends it - an empty name was never a callable one - and resolves `true` on a codec 200, `false` on a network failure, a non-codec reply or a codec 404 (a stale client after a gate-only folder is removed), rethrowing other codec refusals. Only `true` is remembered as a pass; `false` enters the page. It passes `handle`, runs each folder gate down to it, then answers `200 {}` with no function behind it, and a folder whose remote entry exports only the gate is registered as an endpoint with its error classes and no calls, so the check finds it and a refusal keeps its fields (in dev from the module, in a build from the scan). (`x-expressive-get` has no sender since #814; this reuses it; a named value still answers 404.) Cookies and headers the gates set join the reply. The marker lives in rpc's call dispatch; nothing new is exported from rpc.
-- **Outcome.** A pass enters the Route; the Route's `enter` hook and its lazy chunk run after, the chunk's import started in parallel. A refusal goes through the call error codec, so the nearest `Catch` gets the typed class, and its `retry` sends a new check: `retry` re-arms every entry hook that refused, gated or not, so any hook runs again. An error with a 3xx `status` and a `location` redirects: a same-origin path some page route matches through the router; another path (a server route like `/api/auth/start`) or an `http:`/`https:` origin through `location.assign`; any other scheme to `Catch`. A gate that returns or sends a 3xx `Response` is answered as that error on a gate check, keeping the response's other headers. A redirect into a path the same refusing folder covers goes to `Catch` instead of looping, and so does a check that redirects right after a redirect (A to B to A). The loop mark is the error's `location` cleared, so `Route` needs no shared state. A 3xx error status on any codec reply goes out as HTTP 400 - not 500 - with `status` and `location` in the body; 3xx itself would let a 304 lose its body. A network failure, or a reply that isn't the codec's, passes: the page's own calls then fail through their gates.
-- **Superseded.** A newer navigation drops an in-flight check's verdict and redirect; its cookies still land. Returning to the same folder at the same path while the check is in flight shares it. Superseded means the router's path no longer has that folder at that concrete path as its deepest gated one.
-- **Not security.** Every call still runs its gates; skipping a check opens nothing.
-- **No data.** A gate's return value stays ignored; the page reads what it needs through a remote function.
-- **Idempotent gates.** The check and the calls after it all run the gates, possibly concurrently (a rotating refresh token must survive that). Rate limits and logs in gates and `handle` count checks too.
-- **What it settles.** Cookies are settled before the entered page's calls, not before calls already in flight from the outgoing page or a layout, and not when a session expires while the user stays inside one gated folder: those calls still meet the gates on their own.
-- **Cost.** One request per uncovered gated folder entered. Nothing persists between the check and the calls except cookies and module-scope state the app keeps (a verifier, a key set): warm on Node, best effort per isolate on Workers.
-- **Fetch target.** Runs folder gates since PR 1, so its checks behave as on Node.
-- **Prerender.** Paths under gated folders are not prerendered, and no check runs without `window`.
-- **A root gate gates every page.** `app/remote.ts`'s `default` makes every page gated: nothing prerenders, and every cold load waits on one check. Use it to refuse; for context only (a session every call can read), use the lazy patterns under Request-wide state.
-- **Hot reload.** An edited gate body clears the remembered passes, so the next navigation checks again. An edit to a helper the gate imports does not clear them.
-- **Gate params.** A remote folder gate reads its own folder's params from `Current.get().params`, as an `api/` gate does: rpc slices the called folder's params at each gate's depth, so `/room/[id]/note/[id]` gives the room gate the room's `id`.
-- **Replaces** a hand-written sign-in check in a page folder's `enter` (`member() ? undefined : "/login"`): the gate throws `Redirect` instead, one round trip fewer.
-
-"Gate check" is the user-facing name, since "preflight" is CORS's.
+Removed with `app/` sidecars. A page guards itself in its route `default`: `new()` awaits an `api/` call, which runs the folder gates, and a refusal reaches the route as a `Redirect` to follow or an error for `Catch` (`route-defaults.md`). The `x-expressive-get: gates` branch in rpc went with it.
 
 ## Mechanics
 
@@ -442,22 +424,21 @@ A page under a gated folder would otherwise render before anything checked the c
 ```ts
 import { compose } from "@expressive/dev/fetch";
 import settings from "../index.ts";
-import * as s0 from "../app/remote.ts";
 import * as a0 from "../api/photo/[id].ts";
 export { Room } from "../index.ts";   // index.ts's named exports, as today
-export default compose(settings, [s0], manifest, [a0], apiManifest, pages);   // host's value, else { fetch(request, env, ctx) }
+export default compose(settings, [a0], apiManifest, pages);   // host's value, else { fetch(request, env, ctx) }
 ```
 
 `/fetch`'s `compose` is `/server`'s with the tables and page patterns, built without Node imports.
 
-**Node:** same imports. `listen({ settings, client, sidecars, gates, api, pages })` (today's `serve` in `/server`, renamed) composes and serves `app(request, { ctx, assets: dist/client })`, with the shell fallback above.
+**Node:** same imports. `listen({ settings, client, api, pages })` (today's `serve` in `/server`, renamed) composes and serves `app(request, { ctx, assets: dist/client })`, with the shell fallback above.
 
 **Dev:** the plugin imports a virtual `/.expressive/server.ts`:
 
 ```ts
 import settings from "../index.dev.ts";   // ../index.ts when there is none
 import { compose } from "virtual:expressive/dev-compose";   // internal, not /server's
-export default compose(settings, { sidecars, api, pages, dev: true });
+export default compose(settings, { api, pages, dev: true });
 ```
 
 The tables are the same generated ones, so an `api/` file added regenerates this entry. Dev's `compose` adds its endpoints; it stays internal, and the public `compose(settings)` is the tests' form.
@@ -476,7 +457,7 @@ const app = compose(settings);
 const page = await app(new Request("http://x/invite/abc"), { env, assets: { fetch: async () => new Response(shell) } });
 ```
 
-Outside a build, no remotes or api routes are composed, so this tests `handle`'s own logic (a sign-in link, a page rewrite) against a stubbed `assets`. Gates and routes read `Current`, and the public `compose` has neither, so a route's logic is tested by moving it into a function of plain arguments outside `api/` (`export const GET = () => photo(Current.get().params.id)`, then `photo("7")` in a test). Settings are a plain object, so a test may compose them as often as it likes.
+Outside a build, no api routes are composed, so this tests `handle`'s own logic (a sign-in link, a page rewrite) against a stubbed `assets`. Gates and routes read `Current`, and the public `compose` has neither, so a route's logic is tested by moving it into a function of plain arguments outside `api/` (`export const GET = () => photo(Current.get().params.id)`, then `photo("7")` in a test). Settings are a plain object, so a test may compose them as often as it likes.
 
 ### `env`
 
@@ -515,6 +496,10 @@ Outside a request (module scope, `scheduled`) there is no `Current`: handlers th
 | `declare module "@expressive/rpc" { interface Env }` | `declare module "@expressive/dev"` |
 | `db.session(next, d1(env.DB))` | `db.session(() => next(), d1(env.DB))` - `next` takes only a `Request`; otherwise unchanged: `@expressive/sql`'s `session` takes an `Engine`, and `d1` is the app's adapter |
 | `AppConfig` | `Settings` |
+| `app/**/remote.ts` and `remote/` sidecars | `api/` route modules exporting calls; a sidecar left in `app/` fails generation |
+| a remote entry's default gate | an `api/` folder `index.ts`'s default |
+| params filled from the page URL | the call's arguments - calls sit on static paths |
+| the gate check | a route `default` awaiting an `api/` call |
 | `serve` from `/server` (generated entries only) | `listen` |
 | `fetchHandler` from `/fetch` (generated entries only) | `compose` |
 
@@ -613,8 +598,8 @@ All answered in review.
 
 ## Open items
 
-- **Vite `base`.** Remote calls and gate checks ignore a non-root `base`: a stub posts to `/` plus its folder's path, not under `base`. Left as is; the README and skill say so.
-- **A param folder's call during a held navigation.** Closed in PR 7: while an entering route's entry hook runs synchronously (a loaded hook included), dev leaves the path it enters under `Symbol.for("@expressive/dev#path")`, browser only, and clears it after. The generated call module fills `:param` segments from it when the pattern fits, else from `location`, so calls from the outgoing page keep their own path. Remaining: a call the hook makes after its first `await` fills from `location`.
+- **Vite `base`.** Closed: calls post under the `api/` prefix, which carries `base`.
+- **A param folder's call during a held navigation.** Gone with sidecars: calls sit on static `api/` paths and take params as arguments.
 
 ## PR split
 
@@ -626,6 +611,6 @@ Each PR has its own tests, a changeset where it is user-facing (`minor`), its RE
 4. **dev: pages over `assets`.** The one shell rule on every host (the page patterns in each entry, a navigation's 404 shell) and `assets` defaulting to `env.ASSETS`. Runtime check: a fetch-target build of the example app run under a local Workers runtime, plus Node.
 5. **dev: `index.dev.ts` and the layered `env`.** Dev reading and watching `index.dev.ts`, `env` refused elsewhere, the named-`bindings` error, the layered view dev binds, the fetch build's file-free reader, `Env` re-exported from dev's root and `.env` keys typing it. Tests prove the bundle carries neither `index.dev.ts`'s imports, `node:fs`, nor router or dom code.
 6. **dev: `api/` routes and gates.** Scan and strict matcher without backtracking, verbs, HEAD to GET, 404/405 with `Allow`, a `default` catch-all, the module-without-handler, naming and other-export errors, the `/api` reservations, the client import guard, generated tables and dev watch; a folder `index.ts`'s `default` as a gate over matched and unmatched paths with its folder's params, its Models in context until the request ends, and the class-default error; the example app. Hot-probe: an `api/` edit.
-7. **dev: gate check.** The scan marking gated folders and the generated tree wrapping their `enter`, the rule for when a check is sent, the `x-expressive-get` branch answering `200 {}` after the gates, refusal through the codec to `Catch` with retry re-sending, redirects (router or `location.assign`, a 3xx `Response` mapped, no loops), superseded checks, prerender exclusion, clearing passes on a gate edit, the example's `enter` check replaced. Needs PR 1 to fire on the fetch target. Runtime: an example e2e spec (one check on entry, none inside the folder, one on a param change, refusal to `Catch`, redirect, zero requests in a gate-less app, a superseded navigation) under dev and the Node build, and a `hot-probe.ts` case for a gate edit.
+7. **dev: gate check.** The scan marking gated folders and the generated tree wrapping their `enter`, the rule for when a check is sent, the `x-expressive-get` branch answering `200 {}` after the gates, refusal through the codec to `Catch` with retry re-sending, redirects (router or `location.assign`, a 3xx `Response` mapped, no loops), superseded checks, prerender exclusion, clearing passes on a gate edit, the example's `enter` check replaced. Needs PR 1 to fire on the fetch target. Runtime: an example e2e spec (one check on entry, none inside the folder, one on a param change, refusal to `Catch`, redirect, zero requests in a gate-less app, a superseded navigation) under dev and the Node build, and a `hot-probe.ts` case for a gate edit. Removed with `app/` sidecars (`api-calls.md`, PR 2).
 
 PRs 1 and 2 are independent and can start together; 3 to 7 follow in order, except 5, which can run beside 4.

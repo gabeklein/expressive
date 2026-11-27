@@ -2,13 +2,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 
 import { importRel, UNMATCHED } from "./project";
-import { hasGate } from "./scan";
 
 const ROUTE_EXT = new Set([".tsx", ".jsx", ".ts", ".js"]);
-const REMOTE = "remote";
-const REMOTE_FILE = /^remote\.[cm]?[jt]s$/;
-const REMOTE_MODULE = /\.[cm]?[jt]s$/;
-const REMOTE_INDEX = /^index\.[cm]?[jt]s$/;
+const REMOTE = /^remote\.[cm]?[jt]s$/i;
+const VIEW = /\.[jt]sx$/;
+const PLACED = ["Page", "Layout", "Loading", "Catch"];
 export const CALL = "call.ts";
 
 const ROLES = [
@@ -43,7 +41,6 @@ interface RouteNode {
   label?: string;
   children: RouteNode[];
   isLeaf: boolean;
-  gated: boolean;
   alias: Partial<Record<Role, string>>;
   hook?: string;
 }
@@ -60,26 +57,22 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   };
   warn(root);
 
-  assignAliases(root, new Set(["NotFound", "Route", "Router", "DefaultCatch", "missing", "hook", "wrap", "watching", "checked", "Through", "Component", "Model", "call", "gateCheck"]));
+  assignAliases(root, new Set(["NotFound", "Route", "Router", "DefaultCatch", "missing", "hook", "wrap", "watching", "Through", "Component", "Model"]));
 
   const { imports, loaders } = collectImports(root, outDir, dirname(appDir));
   const wrappers = collectWrappers(root, dirname(appDir));
   const tree = emitNode(root, true, 2, "null", outDir).join("\n");
-  const gates = gateTree(root, true);
-  const gated = JSON.stringify(gates).includes('"gate"');
   const pageImports = `{ ${[
-    gated && "gateCheck",
     "NotFound",
     "Route",
     !root.exports.has("Router") && "Router",
   ].filter(Boolean).join(", ")} }`;
   const scoped = some(root, node => !!scopeOf(node));
-  const either = some(root, node => !!hookOf(node));
+  const either = some(root, node => !!node.hook);
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
     ...((scoped || either) ? ['import { Model } from "@expressive/mvc";'] : []),
-    ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
     ...(scoped ? ["", `const wrapped = new WeakMap();
@@ -101,7 +94,6 @@ const wrap = (Type, children, file) => {
     ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf) => Object.assign(enter, { source, leaf, current: enter });"] : []),
     `const missing = () => { throw Object.assign(new NotFound(), { [Symbol.for("${UNMATCHED}")]: true }); };`,
     ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p><a href="/">Home</a></main> : (console.error(error), <main><h1>Something went wrong</h1>{import.meta.env.DEV && <p>{error.message}</p>}<button onClick={retry}>Try again</button><a href="/">Home</a></main>);'] : []),
-    ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
     ...(wrappers.length ? ["", ...wrappers] : []),
     ...(tree.includes("as={Through}") ? ["", "const Through = props => props.children;"] : []),
@@ -110,16 +102,6 @@ const wrap = (Type, children, file) => {
     "const App = (props) => (\n  <Router {...props}>", tree, "  </Router>\n);\n",
     "export default App;\n",
   ].join("\n");
-}
-
-function gateTree(node: RouteNode, root = false): object {
-  return {
-    ...(!root && { to: node.segment }),
-    ...(node.gated && { gate: 1 }),
-    ...(hasPage(node) && { page: 1 }),
-    ...(!node.isLeaf && (root || node.alias.Catch) && !caught(node) && { none: 1 }),
-    ...(!node.isLeaf && { in: node.children.filter(renders).map(child => gateTree(child)) }),
-  };
 }
 
 /** Every page route's pattern, as the router matches it - `/blog/:slug`, `/docs/*`. */
@@ -138,14 +120,12 @@ export async function pagePatterns(appDir: string, scan: ExportScanner): Promise
 /**
  * Pages a build tries to render ahead. Fixed paths are listed;
  * below a `:param` or `*`, modules exporting `paths()` are returned to list their own.
- * Gated folders are skipped.
  */
 export async function staticPaths(appDir: string, scan: ExportScanner): Promise<{ paths: string[]; sources: string[] }> {
   const paths: string[] = [];
   const sources: string[] = [];
 
   (function walk(node: RouteNode, path: string, dynamic: boolean) {
-    if (node.gated) return;
     if (dynamic && node.exports.has("paths")) sources.push(node.file!);
     if (!dynamic && hasPage(node)) paths.push(path || "/");
 
@@ -159,28 +139,22 @@ export async function staticPaths(appDir: string, scan: ExportScanner): Promise<
 const some = (node: RouteNode, test: (node: RouteNode) => boolean): boolean => test(node) || node.children.some(child => some(child, test));
 
 function newNode(fields: Partial<RouteNode>): RouteNode {
-  return { segment: "", name: "", exports: new Set(), classDefault: false, modelDefault: false, children: [], isLeaf: false, gated: false, alias: {}, ...fields };
+  return { segment: "", name: "", exports: new Set(), classDefault: false, modelDefault: false, children: [], isLeaf: false, alias: {}, ...fields };
 }
 
-async function scanDir(dir: string, segment: string, name: string, scan: ExportScanner): Promise<RouteNode> {
+async function scanDir(dir: string, segment: string, name: string, scan: ExportScanner, appDir = dir): Promise<RouteNode> {
   const node = newNode({ segment, name });
   const entries = readdirSync(dir);
+  const remote = entries.find(entry => REMOTE.test(entry) || (/^remote$/i.test(entry) && statSync(join(dir, entry)).isDirectory()));
 
-  if (entries.includes(REMOTE) && entries.some(entry => REMOTE_FILE.test(entry)))
-    throw new Error(`${dir} has both a remote module and a remote/ folder - pick one.`);
-
-  const entry = remoteEntry(dir, entries);
-
-  node.gated = !!entry && hasGate(entry);
+  if (remote && !(await routable(join(dir, remote), scan))) throw new Error(moved(appDir, join(dir, remote)));
 
   for (const entry of entries) {
     const full = join(dir, entry);
 
     if (statSync(full).isDirectory()) {
-      if (entry === REMOTE) continue;
-
       const tag = classify(entry, true)!;
-      node.children.push(await scanDir(full, tag.segment, name + tag.label, scan));
+      node.children.push(await scanDir(full, tag.segment, name + tag.label, scan, appDir));
       continue;
     }
 
@@ -229,15 +203,27 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
   return node;
 }
 
-function remoteEntry(dir: string, entries: string[]): string | undefined {
-  const file = entries.find(entry => REMOTE_FILE.test(entry));
+async function routable(path: string, scan: ExportScanner): Promise<boolean> {
+  if (statSync(path).isDirectory()) {
+    for (const entry of readdirSync(path))
+      if (VIEW.test(entry) || (await routable(join(path, entry), scan))) return true;
 
-  if (file) return join(dir, file);
-  if (!entries.includes(REMOTE) || !statSync(join(dir, REMOTE)).isDirectory()) return;
+    return false;
+  }
 
-  const index = readdirSync(join(dir, REMOTE)).find(entry => REMOTE_INDEX.test(entry));
+  if (!ROUTE_EXT.has(extname(path))) return false;
 
-  return index && join(dir, REMOTE, index);
+  const { exports } = await scan(readFileSync(path, "utf8"), path);
+
+  return [...exports].some(name => PLACED.includes(name));
+}
+
+function moved(appDir: string, file: string): string {
+  const project = dirname(appDir);
+  const folders = relative(appDir, dirname(file)).split(sep).filter(Boolean).map(part => classify(part, true)!.segment).filter(segment => !/^[:*]/.test(segment));
+  const shown = relative(project, file).split(sep).join("/") + (statSync(file).isDirectory() ? "/" : "");
+
+  return `${shown}: server calls live in /api now - move it to ${["api", ...folders, "(name).ts"].join("/")}`;
 }
 
 function precedence(segment: string) {
@@ -347,7 +333,6 @@ const renders = (node: RouteNode): boolean => hasPage(node) || node.children.som
 
 const scopeOf = (node: RouteNode): string | undefined => node.alias.default;
 
-const hookOf = (node: RouteNode): string | undefined => node.hook;
 
 function collectWrappers(root: RouteNode, project: string): string[] {
   const wrappers: string[] = [];
@@ -370,10 +355,8 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const pad = "  ".repeat(depth);
   const { Page, Layout, Loading, Catch } = node.alias;
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
-  const hook = hookOf(node);
-  const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
-  const entry = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault})` : hook;
-  const enter = node.gated && renders(node) ? `checked(${entry ?? (load && "undefined")}${load})` : entry;
+  const { hook } = node;
+  const enter = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault})` : hook;
   const scope = scopeOf(node);
 
   const own = Loading ? `<${Loading} />` : undefined;
@@ -432,33 +415,4 @@ function pascal(s: string): string {
     .filter(Boolean)
     .map(w => w[0].toUpperCase() + w.slice(1))
     .join("");
-}
-
-export interface Remote {
-  pattern: string[];
-  module: string;
-  folder: string;
-  file: string;
-}
-
-export function remoteOf(appDir: string, file: string): Remote | undefined {
-  if (!file.startsWith(appDir + sep) || !REMOTE_MODULE.test(file)) return;
-
-  const parts = relative(appDir, file).split(sep);
-  const at = parts.indexOf(REMOTE);
-  const nested = at >= 0 && at < parts.length - 1;
-
-  if (!nested && !REMOTE_FILE.test(parts.at(-1)!)) return;
-
-  const folders = nested ? parts.slice(0, at) : parts.slice(0, -1);
-  const module = nested ? parts.slice(at + 1).join("/").replace(REMOTE_MODULE, "").replace(/(^|\/)index$/, "") : "";
-
-  return { pattern: folders.map(dir => classify(dir, true)!.segment), module, folder: join(appDir, ...folders), file };
-}
-
-export function remoteEntries(appDir: string): Remote[] {
-  return readdirSync(appDir, { recursive: true, encoding: "utf8" }).flatMap(rel => {
-    const remote = remoteOf(appDir, join(appDir, rel));
-    return remote && !remote.module ? [remote] : [];
-  });
 }

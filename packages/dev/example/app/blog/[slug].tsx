@@ -1,7 +1,7 @@
 import { Route } from "@expressive/dev";
 import { get } from "@expressive/mvc";
 
-import { served } from "../remote";
+import { served } from "../../api/(served)";
 import Blog from "./index";
 
 export class Page extends Route {

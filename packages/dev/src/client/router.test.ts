@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { Router, entering } from "./router";
+import { Router } from "./router";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -33,16 +33,4 @@ it("will push history in a browser", async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(router.path).toBe("/blog/new");
   router.set(null);
-});
-
-it("will leave the entering path for a hook's synchronous run, and none without a window", () => {
-  const read = () => (globalThis as any)[Symbol.for("@expressive/dev#path")];
-
-  expect(entering("/a", read)).toBeUndefined();
-
-  vi.stubGlobal("window", {});
-
-  expect(entering("/a", () => [read(), entering("/b", read), read()])).toEqual(["/a", "/b", "/a"]);
-  expect(() => entering("/c", () => { throw new Error("Broke."); })).toThrow("Broke.");
-  expect(read()).toBeUndefined();
 });

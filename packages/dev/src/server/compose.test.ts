@@ -26,10 +26,11 @@ const calls = {
 };
 
 const store = new AsyncLocalStorage<string>();
-const sidecars = () => [{ pattern: ["tally"], exports: async () => ({ calls, classes: { Taken } }) }];
+const routes = [{ name: "api/(tally).ts", path: ["tally"], index: false, calls: { add: "add", where: "where", later: "later" }, classes: { Taken: "Taken" }, load: () => ({ ...calls, Taken }) }];
+const api = { prefix: "/api", routes: () => routes };
 
 const call = (name: string, args: unknown[], headers: Record<string, string> = {}) =>
-  new Request("http://localhost/tally", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name, ...headers }, body: JSON.stringify(args) });
+  new Request("http://localhost/api/tally", { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name, ...headers }, body: JSON.stringify(args) });
 
 const page = (path = "/", init?: RequestInit) => new Request(`http://localhost${path}`, init);
 
@@ -47,7 +48,7 @@ afterEach(() => {
 
 describe("compose", () => {
   it("will answer calls, then pages through assets, else 404", async () => {
-    const app = compose({}, { sidecars });
+    const app = compose({}, { api });
 
     expect(await (await app(call("add", [2, 3]))).json()).toEqual({ value: 5 });
     expect(await (await app(page("/about"), { assets })).text()).toBe("page /about");
@@ -57,16 +58,16 @@ describe("compose", () => {
 
   it("will bind env and ctx for the request's scope", async () => {
     const waitUntil = vi.fn();
-    const app = compose({}, { sidecars });
+    const app = compose({}, { api });
     const reply = await app(call("where", []), { env: { NAME: "prod" } as object, ctx: { waitUntil } });
 
-    expect(await reply.json()).toEqual({ value: [null, "/tally", { NAME: "prod" }] });
+    expect(await reply.json()).toEqual({ value: [null, "/api/tally", { NAME: "prod" }] });
     await app(call("later", []), { ctx: { waitUntil } });
     expect(waitUntil).toHaveBeenCalled();
   });
 
   it("will reply a call's thrown class with its status, and a throw in assets as a logged 500", async () => {
-    const app = compose({}, { sidecars });
+    const app = compose({}, { api });
     const taken = await app(call("add", [1, 0]));
     const broken = await app(page(), { assets: { fetch: async () => { throw new Error("disk"); } } });
 
@@ -168,11 +169,11 @@ describe("handle", () => {
         expect(() => Current.get()).toThrow();
         return store.run("inside", () => next());
       },
-    }, { sidecars });
+    }, { api });
 
-    expect(await (await app(call("where", []))).json()).toEqual({ value: ["inside", "/tally", {}] });
+    expect(await (await app(call("where", []))).json()).toEqual({ value: ["inside", "/api/tally", {}] });
     expect(await (await app(page("/a"), { assets })).text()).toBe("page /a");
-    expect(seen).toEqual(["/tally", "/a"]);
+    expect(seen).toEqual(["/api/tally", "/a"]);
   });
 
   it("will answer with a returned Response, and pass by returning nothing", async () => {
@@ -327,7 +328,7 @@ describe("handle", () => {
         if (request.headers.has("x-redirect")) throw new Redirect("/login");
         throw new Taken("held");
       },
-    }, { sidecars });
+    }, { api });
 
     const refused = await app(page("/"), { assets });
     const redirected = await app(page("/", { headers: { "x-redirect": "1" } }), { assets });
@@ -338,6 +339,16 @@ describe("handle", () => {
     expect([called.status, await called.json()]).toMatchObject([409, { error: "Taken", message: "held" }]);
   });
 
+  it("will answer a call handle refused without route classes when there are no routes, or they fail to load", async () => {
+    const broken = { prefix: "/api", routes: () => { throw new Error("api/ failed to scan"); } };
+    const handle = () => { throw new Taken("held"); };
+    const called = await compose({ handle }, { api: broken })(call("add", [1, 1]));
+    const bare = await compose({ handle })(call("add", [1, 1]));
+
+    expect([called.status, await called.json()]).toMatchObject([409, { error: "http:HttpError", message: "held" }]);
+    expect([bare.status, await bare.json()]).toMatchObject([409, { error: "http:HttpError", message: "held" }]);
+  });
+
   it("will log anything else as a 500, its message shown in dev only", async () => {
     const handle = () => {
       throw new Error("no session");
@@ -345,7 +356,7 @@ describe("handle", () => {
 
     expect(await (await compose({ handle })(page("/"), { assets })).json()).toEqual({ message: "Internal error." });
     expect(await (await compose({ handle }, { dev: true })(page("/"), { assets })).json()).toEqual({ message: "no session" });
-    expect(await (await compose({ handle }, { sidecars })(call("add", [1, 1]))).json()).toEqual({ message: "Internal error." });
+    expect(await (await compose({ handle }, { api })(call("add", [1, 1]))).json()).toEqual({ message: "Internal error." });
     expect(error).toHaveBeenCalledTimes(3);
   });
 

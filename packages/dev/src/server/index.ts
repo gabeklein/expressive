@@ -8,7 +8,7 @@ export { HttpError, BadRequest, Unauthorized, PaymentRequired, Forbidden, NotFou
 export { register as registerEnv } from "@expressive/env";
 
 /**
- * The app from an entry's settings: `handle` around calls and pages. For tests - no remotes or `api/` routes, and pages only through `assets`.
+ * The app from an entry's settings: `handle` around pages. For tests - no `api/` routes, and pages only through `assets`.
  *
  * @example
  * const app = compose(settings);

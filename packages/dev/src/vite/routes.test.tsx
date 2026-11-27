@@ -11,7 +11,7 @@ import { Link, Redirect } from "@expressive/router";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route } from "../client";
-import { generateRoutes, pagePatterns, remoteOf, staticPaths } from "./routes";
+import { generateRoutes, pagePatterns, staticPaths } from "./routes";
 import { scanExports } from "./scan";
 
 describe("app/ routing (codegen)", () => {
@@ -59,13 +59,10 @@ describe("app/ routing (codegen)", () => {
       "tally/[id].tsx": PAGE + "; export const paths = () => [];",
       "tally/index.tsx": PAGE,
       "tally/(sub).tsx": PAGE,
-      "tally/remote.ts": "export async function add() {}",
       "shop/index.tsx": PAGE,
       "shop/cart/index.tsx": PAGE,
-      "shop/remote/index.ts": SCOPE,
       "vault/index.tsx": PAGE,
       "vault/[id].tsx": PAGE + "; export const paths = () => [];",
-      "vault/remote.ts": "export default () => {}",
     };
 
     for (const [path, src] of Object.entries(files)) {
@@ -75,15 +72,15 @@ describe("app/ routing (codegen)", () => {
 
     const { paths, sources } = await staticPaths(appDir, scanExports);
 
-    expect(paths.sort()).toEqual(["/", "/about", "/docs", "/docs/guide/setup", "/docs/intro", "/paths", "/shop", "/shop/cart", "/tally", "/tally/sub"]);
-    expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx", "tally/[id].tsx"]);
+    expect(paths.sort()).toEqual(["/", "/about", "/docs", "/docs/guide/setup", "/docs/intro", "/paths", "/shop", "/shop/cart", "/tally", "/tally/sub", "/vault"]);
+    expect(sources.map(file => relative(appDir, file)).sort()).toEqual(["blog/[slug].tsx", "blog/[slug]/(edit).tsx", "tally/[id].tsx", "vault/[id].tsx"]);
     expect((await pagePatterns(appDir, scanExports)).sort()).toEqual([
       "/", "/about", "/blog/:slug", "/blog/:slug/edit", "/docs", "/docs/guide/setup", "/docs/intro",
       "/files/*", "/paths", "/shop", "/shop/cart", "/tally", "/tally/:id", "/tally/sub", "/vault", "/vault/:id",
     ]);
   });
 
-  it("will count leaf defaults in page patterns, prerender paths and the gate tree", async () => {
+  it("will count leaf defaults in page patterns and prerender paths", async () => {
     const root = mkdtempSync(join(tmpdir(), "routes-"));
     dirs.push(root);
     const appDir = join(root, "app");
@@ -92,7 +89,6 @@ describe("app/ routing (codegen)", () => {
       "(about).tsx": "export default () => null;",
       "blog/[slug].tsx": "export default () => null; export const paths = () => [];",
       "locked/(secret).tsx": "export default () => null;",
-      "locked/remote.ts": "export default () => {};",
     };
     for (const [path, source] of Object.entries(files)) {
       mkdirSync(dirname(join(appDir, path)), { recursive: true });
@@ -100,26 +96,21 @@ describe("app/ routing (codegen)", () => {
     }
     expect((await pagePatterns(appDir, scanExports)).sort()).toEqual(["/", "/about", "/blog/:slug", "/locked/secret"]);
     const { paths, sources } = await staticPaths(appDir, scanExports);
-    expect(paths.sort()).toEqual(["/", "/about"]);
+    expect(paths.sort()).toEqual(["/", "/about", "/locked/secret"]);
     expect(sources.map(file => relative(appDir, file))).toEqual(["blog/[slug].tsx"]);
-    const out = await generateRoutes(appDir, join(root, "out"), scanExports);
-    expect(out).toContain('"to":"about","page":1');
-    expect(out).toContain('"to":"secret","page":1');
   });
 
-  it("will count a childless index default as a page behind its folder gate", async () => {
+  it("will count a childless index default as a page", async () => {
     const root = mkdtempSync(join(tmpdir(), "routes-"));
     dirs.push(root);
     const appDir = join(root, "app");
     mkdirSync(join(appDir, "me"), { recursive: true });
     writeFileSync(join(appDir, "index.tsx"), PAGE);
     writeFileSync(join(appDir, "me/index.tsx"), 'import { Component } from "@expressive/mvc"; export default class Me extends Component { render() { return <p>me</p>; } }');
-    writeFileSync(join(appDir, "me/remote.ts"), "export default () => {};");
     expect(await pagePatterns(appDir, scanExports)).toContain("/me");
-    expect((await staticPaths(appDir, scanExports)).paths).not.toContain("/me");
+    expect((await staticPaths(appDir, scanExports)).paths).toContain("/me");
     const out = await generateRoutes(appDir, join(root, "out"), scanExports);
-    expect(out).toContain('"to":"me","gate":1,"page":1');
-    expect(out).toContain('enter={checked(watching(() => MeScope(), "app/me/index.tsx", true)');
+    expect(out).toContain('enter={watching(() => MeScope(), "app/me/index.tsx", true)}');
   });
 
 
@@ -156,12 +147,6 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain("Catch as DefaultCatch_");
     expect(out).toContain('const NotFound_ = () => import("../app/(not-found).tsx")');
     expect(out).toContain("Catch={DefaultCatch_}");
-  });
-
-  it("will not emit an undefined gate check for a folder with only Catch", async () => {
-    const out = await generate({ "index.tsx": PAGE, "empty/index.tsx": CATCH, "empty/remote.ts": "export default () => {};" });
-    expect(out).toContain('to="empty" Catch={EmptyCatch}');
-    expect(out).not.toContain("checked()");
   });
 
   it("will not let a leaf Catch claim unmatched children", async () => {
@@ -228,20 +213,25 @@ describe("app/ routing (codegen)", () => {
     expect(out).toContain('import { Page as Root } from "../app/index.tsx";');
   });
 
-  it("will leave a remote module out of the tree, its default class or not", async () => {
-    const out = await generate({ "index.tsx": PAGE, "tally/index.tsx": PAGE, "tally/remote.ts": SCOPE, "remote.ts": "export async function add() {}" });
-
-    expect(out).not.toContain("remote");
-    expect(out).toContain('<Route to="tally" as={Tally} />');
+  it("will throw for a remote module or remote/ folder under app/, pointing to api/", async () => {
+    await expect(generate({ "index.tsx": PAGE, "tally/index.tsx": PAGE, "tally/remote.ts": "" })).rejects.toThrow("app/tally/remote.ts: server calls live in /api now - move it to api/tally/(name).ts");
+    await expect(generate({ "index.tsx": PAGE, "remote.mts": "" })).rejects.toThrow("app/remote.mts: server calls live in /api now - move it to api/(name).ts");
+    await expect(generate({ "index.tsx": PAGE, "note/[id]/remote/index.ts": "" })).rejects.toThrow("app/note/[id]/remote/: server calls live in /api now - move it to api/note/(name).ts");
+    await expect(generate({ "index.tsx": PAGE, "(shop)/Remote.ts": "export async function buy() {}" })).rejects.toThrow("app/(shop)/Remote.ts: server calls live in /api now - move it to api/shop/(name).ts");
+    await expect(generate({ "index.tsx": PAGE, "docs/[...]/remote/feed/latest.ts": "export async function feed() {}", "docs/[...]/remote/feed/notes.md": "" })).rejects.toThrow("move it to api/docs/(name).ts");
   });
 
-  it("will not route a remote/ folder", async () => {
-    const out = await generate({ "index.tsx": PAGE, "remote/index.ts": PAGE, "remote/bar.ts": PAGE });
-    expect(out).not.toContain("remote");
+  it("will route a remote/ folder or keep a remote module holding route exports", async () => {
+    const out = await generate({ "index.tsx": PAGE, "remote/index.tsx": "export default () => <h1>remote</h1>", "tally/index.tsx": PAGE, "tally/remote.ts": PAGE, "news/remote/(today).ts": PAGE });
+
+    expect(out).toContain('to="remote"');
+    expect(out).toContain('to="today"');
+    expect(out).not.toContain("tally/remote");
   });
 
-  it("will throw if a folder has both a remote module and a remote/ folder", async () => {
-    await expect(generate({ "index.tsx": PAGE, "remote.ts": "", "remote/bar.ts": "" })).rejects.toThrow("has both a remote module and a remote/ folder - pick one.");
+  it("will route a file named remote with no extension as nothing", async () => {
+    const out = await generate({ "index.tsx": PAGE, "notes/index.tsx": PAGE, "notes/remote": "" });
+    expect(out).not.toContain("remote");
   });
 
   it("a module exporting Loading or Catch is imported statically", async () => {
@@ -280,37 +270,6 @@ describe("app/ routing (codegen)", () => {
 
     expect(out).toMatch(/<Route to="docs" as={Through} Catch={DocsCatch}>\s*<Route as={Docs} \/>\s*<Route none as={missing} \/>\s*<\/Route>/);
     expect(out).toMatch(/<Route to="help" as={Through} Catch={HelpCatch}>\s*<Route as={Help} \/>\s*<Route to="\*" as={HelpCatchall} \/>\s*<\/Route>/);
-  });
-
-  it("will wrap a gated folder's entry in the gate check, loading its module beside it", async () => {
-    const GATE = "export default () => {}";
-    const out = await generate({
-      "index.tsx": PAGE,
-      "admin/index.tsx": `${PAGE}\n${SCOPE}`,
-      "admin/remote.ts": GATE,
-      "admin/users/index.tsx": PAGE,
-      "admin/users/remote/index.ts": GATE,
-      "shop/[id]/index.tsx": `${PAGE}\n${LOADING}`,
-      "shop/[id]/remote.ts": GATE,
-      "tally/index.tsx": PAGE,
-      "tally/remote.ts": "export async function add() {}",
-      "notes/index.tsx": PAGE,
-      "notes/remote": "",
-    });
-
-    expect(out).toContain('import { gateCheck, NotFound, Route, Router } from "@expressive/dev";');
-    expect(out).toContain('import { call } from "@expressive/rpc";');
-    expect(out).toContain('const checked = gateCheck(call, {"page":1,"none":1,"in":[{"to":"admin","gate":1,"page":1,"in":[{"to":"users","gate":1,"page":1,"in":[]}]},{"to":"notes","page":1,"in":[]},{"to":"shop","in":[{"to":":id","gate":1,"page":1,"in":[]}]},{"to":"tally","page":1,"in":[]}]}, import.meta.hot);');
-    expect(out).toContain('<Route to="admin" enter={checked(watching(() => AdminScope(), "app/admin/index.tsx", false), () => import("../app/admin/index.tsx"))}>');
-    expect(out).toContain('<Route to="users" as={AdminUsers} enter={checked(undefined, () => import("../app/admin/users/index.tsx"))} />');
-    expect(out).toContain('<Route to=":id" as={ShopId} enter={checked()} fallback={<ShopIdLoading />} />');
-    expect(out).toContain('<Route to="tally" as={Tally} />');
-  });
-
-  it("will gate the root and skip gated folders when rendering ahead", async () => {
-    const out = await generate({ "index.tsx": PAGE, "remote.ts": "export default () => {}" });
-
-    expect(out).toContain('<Route enter={checked()} Catch={DefaultCatch}>');
   });
 
   it("a module with a default loads on first entry", async () => {
@@ -1037,15 +996,6 @@ describe("app/ routing (generated)", () => {
     await shows(() => root.textContent, "NotFound");
   });
 
-  it("will load a gated folder whose index exports only Catch", async () => {
-    const root = await app({
-      "app/index.tsx": PAGE,
-      "app/empty/index.tsx": `export const Catch = () => <p>empty catch</p>;`,
-      "app/empty/remote.ts": `export default () => {};`,
-    }, "/");
-    await shows(() => root.textContent, "page");
-  });
-
   it("will show the default Catch for an unmatched root URL", async () => {
     const root = await app({ "app/index.tsx": PAGE }, "/absent");
     await shows(() => root.querySelector("h1")?.textContent, "404 - Not found");
@@ -1067,34 +1017,5 @@ describe("app/ routing (generated)", () => {
     expect(root.textContent).toContain("broken");
     expect(logged).toHaveBeenCalledWith(expect.objectContaining({ message: "broken" }));
     logged.mockRestore();
-  });
-});
-
-describe("remote modules", () => {
-  const appDir = join(tmpdir(), "app");
-  const at = (path: string) => {
-    const remote = remoteOf(appDir, join(appDir, path));
-    return remote && [remote.pattern, remote.module, remote.folder.slice(appDir.length)];
-  };
-
-  it("will find a folder's remote module with its route pattern", () => {
-    expect(at("remote.ts")).toEqual([[], "", ""]);
-    expect(at("blog/[slug]/remote.ts")).toEqual([["blog", ":slug"], "", "/blog/[slug]"]);
-    expect(at("(about)/remote.mts")).toEqual([["about"], "", "/(about)"]);
-    expect(at("docs/[...]/remote.js")).toEqual([["docs", "*"], "", "/docs/[...]"]);
-  });
-
-  it("will give every module in a remote/ folder its parent's pattern", () => {
-    expect(at("blog/remote/index.ts")).toEqual([["blog"], "", "/blog"]);
-    expect(at("blog/remote/bar.ts")).toEqual([["blog"], "bar", "/blog"]);
-    expect(at("blog/remote/bar/baz.ts")).toEqual([["blog"], "bar/baz", "/blog"]);
-    expect(at("blog/remote/bar/index.ts")).toEqual([["blog"], "bar", "/blog"]);
-  });
-
-  it("will not take other modules, or files outside app/, as remote", () => {
-    expect(at("blog/index.tsx")).toBeUndefined();
-    expect(at("blog/remote.spec.ts")).toBeUndefined();
-    expect(at("blog/remote/view.tsx")).toBeUndefined();
-    expect(remoteOf(appDir, join(tmpdir(), "remote.ts"))).toBeUndefined();
   });
 });

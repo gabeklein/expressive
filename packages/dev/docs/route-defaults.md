@@ -29,7 +29,7 @@ import { Redirect } from "@expressive/dev";
 import { Component, get, set } from "@expressive/mvc";
 
 import { Session } from "../session";
-import * as account from "./remote";
+import * as account from "../../api/(account)";
 
 export default class Me extends Component {
   session = get(Session);
@@ -96,10 +96,10 @@ export function Catch({ error, retry }: { error: Error; retry(): void }) {
 ### On the server, the same errors
 
 ```ts
-// app/admin/remote.ts - the folder's gate
+// api/admin/index.ts - the folder's gate
 import { Redirect } from "@expressive/dev/server";
 
-import { Session } from "../session";
+import { Session } from "../../server/session";
 
 export default () => {
   const { staff } = Session.get();
@@ -108,7 +108,7 @@ export default () => {
 };
 ```
 
-A gate runs on the server for every call under the folder, and in the browser before any of its pages open.
+A gate runs on the server for every call and route under its `api/` folder. A page's `default` that awaits one of those calls in `new()` meets the gate before anything renders: its `Redirect` navigates, another refusal reaches `Catch`.
 
 ### Good to know
 
@@ -154,7 +154,7 @@ dev's `Route` (already a subclass of the router's) overrides `catch()` and check
 
 ### Two places a route decides
 
-**Before render: the `default`.** The route builds its `default` class itself, before rendering anything below, during the navigation's hold - the moment the old entry hook ran (dev's `enter` step, which the gate check already uses). Control and context flow are unchanged:
+**Before render: the `default`.** The route builds its `default` class itself, before rendering anything below, during the navigation's hold - the moment the old entry hook ran (dev's `enter` step). Control and context flow are unchanged:
 
 - built with `Default.new(Context.get(route))`, so it is homed in the route's context and its `get()` instructions resolve from above, as when the tree constructs it;
 - the route waits for it to be ready, so `new()` may `await` before deciding;
@@ -236,10 +236,10 @@ The router stays HTTP-free - not browser-only, let alone dom-only, so "404" isn'
 
 - **After feat/jsx.** The mechanisms here - a route's `catch()` boundary and fallback, placing a held instance, `<Component for>`, and `renderToString`'s handling of a held `catch()` - move into `@expressive/jsx`'s reconciler and mvc's default element on that trunk. Implement after it lands and re-run the probes there. Its `renderToString` escalates a `catch` retry that gets no further, which is the prerender behaviour this note needs. The pre-built instance is placed with `<Component for={instance}>` (#849).
 
-- **The gate check keeps `enter`.** Apps lose the entry hook, but dev's gate check is built on it: `enter`, `arm`, `REFUSED` and `retry` in `client/route.tsx`, `checked()` in `check.ts`, and `hookOf`/`hook` in `vite/routes.ts`. `enter` stays as internal plumbing for gated folders; only the app-facing function `default` goes. `stay(error)` strips `location` from a refused gate's redirect to force `Catch`, but the error is still `instanceof Redirect` - the `Redirect` branch checks `error.location` too.
+- **`enter` stays internal.** Apps lose the entry hook; dev's route defaults are built through it: `enter`, `arm`, `REFUSED` and `retry` in `client/route.tsx`, and `hookOf`/`hook` in `vite/routes.ts`. The gate check that also used it is gone with `app/` sidecars (`api-calls.md`).
 - **Placing a pre-built `default`.** The instance is placed with `<Component for={instance}>` (#849). The route waits for readiness in its `enter` step and destroys the instance on leave.
 - **Console noise.** Render-time throws reach a boundary, and React logs what boundaries catch: dev's React root filters `Redirect` and `NotFound` through `onCaughtError`. mvc warned when a factory or getter threw on its first read, though the error also reaches the reader; #834 drops that warning, so a guard's throw prints nothing.
-- **Calls from the entering tree.** `pathOf` fills params from `location.pathname`, which is still the old URL during a hold; `entering()` covered hooks only. Calls fill from `Router.path` instead.
+- **Calls from the entering tree.** Calls sit on static `api/` paths and take params as arguments, so nothing reads the URL during a hold.
 - **Codegen keyed on `Page`.** `pagePatterns` (the server's 404), `staticPaths`, `renders` and the gate tree in `vite/routes.ts` all count a leaf `default` as a page. `wrap()` renders a function `default` as a component, not bare `children`. A leaf whose `default` is a Model and which has no `Page` renders nothing - generation warns.
 - **Hot reload.** An edit to `new()` reloads the instance rather than patching it, so a guard edit reloads the route. A hot update settles a route's caught error, so a fixed page replaces its `Catch`.
 - **dev's `Redirect` changes meaning.** The root re-export was the router component; it becomes the error. Rendering `<Redirect to>` from dev fails with a message pointing at `throw new Redirect(to)`.
@@ -270,6 +270,7 @@ Neither package is in the app's `package.json`. A direct import resolves only th
 | `<Redirect when={x} to="/x" />` | `if (x) throw new Redirect("/x")` |
 | `export function NotFound` in a route module | `Catch` handling `error instanceof NotFound` |
 | `Redirect` / `Forbidden` from `@expressive/rpc` | from `@expressive/dev` (or `/server`) |
+| a gated `app/**/remote.ts` checked before its pages | a `default` whose `new()` awaits an `api/` call |
 | a leaf's `export function Page` | `export default` (`Page` still works) |
 | `default` class wrapping `Layout` | unchanged |
 

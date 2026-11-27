@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 import { send, toRequest } from "@expressive/rpc/http";
-import { verify, type Endpoint } from "@expressive/rpc/protocol";
 
 import type { Settings } from "../settings";
 import type { ApiRoute, Exports } from "./api";
@@ -71,8 +70,6 @@ export function staticFile(dir: string, pathname: string): Response | undefined 
 export interface ListenOptions {
   settings: Settings;
   client: string;
-  sidecars?: Endpoint[];
-  gates?: { pattern: string[]; gate: () => unknown }[];
   /** The `api/` folder's modules, served under `prefix`. */
   api?: { prefix: string; routes: (Omit<ApiRoute, "load"> & { module: Exports })[] };
   pages?: Pages;
@@ -83,14 +80,13 @@ export interface ListenOptions {
  *
  * Composes the app `settings` over `client` - for GET and HEAD, a file, else a page's `<path>/index.html`, else the `200.html` or `index.html` shell by the page rule, else 404 - caching `assetsDir` immutably.
  * Binds `process.env` over the `.env` files as each request's `env`.
- * Listens on `settings.port`, default 3000, only after every sidecar's error classes verify.
+ * Listens on `settings.port`, default 3000.
  */
-export function listen({ settings, client, sidecars = [], gates = [], api, pages = { patterns: [] } }: ListenOptions): Server {
+export function listen({ settings, client, api, pages = { patterns: [] } }: ListenOptions): Server {
   install();
 
-  const gateOf = new Map(gates.map(({ pattern, gate }) => [pattern.join("/"), gate]));
   const routes = api?.routes.map(({ module, ...ref }) => ({ ...ref, load: () => module }));
-  const app = compose(settings, { sidecars: () => sidecars, gates: async pattern => gateOf.get(pattern.join("/")), api: routes && { prefix: api!.prefix, routes: () => routes }, pages });
+  const app = compose(settings, { api: routes && { prefix: api!.prefix, routes: () => routes }, pages });
   const assets = { fetch: async (request: Request) => files(client, request, `/${pages.assetsDir ?? "assets"}/`) };
   const env = layered();
 
@@ -106,13 +102,7 @@ export function listen({ settings, client, sidecars = [], gates = [], api, pages
   }
 
   const port = settings.port ?? 3000;
-  const announce = () => console.log(`Expressive running at http://localhost:${port}/`);
-  const checked = sidecars.map(async ({ pattern, exports }) => {
-    const path = `/${pattern.join("/")}`;
-    verify(path, await exports());
-  });
-
-  Promise.all(checked).then(() => server.listen(port, announce));
+  server.listen(port, () => console.log(`Expressive running at http://localhost:${port}/`));
 
   return server;
 }

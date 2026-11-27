@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFound, Redirect, client } from "@expressive/rpc";
-import { Component, Context, Model, set } from "@expressive/mvc";
+import { NotFound, Redirect } from "@expressive/rpc";
+import { Component, Context, Model, get, set } from "@expressive/mvc";
 import { accept } from "@expressive/mvc/hot";
 import { NavLinks, Redirect as RouterRedirect } from "@expressive/router";
 
@@ -64,14 +64,34 @@ it("will leave non-setup and unowned setup reports for other handlers", async ()
     value = 0;
     protected async new() { throw new NotFound("missing"); }
   }
+  class Broken extends Model {
+    protected async new() { throw new Error("broken"); }
+  }
   const task = Task.new();
+  Broken.new();
   await settle();
   task.set(null);
   task.value = 1;
-  expect(seen).toContain("setup");
+  expect(seen.filter(kind => kind == "setup")).toHaveLength(2);
   expect(seen).toContain("dead");
   router.set(null);
   stop();
+});
+
+it("will drop a Redirect from a Model below an unmatched route", async () => {
+  const seen: unknown[] = [];
+  const stop = Model.on({ catch(error) { seen.push(error); } });
+  const router = Router.new(Context.root);
+  class Guarded extends Route {
+    protected async new() { throw new Redirect("/other"); }
+  }
+  const route = Guarded.new({ to: "elsewhere" });
+  await settle();
+  route.set(null);
+  router.set(null);
+  stop();
+  expect(seen).toEqual([]);
+  expect(router.path).toBe("/");
 });
 
 describe("browser errors", () => {
@@ -93,6 +113,21 @@ describe("browser errors", () => {
     retry!();
     retry!();
     await settle();
+  });
+
+  it("will enter a refused route again on retry", async () => {
+    let retry!: () => void;
+    let tries = 0;
+    const enter = () => { if (tries++ < 2) throw new Error("refused"); };
+    const Catch = ({ retry: again }: { retry: () => void }) => ((retry = again), <p>caught</p>);
+    location("/");
+    const root = await mount(() => <Route Catch={Catch}><Route enter={enter}><Route as={() => <p>page</p>} /></Route></Route>);
+
+    await vi.waitFor(() => expect(root.textContent).toBe("caught"));
+    retry();
+    await vi.waitFor(() => expect(tries).toBe(2));
+    retry();
+    await vi.waitFor(() => expect(root.textContent).toBe("page"));
   });
 
   it("will show Catch for a non-http redirect without navigating", async () => {
@@ -155,6 +190,87 @@ describe("browser errors", () => {
     expect(resolved).toBe(false);
     route.set(null);
     void pending;
+  });
+});
+
+describe("default reports", () => {
+  let router: Router;
+  let seen: [string, string | undefined][];
+  let stop: () => void;
+  beforeEach(() => {
+    seen = [];
+    stop = Model.on({ catch(error, _kind, key) { seen.push([(error as Error).message, key]); } });
+    router = Router.new(Context.root);
+  });
+  afterEach(() => {
+    router.set(null);
+    stop();
+  });
+
+  it("will show an async new() rejection in Catch once, reporting nothing", async () => {
+    class Guard extends Model { protected async new() { throw new Error("refused"); } }
+    const Catch = vi.fn(({ error }: { error: Error }) => <p>{error.message}</p>);
+    location("/");
+    const root = await mount(() => <Route Catch={Catch}><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("refused"));
+    await settle();
+    expect(Catch).toHaveBeenCalledOnce();
+    expect(seen).toEqual([]);
+  });
+
+  it("will report a required async field that throws", async () => {
+    class Guard extends Model { value = set(async () => { throw new Error("field"); }, true); }
+    location("/");
+    await mount(() => <Route Catch={() => <p>caught</p>}><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(seen).toContainEqual(["field", "value"]));
+  });
+
+  it("will follow a Redirect thrown from a field", async () => {
+    class Guard extends Model { value = set(async () => { throw new Redirect("/other"); }, true); }
+    location("/");
+    const root = await mount(() => <Route><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route><Route to="other" as={() => <p>other</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("other"));
+    expect(seen).toEqual([]);
+  });
+
+  it("will report a superseded guard's rejection unless it is an HttpError", async () => {
+    const rejects: ((error: Error) => void)[] = [];
+    class Guard extends Model { protected new() { return new Promise<void>((_, fail) => rejects.push(fail)); } }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => Guard}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(rejects).toHaveLength(1));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    rejects[0](new TypeError("broken"));
+    await vi.waitFor(() => expect(seen).toEqual([["broken", undefined]]));
+    router.goto("/a");
+    await vi.waitFor(() => expect(rejects).toHaveLength(2));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    rejects[1](new NotFound("gone"));
+    await settle();
+    expect(seen).toEqual([["broken", undefined]]);
+  });
+
+  it("will give a folder default its params on a page below the folder's index", async () => {
+    class Room extends Model {
+      route = get(Route);
+      id = "";
+      protected new() { this.id = this.route.match!.id; }
+    }
+    let folder!: Route;
+    const Notes = () => ((folder = Route.get().parent as Route), <p>notes {Room.get().id}</p>);
+    location("/room/7/notes");
+    const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={() => <p>index</p>} /><Route to="notes" as={Notes} /><Route to="files" as={() => <p>files</p>} /></Route><Route to="other" as={() => <p>other</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("notes 7"));
+    const params = folder.match;
+    router.goto("/room/7/files");
+    await vi.waitFor(() => expect(root.textContent).toBe("files"));
+    expect(folder.match).toBe(params);
+    router.goto("/other");
+    await vi.waitFor(() => expect(root.textContent).toBe("other"));
+    expect(folder.match).toBeUndefined();
   });
 });
 
@@ -354,22 +470,25 @@ describe("prebuilt defaults", () => {
     expect(caught).toBe(0);
   });
 
-  it("will build in the entering path before the current path changes", async () => {
-    let entered: unknown;
-    let current: unknown;
-    class Guard extends Model {
-      protected new() {
-        const path = (globalThis as Record<symbol, unknown>)[Symbol.for("@expressive/dev#path")];
-        entered = client().pathOf(["note", ":id"], "served", path as string);
-        current = window.location.pathname;
-      }
-    }
+  it("will render below an entry that resolves to no default", async () => {
     location("/");
-    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="note/:id" enter={() => Guard}><Route as={() => <p>next</p>} /></Route></Route>);
-    router.goto("/note/8");
-    await vi.waitFor(() => expect(root.textContent).toBe("next"));
-    expect(entered).toBe("/note/8");
-    expect(current).toBe("/");
+    const root = await mount(() => <Route enter={() => Promise.resolve(undefined)}><Route as={() => <p>page</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("page"));
+  });
+
+  it("will build nothing from an entry that resolves after its route is left", async () => {
+    let release!: (type: Model.Extends) => void;
+    const built = vi.fn();
+    class Guard extends Model { protected new() { built(); } }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => new Promise<Model.Extends>(resolve => (release = resolve))}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    release(Guard);
+    await settle();
+    expect(built).not.toHaveBeenCalled();
   });
 
   it("will wait for a required factory before rendering", async () => {

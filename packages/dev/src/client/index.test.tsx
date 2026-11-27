@@ -457,34 +457,6 @@ describe("default entry hook via `enter`", () => {
     expect(root.textContent).toBe("secret");
   });
 
-  it("verdict derived from params redirects", async () => {
-    const hook = (route: Route) => (route.match?.id === "block" ? "/login" : undefined);
-    const Tree = () => (
-      <Route>
-        <Route to="login" as={Login} />
-        <Route to=":id" as={Secret} enter={hook} />
-      </Route>
-    );
-
-    location("/block");
-    expect((await mount(Tree)).textContent).toBe("login");
-  });
-
-  it("a hook loaded on demand redirects once its module arrives", async () => {
-    const hook = (route: Route) => Promise.resolve({ default: () => "/login" }).then(m => m.default());
-    const Tree = () => (
-      <Route>
-        <Route to="login" as={Login} />
-        <Route to="secret" as={Secret} enter={hook} fallback={null} />
-      </Route>
-    );
-
-    location("/secret");
-    const root = await mount(Tree);
-    await settle();
-    expect(root.textContent).toBe("login");
-  });
-
   it("will redirect where a hook's thrown 3xx error points", async () => {
     const hook = (): undefined => {
       throw new Moved("/login");
@@ -577,7 +549,7 @@ describe("default entry hook via `enter`", () => {
   });
 
   it("clearing the hook clears the guard", async () => {
-    const route = Route.new({ enter: () => "/login" });
+    const route = Route.new({ enter: () => undefined });
     expect(route.redirect).toBeTypeOf("function");
     route.enter = undefined;
     expect(route.redirect).toBeUndefined();
