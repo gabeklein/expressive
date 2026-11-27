@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { Component, Model, pending, set } from '@expressive/mvc';
+import { Component, has, Model, pending, set } from '@expressive/mvc';
 
 import { Portal } from '../node/vnode';
 import { attached, flushMicrotasks, html, lazy, mockPromise, mount, place, render, track, until } from '../../test.setup';
@@ -750,6 +750,344 @@ describe('suspense and recovery', () => {
 
     gate.resolve();
     await until(() => expect(root.textContent).toBe('b'));
+  });
+
+  describe('a failed render', () => {
+    class Nav extends Model {
+      page = 'a';
+      other = 0;
+    }
+
+    it('will not render a descendant of a parent whose suspense rejects in a transition', async () => {
+      const gate = mockPromise<void>();
+      const failure = new Error('refused');
+      const caught = vi.fn();
+      const Secret = vi.fn(() => <p>secret</p>);
+      let refused = false;
+      gate.catch(() => (refused = true));
+
+      function Child() {
+        return Nav.get().page == 'b' ? <Secret /> : null;
+      }
+
+      function Guard(): Component.Node {
+        if (Nav.get().page == 'b') throw refused ? failure : gate;
+        return <Child />;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+
+        catch(error: Error) {
+          caught(error);
+          this.fallback = <i>refused</i>;
+          return new Promise<void>(() => {});
+        }
+
+        render() {
+          return <Guard />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      pending(() => (app.nav.page = 'b'));
+      await flushMicrotasks();
+      gate.reject(failure);
+
+      await until(() => expect(root.textContent).toBe('refused'));
+      expect(caught).toHaveBeenCalledWith(failure);
+      expect(Secret).not.toHaveBeenCalled();
+    });
+
+    it('will not render a descendant updated while its parent recovers', async () => {
+      const Secret = vi.fn((_: { other: number }) => <p>secret</p>);
+
+      function Child() {
+        const { page, other } = Nav.get();
+        return page == 'b' ? <Secret other={other} /> : null;
+      }
+
+      function Guard(): Component.Node {
+        if (Nav.get().page == 'b') throw new Error('refused');
+        return <Child />;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+
+        catch() {
+          this.fallback = <i>refused</i>;
+          return new Promise<void>(() => {});
+        }
+
+        render() {
+          return <Guard />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      pending(() => (app.nav.page = 'b'));
+      await until(() => expect(root.textContent).toBe('refused'));
+
+      app.nav.other = 1;
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(Secret).not.toHaveBeenCalled();
+    });
+
+    it('will settle a transition over a descendant held while its parent recovers', async () => {
+      function Child() {
+        return <b>{Nav.get().other}</b>;
+      }
+
+      function Guard(): Component.Node {
+        if (Nav.get().page == 'b') throw new Error('refused');
+        return <Child />;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+
+        catch() {
+          this.fallback = <i>refused</i>;
+          return new Promise<void>(() => {});
+        }
+
+        render() {
+          return <Guard />;
+        }
+      }
+
+      const [app, root] = mount(App);
+      let settled = false;
+
+      app.nav.page = 'b';
+      await until(() => expect(root.textContent).toBe('refused'));
+
+      app.nav.other = 1;
+      await flushMicrotasks();
+
+      pending(() => (app.nav.other = 2)).then(() => (settled = true));
+      await until(() => expect(settled).toBe(true));
+    });
+
+    it('will update the fallback a catch draws after its own render fails again', async () => {
+      let detail!: Detail;
+      const caught = vi.fn();
+
+      class Detail extends Component {
+        n = 0;
+
+        render() {
+          return <b>{this.n}</b>;
+        }
+      }
+
+      class App extends Component {
+        catch() {
+          caught();
+          this.fallback = <i>err<Detail is={(instance: Detail) => void (detail = instance)} /></i>;
+        }
+
+        render(): Component.Node {
+          throw new Error('broken');
+        }
+      }
+
+      const [, root] = mount(App);
+
+      await until(() => expect(caught).toHaveBeenCalledTimes(2));
+      await flushMicrotasks();
+      expect(root.textContent).toBe('err0');
+
+      detail.n = 1;
+      await until(() => expect(root.textContent).toBe('err1'));
+    });
+
+    it('will hold a descendant of a failed render after a failed render around it recovers', async () => {
+      const Leaf = vi.fn(() => <b>{Nav.get().other}</b>);
+      const retries: (() => void)[] = [];
+
+      class Flags extends Model {
+        outer = false;
+        inner = false;
+      }
+
+      function Inner(): Component.Node {
+        if (Flags.get().inner) throw new Error('inner');
+        return <Leaf />;
+      }
+
+      const inner = <Inner />;
+
+      function Outer(): Component.Node {
+        if (Flags.get().outer) throw new Error('outer');
+        return inner;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+        flags = new Flags();
+
+        catch() {
+          this.fallback = <i>refused</i>;
+          return new Promise<void>((resolve) => retries.push(resolve));
+        }
+
+        render() {
+          return <Outer />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      app.flags.inner = true;
+      await until(() => expect(retries).toHaveLength(1));
+
+      app.flags.outer = true;
+      await until(() => expect(retries).toHaveLength(2));
+
+      app.flags.outer = false;
+      retries[1]();
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      Leaf.mockClear();
+      app.nav.other = 1;
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(Leaf).not.toHaveBeenCalled();
+      expect(root.textContent).toBe('refused');
+    });
+
+    it('will render a parent before a child whose probe fails', async () => {
+      const caught = vi.fn();
+
+      class Store extends Model {
+        item: { name: string } | undefined = { name: 'a' };
+      }
+
+      function Child() {
+        return <b>{Store.get().item!.name}</b>;
+      }
+
+      function Parent() {
+        return Store.get().item ? <Child /> : <i>none</i>;
+      }
+
+      class App extends Component {
+        store = new Store();
+
+        catch(error: Error) {
+          caught(error);
+        }
+
+        render() {
+          return <Parent />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      pending(() => (app.store.item = undefined));
+
+      await until(() => expect(root.textContent).toBe('none'));
+      expect(caught).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['urgent', (work: () => void) => work()],
+      ['in a transition', pending]
+    ])('will show an update held while it failed once it renders again (%s)', async (_, run) => {
+      const list = new has.List(['one']);
+      let retry!: () => void;
+
+      class Kid extends Component {
+        n = 0;
+
+        render() {
+          return <b>{this.n}</b>;
+        }
+      }
+
+      let kid!: Kid;
+
+      function Guard(): Component.Node {
+        if (Nav.get().page == 'b') throw new Error('refused');
+        return <p>{list}<Kid is={(instance: Kid) => void (kid = instance)} /></p>;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+
+        catch() {
+          this.fallback = <i>refused</i>;
+          return new Promise<void>((resolve) => (retry = resolve));
+        }
+
+        render() {
+          return <Guard />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      expect(root.textContent).toBe('one0');
+
+      run(() => {
+        app.nav.page = 'b';
+        list.push('two');
+        kid.n = 5;
+      });
+
+      await until(() => expect(root.textContent).toBe('refused'));
+
+      app.nav.page = 'a';
+      retry();
+
+      await until(() => expect(root.textContent).toBe('onetwo5'));
+    });
+
+    it('will render a child update when its parent throws without a catch', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      class Store extends Model {
+        n = 0;
+        broken = false;
+      }
+
+      function Child() {
+        return <b>{Store.get().n}</b>;
+      }
+
+      const child = <Child />;
+
+      function Parent(): Component.Node {
+        if (Store.get().broken) throw new Error('broken');
+        return child;
+      }
+
+      class App extends Component {
+        store = new Store();
+
+        render() {
+          return <Parent />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      app.store.broken = true;
+      app.store.n = 1;
+
+      await until(() => expect(root.textContent).toBe('1'));
+      expect(error).toHaveBeenCalledWith(new Error('broken'));
+      error.mockRestore();
+    });
   });
 
   it('will recover an error thrown while probing a transition', async () => {

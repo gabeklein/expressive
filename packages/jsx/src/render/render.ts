@@ -9,6 +9,7 @@ import { unmountFiber } from './mount';
 import { reconcile } from './reconcile';
 import { consume, renderedAppearance } from '../core/appearance';
 import { settle, suspend, unwait } from './suspense';
+import { unseal } from '../core/scheduler';
 import { rootOf } from './host';
 import type { Host } from './host';
 import { within } from './host';
@@ -183,7 +184,10 @@ function attempt(fiber: Fiber, passive: boolean, render: () => RenderNode): true
         fiber.staging = undefined;
       }
 
-      if (!fiber.recovering) unwait(fiber);
+      if (!fiber.recovering) {
+        unwait(fiber);
+        unseal(scope);
+      }
       fiber.retried = undefined;
       return true;
     } catch (thrown) {

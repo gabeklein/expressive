@@ -76,7 +76,6 @@ test("leaves the gate for another page while its admission is still pending", as
 });
 
 test("shows Catch when the gate refuses an in-app navigation", async ({ page, context, baseURL, open }) => {
-  test.fail(true, "a route's page renders after its async guard rejects during a held navigation");
   await pass(context, baseURL, "banned");
   await open("/");
   await page.getByRole("link", { name: "Gate" }).click();

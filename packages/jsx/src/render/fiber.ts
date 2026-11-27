@@ -3,6 +3,7 @@ import { Component, Context } from '@expressive/mvc';
 import type { Key, Node as RenderNode } from '../node/vnode';
 import type { Appearance, Claim } from '../style/claim';
 import type { Scope } from '../core/adapter';
+import type { Schedulable } from '../core/scheduler';
 import { hydrationOf } from './host';
 import { activeRoot } from './host';
 import type { Root } from './host';
@@ -79,6 +80,17 @@ function range(kind: Kind, parent: globalThis.Node, before: globalThis.Node | nu
   return { kind, context, start, end, children: [], root: activeRoot() };
 }
 
+function enclose(fiber: Fiber, into: Set<Schedulable>) {
+  for (const child of fiber.children) {
+    if (child.scope) into.add(child.scope);
+    enclose(child, into);
+  }
+
+  if (fiber.placeholder) enclose(fiber.placeholder, into);
+
+  return into;
+}
+
 function makeScope(context: Context, update: (passive: boolean) => void): Scope {
   return {
     active: true,
@@ -122,5 +134,5 @@ function removeRange(start: globalThis.Node, end: globalThis.Node) {
   }
 }
 
-export { makeScope, move, moveRange, range, removeRange };
+export { enclose, makeScope, move, moveRange, range, removeRange };
 export type { Boundary, Container, Fiber, Placement };

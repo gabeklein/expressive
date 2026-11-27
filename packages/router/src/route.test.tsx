@@ -1406,6 +1406,43 @@ describe('a lazy page as `as`', () => {
     expect(view.container.textContent).toBe('refused');
   });
 
+  it('will not render a guarded scope\'s page when its async redirect rejects in-app', async () => {
+    location('/');
+    const gate = mockPromise<string | void>();
+    const failure = new Error('refused');
+    const page = vi.fn(text('secret'));
+    const caught: Error[] = [];
+
+    class App extends Route {
+      async catch(error: Error) {
+        caught.push(error);
+        this.fallback = <span>refused</span>;
+        await new Promise(() => {});
+      }
+    }
+
+    const view = await renderAct(
+      <App>
+        <Route to="" as={Home} />
+        <Route to="admin" redirect={() => gate}>
+          <Route as={page} />
+        </Route>
+      </App>
+    );
+
+    await visit('/admin');
+    expect(view.container.textContent).toBe('Home');
+
+    await act(async () => {
+      gate.reject(failure);
+      await gate.catch(() => {});
+    });
+
+    expect(caught).toEqual([failure]);
+    expect(view.container.textContent).toBe('refused');
+    expect(page).not.toHaveBeenCalled();
+  });
+
   it('will reach the Route catch when the module rejects', async () => {
     location('/posts/foo');
     const module = mockPromise<Module>();

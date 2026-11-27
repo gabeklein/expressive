@@ -2229,6 +2229,46 @@ describe('router Redirect', () => {
     error.mockClear();
   });
 
+  it('will not render a guarded scope\'s page when its async redirect rejects in-app', async () => {
+    const gate = mockPromise<string | void>();
+    const failure = new Error('refused');
+    const page = vi.fn(() => <h1>secret</h1>);
+    const caught: Error[] = [];
+    const router = Router.new();
+
+    class App extends Route {
+      catch(error: Error) {
+        caught.push(error);
+        this.fallback = <span>refused</span>;
+        return new Promise<void>(() => {});
+      }
+    }
+
+    const view = render(
+      <Component for={router}>
+        <App>
+          <Route to="" as={() => <h1>home</h1>} />
+          <Route to="admin" redirect={() => gate}>
+            <Route as={page} />
+          </Route>
+        </App>
+      </Component>
+    );
+    await act(flushMicrotasks);
+
+    await act(async () => router.goto('/admin'));
+    await act(async () => {
+      gate.reject(failure);
+      await gate.catch(() => {});
+    });
+    await act(flushMicrotasks);
+
+    expect(caught).toEqual([failure]);
+    expect(view).toHaveText('refused');
+    expect(page).not.toHaveBeenCalled();
+    error.mockClear();
+  });
+
   it('will navigate under StrictMode', async () => {
     const router = Router.new();
     router.path = '/legacy';
