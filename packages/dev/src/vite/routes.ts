@@ -74,12 +74,27 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...((scoped || either) ? ['import { Model } from "@expressive/mvc";'] : []),
+    ...((scoped || either) ? ['import { Component, Model } from "@expressive/mvc";'] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
     ...(scoped ? ["", `const wrapped = new WeakMap();
-const wrap = (Type, children, file) => {
+const warned = new Set();
+class Placement extends Component {
+  source = "";
+  _placed = false;
+  new() { this.get(() => {
+    if (!warned.has(this.source)) {
+      warned.add(this.source);
+      if (this._placed) return;
+      console.warn(this.source + ": its index default did not render children - Layout, Page and nested routes are hidden.");
+    }
+  }); }
+  render() { return this.props.children; }
+}
+const Placed = props => { Placement.get()._placed = true; return props.children; };
+const placing = (View, children, file) => !import.meta.env.PROD ? <Placement source={file}><View><Placed>{children}</Placed></View></Placement> : <View>{children}</View>;
+const wrap = (Type, children, file, index) => {
   if (Model.is(Type)) return children;
   if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component.");
   let View = wrapped.get(Type);
@@ -91,10 +106,10 @@ const wrap = (Type, children, file) => {
     } });
     wrapped.set(Type, View);
   }
-  return <View>{children}</View>;
+  return index ? placing(View, children, file) : <View>{children}</View>;
 };`] : []),
     ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
-    ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf) => Object.assign(enter, { source, leaf, current: enter });"] : []),
+    ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf, index) => Object.assign(enter, { source, leaf, index, current: enter });"] : []),
     "const missing = () => { throw new NotFound(); };",
     ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p><a href="/">Home</a></main> : (console.error(error), <main><h1>Something went wrong</h1>{import.meta.env.DEV && <p>{error.message}</p>}<button onClick={retry}>Try again</button><a href="/">Home</a></main>);'] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
@@ -304,7 +319,7 @@ function collectImports(root: RouteNode, outDir: string, project: string) {
 
       if (node.hook) {
         const file = JSON.stringify(sourceOf(node, project));
-        loaders.push(`const ${node.hook} = watching(${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `() => hook(${node.alias.default}, ${file})`}, ${file}, ${leafDefault(node) && !node.modelDefault});`);
+        loaders.push(`const ${node.hook} = watching(${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `() => hook(${node.alias.default}, ${file})`}, ${file}, ${leafDefault(node) && !node.modelDefault}, ${node.isLeaf ? false : "!import.meta.env.PROD"});`);
       }
     }
 
@@ -320,7 +335,7 @@ const lazy = (node: RouteNode): boolean => !isRoot(node) && !node.alias.Loading 
 
 function loaderFor(node: RouteNode, role: Role, spec: string, file: string): string {
   const load = role === "default" && node.classDefault !== true
-    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}))`
+    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}, ${!node.isLeaf}))`
     : `() => import(${spec}).then(m => m.${role})`;
   return `const ${node.alias[role]} = ${load};`;
 }
@@ -353,7 +368,7 @@ function collectWrappers(root: RouteNode, project: string): string[] {
     const file = JSON.stringify(sourceOf(node, project));
     const alias = node.alias.default + "d";
     const layout = node.alias.Layout ? `<${node.alias.Layout}>{props.children}</${node.alias.Layout}>` : "props.children";
-    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file})`};`);
+    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file}, ${!node.isLeaf})`};`);
   })(root);
 
   return wrappers;
@@ -367,7 +382,7 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
   const hook = hookOf(node);
   const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
-  const entry = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault})` : hook;
+  const entry = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault}, ${node.isLeaf ? false : "!import.meta.env.PROD"})` : hook;
   const enter = node.gated && renders(node) ? `checked(${entry ?? (load && "undefined")}${load})` : entry;
   const scope = scopeOf(node);
 
