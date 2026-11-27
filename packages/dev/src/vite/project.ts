@@ -211,7 +211,11 @@ export interface ApiEntry {
 
 const apiImports = (from: string, { routes = [] }: ApiEntry) => routes.map(({ file }, i) => `import * as a${i} from ${JSON.stringify(importRel(from, file))};`);
 
-const apiRef = ({ name, path, index }: ApiFile) => `{ name: ${JSON.stringify(name)}, path: ${JSON.stringify(path)}, index: ${index} }`;
+const apiRef = ({ name, path, index, calls, classes }: ApiFile) => {
+  const ids = Object.keys({ ...calls, ...classes }).length ? `, calls: ${JSON.stringify(calls)}, classes: ${JSON.stringify(classes)}` : "";
+
+  return `{ name: ${JSON.stringify(name)}, path: ${JSON.stringify(path)}, index: ${index}${ids} }`;
+};
 
 export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[], api: ApiEntry, pages: Pages): string {
   const configSpec = project.configPath && JSON.stringify(importRel(from, project.configPath));

@@ -420,9 +420,14 @@ describe("only", () => {
   });
 
   it("will still refuse a leaf the client could not call", async () => {
-    const { problems } = await only(`export function sync() {} export const count = 1; export async function fine() {}`, ["sync", "count"]);
+    const { problems } = await only(`export function sync() {} export const count = 1; export async function fine() {} export async function* rows() {} export function* ids() {}`, ["sync", "count", "rows", "ids"]);
 
-    expect(problems).toEqual(["sync() is not async - every call to it crosses the wire.", "count is neither an async function nor an Error subclass - the client could not use it."]);
+    expect(problems).toEqual([
+      "sync() is not async - every call to it crosses the wire.",
+      "count is neither an async function nor an Error subclass - the client could not use it.",
+      "rows() is a generator - a call answers one value; return an array, or stream it from a route.",
+      "ids() is a generator - a call answers one value; return an array, or stream it from a route.",
+    ]);
   });
 
   it("will take an index's default as its gate only when named", async () => {

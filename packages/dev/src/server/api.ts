@@ -1,5 +1,5 @@
 import { BadRequest, NotFound } from "@expressive/rpc";
-import { layer, within } from "@expressive/rpc/protocol";
+import { dispatch, failure, layer, within, type Endpoint, type Seats } from "@expressive/rpc/protocol";
 
 export type Exports = Record<string, unknown>;
 
@@ -8,6 +8,10 @@ export interface ApiRoute {
   name: string;
   path: string[];
   index: boolean;
+  /** The calls the client may make, export name by id. */
+  calls?: Record<string, string>;
+  /** The error classes a call may throw to the client, export name by id. */
+  classes?: Record<string, string>;
   load(): Exports | Promise<Exports>;
 }
 
@@ -122,4 +126,44 @@ export async function serveApi(request: Request, api: Api, dev: boolean): Promis
     at < active.length ? layer(active[at].run!, () => chain(at + 1), active[at].params, dev) : last();
 
   return within(request, [], () => chain(0));
+}
+
+const pick = (ids: Record<string, string> | undefined, exports: Exports) => Object.fromEntries(Object.entries(ids ?? {}).map(([id, name]) => [id, exports[name]]));
+
+const same = (a: string[], b: string[]) => a.length === b.length && a.every((part, i) => part === b[i]);
+
+const decoded = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
+
+/**
+ * Answer a call to a module under the folder: its folder gates outermost first, then the export its `x-expressive-call` names.
+ * A route matches its decoded path, as in `serveApi`.
+ */
+export async function callApi(request: Request, api: Api, dev: boolean): Promise<Response> {
+  let endpoints: Endpoint[] = [];
+
+  try {
+    const routes = await api.routes();
+    const skip = api.prefix.split("/").filter(Boolean).length;
+    const raw = new URL(request.url).pathname.split("/").filter(Boolean).slice(skip);
+    const path = raw.map(decoded);
+
+    endpoints = routes
+      .filter(route => Object.keys({ ...route.calls, ...route.classes }).length)
+      .map(route => ({ pattern: same(route.path, path) ? raw : route.path, exports: async () => { const exports = await route.load(); return { calls: pick(route.calls, exports), classes: pick(route.classes, exports) }; } }));
+
+    const gates: Seats = async pattern => {
+      const gate = routes.find(route => route.index && same(route.path, pattern.map(decoded)));
+      if (gate) return (await gate.load()).default as () => unknown;
+    };
+
+    return await dispatch(request, () => endpoints, dev, gates, undefined, skip);
+  } catch (error) {
+    return failure(error, endpoints, dev);
+  }
 }

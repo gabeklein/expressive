@@ -26,7 +26,7 @@ export interface ApiRefs {
  *
  * `settings.host`'s value given the app - an object without a `fetch` method gets the default `fetch(request, env, ctx)`; a class is exported as is.
  * The app's `assets` default to `env.ASSETS` when it has a `fetch`.
- * `api/` modules come in `apiModules`, described by `apiRefs` in the same order; `null` without an `api/` folder.
+ * `api/` modules come in `apiModules`, described by `apiRefs` in the same order - a ref's `calls` and `classes` name the exports a client may call and the error classes it may get; `null` without an `api/` folder.
  * A call runs after the gates in `gates` of its folder and those above.
  * Throws on creation if a ref names no export or a folder's class is not an Error - a bad build fails at module load.
  */

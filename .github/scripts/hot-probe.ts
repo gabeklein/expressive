@@ -1368,6 +1368,8 @@ export const GET = () => label + suffix + ' old';
 `,
     'api/label.ts': `export const label = 'hello';
 `,
+    'api/(greet).ts': `export async function greet(name: string) { return 'hi ' + name; }
+`,
     'server/suffix.ts': `export const suffix = '';
 `,
     'app/index.tsx': `export const Page = () => <h1>hi</h1>;
@@ -1422,8 +1424,23 @@ export const GET = () => label + suffix + ' old';
     rmSync(join(dir, 'api/added'), { recursive: true });
     await until(async () => (await get('/api/added')).startsWith('404 '));
 
+    const call = async (name: string) => {
+      const reply = await fetch(`http://127.0.0.1:${port}/api/greet`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-expressive-call': name }, body: '["ada"]' });
+      return `${reply.status} ${await reply.text()}`;
+    };
+    const loaded = async (name: string, expected: string) => {
+      await vite.transformRequest('/api/(greet).ts');
+      return (await call(name)) == expected;
+    };
+
+    await until(() => loaded('greet', '200 {"value":"hi ada"}'));
+
+    await Bun.write(join(dir, 'api/(greet).ts'), "export async function greet(name: string) { return 'hello ' + name; }\nexport async function wave() { return 'wave'; }\n");
+    await until(async () => (await call('greet')) == '200 {"value":"hello ada"}');
+    await until(() => loaded('wave', '200 {"value":"wave"}'));
+
     ok = true;
-    console.log('PASS [server] api/ route edited, its helper and import edited, renamed to a helper and back, a folder gate added and removed');
+    console.log('PASS [server] api/ route edited, its helper and import edited, renamed to a helper and back, a folder gate added and removed, a call edited and added');
   } catch (error) {
     console.log(`FAIL [server] api/ edit - ${error instanceof Error ? error.message : error}`);
   } finally {

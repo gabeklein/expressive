@@ -16,7 +16,7 @@ app/                  file-based routes
   blog/remote.ts      sidecar      server module for /blog and below
   blog/remote/        sidecar      or a folder of them, any depth, index optional
 app.tsx | src/app.tsx single root component instead of app/ (default export)
-api/                  optional HTTP routes under /api: verbs, catch-alls, folder gates (api/ routes, below)
+api/                  optional HTTP routes under /api: verbs, calls, catch-alls, folder gates (api/ routes, below)
   (hello).ts          /api/hello   leaf - names as in app/
   photo/[id].ts       /api/photo/:id
   photo/store.ts      helper       bare names are support modules, as in app/
@@ -440,12 +440,54 @@ export async function POST() {
   never matches, except inside the rest `[...]` takes - its first segment must be non-empty.
 - Params arrive decoded, slashes included (`%2F` is `/`) - never join one onto a file path.
 
+#### Calls
+
+Any other exported async function in a route is a call. The app imports it, gets a typed stub, and
+the function runs on the server:
+
+```ts
+// api/(account).ts
+export const GET = () => Session.get().user; // REST: GET /api/account
+
+export class Taken extends Error {
+  status = 409;
+}
+
+export async function rename(name: string) { // call
+  if (await db.user.exists(name)) throw new Taken(`${name} is taken.`);
+  return db.user.rename(name);
+}
+
+// app/me/index.tsx
+import { rename, Taken } from "../../api/(account)";
+```
+
+- A call is a `POST` to its module's path - `api/(account).ts` posts to `/api/account`,
+  `api/admin/index.ts` to `/api/admin` - with the `x-expressive-call` header naming it and a JSON
+  array of arguments. The reply is `{ value }`. A `POST` without the header goes to the module's
+  verbs, so a call and `POST` share a path.
+- Calls are always `POST`. Export `GET` to serve a GET - a call with no parameters can still mutate.
+- The folder gates run before a call as before a verb: a refusal rejects the call with the gate's
+  error, Models a gate activates are found by `X.get()` in the call, and `next` wraps it.
+- An exported `Error` subclass crosses with the calls: thrown on the server, it rejects on the
+  client as the same class, its fields kept - one a gate throws too, whichever route exports it.
+  Other errors answer a 500, as with `handle`.
+- Only calls the client build imports are callable; an unimported export is no endpoint. Their ids
+  are a per-build hash unless `remote: { opaque: false }`. In dev, the calls of every route module
+  the browser loaded are callable.
+- A call reads the request from `Current` - cookies, headers, `env`.
+- Calls sit on static paths: a module under `[param]` or `[...]` with a call fails the build -
+  take the id as an argument. `api/index.ts`'s calls are reserved, like its other exports.
+- The client may import a route's calls, `Error` subclasses and types - not its verbs or its
+  `default`, and nothing from a helper.
+
 The dev server and the build fail on:
 
-- a route with neither verbs nor a `default` (a folder `index.ts` with only a gate is fine), a
+- a route with no verbs, no `default` and no calls (a folder `index.ts` with only a gate is fine), a
   `default` beside verbs outside an `index.ts`, or a class as a folder's `default` - a function that
   activates the Model covers it;
-- any other runtime export from a route (type exports are fine) - `api/index.ts`'s are reserved. A
+- any other runtime export from a route - a function that isn't async, a class that isn't an
+  `Error`, a value or a re-export (type exports are fine) - `api/index.ts`'s are reserved. A
   route re-exporting with `export *` fails the build: list the verbs by name, `export { GET } from`;
 - a helper exporting a verb-named handler (`export function GET`, `export const POST = () => …`) -
   it was meant as a route, so name the file `(name).ts`. The build fails; dev logs it on save.
@@ -456,7 +498,9 @@ The dev server and the build fail on:
   modules on one path (`api/(dev).ts` beside `api/dev/index.ts`);
 - `app/api/`, `app/(api)/`, `app/(api).tsx` or `public/api/` beside `api/`, in any case - `/api`
   belongs to the folder. Without `api/`, the app may own `/api` itself;
-- a client module importing from `api/`, helpers included - it is server-only.
+- a call under a `[param]` or `[...]`;
+- a client module importing a verb or a `default` from a route, or anything from a helper, through
+  an alias too.
 
 In dev, routes load on the module runner per request, so an edit to a route or a helper it imports
 lands on the next one; a file added, removed or renamed under `api/` is picked up as well. A save

@@ -157,6 +157,31 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
+  it("will render a page importing an api/ route's calls, and return null for one whose render calls them", async () => {
+    const root = project({
+      "api/(account).ts": `
+        export const GET = () => "verb";
+        export class Taken extends Error {}
+        export async function user() { return "ada"; }
+      `,
+      "app/index.tsx": `
+        import { Component } from "@expressive/mvc";
+        import { user, Taken } from "../api/(account)";
+        export class Page extends Component { render() { return <button onClick={() => user()}>{Taken.name}</button>; } }
+      `,
+      "app/(account).tsx": `
+        import { Component, set } from "@expressive/mvc";
+        import { user } from "../api/(account)";
+        export class Page extends Component { name = set(() => user()); render() { return <p>{this.name}</p>; } }
+      `,
+    });
+    const renderer = await launch(root);
+
+    expect((await renderer.render("/") as Page).html).toContain("Taken</button>");
+    expect(await renderer.render("/account")).toBeNull();
+    renderer.close();
+  });
+
   it("will reject a page whose root default fails its async new()", async () => {
     const root = project({
       "app/index.tsx": `
