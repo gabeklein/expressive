@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Page } from "./render";
@@ -41,14 +42,14 @@ function built(files: Record<string, string>, shell = SHELL) {
   return root;
 }
 
-function renderer(render: (path: string) => Partial<Page> | null, listed: string[] = []) {
+function renderer(render: (path: string) => Partial<Page> | "decided" | "unmatched" | null, listed: string[] = []) {
   const close = vi.fn();
 
   launch.mockResolvedValueOnce({
     paths: async () => listed,
     render: async (path: string) => {
       const page = render(path);
-      return page && { path, html: path, css: "", head: "", ...page };
+      return page && (typeof page == "string" ? page : { path, html: path, css: "", head: "", ...page });
     },
     close,
   });
@@ -73,29 +74,56 @@ describe("prerender", () => {
     expect(log).toHaveBeenCalledWith("Prerendered 4 pages.");
   });
 
-  it("will leave a page that moves, renders nothing or fails to the client", async () => {
-    const root = built({ "app/(a).tsx": PAGE, "app/(b).tsx": PAGE, "app/(c).tsx": PAGE, "app/(d).tsx": PAGE, "app/(e).tsx": PAGE });
+  it("will summarize route decisions and warn for empty, failed or unmatched pages", async () => {
+    const root = built({ "app/(a).tsx": PAGE, "app/(b).tsx": PAGE, "app/(c).tsx": PAGE, "app/(d).tsx": PAGE, "app/(e).tsx": PAGE, "app/(f).tsx": PAGE });
 
     renderer(path => {
       if (path == "/a") return { path: "/" };
-      if (path == "/e") return null;
       if (path == "/b") return { html: "<!--fragment--> <!--/fragment-->" };
       if (path == "/c") throw new Error("broke");
+      if (path == "/d") return "decided";
+      if (path == "/e") return null;
+      if (path == "/typo") return "unmatched";
       return {};
-    }, ["relative", "/x/../d", "/q?x=1", "/%E0%A4%A", 7 as any]);
+    }, ["/typo", "relative", "/x/../d", "/q?x=1", "/%E0%A4%A", 7 as any]);
 
-    expect(await prerender(root)).toEqual(["/d"]);
+    expect(await prerender(root)).toEqual(["/f"]);
     expect(warn.mock.calls.map(([message]: unknown[]) => message)).toEqual([
-      "/a redirected to / at build - left to the client.",
       "/b rendered nothing at build - left to the client.",
       "/c was not prerendered: broke",
+      "/typo matches no route - not prerendered.",
       "relative is not an absolute path - not prerendered.",
       "/x/../d is not an absolute path - not prerendered.",
       "/q?x=1 is not an absolute path - not prerendered.",
       "/%E0%A4%A is not an absolute path - not prerendered.",
       "7 is not an absolute path - not prerendered.",
     ]);
-    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 needs the server and renders in the browser.");
+    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 needs the server and renders in the browser - 2 redirect or not-found pages render in the browser.");
+  });
+
+  it("will count pages that decide in a real bundle, warning for a listed path no route matches", { timeout: 60_000 }, async () => {
+    const { launch: real } = await vi.importActual<typeof import("./render")>("./render");
+    const packages = fileURLToPath(new URL("../../../", import.meta.url));
+    const config = `export default { resolve: { alias: [
+      { find: /^@expressive\\/([^/]+)$/, replacement: ${JSON.stringify(packages)} + "$1/src" },
+      { find: /^@expressive\\/([^/]+)\\/(.+)$/, replacement: ${JSON.stringify(packages)} + "$1/src/$2" },
+    ] } };`;
+    const root = built({
+      "vite.config.mjs": config,
+      "app/index.tsx": `export const Page = () => <p>home</p>;`,
+      "app/(old).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("/"); };`,
+      "app/(away).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("https://auth.example.com/login"); };`,
+      "app/(lost).tsx": `import { NotFound } from "@expressive/dev"; export const Page = () => { throw new NotFound(); };`,
+      "app/blog/[slug].tsx": `import { NotFound, Route } from "@expressive/dev";
+        export const paths = () => ["/blog/a", "/blog/gone", "/blgo/typo"];
+        export const Page = () => { const { slug } = Route.get().match; if (slug == "gone") throw new NotFound(); return <h1>{slug}</h1>; };`,
+    }, `<html><head></head><body><div id="root"></div></body></html>`);
+
+    launch.mockImplementationOnce(real);
+
+    expect(await prerender(root)).toEqual(["/", "/blog/a"]);
+    expect(warn.mock.calls.map(([message]: unknown[]) => message)).toEqual(["/blgo/typo matches no route - not prerendered."]);
+    expect(log).toHaveBeenCalledWith("Prerendered 2 pages - 4 redirect or not-found pages render in the browser.");
   });
 
   it("will render a path encoded, as a browser reports it, into its decoded folder", async () => {
@@ -109,6 +137,15 @@ describe("prerender", () => {
     expect(readFileSync(join(root, "dist", "client", "blog", "a b", "index.html"), "utf8")).toContain(`data-prerender="/blog/a%20b"`);
     expect(readFileSync(join(root, "dist", "client", "blog", "café", "index.html"), "utf8")).toContain(">/blog/caf%C3%A9</div>");
     expect(launch).toHaveBeenCalledWith(root, { pretty: true });
+  });
+
+  it("will summarize one route decision", async () => {
+    const root = built({ "app/index.tsx": PAGE, "app/(old).tsx": PAGE });
+    renderer(path => path == "/old" ? { path: "/" } : {});
+
+    expect(await prerender(root)).toEqual(["/"]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 redirect or not-found page renders in the browser.");
   });
 
   it("will render pages beside a root remote, leaving those that call it to the client quietly", async () => {

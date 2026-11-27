@@ -465,6 +465,33 @@ describe("app/ routing (codegen)", () => {
     warn.mockRestore();
   });
 
+  it("will warn when an index default never places what it would hide", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const DROPS = "export default function Frame() { return <main />; }";
+    const DROPPING = `import { Component } from "@expressive/mvc"; export default class Frame extends Component { render() { return <main />; } }`;
+    await generate({
+      "index.tsx": `${DROPS}\n${PAGE}`,
+      "a/index.tsx": `${DROPPING}\n${LAYOUT}`,
+      "b/index.tsx": DROPS,
+      "b/(c).tsx": PAGE,
+      "d/index.tsx": DROPS,
+      "e/index.tsx": `${ENTER}\n${PAGE}`,
+      "f/index.tsx": `${SCOPE}\n${PAGE}`,
+      "g/index.tsx": `import Frame from "../frame";\nexport default Frame;\n${PAGE}`,
+      "(h).tsx": DROPS,
+      "i/index.tsx": DROPS,
+      "i/helper/index.tsx": "export const x = 1;",
+      "j/index.tsx": `import { Component } from "@expressive/mvc"; export default class Frame extends Component { render() { return <main>{this.props.children}</main>; } }\n${PAGE}`,
+    });
+    const warned = warn.mock.calls.map(([message]) => String(message).replace(/^.*\/app\//, "app/"));
+    expect(warned.sort()).toEqual([
+      "app/a/index.tsx: the default never places its children - its Layout, Page and the routes below never show.",
+      "app/b/index.tsx: the default never places its children - its Layout, Page and the routes below never show.",
+      "app/index.tsx: the default never places its children - its Layout, Page and the routes below never show.",
+    ]);
+    warn.mockRestore();
+  });
+
   it("will mount the root's Router export in place of dev's", async () => {
     const out = await generate({ "index.tsx": "export class Router {}", "(a).tsx": PAGE, "_/index.tsx": `${PAGE}\nexport class Router {}` });
     expect(out).toContain('import { NotFound, Route } from "@expressive/dev";');

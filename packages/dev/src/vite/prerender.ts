@@ -20,6 +20,7 @@ export async function prerender(root: string, options: BuildOptions = {}): Promi
   const shell = readFileSync(join(dir, "index.html"), "utf8");
   const written: string[] = [];
   let served = 0;
+  let decided = 0;
 
   if (!ROOT.test(shell) || !shell.includes("</head>")) throw new Error(`Prerendering needs a <head> and an empty <div id="root"> in the shell.`);
 
@@ -53,8 +54,13 @@ export async function prerender(root: string, options: BuildOptions = {}): Promi
           continue;
         }
 
-        if (page.path !== path) {
-          console.warn(`${path} redirected to ${page.path} at build - left to the client.`);
+        if (page == "unmatched") {
+          console.warn(`${path} matches no route - not prerendered.`);
+          continue;
+        }
+
+        if (page == "decided" || page.path !== path) {
+          decided++;
           continue;
         }
 
@@ -77,8 +83,9 @@ export async function prerender(root: string, options: BuildOptions = {}): Promi
   }
 
   const left = served ? ` - ${served} need${served == 1 ? "s" : ""} the server and render${served == 1 ? "s" : ""} in the browser` : "";
+  const decisions = decided ? ` - ${decided} redirect or not-found page${decided == 1 ? "" : "s"} render${decided == 1 ? "s" : ""} in the browser` : "";
 
-  console.log(`Prerendered ${written.length} page${written.length == 1 ? "" : "s"}${left}.`);
+  console.log(`Prerendered ${written.length} page${written.length == 1 ? "" : "s"}${left}${decisions}.`);
 
   return written;
 }

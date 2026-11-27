@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 
-import { importRel } from "./project";
+import { importRel, UNMATCHED } from "./project";
 import { hasGate } from "./scan";
 
 const ROUTE_EXT = new Set([".tsx", ".jsx", ".ts", ".js"]);
@@ -27,6 +27,7 @@ export interface Scan {
   modelDefault?: boolean;
   label?: string;
   routeParameter?: boolean;
+  dropsChildren?: boolean;
 }
 
 export type ExportScanner = (source: string, path: string) => Scan | Promise<Scan>;
@@ -38,6 +39,7 @@ interface RouteNode {
   exports: Set<string>;
   classDefault: boolean | undefined;
   modelDefault: boolean;
+  dropsChildren?: boolean;
   label?: string;
   children: RouteNode[];
   isLeaf: boolean;
@@ -52,6 +54,8 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const warn = (node: RouteNode) => {
     if (leafDefault(node) && node.modelDefault)
       console.warn(`${node.file}: a Model default without Page renders nothing.`);
+    if (node.dropsChildren && (node.exports.has("Page") || node.exports.has("Layout") || node.children.some(renders)))
+      console.warn(`${node.file}: the default never places its children - its Layout, Page and the routes below never show.`);
     node.children.forEach(warn);
   };
   warn(root);
@@ -95,7 +99,7 @@ const wrap = (Type, children, file) => {
 };`] : []),
     ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
     ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf) => Object.assign(enter, { source, leaf, current: enter });"] : []),
-    "const missing = () => { throw new NotFound(); };",
+    `const missing = () => { throw Object.assign(new NotFound(), { [Symbol.for("${UNMATCHED}")]: true }); };`,
     ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p><a href="/">Home</a></main> : (console.error(error), <main><h1>Something went wrong</h1>{import.meta.env.DEV && <p>{error.message}</p>}<button onClick={retry}>Try again</button><a href="/">Home</a></main>);'] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),
@@ -188,7 +192,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
 
     const scanned = await scan(readFileSync(full, "utf8"), full);
     const exports = new Set(scanned.exports);
-    const { classDefault, modelDefault, label, routeParameter } = scanned;
+    const { classDefault, modelDefault, label, routeParameter, dropsChildren } = scanned;
 
     if (exports.has("NotFound"))
       throw new Error(`${full}: the NotFound route export was removed. Import { NotFound } from "@expressive/dev" and export Catch = ({ error }) => error instanceof NotFound ? ... : ... .`);
@@ -203,6 +207,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
       node.exports = exports;
       node.classDefault = classDefault;
       node.modelDefault = !!modelDefault;
+      node.dropsChildren = dropsChildren;
       node.label = label;
       continue;
     }

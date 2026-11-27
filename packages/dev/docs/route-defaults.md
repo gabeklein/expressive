@@ -136,7 +136,7 @@ Today a route module's `default` is read by kind - a function is an entry hook, 
 - **No entry hook for apps.** A function `default` is a wrapper (or, in a leaf, the page).
 - **A dev app imports nothing from `@expressive/rpc` or `@expressive/router`.** Neither is the app's dependency; dev's docs and skill never show those imports.
 - **Prerender skips a self-gated page quietly,** with one summary line per build instead of a warning per page.
-- **An index `default` that never places its `children` warns in dev,** naming the module - the folder's routes would otherwise vanish silently.
+- **An index `default` that never places its `children` warns at generation** (build, and each save in dev), naming the module - the folder's routes would otherwise vanish silently. A static check: a local function or Component `render` that never reads `children`, only when the module has `Page` or `Layout` or the folder has routes below. Imported and Model defaults stay silent.
 
 ## The errors
 
@@ -210,7 +210,7 @@ A factory is called with its field's key (`value.call(subject, key)`), and an rp
 
 - An unmatched URL keeps its 404 from the server, which sees the path (page patterns in each entry).
 - A page's thrown `NotFound` is a render state on the client - status 200. A formal 404 (or 302) from a page waits for server rendering, later in the product cycle; the thrown value is what that phase reads.
-- Prerender: on the server the route's `catch()` rejects rather than holds - `renderToString` awaits a held promise until its settle timeout. A thrown `Redirect` or `NotFound` skips the page quietly - no per-page warning - and the build ends with one summary line (`3 pages redirect at build - not prerendered`). Either way the path gets the shell and the browser decides.
+- Prerender: on the server the route's `catch()` rejects rather than holds - `renderToString` awaits a held promise until its settle timeout. A thrown `Redirect` or `NotFound` skips the page quietly - no per-page warning - and the build ends with one summary line (`Prerendered 12 pages - 3 redirect or not-found pages render in the browser.`). A `paths()` entry no route matches still warns. Either way the path gets the shell and the browser decides.
 - dev's `setup` policy defers to the prerender entry's own `Model.on({ catch })` while prerendering, so a page's failure still reaches it.
 
 ## The router
