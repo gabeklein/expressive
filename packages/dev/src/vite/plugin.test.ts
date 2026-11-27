@@ -1411,26 +1411,118 @@ describe("vite host", () => {
       const server = await serve(root);
 
       expect((await optimizeDeps(config, true)).optimized).toHaveProperty("client-dep");
-      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("app/index.tsx imports api/db.ts - api/ is server-only; fetch its route, or move what both need outside api/.");
+      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("app/index.tsx imports api/db.ts - a helper in api/ is server-only; import a route's calls, or move what both need outside api/.");
       expect((await server.environments.ssr.transformRequest("/app/index.tsx"))?.code).toContain("/api/db.ts");
     });
 
-    it("will throw if client code imports api/ through an alias", async () => {
-      const root = project({ "app/index.tsx": "import { GET } from '@routes/(hello)'; export const Page = () => GET", "api/(hello).ts": "export const GET = () => 1;" });
+    it("will serve a route to the browser as stubs of its calls and error classes, refusing its verbs, its default and helpers, through an alias too", async () => {
+      const root = project({
+        "app/index.tsx": "import { account, Taken } from '@routes/(account)'; import type { User } from '@routes/(account)'; export const Page = () => [account, Taken]",
+        "lib/verb.ts": "import { GET } from '@routes/(account)'; export const x = GET;",
+        "lib/gate.ts": "import gate, { peek } from '@routes/admin/index'; export const x = [gate, peek];",
+        "lib/helper.ts": "import { db } from '@routes/db'; export const x = db;",
+        "api/(account).ts": "export const GET = () => 1; export type User = { name: string }; export class Taken extends Error {} export async function account() { return 1; } export async function rename(name: string) { return name; }",
+        "api/admin/index.ts": "export default () => {}; export async function peek() { return 1; }",
+        "api/db.ts": "export const db = {};",
+      });
       const server = await serve(root, expressive(), { alias: [{ find: /^@routes\/(.*)$/, replacement: `${root}/api/$1` }, ...(SOURCES!.alias as any[])] });
 
-      await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("api/ is server-only");
+      await server.transformRequest("/app/index.tsx");
+      const stub = (await server.transformRequest("/api/(account).ts"))?.code;
+
+      expect(stub).toContain('const at = ["api", "account"];');
+      expect(stub).toContain('export const account = (...args) => call(at, "account", args);');
+      expect(stub).toContain('export const rename = (...args) => call(at, "rename", args);');
+      expect(stub).toContain('export const Taken = define("/api/account#Taken", "Taken");');
+      expect(stub).not.toContain("GET");
+      await expect(server.transformRequest("/lib/verb.ts")).rejects.toThrow("lib/verb.ts imports GET from api/(account).ts - verbs and a default answer HTTP on the server; fetch the route, or import its calls.");
+      await expect(server.transformRequest("/lib/gate.ts")).rejects.toThrow("lib/gate.ts imports default from api/admin/index.ts");
+      await expect(server.transformRequest("/lib/helper.ts")).rejects.toThrow("lib/helper.ts imports api/db.ts - a helper in api/ is server-only");
+    });
+
+    it("will define a route's error under a parent from another route, loading that stub first", async () => {
+      const root = project({
+        "app/index.tsx": PAGE,
+        "api/(base).ts": "export class Denied extends Error {} export async function base() {}",
+        "api/(sub).ts": "import { Denied } from './(base)'; export class Banned extends Denied {} export async function sub() {}",
+      });
+      const server = await serve(root);
+      const stub = (await server.transformRequest("/api/(sub).ts"))?.code;
+
+      expect(stub).toMatch(/^import "\/api\/\(base\)\.ts";$/m);
+      expect(stub).toContain('export const Banned = define("/api/sub#Banned", "Banned", "/api/base#Denied");');
+    });
+
+    it("will refuse a route's stub that breaks the rules, and a call under a param", async () => {
+      const root = project({ "app/index.tsx": PAGE, "api/(bad).ts": "export const limit = 3;", "api/photo/[id].ts": "export async function like() {} export async function save() {}" });
+      const server = await serve(root);
+
+      await expect(server.transformRequest("/api/(bad).ts")).rejects.toThrow("api/(bad).ts: `limit` is not a route export");
+      await expect(server.transformRequest("/api/photo/[id].ts")).rejects.toThrow("api/photo/[id].ts: like(), save() - a call can't sit under [id], which it has no page URL to fill from; move it to a static path and take the value as an argument.");
+    });
+
+    it("will answer a call the browser loaded by its header, and the verbs without it at the same URL, under the folder's gate", async () => {
+      const root = realpathSync(project({
+        "app/index.tsx": PAGE,
+        "api/admin/index.ts": `${RPC} import { Admin } from './admin'; export default () => { if (!Current.get().request.headers.has('x-admin')) throw new Forbidden('Admins only.'); Admin.new(); };`,
+        "api/admin/admin.ts": "const { Model } = (globalThis as any).hostMvc; export class Admin extends Model { name = 'root'; }",
+        "api/admin/(desk).ts": "import { Admin } from './admin'; export const GET = () => 'verb'; export class Locked extends Error { status = 423; } export async function who() { return Admin.get().name; } export async function lock() { throw new Locked('Locked.'); }",
+      }));
+      const server = await serve(root);
+      await server.listen(0);
+
+      const admin = { "x-admin": "1" };
+      const at = (init?: RequestInit) => fetch(new URL("/api/admin/desk", server.resolvedUrls!.local[0]), init);
+      const call = (name: string, headers = {}) => at({ method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name, ...headers }, body: "[]" });
+
+      expect((await call("who", admin)).status).toBe(404);
+
+      await server.transformRequest("/api/admin/(desk).ts");
+      const refused = await call("who");
+      const locked = await call("lock", admin);
+      const verb = await at({ method: "POST", headers: { ...admin, "content-type": "application/json" }, body: "[]" });
+
+      expect(await (await call("who", admin)).json()).toEqual({ value: "root" });
+      expect([refused.status, (await refused.json()).message]).toEqual([403, "Admins only."]);
+      expect([locked.status, await locked.json()]).toEqual([423, { error: "/api/admin/desk#Locked", message: "Locked.", status: 423 }]);
+      expect(await (await at({ headers: admin })).text()).toBe("verb");
+      expect([verb.status, verb.headers.get("allow")]).toEqual([405, "GET, HEAD"]);
+    });
+
+    it("builds the node service with the calls the client imports, by hashed ids unless opaque is off", async () => {
+      const files = {
+        "app/index.tsx": "import { account, Taken } from '../api/(account)'; export const Page = () => [account, Taken]",
+        "app/(admin).tsx": "import { staff } from '../api/admin/index'; export const Page = () => staff",
+        "api/admin/index.ts": "export default () => {}; export async function staff() { return 1; } export async function unused() { return 2; }",
+        "api/(account).ts": "export const GET = () => 'verb'; export class Taken extends Error {} export async function account() { return 'acct'; } export async function rename() { return 1; }",
+        "api/(other).ts": "export async function hidden() { return 3; }",
+      };
+      const hashed = await buildBoth(files);
+      const readable = await buildBoth({ ...files, "index.ts": "export default { remote: { opaque: false } };" });
+      const [, id] = /calls: \{\s*"([\w-]{16})": "account"/.exec(hashed.server) ?? [];
+
+      expect(id).toBeDefined();
+      expect(hashed.client).toContain(id);
+      expect(hashed.server).not.toMatch(/"hidden"/);
+      expect(readable.server).toMatch(/calls: \{\s*"?account"?: "account"\s*\},\s*classes: \{\s*"\/api\/account#Taken": "Taken"/);
+      expect(readable.server).toMatch(/calls: \{\s*"?staff"?: "staff"\s*\}/);
+      expect(readable.server).not.toMatch(/"(rename|unused)"/);
+    });
+
+    it("will fail the build on a call under a param, imported by the client or not", async () => {
+      await expect(buildBoth({ "app/index.tsx": PAGE, "api/photo/[id].ts": "export async function like() {}" })).rejects.toThrow("api/photo/[id].ts: like() - a call can't sit under [id]");
+      await expect(buildBoth({ "app/index.tsx": PAGE, "api/files/[...].ts": "export async function list() {}" })).rejects.toThrow("api/files/[...].ts: list() - a call can't sit under [...]");
     });
 
     it("will refuse in dev a route whose exports break the rules as it loads, and log a save's errors", async () => {
-      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/(hello).ts": "export const helper = () => {};", "api/(ok).ts": "export const GET = () => 1;" }));
+      const root = realpathSync(project({ "app/index.tsx": PAGE, "api/(hello).ts": "export const helper = () => {};", "api/(ok).ts": "import { Base } from './base'; export class Taken extends Base {} export const GET = () => 1;", "api/base.ts": "export class Base extends Error {}" }));
       const server = await serve(root);
       const logged = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
       const console_ = vi.spyOn(console, "error").mockImplementation(() => {});
       await server.listen(0);
 
       const reply = await fetch(new URL("/api/hello", server.resolvedUrls!.local[0]));
-      const message = "api/(hello).ts: `helper` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and move helpers to a bare-named file beside it, like helpers.ts. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.";
+      const message = "api/(hello).ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function. helper() is not async - every call to it crosses the wire.";
 
       expect([reply.status, (await reply.json()).message]).toEqual([500, message]);
 

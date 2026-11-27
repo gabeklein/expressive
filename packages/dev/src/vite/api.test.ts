@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { Model } from "@expressive/mvc";
+import type { Sources } from "@expressive/rpc/vite";
 
-import { apiErrors, helperAt, problems, reservedApi, scanApi, verifyApi } from "./api";
+import { apiErrors, helperAt, problems, reservedApi, scanApi, scanCalls, verifyApi } from "./api";
 
 const dirs: string[] = [];
 
@@ -27,6 +28,11 @@ function project(files: Record<string, string>): string {
 }
 
 const GET = "export const GET = () => 1;";
+
+const SOURCES: Sources = {
+  resolve: async (spec, importer) => [".ts", ""].map(ext => join(dirname(importer), spec + ext)).find(file => existsSync(file)),
+  read: file => readFileSync(file, "utf8"),
+};
 
 describe("scanApi", () => {
   it("will route index, (name), [param] and [...] modules by location, and keep bare names as helpers", () => {
@@ -99,9 +105,9 @@ describe("apiErrors", () => {
       "api/(group)/a.ts": GET,
     });
 
-    expect(await apiErrors(root)).toEqual([
+    expect(await apiErrors(root, SOURCES)).toEqual([
       "api/(group): api/ has no groups - name the folder group/.",
-      "api/(empty).ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.",
+      "api/(empty).ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function.",
       "api/gate/index.ts: A folder's default is its gate - a function, not a class: export default () => { Session.new() }",
       "api/index.ts: `spec` - api/index.ts's other exports are reserved; export only verbs and a default gate.",
     ]);
@@ -109,25 +115,26 @@ describe("apiErrors", () => {
 
   it("will refuse a helper exporting a verb handler, but not other exports, verb-named values or re-exports", async () => {
     const root = project({
-      "api/(ok).ts": "import { db } from './store'; export const GET = () => db;",
+      "api/(ok).ts": "import { db } from './store'; import { Taken } from './(taken)'; export class Gone extends Taken {} export const GET = () => db;",
+      "api/(taken).ts": "export class Taken extends Error {} export const GET = () => 1;",
       "api/store.ts": "export const db = {}; export default db; export class Row {}",
       "api/methods.ts": "export const DELETE = 'DELETE'; export { GET } from './(ok)';",
       "api/users/hello.tsx": "export const GET = () => 1; export async function POST() {} const put = function () {}; export { put as PUT };",
     });
 
-    expect(await apiErrors(root)).toEqual([
+    expect(await apiErrors(root, SOURCES)).toEqual([
       "api/users/hello.tsx: exports GET, POST, PUT, but a bare-named file is a helper, not a route - rename it api/users/(hello).tsx to serve it.",
     ]);
   });
 
   it("will name a helper that does not parse, without throwing", async () => {
-    expect(await apiErrors(project({ "api/broken.ts": "export const x = (" }))).toEqual([expect.stringMatching(/^api\/broken\.ts: \S/)]);
+    expect(await apiErrors(project({ "api/broken.ts": "export const x = (" }), SOURCES)).toEqual([expect.stringMatching(/^api\/broken\.ts: \S/)]);
   });
 
   it("will say a route without a handler re-exports with export *", async () => {
-    expect(await apiErrors(project({ "api/(x).ts": "export * from './store';", "api/(y).ts": "export * as all from './store'; export type * from './store';", "api/store.ts": GET.replace("GET", "get") }))).toEqual([
+    expect(await apiErrors(project({ "api/(x).ts": "export * from './store';", "api/(y).ts": "export * as all from './store'; export type * from './store';", "api/store.ts": GET.replace("GET", "get") }), SOURCES)).toEqual([
       "api/(x).ts: re-exports with `export *` - list the verbs by name: export { GET } from \"...\".",
-      "api/(y).ts: `all` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and move helpers to a bare-named file beside it, like helpers.ts. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default.",
+      "api/(y).ts: `all` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts. No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function.",
     ]);
   });
 });
@@ -164,16 +171,16 @@ describe("reservedApi", () => {
 
 describe("problems", () => {
   it("will name exports a route does not read, reserving api/index.ts's", () => {
-    expect(problems(["GET", "Get"], false, false, false)).toEqual(["`Get` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and move helpers to a bare-named file beside it, like helpers.ts."]);
+    expect(problems(["GET", "Get"], false, false, false)).toEqual(["`Get` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts."]);
     expect(problems(["default", "spec"], true, true, false)).toEqual(["`spec` - api/index.ts's other exports are reserved; export only verbs and a default gate."]);
-    expect(problems(["default", "spec"], true, false, false)).toEqual(["`spec` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default, and move helpers to a bare-named file beside it, like helpers.ts."]);
+    expect(problems(["default", "spec"], true, false, false)).toEqual(["`spec` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts."]);
   });
 
   it("will refuse a class gate, a catch-all beside verbs and a module with no handler, but pass a gate alone", () => {
     expect(problems(["default"], true, false, true)).toEqual(["A folder's default is its gate - a function, not a class: export default () => { Session.new() }"]);
     expect(problems(["default", "GET"], false, false, false)).toEqual(["A default answers every method - export it or verbs, not both."]);
-    expect(problems([], false, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
-    expect(problems([], true, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS or a default."]);
+    expect(problems([], false, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function."]);
+    expect(problems([], true, false, false)).toEqual(["No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function."]);
     expect(problems(["default"], true, false, false)).toEqual([]);
     expect(problems(["default", "GET"], true, false, false)).toEqual([]);
   });
@@ -187,5 +194,33 @@ describe("verifyApi", () => {
     expect(() => verifyApi(route(true), { default: Session })).toThrow("api/a.ts: A folder's default is its gate - a function, not a class");
     expect(() => verifyApi(route(false), { GET: "hi" })).toThrow("api/a.ts: `GET` is not a function.");
     expect(() => verifyApi(route(false), { GET: () => {} })).not.toThrow();
+  });
+
+  it("will pass async functions and Error subclasses as calls, but not a sync function, another class or one in api/index.ts", () => {
+    class Taken extends Error {}
+    class Row {}
+    const route = (path: string[], index = false) => ({ name: "api/a.ts", path, index });
+
+    expect(() => verifyApi(route(["a"]), { async rename() {}, Taken })).not.toThrow();
+    expect(() => verifyApi(route(["a"]), { rename() {}, Row })).toThrow("api/a.ts: No handler - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default or an async function. rename() is not async - every call to it crosses the wire. Row is a class but not an Error - only error classes reach the client.");
+    expect(() => verifyApi(route([], true), { default: () => {}, async rename() {} })).toThrow("api/a.ts: `rename` - api/index.ts's other exports are reserved");
+  });
+});
+
+describe("scanCalls", () => {
+  it("will classify verbs, a default, calls, error classes and types, naming the rest", async () => {
+    const root = project({
+      "api/(a).ts": "export const GET = () => 1; export type Row = {}; export class Taken extends Error {} export async function rename() {} export function sync() {} export const limit = 3; export { other } from './store';",
+      "api/store.ts": "export async function other() {}",
+    });
+    const file = join(root, "api/(a).ts");
+    const { calls, errors, problems } = await scanCalls({ file, index: false, path: ["a"] }, readFileSync(file, "utf8"), SOURCES, () => false);
+
+    expect([calls, errors]).toEqual([["rename"], [{ name: "Taken" }]]);
+    expect(problems).toEqual([
+      "`limit` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts.",
+      "`other` is not a route export - export GET, POST, PUT, PATCH, DELETE, OPTIONS, a default, async functions or Error subclasses, and move helpers to a bare-named file beside it, like helpers.ts.",
+      "sync() is not async - every call to it crosses the wire.",
+    ]);
   });
 });
