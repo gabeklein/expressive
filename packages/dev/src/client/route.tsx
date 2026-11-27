@@ -108,7 +108,13 @@ function arm(route: Route, hook: EntryHook | undefined) {
       context.pop();
       return;
     }
-    DISPOSE.get(route.is)?.();
+    const previous = DISPOSE.get(route.is);
+    if (previous && route.router.navigating)
+      route.router.set("navigating", () => {
+        previous();
+        return null;
+      });
+    else previous?.();
     DEFAULTS.set(route.is, instance);
     const originalNew = methodSource(value, "new");
     let retired = false;
@@ -121,8 +127,10 @@ function arm(route: Route, hook: EntryHook | undefined) {
       unreplace();
       unregister();
       if (typeof window !== "undefined") window.removeEventListener(HOT, onHot);
-      DEFAULTS.delete(route.is);
-      DISPOSE.delete(route.is);
+      if (DISPOSE.get(route.is) === dispose) {
+        DEFAULTS.delete(route.is);
+        DISPOSE.delete(route.is);
+      }
       instance.set(null);
       context.pop();
     };

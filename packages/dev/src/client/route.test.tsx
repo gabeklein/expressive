@@ -324,6 +324,25 @@ describe("prebuilt defaults", () => {
     expect(gone).toHaveBeenCalledOnce();
   });
 
+  it("will keep the leaving default until a param change below its index lands", async () => {
+    class Room extends Model {
+      route = get(Route);
+      id = "";
+
+      protected async new() {
+        const { router, path } = this.route;
+        await null;
+        this.id = router.match(path, "*")!.params.id;
+      }
+    }
+
+    location("/room/1/notes");
+    const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={() => <p>room {Room.get().id}</p>} /><Route to="notes" as={() => <p>notes</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("notes"));
+    router.goto("/room/2");
+    await vi.waitFor(() => expect(root.textContent).toBe("room 2"));
+  });
+
   it("will discard a build abandoned for another route", async () => {
     const releases: Array<() => void> = [];
     let current!: Guard;
