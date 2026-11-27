@@ -48,3 +48,26 @@ test("serves no route for a bare-named helper beside the routes, naming it in de
   expect(reply.status()).toBe(404);
   expect((await reply.json()).message).toBe(project.name == "dev" ? hint : "No route in api/ serves /api/greeting - paths under /api belong to api/.");
 });
+
+test("calls an api/ route's functions from the app, under its folder's gate, keeping their error classes", async ({ page, context, baseURL, open }) => {
+  await open("/staff");
+  const output = page.locator("output");
+
+  await page.getByRole("button", { name: "Who" }).click();
+  await expect(output).toHaveText("Forbidden: Admins only.");
+
+  await context.addCookies([{ name: "admin", value: "root", url: baseURL! }]);
+  await page.getByRole("button", { name: "Who" }).click();
+  await expect(output).toHaveText("root");
+
+  await page.getByRole("button", { name: "Lock" }).click();
+  await expect(output).toHaveText("Locked until noon");
+});
+
+test("answers a route's verbs at its calls' URL when the call header is absent", async ({ request }) => {
+  const admin = { headers: { cookie: "admin=root" } };
+  const post = await request.post("/api/admin/desk", { ...admin, data: [] });
+
+  expect(await (await request.get("/api/admin/desk", admin)).json()).toEqual({ desk: "root" });
+  expect([post.status(), post.headers()["allow"]]).toEqual([405, "GET, HEAD"]);
+});
