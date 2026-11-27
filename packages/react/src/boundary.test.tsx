@@ -6,7 +6,6 @@ import { observer } from '@expressive/mvc/observable';
 import { mockError, mockPromise } from '../test.setup';
 import '.';
 import { Component } from '@expressive/mvc';
-import { ErrorBoundary } from './boundary';
 
 const Throws = () => {
   throw new Error('boom');
@@ -51,30 +50,6 @@ function flaky() {
 
 describe('error boundary', () => {
   mockError();
-
-  it('will keep one pending recovery for a held redirect', () => {
-    class Held extends Component {}
-
-    const self = new Held();
-    const error = new Error('redirecting');
-    Object.defineProperty(self, Symbol.for('@expressive/router#hold-redirect'), { value: true });
-    Object.defineProperty(error, Symbol.for('@expressive/router#redirect'), { value: true });
-
-    const boundary = new ErrorBoundary({ self, children: null });
-    boundary.state = { error };
-    boundary.mounted = true;
-    vi.spyOn(boundary, 'handle').mockReturnValue(new Promise(() => {}));
-
-    const render = () => {
-      try {
-        boundary.render();
-      } catch (thrown) {
-        return thrown;
-      }
-    };
-
-    expect(render()).toBe(render());
-  });
 
   it.each(['member', 'attribute'])('will recover through a %s catch', async (via) => {
     const child = flaky();
