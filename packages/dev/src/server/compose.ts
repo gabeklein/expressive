@@ -1,6 +1,5 @@
 import { HttpError, Redirect, type Env, type ExecutionCtx } from "@expressive/rpc";
-import { isCall } from "@expressive/rpc/http";
-import { bind, failure } from "@expressive/rpc/protocol";
+import { bind, failure, isCall } from "@expressive/rpc/protocol";
 
 import type { App, AppOptions, HandleArgs, Settings } from "../settings";
 import { callApi, endpointsOf, owns, serveApi, type Api } from "./api";

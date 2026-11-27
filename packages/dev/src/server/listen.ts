@@ -2,7 +2,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
-import { send, toRequest } from "@expressive/rpc/http";
+import { send, toRequest } from "@expressive/rpc/protocol";
 
 import type { Settings } from "../settings";
 import type { ApiRoute, Exports } from "./api";

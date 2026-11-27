@@ -15,7 +15,7 @@ import { layered } from "../server/env";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { Exposure } from "./remote";
 import { CALL, generateRoutes, pagePatterns, staticPaths, type ExportScanner, type Scan } from "./routes";
-import { isCall, send, toRequest } from "@expressive/rpc/http";
+import { isCall, send, toRequest } from "@expressive/rpc/protocol";
 import { guardScript, isClass, moduleOf, type Module, type Sources } from "@expressive/rpc/vite";
 import { staticFile } from "../server/listen";
 import { install } from "../server/install";
