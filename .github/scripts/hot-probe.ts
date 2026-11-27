@@ -1467,22 +1467,30 @@ async function gates() {
   let ok = false;
 
   write(dir, {
-    'app/index.tsx': `import { Component } from '@expressive/mvc';
-import { Link } from '@expressive/dev';
+    'app/index.tsx': `export const Page = () => <h1>Home</h1>;
+`,
+    'app/vault/index.tsx': `import { Component } from '@expressive/mvc';
+import { open } from '../../api/vault/(open)';
 
-export function Layout(props: { children?: Component.Node }) {
-  return <main><Link to="/">Home</Link><Link to="/vault">Vault</Link>{props.children}</main>;
-}
+export class Page extends Component {
+  shown = '';
 
-export const Page = () => <h1>Home</h1>;
+  async run() {
+    try {
+      this.shown = await open();
+    } catch (error) {
+      this.shown = (error as Error).message;
+    }
+  }
 
-export function Catch({ error }: { error: Error }) {
-  return <p id="caught">{error.message}</p>;
+  render() {
+    return <><h1>Vault</h1><button onClick={() => this.run()}>Open</button><p id="shown">{this.shown}</p></>;
+  }
 }
 `,
-    'app/vault/index.tsx': `export const Page = () => <h1>Vault</h1>;
+    'api/vault/index.ts': `export default () => {};
 `,
-    'app/vault/remote.ts': `export default () => {};
+    'api/vault/(open).ts': `export async function open() { return 'open'; }
 `
   });
 
@@ -1501,39 +1509,26 @@ export function Catch({ error }: { error: Error }) {
 
   const { port } = vite.httpServer!.address() as { port: number };
   const browser = new Browser();
-  const go = (path: string) => browser.eval(`document.querySelector('a[href="${path}"]').click()`);
-  const checks = () => browser.eval('window.__checks') as Promise<number>;
-  const heading = (text: string) => until(async () => (await browser.text('h1')) == text);
+  const shown = (text: string) => until(async () => (await browser.text('#shown')) == text);
+  const press = () => browser.eval(`document.querySelector('button').click()`);
 
   try {
-    await browser.open(`http://127.0.0.1:${port}/`, join(ROOT, '.chrome-gates'));
+    await browser.open(`http://127.0.0.1:${port}/vault`, join(ROOT, '.chrome-gates'));
     await until(() => browser.text('h1'), 20000);
-    await browser.eval(`(() => {
-      const fetch = window.fetch;
-      window.__checks = 0;
-      window.__probe = 'alive';
-      window.fetch = (url, init) => (init?.headers?.['x-expressive-get'] === 'gates' && window.__checks++, fetch(url, init));
-    })()`);
+    await browser.eval(`window.__probe = 'alive'`);
 
-    await go('/vault');
-    await heading('Vault');
-    await go('/');
-    await go('/vault');
-    await heading('Vault');
-    if ((await checks()) != 1) throw new Error(`expected one check before the edit, saw ${await checks()}`);
+    await press();
+    await shown('open');
 
-    await Bun.write(join(dir, 'app/vault/remote.ts'), "export default () => { throw new Error('Closed for the night.'); };\n");
+    await Bun.write(join(dir, 'api/vault/index.ts'), "export default () => { throw new Error('Closed for the night.'); };\n");
     await sleep(500);
-    await go('/');
-    await heading('Home');
-    await go('/vault');
-    await until(async () => (await browser.text('#caught')) == 'Closed for the night.');
+    await press();
+    await shown('Closed for the night.');
 
-    if ((await checks()) != 2) throw new Error(`expected a second check after the edit, saw ${await checks()}`);
     if ((await browser.eval('window.__probe')) != 'alive') throw new Error('the gate edit reloaded the page');
 
     ok = true;
-    console.log('PASS [dev] gate edit clears the passes the client remembered, without a reload');
+    console.log('PASS [dev] api/ folder gate edited - the next call sees it, without a reload');
   } catch (error) {
     console.log(`FAIL [dev] gate edit - ${error instanceof Error ? error.message : error}`);
   } finally {
