@@ -838,6 +838,132 @@ describe('suspense and recovery', () => {
       expect(Secret).not.toHaveBeenCalled();
     });
 
+    it('will settle a transition over a descendant held while its parent recovers', async () => {
+      function Child() {
+        return <b>{Nav.get().other}</b>;
+      }
+
+      function Guard(): Component.Node {
+        if (Nav.get().page == 'b') throw new Error('refused');
+        return <Child />;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+
+        catch() {
+          this.fallback = <i>refused</i>;
+          return new Promise<void>(() => {});
+        }
+
+        render() {
+          return <Guard />;
+        }
+      }
+
+      const [app, root] = mount(App);
+      let settled = false;
+
+      app.nav.page = 'b';
+      await until(() => expect(root.textContent).toBe('refused'));
+
+      app.nav.other = 1;
+      await flushMicrotasks();
+
+      pending(() => (app.nav.other = 2)).then(() => (settled = true));
+      await until(() => expect(settled).toBe(true));
+    });
+
+    it('will update the fallback a catch draws after its own render fails again', async () => {
+      let detail!: Detail;
+      const caught = vi.fn();
+
+      class Detail extends Component {
+        n = 0;
+
+        render() {
+          return <b>{this.n}</b>;
+        }
+      }
+
+      class App extends Component {
+        catch() {
+          caught();
+          this.fallback = <i>err<Detail is={(instance: Detail) => void (detail = instance)} /></i>;
+        }
+
+        render(): Component.Node {
+          throw new Error('broken');
+        }
+      }
+
+      const [, root] = mount(App);
+
+      await until(() => expect(caught).toHaveBeenCalledTimes(2));
+      await flushMicrotasks();
+      expect(root.textContent).toBe('err0');
+
+      detail.n = 1;
+      await until(() => expect(root.textContent).toBe('err1'));
+    });
+
+    it('will hold a descendant of a failed render after a failed render around it recovers', async () => {
+      const Leaf = vi.fn(() => <b>{Nav.get().other}</b>);
+      const retries: (() => void)[] = [];
+
+      class Flags extends Model {
+        outer = false;
+        inner = false;
+      }
+
+      function Inner(): Component.Node {
+        if (Flags.get().inner) throw new Error('inner');
+        return <Leaf />;
+      }
+
+      const inner = <Inner />;
+
+      function Outer(): Component.Node {
+        if (Flags.get().outer) throw new Error('outer');
+        return inner;
+      }
+
+      class App extends Component {
+        nav = new Nav();
+        flags = new Flags();
+
+        catch() {
+          this.fallback = <i>refused</i>;
+          return new Promise<void>((resolve) => retries.push(resolve));
+        }
+
+        render() {
+          return <Outer />;
+        }
+      }
+
+      const [app, root] = mount(App);
+
+      app.flags.inner = true;
+      await until(() => expect(retries).toHaveLength(1));
+
+      app.flags.outer = true;
+      await until(() => expect(retries).toHaveLength(2));
+
+      app.flags.outer = false;
+      retries[1]();
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      Leaf.mockClear();
+      app.nav.other = 1;
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve));
+
+      expect(Leaf).not.toHaveBeenCalled();
+      expect(root.textContent).toBe('refused');
+    });
+
     it('will render a parent before a child whose probe fails', async () => {
       const caught = vi.fn();
 

@@ -2,7 +2,7 @@ import { pending } from '@expressive/mvc';
 
 interface Schedulable {
   queued?: 'urgent' | 'passive' | 'deferred' | 'held';
-  held?: boolean;
+  held?: number;
   holding?: Set<Schedulable>;
   holds?: (() => void)[];
   probed?: { output: unknown };
@@ -65,8 +65,15 @@ function afterFlush(run: () => void) {
 function flushPassive() {
   passiveQueued = false;
 
-  const batch = [...passive].filter((scope) => scope.queued === 'passive' && !parked(scope));
+  const queued = [...passive].filter((scope) => scope.queued === 'passive');
+  const batch: Schedulable[] = [];
+
   passive.clear();
+
+  for (const scope of queued) {
+    if (parked(scope)) continue;
+    batch.push(scope);
+  }
 
   for (const scope of batch) {
     const waiting = scope.probe?.();
@@ -116,10 +123,11 @@ function parked(scope: Schedulable) {
 function seal(scope: Schedulable, inside: Set<Schedulable>) {
   const holding = scope.holding ||= new Set();
 
-  for (const inner of inside) {
-    inner.held = true;
-    holding.add(inner);
-  }
+  for (const inner of inside)
+    if (!holding.has(inner)) {
+      inner.held = (inner.held || 0) + 1;
+      holding.add(inner);
+    }
 }
 
 function unseal(scope: Schedulable) {
@@ -128,6 +136,8 @@ function unseal(scope: Schedulable) {
   scope.holding = undefined;
 
   holding?.forEach((inner) => {
+    if (--inner.held!) return;
+
     inner.held = undefined;
 
     if (inner.queued === 'held') {
@@ -198,7 +208,7 @@ function schedule(scope: Schedulable) {
     return;
   }
 
-  if (scope.queued && scope.queued !== 'deferred') return;
+  if (scope.queued && scope.queued !== 'deferred' && scope.queued !== 'held') return;
 
   scope.queued = 'passive';
   passive.add(scope);

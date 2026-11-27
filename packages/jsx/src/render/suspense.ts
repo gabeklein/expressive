@@ -215,7 +215,7 @@ function recover(fiber: Fiber, thrown: unknown, boundary: Boundary | undefined) 
 
   if (!boundary) throw error;
 
-  seal(fiber.scope!, enclose(fiber, new Set()));
+  seal(fiber.scope!, enclose({ children: fiber.children } as Fiber, new Set()));
 
   const handler = boundary;
 
