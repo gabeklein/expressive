@@ -72,7 +72,7 @@ describe("vite host", () => {
     const server = await serve(project({ "app/index.tsx": PAGE, "app/blog/[slug].tsx": PAGE }));
 
     const main = await server.transformRequest("/.expressive/main.tsx");
-    expect(main?.code).toContain("dev/src/index");
+    expect(main?.code).toContain("dom/src/index");
     expect(main?.code).toContain("/.expressive/routes.tsx");
 
     const routes = await server.transformRequest("/.expressive/routes.tsx");

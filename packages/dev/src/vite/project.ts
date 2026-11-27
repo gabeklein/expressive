@@ -66,7 +66,7 @@ const SETTLE = 30_000;
 
 export function bootstrap(appImport: string): string {
   return `\
-import { hydrate, render } from "@expressive/dev";
+import { hydrate, render } from "@expressive/dom";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import App from ${JSON.stringify(appImport)};
 
