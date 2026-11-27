@@ -53,15 +53,15 @@ const INDEX = /^index\.[cm]?[jt]sx?$/;
 
 export const DECLARED = "An index declares its gate itself - `export default () => guard()`, or a class extending an imported one.";
 
-export const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression =>
+const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression =>
   value?.type === "FunctionDeclaration" || value?.type === "FunctionExpression" || value?.type === "ArrowFunctionExpression";
 
 export const isClass = (value: Value): value is ESTree.Class =>
   value?.type === "ClassDeclaration" || value?.type === "ClassExpression";
 
-export const notAsync = (name: string) => `${name}() is not async - every call to it crosses the wire.`;
+const notAsync = (name: string) => `${name}() is not async - every call to it crosses the wire.`;
 
-export const notError = (name: string) => `${name} is a class but not an Error - only error classes reach the client.`;
+const notError = (name: string) => `${name} is a class but not an Error - only error classes reach the client.`;
 
 export const nameOf = (node: ESTree.ModuleExportName) => (node.type === "Identifier" ? node.name : String(node.value));
 
