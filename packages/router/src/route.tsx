@@ -2,14 +2,13 @@ import { Component, Model, set, unbind } from '@expressive/mvc';
 import { childrenOf, Fragment, isElement, propsOf, typeOf } from '@expressive/jsx/jsx-runtime';
 import type { JSX } from '@expressive/jsx/jsx-runtime';
 
-import { Redirect } from './redirect';
+import { HOLD, isRedirect } from './redirect';
 import { Router, uncommitted } from './router';
 import { fillParams, fullPattern, matchPattern, paramNames, patternSegment } from './url';
 
 const PARAMS = new WeakMap<Route, Record<string, string> | undefined>();
 const CHILDREN = new WeakMap<Route, Route[]>();
 const REDIRECTING = new WeakSet<Router>();
-const HOLD = Symbol.for('@expressive/router#hold-redirect');
 
 type Async<T> = T | Promise<T>;
 
@@ -238,8 +237,9 @@ export class Route extends Component {
   }
 
   /**
-   * Handles a thrown `Redirect` - navigates to its `to`. A cold load shows `fallback` until it lands;
-   * a held navigation keeps the current screen. Any other error passes to the next boundary up.
+   * Handles a thrown `Redirect` - navigates to its `to`. A pushed navigation keeps the current screen
+   * where the host holds (dom, React 18+); otherwise `fallback` shows until it lands. Any other error
+   * passes to the next boundary up.
    *
    * An override handling its own errors returns `super.catch(error)` for the rest.
    */
@@ -288,7 +288,7 @@ Route.on({
 
 /** A `Redirect` rejected from an async `new()` - the nearest Route navigates, unless it was left meanwhile. */
 function rejected(this: Model, error: unknown, kind: string) {
-  if (kind == 'setup' && error instanceof Redirect) {
+  if (kind == 'setup' && isRedirect(error)) {
     const route = this instanceof Route ? this : this.get(Route, false);
 
     if (route && (!route.matched || follow(route, error))) return;
@@ -301,7 +301,7 @@ function rejected(this: Model, error: unknown, kind: string) {
 function follow(route: Route, error: unknown): Promise<void> | undefined {
   const { router } = route;
 
-  if (!(error instanceof Redirect) || REDIRECTING.has(router)) return;
+  if (!isRedirect(error) || REDIRECTING.has(router)) return;
 
   REDIRECTING.add(router);
 
