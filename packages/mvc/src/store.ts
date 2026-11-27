@@ -1,5 +1,5 @@
 import { CAUSE, REPORT } from './dispatch';
-import { event, listener, Observer, observer, touch, unwrap, watch } from './observable';
+import { capture, event, listener, Observer, observer, touch, unwrap, watch } from './observable';
 
 type Key = Observer.Event;
 
@@ -128,7 +128,7 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
   let waiting: Promise<unknown> | undefined;
   let proxy: any;
 
-  const connect = () => {
+  const connect = () => capture(() => {
     reset = watch(
       target,
       (current) => {
@@ -145,7 +145,7 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
       },
       false
     );
-  };
+  });
 
   const run = (initial?: boolean) => {
     let next: unknown;

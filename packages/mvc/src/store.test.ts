@@ -82,6 +82,19 @@ describe('compute', () => {
 
     expect(data.double).toBe(4);
   });
+
+  it('will keep deriving after an effect which first read it stops', async () => {
+    const { data } = managed({ foo: 1 } as { foo: number; double?: number });
+    const { data: other } = managed({});
+
+    store.compute(data, 'double', (self: typeof data) => self.foo * 2);
+    observable.watch(other, () => void data.double)();
+
+    data.foo = 2;
+    await Promise.resolve();
+
+    expect(data.double).toBe(4);
+  });
 });
 
 describe('values', () => {
