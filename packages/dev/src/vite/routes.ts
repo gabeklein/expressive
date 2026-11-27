@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 
-import { importRel } from "./project";
+import { importRel, UNMATCHED } from "./project";
 import { hasGate } from "./scan";
 
 const ROUTE_EXT = new Set([".tsx", ".jsx", ".ts", ".js"]);
@@ -110,7 +110,7 @@ const wrap = (Type, children, file, index) => {
 };`] : []),
     ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
     ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf, index) => Object.assign(enter, { source, leaf, index, current: enter });"] : []),
-    "const missing = () => { throw new NotFound(); };",
+    `const missing = () => { throw Object.assign(new NotFound(), { [Symbol.for("${UNMATCHED}")]: true }); };`,
     ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p><a href="/">Home</a></main> : (console.error(error), <main><h1>Something went wrong</h1>{import.meta.env.DEV && <p>{error.message}</p>}<button onClick={retry}>Try again</button><a href="/">Home</a></main>);'] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
     ...(loaders.length ? ["", ...loaders] : []),

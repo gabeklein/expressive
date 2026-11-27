@@ -60,6 +60,8 @@ function appEntry(root: string): Pick<Project, "appDir" | "appPath"> {
 
 export const PRERENDERED = "data-prerender";
 
+export const UNMATCHED = "@expressive/dev#unmatched";
+
 export const PRERENDER_ENTRY = `/${GENERATED}/prerender.tsx`;
 
 const SETTLE = 30_000;
@@ -90,7 +92,7 @@ export function prerenderEntry(appImport: string, sources: string[]): string {
   return `\
 import { renderToString } from "@expressive/dom/server";
 import { Model } from "@expressive/mvc";
-import { Router } from "@expressive/dev";
+import { NotFound, Redirect, Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import { scope } from "./call.ts";
 import App from ${JSON.stringify(appImport)};
@@ -141,6 +143,8 @@ export default async function page(path) {
     return { ...output, path: router ? router.path : path };
   } catch (error) {
     if (mark.called) return null;
+    if (error?.[Symbol.for("${UNMATCHED}")]) return "unmatched";
+    if (error instanceof Redirect || error instanceof NotFound) return "decided";
     throw error;
   } finally {
     mark.done = true;

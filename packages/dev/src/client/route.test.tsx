@@ -32,6 +32,17 @@ it.each([new Redirect("/other"), new RouterRedirect("/other")])("will follow a %
   router.set(null);
 });
 
+it.each([new Redirect("https://auth.example.com/login"), new RouterRedirect("//auth.example.com/login")])("will reject a redirect off the site during server rendering", async error => {
+  const router = Router.new(Context.root);
+  const route = Route.new();
+  vi.stubGlobal("window", undefined);
+  await expect(route.catch(error)).rejects.toBe(error);
+  expect(router.path).toBe("/");
+  vi.unstubAllGlobals();
+  route.set(null);
+  router.set(null);
+});
+
 it("will release a prebuilt default without a browser window", async () => {
   const router = Router.new(Context.root);
   const gone = vi.fn();

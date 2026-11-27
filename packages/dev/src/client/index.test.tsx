@@ -5,7 +5,7 @@ import { Component, Model, set } from "@expressive/mvc";
 import { Link, Redirect } from "@expressive/router";
 import type { BrowserRouter } from "@expressive/router";
 import { NotFound, Redirect as Moved } from "@expressive/rpc";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
 import { Route, Router } from ".";
@@ -519,6 +519,26 @@ describe("default entry hook via `enter`", () => {
 
     expect(root.textContent).toBe("login");
     expect(window.location.pathname).toBe("/login");
+  });
+
+  it("will leave the site for a hook's 3xx error pointing at another origin", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const hook = (): undefined => {
+      throw new Moved("https://auth.example.com/login");
+    };
+    const Tree = () => (
+      <Route Catch={Err} fallback={null}>
+        <Route to="secret" as={Secret} enter={hook} />
+      </Route>
+    );
+
+    location("/secret");
+    const root = await mount(Tree);
+    await settle();
+
+    expect(assign).toHaveBeenCalledWith("https://auth.example.com/login");
+    expect(root.textContent).toBe("");
+    assign.mockRestore();
   });
 
   it("will throw a hook's error that is not a redirect to its Catch", async () => {

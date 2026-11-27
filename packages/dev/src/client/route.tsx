@@ -23,6 +23,7 @@ const WRAPPED = new WeakSet<Route>();
 const WARNED = new WeakSet<EntryHook>();
 const CHECKED = new Set<string>();
 const HOT = "expressive:route-update";
+const EXTERNAL = /^([a-z][a-z\d+.-]*:|\/\/)/i;
 
 export const owns = (instance: Model) => OWNED.has(instance);
 
@@ -206,7 +207,7 @@ export function report(route: Route, error: Error) {
 function redirected(error: unknown): string {
   const { status, location } = Object(error) as { status?: unknown; location?: unknown };
 
-  if (typeof status == "number" && status >= 300 && status < 400 && typeof location == "string" && location) return location;
+  if (typeof status == "number" && status >= 300 && status < 400 && typeof location == "string" && location && !EXTERNAL.test(location)) return location;
 
   throw error;
 }
@@ -249,11 +250,9 @@ Object.defineProperty(Route.prototype, "catch", {
       if (error instanceof RouterRedirect || (error instanceof Redirect && error.location)) {
         const router = this.router.is;
         if (REDIRECTING.has(router)) return caught(error);
-        if (typeof window === "undefined") {
-          const moved = error instanceof RouterRedirect ? error : new RouterRedirect(error.location);
-          return redirect.call(this, moved);
-        }
         const to = error instanceof RouterRedirect ? error.to : error.location;
+        if (typeof window === "undefined")
+          return EXTERNAL.test(to) ? Promise.reject(error) : redirect.call(this, error instanceof RouterRedirect ? error : new RouterRedirect(to));
         let url: URL;
         try {
           url = new URL(this.resolve(to), window.location.href);

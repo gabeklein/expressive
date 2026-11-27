@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
-import { NotFound } from "@expressive/rpc";
 
 import { PRERENDERED, resolveProject } from "./project";
 import type { BuildOptions } from "./build";
@@ -55,7 +54,12 @@ export async function prerender(root: string, options: BuildOptions = {}): Promi
           continue;
         }
 
-        if (page.path !== path) {
+        if (page == "unmatched") {
+          console.warn(`${path} matches no route - not prerendered.`);
+          continue;
+        }
+
+        if (page == "decided" || page.path !== path) {
           decided++;
           continue;
         }
@@ -71,10 +75,6 @@ export async function prerender(root: string, options: BuildOptions = {}): Promi
         writeFileSync(join(folder, "index.html"), fill(shell, page));
         written.push(path);
       } catch (error) {
-        if (error instanceof NotFound) {
-          decided++;
-          continue;
-        }
         console.warn(`${path} was not prerendered: ${(error as Error).message}`);
       }
     }

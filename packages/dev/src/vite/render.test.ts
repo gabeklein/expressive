@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { launch } from "./render";
+import { launch, type Page } from "./render";
 
 const PACKAGES = fileURLToPath(new URL("../../../", import.meta.url));
 const CONFIG = `export default {
@@ -54,9 +54,9 @@ describe("launch", { timeout: 30_000 }, () => {
     const renderer = await launch(root);
 
     expect(await renderer.paths()).toEqual(["/blog/a", "/blog/b"]);
-    expect((await renderer.render("/blog/b"))!.html).toContain("<h3>b</h3>");
+    expect((await renderer.render("/blog/b") as Page).html).toContain("<h3>b</h3>");
 
-    const about = (await renderer.render("/about"))!;
+    const about = await renderer.render("/about") as Page;
 
     expect(about).toMatchObject({ path: "/about", head: "<title>Site</title>" });
     expect(about.css).toMatch(/^\.Layout-\w+\{color: teal;\}$/);
@@ -79,27 +79,30 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
-  it("will report decisions from self-gating defaults", async () => {
+  it("will report decisions from self-gating defaults and pages, apart from a path no route matches", async () => {
+    const gate = (error: string) => `
+      import { NotFound, Redirect } from "@expressive/dev";
+      import { Model } from "@expressive/mvc";
+      export default class Gate extends Model { new() { throw ${error}; } }
+      export const Page = () => <p>gated</p>;
+    `;
     const root = project({
       "app/index.tsx": `export const Page = () => <p>home</p>;`,
       "app/(signin).tsx": `export const Page = () => <p>signin</p>;`,
-      "app/(old).tsx": `
-        import { Redirect } from "@expressive/dev";
-        import { Model } from "@expressive/mvc";
-        export default class Gate extends Model { new() { throw new Redirect("/signin"); } }
-        export const Page = () => <p>old</p>;
-      `,
-      "app/(gone).tsx": `
-        import { NotFound } from "@expressive/dev";
-        import { Model } from "@expressive/mvc";
-        export default class Gate extends Model { new() { throw new NotFound(); } }
-        export const Page = () => <p>gone</p>;
-      `,
+      "app/(old).tsx": gate(`new Redirect("/signin")`),
+      "app/(away).tsx": gate(`new Redirect("https://auth.example.com/login")`),
+      "app/(gone).tsx": gate("new NotFound()"),
+      "app/(leave).tsx": `import { Redirect } from "@expressive/dev"; export const Page = () => { throw new Redirect("https://auth.example.com/login"); };`,
+      "app/(lost).tsx": `import { NotFound } from "@expressive/dev"; export const Page = () => { throw new NotFound(); };`,
     });
     const renderer = await launch(root);
 
     expect(await renderer.render("/old")).toMatchObject({ path: "/signin" });
-    await expect(renderer.render("/gone")).rejects.toMatchObject({ status: 404 });
+    expect(await renderer.render("/away")).toBe("decided");
+    expect(await renderer.render("/gone")).toBe("decided");
+    expect(await renderer.render("/leave")).toBe("decided");
+    expect(await renderer.render("/lost")).toBe("decided");
+    expect(await renderer.render("/typo")).toBe("unmatched");
     renderer.close();
   });
 
@@ -144,11 +147,11 @@ describe("launch", { timeout: 30_000 }, () => {
     const renderer = await launch(root);
 
     expect(await renderer.paths()).toEqual([]);
-    expect((await renderer.render("/"))?.html).toContain("home</button>");
+    expect((await renderer.render("/") as Page).html).toContain("home</button>");
     expect(await renderer.render("/account")).toBeNull();
     expect(await renderer.render("/caught")).toBeNull();
     expect(await renderer.render("/later")).toBeNull();
-    expect((await renderer.render("/timer"))?.html).toContain("<p>timer</p>");
+    expect((await renderer.render("/timer") as Page).html).toContain("<p>timer</p>");
     await expect(renderer.render("/broke")).rejects.toThrow("broke");
     await new Promise(resolve => setTimeout(resolve, 20));
     renderer.close();
@@ -172,7 +175,7 @@ describe("launch", { timeout: 30_000 }, () => {
     const renderer = await launch(project({
       "app/index.tsx": `import { Model } from "@expressive/mvc"; export default class Session extends Model { name = "ready"; } export const Page = () => <p>{Session.get().name}</p>;`,
     }));
-    expect((await renderer.render("/"))?.html).toContain("<p>ready</p>");
+    expect((await renderer.render("/") as Page).html).toContain("<p>ready</p>");
     renderer.close();
   });
 
@@ -197,7 +200,7 @@ describe("launch", { timeout: 30_000 }, () => {
     await vi.waitFor(() => expect((globalThis as any).failLate).toBeTypeOf("function"));
     (globalThis as any).failLate();
     await expect(pending).rejects.toThrow("guard failed");
-    expect((await renderer.render("/about"))?.html).toContain("<p>about</p>");
+    expect((await renderer.render("/about") as Page).html).toContain("<p>about</p>");
 
     renderer.close();
     delete (globalThis as any).failLate;
@@ -207,7 +210,7 @@ describe("launch", { timeout: 30_000 }, () => {
     const renderer = await launch(project({ "app.tsx": `export default () => <p>solo</p>;` }));
 
     expect(await renderer.paths()).toEqual([]);
-    expect((await renderer.render("/"))!.html).toContain("<p>solo</p>");
+    expect((await renderer.render("/") as Page).html).toContain("<p>solo</p>");
     renderer.close();
   });
 

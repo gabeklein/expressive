@@ -14,7 +14,7 @@ export interface Page {
 
 export interface Renderer {
   paths(): Promise<string[]>;
-  render(path: string): Promise<Page | null>;
+  render(path: string): Promise<Page | "decided" | "unmatched" | null>;
   close(): void;
 }
 
