@@ -18,10 +18,8 @@ const DEFAULTS = new WeakMap<Route, Model>();
 const DISPOSE = new WeakMap<Route, () => void>();
 const TOKENS = new WeakMap<Route, object>();
 const OWNED = new WeakSet<Model>();
-const COMPONENTS = new WeakSet<Model>();
 const WRAPPED = new WeakSet<Route>();
 const WARNED = new WeakSet<EntryHook>();
-const CHECKED = new Set<string>();
 const HOT = "expressive:route-update";
 const EXTERNAL = /^([a-z][a-z\d+.-]*:|\/\/)/i;
 
@@ -80,7 +78,6 @@ function arm(route: Route, hook: EntryHook | undefined) {
     const context = new Context(Context.get(route));
     const instance = entering(route.router.path, () => (value as Model.Type<Model>).new(context));
     OWNED.add(instance);
-    if (Component.is(value)) COMPONENTS.add(instance);
     try {
       await instance.set();
     } catch (error) {
@@ -147,12 +144,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
       const Original = original;
       const content = Original ? <Original>{props.children}</Original> : props.children;
       const instance = DEFAULTS.get(route.is);
-      const { index, source } = hook as EntryHook & { index?: boolean; source?: string };
-      return instance
-        ? index && source && COMPONENTS.has(instance)
-          ? <Placement source={source}><Component for={instance}><Placed>{content}</Placed></Component></Placement>
-          : <Component for={instance}>{content}</Component>
-        : content;
+      return instance ? <Component for={instance}>{content}</Component> : content;
     } as typeof route.as;
   }
 
@@ -169,26 +161,6 @@ function arm(route: Route, hook: EntryHook | undefined) {
       return refused(error, token);
     }
   });
-}
-
-class Placement extends Component {
-  source = "";
-  _placed = false;
-
-  protected new() {
-    this.get(() => {
-      if (!CHECKED.has(this.source)) {
-        CHECKED.add(this.source);
-        if (this._placed) return;
-        console.warn(`${this.source}: its index default did not render children - Layout, Page and nested routes are hidden.`);
-      }
-    });
-  }
-}
-
-function Placed({ children }: { children?: Component.Node }) {
-  Placement.get()._placed = true;
-  return children;
 }
 
 function remember(route: Route) {

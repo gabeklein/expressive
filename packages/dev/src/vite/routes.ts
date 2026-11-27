@@ -27,6 +27,7 @@ export interface Scan {
   modelDefault?: boolean;
   label?: string;
   routeParameter?: boolean;
+  dropsChildren?: boolean;
 }
 
 export type ExportScanner = (source: string, path: string) => Scan | Promise<Scan>;
@@ -38,6 +39,7 @@ interface RouteNode {
   exports: Set<string>;
   classDefault: boolean | undefined;
   modelDefault: boolean;
+  dropsChildren?: boolean;
   label?: string;
   children: RouteNode[];
   isLeaf: boolean;
@@ -52,6 +54,8 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
   const warn = (node: RouteNode) => {
     if (leafDefault(node) && node.modelDefault)
       console.warn(`${node.file}: a Model default without Page renders nothing.`);
+    if (node.dropsChildren && (node.exports.has("Page") || node.exports.has("Layout") || node.children.some(renders)))
+      console.warn(`${node.file}: the default never places its children - its Layout, Page and the routes below never show.`);
     node.children.forEach(warn);
   };
   warn(root);
@@ -74,27 +78,12 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
-    ...((scoped || either) ? ['import { Component, Model } from "@expressive/mvc";'] : []),
+    ...((scoped || either) ? ['import { Model } from "@expressive/mvc";'] : []),
     ...(gated ? ['import { call } from "@expressive/rpc";'] : []),
     "",
     ...imports,
     ...(scoped ? ["", `const wrapped = new WeakMap();
-const warned = new Set();
-class Placement extends Component {
-  source = "";
-  _placed = false;
-  new() { this.get(() => {
-    if (!warned.has(this.source)) {
-      warned.add(this.source);
-      if (this._placed) return;
-      console.warn(this.source + ": its index default did not render children - Layout, Page and nested routes are hidden.");
-    }
-  }); }
-  render() { return this.props.children; }
-}
-const Placed = props => { Placement.get()._placed = true; return props.children; };
-const placing = (View, children, file) => !import.meta.env.PROD ? <Placement source={file}><View><Placed>{children}</Placed></View></Placement> : <View>{children}</View>;
-const wrap = (Type, children, file, index) => {
+const wrap = (Type, children, file) => {
   if (Model.is(Type)) return children;
   if (/^class\\b/.test(String(Type))) throw new Error(file + ": the default export " + Type.name + " is a class but not a Model or Component.");
   let View = wrapped.get(Type);
@@ -106,10 +95,10 @@ const wrap = (Type, children, file, index) => {
     } });
     wrapped.set(Type, View);
   }
-  return index ? placing(View, children, file) : <View>{children}</View>;
+  return <View>{children}</View>;
 };`] : []),
     ...(either ? [`const hook = (value, file) => { if (Model.is(value)) return value; if (/^class\\b/.test(String(value))) throw new Error(file + ": the default export " + value.name + " is a class but not a Model or Component."); };`] : []),
-    ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf, index) => Object.assign(enter, { source, leaf, index, current: enter });"] : []),
+    ...(either || some(root, node => node.classDefault === true) ? ["const watching = (enter, source, leaf) => Object.assign(enter, { source, leaf, current: enter });"] : []),
     `const missing = () => { throw Object.assign(new NotFound(), { [Symbol.for("${UNMATCHED}")]: true }); };`,
     ...(!root.exports.has("Catch") ? ['const DefaultCatch = ({ error, retry }) => error instanceof NotFound ? <main><h1>404 - Not found</h1><p>No route matched.</p><a href="/">Home</a></main> : (console.error(error), <main><h1>Something went wrong</h1>{import.meta.env.DEV && <p>{error.message}</p>}<button onClick={retry}>Try again</button><a href="/">Home</a></main>);'] : []),
     ...(gated ? ["", `const checked = gateCheck(call, ${JSON.stringify(gates)}, import.meta.hot);`] : []),
@@ -203,7 +192,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
 
     const scanned = await scan(readFileSync(full, "utf8"), full);
     const exports = new Set(scanned.exports);
-    const { classDefault, modelDefault, label, routeParameter } = scanned;
+    const { classDefault, modelDefault, label, routeParameter, dropsChildren } = scanned;
 
     if (exports.has("NotFound"))
       throw new Error(`${full}: the NotFound route export was removed. Import { NotFound } from "@expressive/dev" and export Catch = ({ error }) => error instanceof NotFound ? ... : ... .`);
@@ -218,6 +207,7 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
       node.exports = exports;
       node.classDefault = classDefault;
       node.modelDefault = !!modelDefault;
+      node.dropsChildren = dropsChildren;
       node.label = label;
       continue;
     }
@@ -319,7 +309,7 @@ function collectImports(root: RouteNode, outDir: string, project: string) {
 
       if (node.hook) {
         const file = JSON.stringify(sourceOf(node, project));
-        loaders.push(`const ${node.hook} = watching(${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `() => hook(${node.alias.default}, ${file})`}, ${file}, ${leafDefault(node) && !node.modelDefault}, ${node.isLeaf ? false : "!import.meta.env.PROD"});`);
+        loaders.push(`const ${node.hook} = watching(${lazy(node) ? `() => import(${spec}).then(m => hook(m.default, ${file}))` : `() => hook(${node.alias.default}, ${file})`}, ${file}, ${leafDefault(node) && !node.modelDefault});`);
       }
     }
 
@@ -335,7 +325,7 @@ const lazy = (node: RouteNode): boolean => !isRoot(node) && !node.alias.Loading 
 
 function loaderFor(node: RouteNode, role: Role, spec: string, file: string): string {
   const load = role === "default" && node.classDefault !== true
-    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}, ${!node.isLeaf}))`
+    ? `() => import(${spec}).then(m => props => wrap(m.default, props.children, ${JSON.stringify(file)}))`
     : `() => import(${spec}).then(m => m.${role})`;
   return `const ${node.alias[role]} = ${load};`;
 }
@@ -368,7 +358,7 @@ function collectWrappers(root: RouteNode, project: string): string[] {
     const file = JSON.stringify(sourceOf(node, project));
     const alias = node.alias.default + "d";
     const layout = node.alias.Layout ? `<${node.alias.Layout}>{props.children}</${node.alias.Layout}>` : "props.children";
-    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file}, ${!node.isLeaf})`};`);
+    wrappers.push(`const ${alias} = props => ${lazy(node) ? `<${node.alias.default}>{${layout}}</${node.alias.default}>` : `wrap(${node.alias.default}, ${layout}, ${file})`};`);
   })(root);
 
   return wrappers;
@@ -382,7 +372,7 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
   const hook = hookOf(node);
   const load = node.gated && node.file && lazy(node) ? `, () => import(${JSON.stringify(importRel(outDir, node.file))})` : "";
-  const entry = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault}, ${node.isLeaf ? false : "!import.meta.env.PROD"})` : hook;
+  const entry = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault})` : hook;
   const enter = node.gated && renders(node) ? `checked(${entry ?? (load && "undefined")}${load})` : entry;
   const scope = scopeOf(node);
 

@@ -1017,6 +1017,33 @@ describe("vite host", () => {
     expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toContain("Layout as RootLayout");
   });
 
+  it("will warn on save when an index default stops placing its children", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = realpathSync(project({ "app/index.tsx": `export default ({ children }) => <main>{children}</main>;\n${PAGE}` }));
+    const index = join(root, "app/index.tsx");
+    const server = await serve(root);
+
+    await server.transformRequest("/.expressive/routes.tsx");
+    expect(warn).not.toHaveBeenCalled();
+
+    writeFileSync(index, `export default () => <main />;\n${PAGE}`);
+    server.watcher.emit("change", index);
+
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(`${index}: the default never places its children - its Layout, Page and the routes below never show.`));
+    warn.mockRestore();
+  });
+
+  it("will warn of an index default dropping its children at build, bundling no check for it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const root = project({ "app/index.tsx": `import { Component } from "@expressive/mvc"; export default class Frame extends Component { render() { return <main />; } }\n${PAGE}` });
+    const out: any = await build({ ...clientBuild(root, { write: false }), configFile: false, logLevel: "silent", resolve: SOURCES });
+    const client = out.output.map((o: any) => o.code ?? "").join("\n");
+
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/app\/index\.tsx: the default never places its children/));
+    expect(client).not.toMatch(/places its children|did not render children|Placement|Placed/);
+    warn.mockRestore();
+  });
+
   it("builds the node service for a single-file project, with no page patterns", async () => {
     const { server } = await buildBoth({ "app.tsx": "export default () => <h1>hi</h1>" }, { assetsDir: "static/" });
 
