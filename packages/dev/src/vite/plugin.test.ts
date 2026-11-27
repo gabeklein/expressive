@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, createServer, createServerModuleRunner, optimizeDeps, resolveConfig, type InlineConfig, type ViteDevServer } from "vite";
-import { client, Current, HttpError } from "@expressive/rpc";
+import { Current } from "@expressive/rpc";
 
 import { clientBuild, serverBuild } from "./build";
 import { expressive } from "./plugin";
@@ -81,9 +81,9 @@ describe("vite host", () => {
     expect(routes?.code).toMatch(/dev\/src\/jsx-dev-runtime/);
   });
 
-  it("will not scan specs, tests or sidecars beside routes for dependencies", async () => {
+  it("will not scan specs or tests beside routes for dependencies", async () => {
     const server = await serve(project({ "app/index.tsx": PAGE, "app/index.spec.ts": "import '@playwright/test';" }));
-    expect(server.config.optimizeDeps.entries).toEqual(["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*", "!app/**/remote.*", "!app/**/remote/**"]);
+    expect(server.config.optimizeDeps.entries).toEqual(["app/**/*.{ts,tsx,js,jsx}", "!app/**/*.{spec,test}.*"]);
   });
 
   it("single-file project: entry mounts app.tsx directly", async () => {
@@ -127,49 +127,6 @@ describe("vite host", () => {
     expect(Model).toBe(createRequire(join(root, "index.js"))("@expressive/mvc").Model);
   });
 
-  const SIDECAR = `
-    export class Over extends Error { status = 409 }
-    export async function add(a: number, b: number) { if (a > 9) throw new Over("Too big"); return a + b }
-  `;
-
-  it("will serve a sidecar to the browser as a stub of its calls", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add", "app/tally/remote.ts": SIDECAR });
-    const server = await serve(root);
-
-    await server.transformRequest("/app/tally/index.tsx");
-    const stub = (await server.transformRequest("/app/tally/remote.ts"))?.code;
-
-    expect(stub).toContain('const at = ["tally"]');
-    expect(stub).toContain('call(at, "add", args)');
-    expect(stub).toContain('define("/tally#Over", "Over")');
-    expect(stub).not.toContain("a + b");
-  });
-
-  it("will stub a sidecar in a project reached through a symlink", async () => {
-    const real = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add", "app/tally/remote.ts": SIDECAR });
-    const link = join(mkdtempSync(join(tmpdir(), "link-")), "app");
-    dirs.push(dirname(link));
-    symlinkSync(real, link, "dir");
-
-    const server = await serve(link);
-    await server.transformRequest("/app/tally/index.tsx");
-
-    expect((await server.transformRequest("/app/tally/remote.ts"))?.code).not.toContain("a + b");
-  });
-
-  it("will not crawl sidecars during dependency discovery", async () => {
-    const root = project({
-      "app/index.ts": "export const Page = () => null",
-      "app/tally/index.ts": "import 'client-dep'; import { add } from './remote'; export const Page = () => add",
-      "app/tally/remote.ts": "import { db } from 'server-only-dep'; export async function add() { return db }",
-      "node_modules/client-dep/package.json": `{ "name": "client-dep", "type": "module", "main": "index.js" }`,
-      "node_modules/client-dep/index.js": "export default 1;",
-    });
-    const config = await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [expressive()], resolve: SOURCES }, "serve");
-
-    expect((await optimizeDeps(config, true)).optimized).toHaveProperty("client-dep");
-  });
-
   it("will throw if client code imports a server-only name, the host adapter or the plumbing, but not server code", async () => {
     const server = await serve(project({
       "app/index.tsx": 'import { Current } from "@expressive/rpc"; export const Page = () => Current',
@@ -195,337 +152,6 @@ describe("vite host", () => {
     expect((await server.transformRequest("/app/notes.json"))?.code).toContain("import { Current } from");
   });
 
-  it("will throw if a module outside its folder imports a sidecar", async () => {
-    const root = project({ "app/index.tsx": "import { add } from './tally/remote'; export const Page = () => add", "app/tally/remote.ts": SIDECAR });
-    const server = await serve(root);
-
-    await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("only modules in app/tally/ and below may call it");
-  });
-
-  const HOST = 'import { Model } from "@expressive/mvc";';
-
-  function hostMvc(root: string): InlineConfig["resolve"] {
-    const shim = join(root, "host-mvc.ts");
-    const names = Object.keys((globalThis as any).hostMvc).filter(name => name !== "default");
-    writeFileSync(shim, `export const { ${names.join(", ")} } = (globalThis as any).hostMvc;`);
-
-    return { alias: [{ find: /^@expressive\/mvc$/, replacement: shim }, ...(SOURCES!.alias as any[])] };
-  }
-
-  const GATED = `
-    ${HOST}
-    class Tally extends Model { total = 1; }
-    export default function tally() { Tally.new(); }
-    export async function peek() { return Tally.get().total; }
-  `;
-
-  it("will keep a remote default off the browser's stub - it gates the folder on the server", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { peek } from './remote'; export const Page = () => peek", "app/tally/remote.ts": GATED });
-    const server = await serve(root);
-
-    const stub = (await server.transformRequest("/app/tally/remote.ts"))?.code;
-    expect(stub).toContain('export const peek = (...args) => call(at, "peek", args);');
-    expect(stub).not.toContain("export default");
-    expect(stub).not.toContain("Tally.new");
-  });
-
-  it("will refuse a class default", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/remote.ts": `${HOST} export default class Tally extends Model {}` });
-    const server = await serve(root);
-
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("A remote default is its folder's gate - a function");
-  });
-
-  it("will leave a folder's remote out of the route tree", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE, "app/tally/index.tsx": PAGE, "app/tally/remote.ts": GATED }));
-
-    const routes = await server.transformRequest("/.expressive/routes.tsx");
-    expect(routes?.code).not.toContain("remote");
-  });
-
-  it("will answer a folder's calls, but not its default's methods", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/remote.ts": GATED });
-    const server = await serve(root, expressive(), hostMvc(root));
-    await server.transformRequest("/app/tally/remote.ts");
-    await server.listen(0);
-
-    const post = (name: string, body = "[]") => fetch(new URL("/tally", server.resolvedUrls!.local[0]), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-expressive-call": name },
-      body,
-    });
-
-    expect(await (await post("peek")).json()).toEqual({ value: 1 });
-    expect((await post("default")).status).toBe(404);
-  });
-
-  it("will gate the calls below a folder by its default, imported by the client or not", async () => {
-    const root = project({
-      "app/index.tsx": PAGE,
-      "app/site.ts": `${HOST} export class Site extends Model { name = "site"; }`,
-      "app/remote.ts": `import { Site } from "./site"; export default () => void Site.new();`,
-      "app/tally/remote.ts": `import { Site } from "../site"; export async function site() { return Site.get().name; }`,
-    });
-    const server = await serve(root, expressive(), hostMvc(root));
-    await server.transformRequest("/app/tally/remote.ts");
-    await server.listen(0);
-
-    const res = await fetch(new URL("/tally", server.resolvedUrls!.local[0]), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-expressive-call": "site" },
-      body: "[]",
-    });
-
-    expect(await res.json()).toEqual({ value: "site" });
-  });
-
-  it("will refuse a call whose gate throws, activates a Model whose new() fails, or is not a function", async () => {
-    const root = project({
-      "app/index.tsx": PAGE,
-      "app/deny/remote.ts": `export default () => { throw new Error("No entry"); }; export async function open() { return 1; }`,
-      "app/fail/remote.ts": `${HOST} class Session extends Model { new() { throw new Error("Sign in"); } } export default () => void Session.new(); export async function open() { return 1; }`,
-      "app/bad/remote.ts": "export default class Bad {}",
-      "app/bad/inner/remote.ts": "export async function open() { return 1; }",
-    });
-    const server = await serve(root, expressive(), hostMvc(root));
-    await server.transformRequest("/app/deny/remote.ts");
-    await server.transformRequest("/app/fail/remote.ts");
-    await server.transformRequest("/app/bad/inner/remote.ts");
-    await server.listen(0);
-
-    const post = async (at: string) => {
-      const res = await fetch(new URL(at, server.resolvedUrls!.local[0]), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "open" }, body: "[]" });
-      return [res.status, (await res.json()).message];
-    };
-
-    expect(await post("/deny")).toEqual([500, "No entry"]);
-    expect(await post("/fail")).toEqual([500, "Sign in"]);
-    expect(await post("/bad/inner")).toEqual([500, expect.stringContaining("app/bad/remote.ts: A remote default is its folder's gate - a function")]);
-  });
-
-  it("will answer a gate check for a folder the client has not loaded, with its error classes' fields", async () => {
-    const root = project({
-      "app/index.tsx": PAGE,
-      "app/vault/index.tsx": PAGE,
-      "app/vault/remote.ts": `
-        export class SignIn extends Error { status = 302; location = "/login"; }
-        export const limit = 3;
-        export default () => { if ((globalThis as any).vaultCurrent.get().request.headers.has("x-deny")) throw new SignIn("Sign in."); };
-      `,
-    });
-    (globalThis as any).vaultCurrent = Current;
-    const server = await serve(root, expressive(), hostMvc(root));
-    await server.listen(0);
-
-    const check = async (deny: boolean) => {
-      const headers = { "content-type": "application/json", "x-expressive-get": "gates", ...(deny && { "x-deny": "1" }) };
-      const res = await fetch(new URL("/vault", server.resolvedUrls!.local[0]), { method: "POST", headers, body: "[]" });
-      return [res.status, await res.json()];
-    };
-
-    expect(await check(false)).toEqual([200, {}]);
-    expect(await check(true)).toEqual([400, { error: "/vault#SignIn", message: "Sign in.", status: 302, location: "/login" }]);
-    expect((await server.transformRequest("/.expressive/routes.tsx"))?.code).toMatch(/"to": "vault",\s*"gate": 1/);
-  });
-
-  it("will tell the browser when a gate is edited, so its passes clear", async () => {
-    const root = realpathSync(project({
-      "app/index.tsx": PAGE,
-      "app/vault/remote.ts": "export default () => {}",
-      "app/tally/remote.ts": "export async function add() { return 1; }",
-      "app/tally/more.ts": "export const x = 1;",
-      "app/broken/remote.ts": "export default (",
-    }));
-    const server = await serve(root);
-    const sent: unknown[] = [];
-    server.ws.send = ((payload: { type: string }) => void (payload.type == "custom" && sent.push(payload))) as any;
-
-    for (const file of ["app/vault/remote.ts", "app/tally/remote.ts", "app/tally/more.ts", "app/broken/remote.ts", "elsewhere.ts"]) server.watcher.emit("change", join(root, file));
-
-    expect(sent).toEqual([{ type: "custom", event: "expressive:gates" }]);
-  });
-
-  it("will throw if a sidecar exports what the client cannot call", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/tally/index.tsx": "import { add } from './remote'; export const Page = () => add", "app/tally/remote.ts": "export const add = 1" });
-    const server = await serve(root);
-
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("add is neither an async function nor an Error subclass");
-  });
-
-  it("will refuse an exported Model class", async () => {
-    const root = project({ "app/index.tsx": PAGE, "app/shop/index.tsx": "import { Cart } from './remote'; export const Page = () => Cart", "app/shop/remote.ts": `${HOST} export class Cart extends Model {}` });
-    const server = await serve(root);
-
-    await expect(server.transformRequest("/app/shop/remote.ts")).rejects.toThrow("Cart is a class but not an Error");
-  });
-
-  it("will post a call to its sidecar's path from any page", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE }));
-    const { call } = await server.ssrLoadModule("/.expressive/call.ts");
-    const posted: string[] = [];
-
-    vi.stubGlobal("location", { pathname: "/blog/hello/comments", href: "http://localhost/blog/hello/comments" });
-    vi.stubGlobal("fetch", async (url: string) => (posted.push(url), new Response('{"value":1}', { headers: { "content-type": "application/json; codec=expressive" } })));
-
-    try {
-      expect([await call([], "root", []), await call(["blog", ":slug"], "like", [])]).toEqual([1, 1]);
-      expect(await call(["tally"], "add", [])).toBe(1);
-      expect(await call(["blog", "*"], "rest", [])).toBe(1);
-      await expect(call(["shop", ":id"], "buy", [])).rejects.toThrow("buy() belongs to /shop/:id and cannot be called from /blog/hello/comments.");
-
-      (globalThis as any)[Symbol.for("@expressive/dev#path")] = "/shop/7";
-      expect(await call(["shop", ":id"], "buy", [])).toBe(1);
-      expect(await call(["blog", ":slug"], "like", [])).toBe(1);
-    } finally {
-      delete (globalThis as any)[Symbol.for("@expressive/dev#path")];
-      vi.unstubAllGlobals();
-    }
-
-    expect(posted).toEqual(["/", "/blog/hello", "/tally", "/blog/hello/comments", "/shop/7", "/blog/hello"]);
-  });
-
-  it("will fill a held page's call params from location while Router points at the target", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE }));
-    const { call } = await server.ssrLoadModule("/.expressive/call.ts");
-    const { Router } = await server.ssrLoadModule("@expressive/dev");
-    const posted: string[] = [];
-    const get = vi.spyOn(Router, "get").mockReturnValue({ path: "/note/cart" });
-    vi.stubGlobal("location", { pathname: "/note/7", href: "http://localhost/note/7" });
-    vi.stubGlobal("fetch", async (url: string) => (posted.push(url), new Response('{"value":1}', { headers: { "content-type": "application/json; codec=expressive" } })));
-
-    try {
-      await call(["note", ":id"], "served", []);
-      expect(get).not.toHaveBeenCalled();
-    } finally {
-      vi.restoreAllMocks();
-      vi.unstubAllGlobals();
-    }
-
-    expect(posted).toEqual(["/note/7"]);
-  });
-
-  it("will serve an exported subclass of an http error to the browser as an error", async () => {
-    const remote = `import { HttpError } from "@expressive/rpc";
-      export class Payment extends HttpError { status = 402; }
-      export async function buy() { throw new Payment("upgrade"); }`;
-    const root = project({ "app/index.tsx": PAGE, "app/shop/index.tsx": "import { buy } from './remote'; export const Page = () => buy", "app/shop/remote.ts": remote });
-    const server = await serve(root);
-
-    const stub = (await server.transformRequest("/app/shop/remote.ts"))?.code;
-    expect(stub).toContain('export const Payment = define("/shop#Payment", "Payment", "http:HttpError")');
-  });
-
-  it("will define a sidecar's error under a parent from the sidecar above it, loading that stub first", async () => {
-    const root = project({
-      "app/index.tsx": PAGE,
-      "app/remote.ts": `import { HttpError } from "@expressive/rpc"; export class Billing extends HttpError { status = 402; }`,
-      "app/shop/index.tsx": "import { buy } from './remote'; export const Page = () => buy",
-      "app/shop/remote.ts": `import { Billing } from "../remote"; export class Late extends Billing {} export async function buy() {}`,
-    });
-    const server = await serve(root);
-
-    const stub = (await server.transformRequest("/app/shop/remote.ts"))?.code;
-    expect(stub).toMatch(/import "\/app\/remote\.ts(\?[^"]*)?";/);
-    expect(stub).toContain('export const Late = define("/shop#Late", "Late", "/#Billing")');
-    expect((await server.transformRequest("/app/remote.ts"))?.code).toContain('export const Billing = define("/#Billing", "Billing", "http:HttpError")');
-  });
-
-  it("will rebuild a sidecar's http error subclass on the client as an HttpError", async () => {
-    const remote = `import { HttpError } from "@expressive/rpc";
-      export class Payment extends HttpError { status = 402; }
-      export async function buy() { throw new Payment("upgrade"); }`;
-    const server = await serve(project({ "app/index.tsx": PAGE, "app/shop/remote.ts": remote }));
-    const stub = (await server.transformRequest("/app/shop/remote.ts"))!.code;
-    await server.listen(0);
-
-    const http = client({ base: server.resolvedUrls!.local[0].replace(/\/$/, "") });
-    const call = (at: string[], id: string, args: unknown[]) => http.call("/" + at.join("/"), id, args);
-    const exports: Record<string, any> = {};
-    new Function("call", "define", "exports", stub.replace(/^import .*$/gm, "").replace(/^export const (\w+) =/gm, "exports.$1 ="))(call, http.define, exports);
-
-    const error = await exports.buy().catch((error: unknown) => error);
-
-    expect(error).toBeInstanceOf(exports.Payment);
-    expect(error).toBeInstanceOf(HttpError);
-    expect(error).toMatchObject({ message: "upgrade", status: 402 });
-  });
-
-  it("will throw if a sidecar class reaches no Error", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE, "app/tally/remote.ts": "class Base {} export class Odd extends Base {} export async function a() {}" }));
-
-    await expect(server.transformRequest("/app/tally/remote.ts")).rejects.toThrow("Odd is a class but not an Error - only error classes reach the client.");
-  });
-
-  it("will refuse in dev a sidecar class that is not an Error", async () => {
-    const server = await serve(project({
-      "app/index.tsx": PAGE,
-      "app/tally/remote.ts": `import { Plain } from "plain"; export class Odd extends Plain {} export async function a() {}`,
-      "node_modules/plain/package.json": JSON.stringify({ name: "plain", type: "module", exports: "./index.js" }),
-      "node_modules/plain/index.js": "export class Plain {}",
-    }));
-    await server.transformRequest("/app/tally/remote.ts");
-    await server.listen(0);
-
-    const res = await fetch(new URL("/tally", server.resolvedUrls!.local[0]), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-expressive-call": "a" },
-      body: "[]",
-    });
-
-    expect(res.status).toBe(500);
-  });
-
-  it("will dispatch a call on the module runner", async () => {
-    const server = await serve(project({ "app/index.tsx": PAGE, "app/tally/remote.ts": SIDECAR }));
-    await server.listen(0);
-    const url = new URL("/tally", server.resolvedUrls!.local[0]);
-
-    const post = (body: string) => fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add" }, body });
-
-    expect((await post("[2, 3]")).status).toBe(404);
-
-    await server.transformRequest("/app/tally/remote.ts");
-    expect(await (await post("[2, 3]")).json()).toEqual({ value: 5 });
-
-    const over = await post("[10, 0]");
-    expect(over.status).toBe(409);
-    expect(await over.json()).toEqual({ error: "/tally#Over", message: "Too big", status: 409 });
-
-    const page = await fetch(url, { headers: { accept: "text/html" } });
-    expect(await page.text()).toContain('<div id="root"></div>');
-  });
-
-  const CALLER = "import { add, Over } from './remote'; export const Page = () => [add, Over]";
-
-  it("will call a module inside a remote/ folder by its path", async () => {
-    const root = project({
-      "app/index.tsx": PAGE,
-      "app/tally/index.tsx": "import { add } from './remote/math/sum'; export const Page = () => add",
-      "app/tally/remote/math/sum.ts": SIDECAR,
-    });
-    const server = await serve(root);
-
-    const stub = (await server.transformRequest("/app/tally/remote/math/sum.ts"))?.code;
-    expect(stub).toContain('call(at, "math/sum:add", args)');
-    expect(stub).toContain('define("/tally#math/sum:Over", "Over")');
-
-    await server.listen(0);
-    const res = await fetch(new URL("/tally", server.resolvedUrls!.local[0]), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-expressive-call": "math/sum:add" },
-      body: "[2, 3]",
-    });
-
-    expect(await res.json()).toEqual({ value: 5 });
-  });
-
-  it("will throw if a module outside its folder imports a remote/ module", async () => {
-    const root = project({ "app/index.tsx": "import { add } from './tally/remote/sum'; export const Page = () => add", "app/tally/remote/sum.ts": SIDECAR });
-    const server = await serve(root);
-
-    await expect(server.transformRequest("/app/index.tsx")).rejects.toThrow("only modules in app/tally/ and below may call it");
-  });
-
   async function buildBoth(files: Record<string, string>, { assetsDir, ...options }: { env?: boolean; assetsDir?: string } = {}) {
     const root = project(files);
     const quiet = (config: InlineConfig) => {
@@ -545,86 +171,6 @@ describe("vite host", () => {
 
     return { client, server, boot };
   }
-
-  it("builds the node service with the calls the client imports, by hashed ids", async () => {
-    const { client, server } = await buildBoth({
-      "app/index.tsx": PAGE,
-      "app/blog/[slug]/index.tsx": CALLER,
-      "app/blog/[slug]/remote/index.ts": SIDECAR,
-      "app/blog/[slug]/remote/unused.ts": "export async function secret() { return 1 }",
-    });
-
-    expect(server).toMatch(/pattern: \["blog", ":slug"\]/);
-    expect(server).toMatch(/"patterns": \["\/", "\/blog\/:slug"\]/);
-    expect(server).toContain("a + b");
-    expect(server).not.toContain("secret");
-
-    const [, id] = /"([\w-]{16})": Over/.exec(server) ?? [];
-    expect(id).toBeDefined();
-    expect(client).toContain(id);
-    expect(client).not.toContain("blog/:slug#Over");
-  });
-
-  it("builds the node service with each folder's gate", async () => {
-    const { server } = await buildBoth({
-      "index.ts": "export default { remote: { opaque: false } };",
-      "app/index.tsx": PAGE,
-      "app/remote.ts": "export default function site() {}",
-      "app/tally/index.tsx": "import { peek } from './remote'; export const Page = () => peek",
-      "app/tally/remote.ts": GATED,
-    });
-
-    expect(server).toMatch(/gates: \[\{\s*pattern: \[\],\s*gate: site\s*\}, \{\s*pattern: \["tally"\],\s*gate: tally\s*\}\]/);
-  });
-
-  it("bundles the gate check only into an app with a gated folder", async () => {
-    const bundle = async (files: Record<string, string>) => {
-      const config = clientBuild(project(files), { write: false });
-      const out: any = await build({ ...config, configFile: false, logLevel: "silent", resolve: SOURCES });
-
-      return out.output.map((o: any) => o.code ?? "").join("\n");
-    };
-    const app = { "app/index.tsx": PAGE, "app/vault/index.tsx": PAGE };
-
-    expect(await bundle(app)).not.toContain("expressive:gates");
-    expect(await bundle({ ...app, "app/vault/remote.ts": "export default () => {}" })).toContain("expressive:gates");
-  });
-
-  it("builds a gated folder the client never imports as an endpoint, with its error classes and no calls", async () => {
-    const { server } = await buildBoth({
-      "index.ts": "export default { remote: { opaque: false } };",
-      "app/index.tsx": PAGE,
-      "app/vault/index.tsx": PAGE,
-      "app/vault/denied.ts": "export class Denied extends Error {}",
-      "app/vault/remote.ts": `import { Denied } from "./denied"; export class SignIn extends Denied {} export default () => {}; export async function secret() { return 1; }`,
-    });
-
-    expect(server).toMatch(/pattern: \["vault"\],\s*async exports\(\) \{\s*return \{\s*calls: \{\},\s*classes: \{ "\/vault#SignIn": SignIn \}/);
-  });
-
-  it("will check a gated folder's remote entry at build, imported by the client or not", async () => {
-    await expect(buildBoth({ "app/index.tsx": PAGE, "app/vault/remote.ts": "export default () => {}; export const limit = 3;" })).rejects.toThrow("app/vault/remote.ts: limit");
-  });
-
-  it("will check every remote entry's default at build, imported by the client or not", async () => {
-    const files = (index: string, remote: string) => ({ "index.ts": index, "app/index.tsx": PAGE, "app/remote.ts": remote, "app/site.ts": "export default () => {}" });
-
-    await expect(buildBoth(files("export default {};", `${HOST} export default class Site extends Model {}`))).rejects.toThrow("app/remote.ts: A remote default is its folder's gate - a function");
-    await expect(buildBoth(files("export default {};", `export { default } from "./site";`))).rejects.toThrow("a re-exported one is not checked");
-  });
-
-  it("builds readable ids when index.ts sets remote.opaque off", async () => {
-    const { client, server } = await buildBoth({
-      "index.ts": "export default { remote: { opaque: false } };",
-      "app/index.tsx": PAGE,
-      "app/blog/[slug]/index.tsx": CALLER,
-      "app/blog/[slug]/remote.ts": SIDECAR,
-    });
-
-    expect(server).toMatch(/"\/blog\/:slug#Over": Over/);
-    expect(server).toMatch(/"?add"?: add/);
-    expect(client).toContain("/blog/:slug#Over");
-  });
 
   it("will boot the node service in production mode with .env registered", async () => {
     const { boot } = await buildBoth({ "app/index.tsx": PAGE });
@@ -1074,15 +620,17 @@ describe("vite host", () => {
     "hello.ts": "export const hello = (env: any) => Response.json({ name: env.NAME ?? null });",
     "counter.ts": "export class Counter {}",
     "app/index.tsx": PAGE,
-    "app/remote.ts": `
+    "api/shop/index.ts": `
       import { Current, Unauthorized } from "@expressive/rpc";
       export default () => { if ((globalThis.hostCurrent ?? Current).get().request.headers.has("x-deny")) throw new Unauthorized("Sign in"); };
+      export async function price() { return 3; }
     `,
-    "app/shop/index.tsx": "import { price } from './remote'; export const Page = () => price",
-    "app/shop/remote.ts": "export async function price() { return 3; }",
-    "app/tally/index.tsx": "import { add, bound } from './remote'; export const Page = () => [add, bound]",
-    "app/tally/remote.ts": `${SIDECAR}
+    "app/shop/index.tsx": "import { price } from '../../api/shop/index'; export const Page = () => price",
+    "app/tally/index.tsx": "import { add, bound } from '../../api/(tally)'; export const Page = () => [add, bound]",
+    "api/(tally).ts": `
       import { Current } from "@expressive/rpc";
+      export class Over extends Error { status = 409 }
+      export async function add(a: number, b: number) { if (a > 9) throw new Over("Too big"); return a + b }
       export async function bound() { return ((globalThis.hostCurrent ?? Current).get().env as any).NAME; }
     `,
     "public/robots.txt": "robots",
@@ -1095,7 +643,7 @@ describe("vite host", () => {
   const post = (path: string, name: string, body: string, deny = false) =>
     new Request(`http://localhost${path}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name, ...(deny && { "x-deny": "1" }) }, body });
 
-  it("builds the fetch entry: settings, remotes, gates and named exports composed, host's value exported, every dependency bundled", async () => {
+  it("builds the fetch entry: settings, api/ routes and named exports composed, host's value exported, every dependency bundled", async () => {
     const root = project(FETCH);
     const quiet = (config: InlineConfig) => ({ ...config, configFile: false as const, logLevel: "silent" as const, resolve: SOURCES });
 
@@ -1109,12 +657,12 @@ describe("vite host", () => {
     const ctx = { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => {}) };
     const imports = [...code.matchAll(/from\s*"([^"]+)"|import\s*"([^"]+)"/g)].map(([, a, b]) => a ?? b).filter(spec => !spec.startsWith("./"));
 
-    expect(await (await handler.fetch(post("/tally", "add", "[2, 3]"), env, ctx)).json()).toEqual({ value: 5 });
-    expect(await (await handler.fetch(post("/shop", "price", "[]"), env, ctx)).json()).toEqual({ value: 3 });
-    const denied = await handler.fetch(post("/shop", "price", "[]", true), env, ctx);
+    expect(await (await handler.fetch(post("/api/tally", "add", "[2, 3]"), env, ctx)).json()).toEqual({ value: 5 });
+    expect(await (await handler.fetch(post("/api/shop", "price", "[]"), env, ctx)).json()).toEqual({ value: 3 });
+    const denied = await handler.fetch(post("/api/shop", "price", "[]", true), env, ctx);
     expect([denied.status, await denied.json()]).toEqual([401, expect.objectContaining({ message: "Sign in" })]);
-    expect(await (await handler.fetch(post("/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
-    expect((await handler.fetch(post("/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
+    expect(await (await handler.fetch(post("/api/tally", "bound", "[]"), env, ctx)).json()).toEqual({ value: "prod" });
+    expect((await handler.fetch(post("/api/tally", "add", "[10, 0]"), env, ctx)).status).toBe(409);
     expect(await (await handler.fetch(new Request("http://localhost/hello"), env, ctx)).json()).toEqual({ name: "prod" });
     expect(await (await handler.fetch(new Request("http://localhost/api/7"), env, ctx)).json()).toEqual({ id: "7" });
     expect(code).toMatch(/calls:\s*\{\s*"?desk"?:\s*"desk"\s*\},\s*classes:\s*\{\s*"\/api\/desk#Taken":\s*"Taken"\s*\}/);
@@ -1192,9 +740,9 @@ describe("vite host", () => {
     const error = vi.spyOn(server.config.logger, "error").mockImplementation(() => {});
     await server.listen(0);
     const at = (path: string) => new URL(path, server.resolvedUrls!.local[0]);
-    const call = (headers: Record<string, string> = {}) => fetch(at("/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add", ...headers }, body: "[1, 2]" });
+    const call = (headers: Record<string, string> = {}) => fetch(at("/api/tally"), { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add", ...headers }, body: "[1, 2]" });
 
-    await server.transformRequest("/app/tally/remote.ts");
+    await server.transformRequest("/api/(tally).ts");
 
     const added = await call();
     const refused = await call({ "x-fail": "1" });
@@ -1215,7 +763,7 @@ describe("vite host", () => {
     for (const path of ["/@vite/client", "/app/index.tsx", "/index.ts?import", "/.expressive/main.tsx"]) await fetch(at(path));
 
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("waitUntil: Error: late"));
-    expect((globalThis as any).handled.splice(0)).toEqual(["/tally", "/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt", "/map/"]);
+    expect((globalThis as any).handled.splice(0)).toEqual(["/api/tally", "/api/tally", "/invite/abc", "/missing.json", "/hello", "/shop", "/robots.txt", "/map/"]);
     delete (globalThis as any).hostCurrent;
     delete (globalThis as any).handled;
   });
@@ -1337,9 +885,9 @@ describe("vite host", () => {
     const server = await serve(project({
       "index.ts": `export default { target: "fetch" };`,
       "app/index.tsx": PAGE,
-      "app/remote.ts": "export default () => {}",
-      "app/shop/remote.ts": `export default () => { throw new Error("Sign in"); }; export async function price() { return 3; }`,
-      "app/tally/remote.ts": "export async function add(a: number, b: number) { return a + b; }",
+      "api/index.ts": "export default () => {}",
+      "api/shop/index.ts": `export default () => { throw new Error("Sign in"); }; export async function price() { return 3; }`,
+      "api/(tally).ts": "export async function add(a: number, b: number) { return a + b; }",
     }));
     await server.listen(0);
     const call = async (at: string, name: string, body: string) => {
@@ -1347,11 +895,11 @@ describe("vite host", () => {
       return [res.status, await res.json()];
     };
 
-    await server.transformRequest("/app/shop/remote.ts");
-    await server.transformRequest("/app/tally/remote.ts");
+    await server.transformRequest("/api/shop/index.ts");
+    await server.transformRequest("/api/(tally).ts");
 
-    expect(await call("/tally", "add", "[2, 3]")).toEqual([200, { value: 5 }]);
-    expect(await call("/shop", "price", "[]")).toEqual([500, expect.objectContaining({ message: "Sign in" })]);
+    expect(await call("/api/tally", "add", "[2, 3]")).toEqual([200, { value: 5 }]);
+    expect(await call("/api/shop", "price", "[]")).toEqual([500, expect.objectContaining({ message: "Sign in" })]);
   });
 
   describe("api/", () => {
@@ -1390,7 +938,7 @@ describe("vite host", () => {
       expect([missing.status, missing.headers.get("content-type"), (await missing.json()).message]).toEqual([404, "application/json", "No route in api/ serves /api/nope - paths under /api belong to api/."]);
       const stub = await at("/api/(hello).ts");
 
-      expect([stub.status, await stub.text()]).toEqual([200, expect.stringContaining('const at = ["api", "hello"];')]);
+      expect([stub.status, await stub.text()]).toEqual([200, expect.stringContaining('const at = "/api/hello";')]);
 
       for (const method of ["POST", "PUT"]) {
         const raw = await at("/api/(hello).ts", { method });
@@ -1472,7 +1020,7 @@ describe("vite host", () => {
       await server.transformRequest("/app/index.tsx");
       const stub = (await server.transformRequest("/api/(account).ts"))?.code;
 
-      expect(stub).toContain('const at = ["api", "account"];');
+      expect(stub).toContain('const at = "/api/account";');
       expect(stub).toContain('export const account = (...args) => call(at, "account", args);');
       expect(stub).toContain('export const rename = (...args) => call(at, "rename", args);');
       expect(stub).toContain('export const Taken = define("/api/account#Taken", "Taken");');

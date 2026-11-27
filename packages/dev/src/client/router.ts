@@ -4,25 +4,6 @@ import { NotFound, Redirect } from "@expressive/rpc";
 
 import { owns, report } from "./route";
 
-const PATH = Symbol.for("@expressive/dev#path");
-
-/** Run an entering route's default factory with its entering path available to calls during the synchronous run. */
-export function entering<T>(path: string, run: () => T): T {
-  if (typeof window == "undefined") return run();
-
-  const shared = globalThis as Record<symbol, unknown>;
-  const before = shared[PATH];
-
-  shared[PATH] = path;
-
-  try {
-    return run();
-  } finally {
-    shared[PATH] = before;
-  }
-}
-
-
 /** The app's `BrowserRouter` - `Router.get().navigating` is true while a navigation holds the current page. */
 export class Router extends BrowserRouter {
   protected new() {
@@ -48,5 +29,4 @@ export class Router extends BrowserRouter {
 
     return super.next(url, replace);
   }
-
 }

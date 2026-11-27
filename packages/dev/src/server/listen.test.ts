@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import { connect } from "node:net";
-import { Agent, request } from "node:http";
+import { Agent, Server, request } from "node:http";
 import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -151,14 +151,14 @@ describe("listen", () => {
       },
     };
 
-    const exports = async () => ({ calls: { where: async () => store.getStore() }, classes: {} });
+    const module = { where: async () => store.getStore() };
     vi.stubEnv("LISTEN_NAME", "node");
-    const server = listen({ settings, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], pages: { patterns: ["/invite/:code"] } });
+    const server = listen({ settings, client: dir, api: { prefix: "/api", routes: [{ name: "api/(tally).ts", path: ["tally"], index: false, calls: { where: "where" }, module }] }, pages: { patterns: ["/invite/:code"] } });
     await new Promise(done => server.once("listening", done));
 
     const base = `http://localhost:${(server.address() as AddressInfo).port}`;
     const invite = await fetch(base + "/invite/abc");
-    const where = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "where" }, body: "[]" });
+    const where = await fetch(`${base}/api/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "where" }, body: "[]" });
 
     expect(await (await fetch(base + "/hello")).json()).toEqual({ name: "node" });
     expect(await invite.text()).toBe("200 <head><meta></head>");
@@ -190,36 +190,28 @@ describe("listen", () => {
     vi.restoreAllMocks();
   });
 
-  it("will check sidecars before it listens, on port 3000 by default", async () => {
+  it("will listen on port 3000 by default", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const exports = vi.fn(async () => ({ calls: {}, classes: { Oops: class Oops extends Error {} } }));
+    const bound = vi.spyOn(Server.prototype, "listen").mockImplementation(function (this: Server, _port: number, done: () => void) { done(); return this; } as any);
 
-    const server = listen({ settings: {}, client: tmpdir(), sidecars: [{ pattern: ["todos"], exports } as any] });
-    const bound = vi.spyOn(server, "listen").mockImplementation(((port: number, done: () => void) => (done(), server)) as any);
+    listen({ settings: {}, client: tmpdir() });
 
-    await vi.waitFor(() => expect(bound).toHaveBeenCalled());
-
-    expect(exports).toHaveBeenCalled();
     expect(bound.mock.calls[0][0]).toBe(3000);
     expect(log).toHaveBeenCalledWith("Expressive running at http://localhost:3000/");
 
     vi.restoreAllMocks();
   });
 
-  it("will serve a gated call and a file of unknown type", async () => {
+  it("will serve a file of unknown type", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), "client-"));
     writeFileSync(join(dir, "data.bin"), "1");
 
-    const exports = async () => ({ calls: { add: async (a: number, b: number) => a + b }, classes: {} });
-    const server = listen({ settings: { port: 0 }, client: dir, sidecars: [{ pattern: ["tally"], exports } as any], gates: [{ pattern: ["tally"], gate: () => {} }] });
+    const server = listen({ settings: { port: 0 }, client: dir });
     await new Promise(done => server.once("listening", done));
 
-    const base = `http://localhost:${(server.address() as AddressInfo).port}`;
-    const call = await fetch(`${base}/tally`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": "add" }, body: "[2, 3]" });
-    const file = await fetch(`${base}/data.bin`);
+    const file = await fetch(`http://localhost:${(server.address() as AddressInfo).port}/data.bin`);
 
-    expect(await call.json()).toMatchObject({ value: 5 });
     expect(file.headers.get("content-type")).toBe("application/octet-stream");
 
     server.closeAllConnections();

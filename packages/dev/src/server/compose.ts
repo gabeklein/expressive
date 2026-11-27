@@ -1,14 +1,12 @@
 import { HttpError, Redirect, type Env, type ExecutionCtx } from "@expressive/rpc";
 import { isCall } from "@expressive/rpc/http";
-import { bind, dispatch, failure, type Endpoint, type Seats } from "@expressive/rpc/protocol";
+import { bind, failure } from "@expressive/rpc/protocol";
 
 import type { App, AppOptions, HandleArgs, Settings } from "../settings";
 import { callApi, owns, serveApi, type Api } from "./api";
 import { check } from "./check";
 
 export interface Parts {
-  sidecars?: () => Endpoint[];
-  gates?: Seats;
   api?: Api;
   pages?: Pages;
   dev?: boolean;
@@ -31,8 +29,8 @@ type Assets = NonNullable<AppOptions["assets"]>;
 
 const noop = () => {};
 
-/** The app from an entry's settings and the remotes a host composes it with. */
-export function compose(settings: Settings = {}, { sidecars = () => [], gates, api, pages, dev = false }: Parts = {}): App {
+/** The app from an entry's settings and the `api/` routes a host composes it with. */
+export function compose(settings: Settings = {}, { api, pages, dev = false }: Parts = {}): App {
   const { env: _, ...read } = settings;
   const { handle } = check(read);
   let warn = dev;
@@ -55,7 +53,6 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
       const owned = api && owns(api, new URL(forward.url).pathname);
 
       if (owned && isCall(forward)) return callApi(forward, api!, dev).then(mutable);
-      if (isCall(forward)) return dispatch(forward, sidecars, dev, gates).then(mutable).catch(error => failure(error, sidecars(), dev));
       if (owned) return serveApi(forward, api!, dev).catch(error => refuse(error, dev)).then(reply => headless(forward, reply));
       if (!assets) return new Response("Not found.", { status: 404 });
 
@@ -74,7 +71,7 @@ export function compose(settings: Settings = {}, { sidecars = () => [], gates, a
       if (!isCall(request)) return refuse(error, dev);
       if (!(error instanceof HttpError)) console.error(error);
 
-      return failure(error, sidecars(), dev);
+      return failure(error, [], dev);
     }
   };
 }

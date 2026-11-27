@@ -106,40 +106,46 @@ describe("launch", { timeout: 30_000 }, () => {
     renderer.close();
   });
 
-  it("will render pages beside a root remote and return null for one whose render calls it", async () => {
+  it("will render pages beside api/ calls and return null for one whose render or route default calls them", async () => {
     const root = project({
-      "app/remote.ts": `
+      "api/(user).ts": `
         export async function user() { return "ada"; }
         export async function slugs() { return ["a"]; }
       `,
       "app/index.tsx": `
         import { Component } from "@expressive/mvc";
-        import { user } from "./remote";
+        import { user } from "../api/(user)";
         export class Page extends Component { render() { return <button onClick={() => user()}>home</button>; } }
       `,
       "app/(account).tsx": `
         import { Component, set } from "@expressive/mvc";
-        import { user } from "./remote";
+        import { user } from "../api/(user)";
         export class Page extends Component { name = set(() => user()); render() { return <p>{this.name}</p>; } }
       `,
       "app/(caught).tsx": `
         import { Component, set } from "@expressive/mvc";
-        import { user } from "./remote";
+        import { user } from "../api/(user)";
         export class Page extends Component { name = set(() => user()); catch() {} render() { return <p>{this.name}</p>; } }
       `,
       "app/(later).tsx": `
         import { Component } from "@expressive/mvc";
-        import { user } from "./remote";
+        import { user } from "../api/(user)";
         export class Page extends Component { new() { user(); } render() { return <p>later</p>; } }
       `,
       "app/(timer).tsx": `
         import { Component } from "@expressive/mvc";
-        import { user } from "./remote";
+        import { user } from "../api/(user)";
         export class Page extends Component { new() { setTimeout(() => user(), 10); } render() { return <p>timer</p>; } }
+      `,
+      "app/(guarded).tsx": `
+        import { Model } from "@expressive/mvc";
+        import { user } from "../api/(user)";
+        export default class Guard extends Model { protected async new() { await user(); } }
+        export const Page = () => <p>guarded</p>;
       `,
       "app/(broke).tsx": `export const Page = () => { throw new Error("broke"); };`,
       "app/blog/[slug].tsx": `
-        import { slugs } from "../remote";
+        import { slugs } from "../../api/(user)";
         export const Page = () => <p>post</p>;
         export const paths = () => slugs();
       `,
@@ -152,6 +158,7 @@ describe("launch", { timeout: 30_000 }, () => {
     expect(await renderer.render("/caught")).toBeNull();
     expect(await renderer.render("/later")).toBeNull();
     expect((await renderer.render("/timer") as Page).html).toContain("<p>timer</p>");
+    expect(await renderer.render("/guarded")).toBeNull();
     await expect(renderer.render("/broke")).rejects.toThrow("broke");
     await new Promise(resolve => setTimeout(resolve, 20));
     renderer.close();

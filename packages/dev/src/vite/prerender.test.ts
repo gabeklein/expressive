@@ -148,8 +148,8 @@ describe("prerender", () => {
     expect(log).toHaveBeenCalledWith("Prerendered 1 page - 1 redirect or not-found page renders in the browser.");
   });
 
-  it("will render pages beside a root remote, leaving those that call it to the client quietly", async () => {
-    const root = built({ "app/remote.ts": "export async function user() {}", "app/index.tsx": PAGE, "app/(a).tsx": PAGE, "app/(b).tsx": PAGE });
+  it("will leave pages that call the server to the client quietly", async () => {
+    const root = built({ "app/index.tsx": PAGE, "app/(a).tsx": PAGE, "app/(b).tsx": PAGE });
 
     renderer(path => (path == "/" ? {} : null));
 
@@ -159,7 +159,7 @@ describe("prerender", () => {
   });
 
   it("will not bundle the app when it has no page", async () => {
-    const root = built({ "app/index.tsx": "export const x = 1;", "app/remote.ts": "export async function add() {}" });
+    const root = built({ "app/index.tsx": "export const x = 1;" });
 
     expect(await prerender(root)).toEqual([]);
     expect(launch).not.toHaveBeenCalled();

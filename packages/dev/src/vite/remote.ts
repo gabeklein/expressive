@@ -1,8 +1,6 @@
-import { Manifest, type Exposed as Plain } from "@expressive/rpc/vite";
+import { Manifest, type Exposed } from "@expressive/rpc/vite";
 
-import type { Remote } from "./routes";
-
-export interface Exposed extends Remote, Plain {}
+export type { Exposed };
 
 export class Exposure extends Manifest<Exposed> {
   readonly api = new Map<string, Exposed>();

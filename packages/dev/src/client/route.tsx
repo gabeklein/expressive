@@ -6,8 +6,6 @@ import { Redirect } from "@expressive/rpc";
 import { childrenOf, propsOf, typeOf } from "@expressive/jsx/jsx-runtime";
 import { replaced } from "@expressive/mvc/hot";
 
-import { entering } from "./router";
-
 type CatchUI = (props: { error: Error; retry: () => void }) => Component.Node;
 
 type Verdict = string | void | null;
@@ -40,9 +38,9 @@ export class Route extends Base {
   fallback: Component.Node = false;
 
   /**
-   * Internal entry step for generated route defaults and gated folders.
+   * Internal entry step for generated route defaults.
    *
-   * The gate runs before a default class is built. A thrown error reaches `Catch`.
+   * A thrown error reaches `Catch`.
    */
   enter = set<EntryHook | undefined>(undefined, hook => arm(this, hook));
 
@@ -65,8 +63,6 @@ function arm(route: Route, hook: EntryHook | undefined) {
     }
   };
 
-  const enter = (run: EntryHook) => entering(route.router.path, () => run(route));
-
   const built = async (value: Verdict | Model.Extends, token: object): Promise<Verdict> => {
     if (TOKENS.get(route.is) !== token || !route.matched) return;
     if (!Model.is(value)) return value as Verdict;
@@ -76,7 +72,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
       console.warn(`${source}: a Model default without Page renders nothing.`);
     }
     const context = new Context(Context.get(route));
-    const instance = entering(route.router.path, () => (value as Model.Type<Model>).new(context));
+    const instance = (value as Model.Type<Model>).new(context);
     OWNED.add(instance);
     try {
       await instance.set();
@@ -152,7 +148,7 @@ function arm(route: Route, hook: EntryHook | undefined) {
     const token = {};
     TOKENS.set(route.is, token);
     try {
-      const verdict = enter(hook);
+      const verdict = hook(route);
 
       return verdict instanceof Promise
         ? verdict.then(next => built(next, token)).catch(error => refused(error, token))

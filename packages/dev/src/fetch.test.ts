@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Current, HttpError } from "@expressive/rpc";
 
-import { compose, type FolderRefs } from "./fetch";
+import { compose, type ApiRefs } from "./fetch";
 import type { App } from "./settings";
 
 class Taken extends HttpError {
@@ -16,40 +16,34 @@ const tally = {
   async name() {
     return (Current.get().env as { NAME?: string }).NAME;
   },
-  async folder() {
-    return Current.get().params;
-  },
   Taken,
 };
 
-const shop = { async price() { return 3; } };
+const refs: ApiRefs = {
+  prefix: "/api",
+  routes: [{ name: "api/(tally).ts", path: ["tally"], index: false, calls: { add: "add", name: "name" }, classes: { Taken: "Taken" } }],
+};
 
-const manifest: FolderRefs[] = [
-  { pattern: ["tally"], calls: { add: [0, "add"], name: [0, "name"] }, classes: { Taken: [0, "Taken"] } },
-  { pattern: ["shop", ":id"], calls: { price: [1, "price"], folder: [0, "folder"] }, classes: {} },
-];
-
-const post = (name: string, args: unknown[], at = "/tally") =>
+const post = (name: string, args: unknown[], at = "/api/tally") =>
   new Request(`http://localhost${at}`, { method: "POST", headers: { "content-type": "application/json", "x-expressive-call": name }, body: JSON.stringify(args) });
 
 const json = async (response: Response | Promise<Response>) => (await response).json();
 
 describe("compose", () => {
   it("will answer calls with the env the host passed, else 404", async () => {
-    const { fetch } = compose({ target: "fetch" }, [tally, shop], manifest);
+    const { fetch } = compose({ target: "fetch" }, [tally], refs);
 
     expect(await json(fetch(post("add", [2, 3])))).toEqual({ value: 5 });
-    expect(await json(fetch(post("price", [], "/shop/a")))).toEqual({ value: 3 });
-    expect(await json(fetch(post("folder", [], "/shop/a%20b")))).toEqual({ value: { id: "a b" } });
     expect(await json(fetch(post("name", []), { NAME: "prod" } as object))).toEqual({ value: "prod" });
     expect(await json(fetch(post("name", [])))).toEqual({});
     expect((await fetch(new Request("http://localhost/"))).status).toBe(404);
+    expect((await fetch(post("add", [2, 3], "/tally"))).status).toBe(404);
   });
 
   it("will serve pages from env.ASSETS by default, with the shell for a page route", async () => {
     const ASSETS = { fetch: vi.fn(async (request: Request) => new URL(request.url).pathname === "/200.html" ? new Response("shell") : new Response(null, { status: 404 })) };
     let app!: App;
-    const { fetch } = compose({ target: "fetch", host: composed => ((app = composed), {}) }, [], [], [], null, { patterns: ["/blog/:slug"] });
+    const { fetch } = compose({ target: "fetch", host: composed => ((app = composed), {}) }, [], null, { patterns: ["/blog/:slug"] });
     const blog = new Request("http://localhost/blog/a");
 
     expect(await (await fetch(blog, { ASSETS } as object)).text()).toBe("shell");
@@ -63,7 +57,7 @@ describe("compose", () => {
     const hello = { GET: () => ({ hello: Current.get().params.id }) };
     const gate = { default: () => {} };
     const account = { async rename(name: string) { return `${name}!`; }, Taken };
-    const { fetch } = compose({}, [], [], [gate, hello, account], { prefix: "/api", routes: [
+    const { fetch } = compose({}, [gate, hello, account], { prefix: "/api", routes: [
       { name: "api/index.ts", path: [], index: true },
       { name: "api/[id].ts", path: [":id"], index: false },
       { name: "api/account/index.ts", path: ["account"], index: true, calls: { r1: "rename" }, classes: { t1: "Taken" } },
@@ -75,7 +69,7 @@ describe("compose", () => {
   });
 
   it("will reply a thrown error class with its status", async () => {
-    const { fetch } = compose({}, [tally, shop], manifest);
+    const { fetch } = compose({}, [tally], refs);
     const response = await fetch(post("add", [1, 0]));
 
     expect(response.status).toBe(409);
@@ -90,7 +84,7 @@ describe("compose", () => {
         if (new URL(request.url).pathname === "/hello") return new Response("hello");
         return next();
       },
-    }, [tally], manifest.slice(0, 1));
+    }, [tally], refs);
 
     expect(await (await fetch(new Request("http://localhost/hello"), {}, ctx)).text()).toBe("hello");
     expect(await json(fetch(post("add", [1, 2]), {}, ctx))).toEqual({ value: 3 });
@@ -101,13 +95,13 @@ describe("compose", () => {
     const scheduled = () => {};
     const own = { fetch: async () => new Response("own") };
     const host = vi.fn((_app: unknown) => ({ scheduled }));
-    const exported = compose({ target: "fetch", host }, [], []) as { fetch(request: Request): Promise<Response>; scheduled?: unknown };
+    const exported = compose({ target: "fetch", host }) as { fetch(request: Request): Promise<Response>; scheduled?: unknown };
 
     expect(Object.keys(exported).sort()).toEqual(["fetch", "scheduled"]);
     expect(exported.scheduled).toBe(scheduled);
     expect(typeof host.mock.calls[0][0]).toBe("function");
     expect((await exported.fetch(new Request("http://localhost/"))).status).toBe(404);
-    expect(compose({ target: "fetch", host: () => own }, [], []).fetch).toBe(own.fetch);
+    expect(compose({ target: "fetch", host: () => own }).fetch).toBe(own.fetch);
   });
 
   it("will keep host's value itself - its prototype, or a class as is", () => {
@@ -116,46 +110,10 @@ describe("compose", () => {
     }
     class Entry {}
     const worker = new Worker();
-    const exported = compose({ target: "fetch", host: () => worker }, [], []) as Worker & { fetch: unknown };
+    const exported = compose({ target: "fetch", host: () => worker }) as Worker & { fetch: unknown };
 
     expect(exported).toBe(worker);
     expect(typeof exported.fetch).toBe("function");
-    expect(compose({ target: "fetch", host: () => Entry }, [], [])).toBe(Entry);
-  });
-
-  it("will run each gate above a call, outermost first, refusing by a throw", async () => {
-    const seen: string[] = [];
-    const site = () => void seen.push("site");
-    const deny = () => {
-      seen.push("shop");
-      if (Current.get().request.headers.has("x-deny")) throw new Taken("Sign in");
-    };
-    const { fetch } = compose({}, [tally, shop, { default: site }, { default: deny }], manifest, [], null, undefined, [
-      { pattern: [], gate: [2, "default"] },
-      { pattern: ["shop"], gate: [3, "default"] },
-    ]);
-    const denied = post("price", [], "/shop/a");
-    denied.headers.set("x-deny", "1");
-
-    expect(await json(fetch(post("add", [2, 3])))).toEqual({ value: 5 });
-    expect(await json(fetch(post("price", [], "/shop/a")))).toEqual({ value: 3 });
-    expect(seen.splice(0)).toEqual(["site", "site", "shop"]);
-
-    const refused = await fetch(denied);
-    expect([refused.status, await refused.json()]).toEqual([409, expect.objectContaining({ error: "Taken", message: "Sign in" })]);
-  });
-
-  it("will throw on creation if a gate ref names no export", () => {
-    expect(() => compose({}, [tally], [], [], null, undefined, [{ pattern: ["shop"], gate: [1, "default"] }])).toThrow("/shop has no export default.");
-  });
-
-  it("will throw on creation if a ref names no export", () => {
-    expect(() => compose({}, [tally], [{ pattern: ["shop"], calls: { price: [1, "price"] }, classes: {} }]))
-      .toThrow("/shop has no export price.");
-  });
-
-  it("will throw on creation if a folder exports a class that is not an Error", () => {
-    expect(() => compose({}, [{ Plain: class Plain {} }], [{ pattern: ["shop"], calls: {}, classes: { Plain: [0, "Plain"] } }]))
-      .toThrow("/shop exports Plain, which is neither an async function nor an Error subclass.");
+    expect(compose({ target: "fetch", host: () => Entry })).toBe(Entry);
   });
 });

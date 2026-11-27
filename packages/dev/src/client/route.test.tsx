@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NotFound, Redirect, client } from "@expressive/rpc";
+import { NotFound, Redirect } from "@expressive/rpc";
 import { Component, Context, Model, set } from "@expressive/mvc";
 import { accept } from "@expressive/mvc/hot";
 import { NavLinks, Redirect as RouterRedirect } from "@expressive/router";
@@ -93,6 +93,21 @@ describe("browser errors", () => {
     retry!();
     retry!();
     await settle();
+  });
+
+  it("will enter a refused route again on retry", async () => {
+    let retry!: () => void;
+    let tries = 0;
+    const enter = () => { if (tries++ < 2) throw new Error("refused"); };
+    const Catch = ({ retry: again }: { retry: () => void }) => ((retry = again), <p>caught</p>);
+    location("/");
+    const root = await mount(() => <Route Catch={Catch}><Route enter={enter}><Route as={() => <p>page</p>} /></Route></Route>);
+
+    await vi.waitFor(() => expect(root.textContent).toBe("caught"));
+    retry();
+    await vi.waitFor(() => expect(tries).toBe(2));
+    retry();
+    await vi.waitFor(() => expect(root.textContent).toBe("page"));
   });
 
   it("will show Catch for a non-http redirect without navigating", async () => {
@@ -354,22 +369,25 @@ describe("prebuilt defaults", () => {
     expect(caught).toBe(0);
   });
 
-  it("will build in the entering path before the current path changes", async () => {
-    let entered: unknown;
-    let current: unknown;
-    class Guard extends Model {
-      protected new() {
-        const path = (globalThis as Record<symbol, unknown>)[Symbol.for("@expressive/dev#path")];
-        entered = client().pathOf(["note", ":id"], "served", path as string);
-        current = window.location.pathname;
-      }
-    }
+  it("will render below an entry that resolves to no default", async () => {
     location("/");
-    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="note/:id" enter={() => Guard}><Route as={() => <p>next</p>} /></Route></Route>);
-    router.goto("/note/8");
-    await vi.waitFor(() => expect(root.textContent).toBe("next"));
-    expect(entered).toBe("/note/8");
-    expect(current).toBe("/");
+    const root = await mount(() => <Route enter={() => Promise.resolve(undefined)}><Route as={() => <p>page</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("page"));
+  });
+
+  it("will build nothing from an entry that resolves after its route is left", async () => {
+    let release!: (type: Model.Extends) => void;
+    const built = vi.fn();
+    class Guard extends Model { protected new() { built(); } }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => new Promise<Model.Extends>(resolve => (release = resolve))}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    release(Guard);
+    await settle();
+    expect(built).not.toHaveBeenCalled();
   });
 
   it("will wait for a required factory before rendering", async () => {
