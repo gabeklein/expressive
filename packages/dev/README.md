@@ -783,7 +783,7 @@ loads its data on render does not.
 - A default class or `Layout` that calls the server leaves every page below it to the browser.
 - A `paths()` that calls the server lists nothing.
 
-A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
+A page that throws `Redirect` or `NotFound` stays client-rendered and is counted once in the build summary. Rendering nothing, another throw or taking over 30 seconds warns per page.
 An async `new()` on a default class settles before render; a rejection fails that page. A class built during render may reject after its page renders and warn.
 
 A default class runs `new()` before render; other classes run it during render. Effects never run at build, so DOM listeners and browser-only reads
