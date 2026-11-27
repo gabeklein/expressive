@@ -319,7 +319,7 @@ class Account extends Component {
 }
 ```
 
-- A render-time throw shows the Route's `fallback` until the target is ready.
+- A render-time throw on cold load shows the Route's `fallback` until the target is ready. During in-app navigation, the current screen holds through the redirect until its target is ready.
 - An async `new()` redirects after the page has shown. To decide before render, throw before the first `await`, or use the `redirect` prop.
 - Effects and event handlers navigate with `Route.get().goto()` - a throw there is just an error.
 - A redirect caught before the previous one lands passes on as an error - the loop guard.
