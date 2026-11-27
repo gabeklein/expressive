@@ -418,6 +418,27 @@ describe('effect', () => {
     expect(test.bar).toBe(3);
   });
 
+  it('will release nested subscriptions of an uncaptured effect when stopped', () => {
+    class Child extends Model {
+      value = 1;
+    }
+
+    class Test extends Model {
+      child = new Child();
+    }
+
+    const test = Test.new();
+    const { listeners } = observer(test.child)!;
+    const before = listeners.size;
+    const stop = watch(test, ($) => void $.child.value, false);
+
+    expect(listeners.size).toBe(before + 1);
+
+    stop();
+
+    expect(listeners.size).toBe(before);
+  });
+
   describe('async', () => {
     class Test extends Model {
       value = 1;

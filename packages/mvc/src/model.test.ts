@@ -5685,6 +5685,42 @@ describe('on catch stage (static)', () => {
 
 describe('computed (getters)', () => {
   it.each([
+    ['first', false],
+    ['again after its input changes', true]
+  ])('will keep deriving after a new() which read it %s is destroyed', async (_, again) => {
+    class Child extends Model {
+      value = 1;
+    }
+
+    class Source extends Model {
+      child = new Child();
+      get double() {
+        return this.child.value * 2;
+      }
+    }
+
+    const source = Source.new();
+    const next = Child.new();
+
+    class Reader extends Model {
+      new() {
+        void source.double;
+      }
+    }
+
+    if (again) void source.double;
+
+    source.child = next;
+    Reader.new().set(null);
+    await expect(source).toHaveUpdated();
+
+    next.value = 5;
+    await expect(source).toHaveUpdated();
+
+    expect(source.double).toBe(10);
+  });
+
+  it.each([
     ['will read last value after destroy', true, 4],
     ['will read undefined if never evaluated before destroy', false, undefined]
   ])('%s', (_, evaluate, expected) => {

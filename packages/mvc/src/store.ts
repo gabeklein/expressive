@@ -187,7 +187,7 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
       isAsync = true;
     }
 
-    if (STALE.delete(run)) run();
+    if (STALE.delete(run)) capture(() => run());
 
     return access(target, key, suspended);
   }

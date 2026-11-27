@@ -315,6 +315,8 @@ function watch<T extends object, R>(
 
   function stop(key: false | null) {
     if (unset) unset(key);
+    if (latest) unobserve(latest);
+    if (previous) unobserve(previous);
     unset = undefined;
     suspense?.();
     suspense = undefined;
