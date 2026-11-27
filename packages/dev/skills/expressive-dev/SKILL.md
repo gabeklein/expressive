@@ -236,7 +236,7 @@ export const GET = () => legacy.fetch;
   ```
 
   - Folder gates run before a call as before a verb - a refusal rejects it with the gate's error, gate Models are `X.get()`-able in it, `next` wraps it.
-  - An exported `Error` subclass rejects on the client as the same class, fields kept.
+  - An `Error` subclass any route exports - a gate's too - rejects on the client as the same class, fields kept.
   - Only calls the client build imports are callable, under per-build hashed ids unless `remote: { opaque: false }`. Dev: every call of a route the browser loaded.
   - Static paths only: a call under `[param]` or `[...]` fails the build - take the id as an argument. `api/index.ts`'s calls are reserved.
   - The client may import a route's calls, `Error` subclasses and types - not its verbs or `default`, nothing from a helper.

@@ -470,11 +470,12 @@ import { rename, Taken } from "../../api/(account)";
 - The folder gates run before a call as before a verb: a refusal rejects the call with the gate's
   error, Models a gate activates are found by `X.get()` in the call, and `next` wraps it.
 - An exported `Error` subclass crosses with the calls: thrown on the server, it rejects on the
-  client as the same class, its fields kept. Other errors answer a 500, as with `handle`.
+  client as the same class, its fields kept - one a gate throws too, whichever route exports it.
+  Other errors answer a 500, as with `handle`.
 - Only calls the client build imports are callable; an unimported export is no endpoint. Their ids
   are a per-build hash unless `remote: { opaque: false }`. In dev, the calls of every route module
   the browser loaded are callable.
-- A call reads the request from `Current` - cookies, `env`, params of its gates.
+- A call reads the request from `Current` - cookies, headers, `env`.
 - Calls sit on static paths: a module under `[param]` or `[...]` with a call fails the build -
   take the id as an argument. `api/index.ts`'s calls are reserved, like its other exports.
 - The client may import a route's calls, `Error` subclasses and types - not its verbs or its
