@@ -41,7 +41,7 @@ Route content nests `default` → `Layout` → `Page`; each is optional, and a m
 | `Page` | A folder's index page, or a leaf whose state and view are separate. |
 | `Catch` | The folder's error and not-found screen. |
 
-A class `default` is built during the navigation hold. Its `new()` may await and throw `Redirect` or `NotFound` before anything below renders. The route provides the instance below, so `X.get()` finds it; a Component default places `Layout` and `Page` through `props.children`. It is destroyed after navigation settles away from the route, then rebuilt on re-entry or a param change. `new()` runs once per instance: a sign-out guard there does not re-run; read the session in `render()` when the page must react. Calls after the first `await` in `new()` use params from the old URL during a hold. A function default renders as a wrapper, or as a leaf page. It must return an element; wrap text in a fragment. A leaf Model default without `Page` renders nothing and warns.
+A class `default` is built during the navigation hold. Its `new()` may await and throw `Redirect` or `NotFound` before anything below renders. The route provides the instance below, so `X.get()` finds it; a Component default places `Layout` and `Page` through `props.children`. It is destroyed after navigation settles away from the route, then rebuilt on re-entry or a param change. `new()` runs once per instance: a sign-out guard there does not re-run; read the session in `render()` when the page must react. Calls after the first `await` in `new()` use params from the old URL during a hold. A function default renders as a wrapper, or as a leaf page. It must return an element; wrap text in a fragment. A leaf Model default without `Page` renders nothing and warns. An index default that never reads `children` - a function's `children` prop, a Component's `this.props.children` in `render` - warns at build and on save in dev when its module has a `Page` or `Layout` or its folder has routes below, since those would never show.
 
 A route can guard itself:
 
@@ -769,8 +769,7 @@ export const paths = () => Object.keys(posts).map(file => `/blog/${file.split("/
 ```
 
 `paths()` is bundled with the client code, so it has no Node APIs - list from static imports,
-`import.meta.glob` or an absolute-URL `fetch`. Its paths are not checked against the routes: one
-no route matches writes the 404 page.
+`import.meta.glob` or an absolute-URL `fetch`. A listed path no route matches warns and is skipped.
 
 A page that needs the server while it renders stays client-rendered, wherever its `remote.ts` or
 `remote/` sits, and the build never runs server code. In the build, remote stubs stop at the server:
@@ -783,7 +782,7 @@ loads its data on render does not.
 - A default class or `Layout` that calls the server leaves every page below it to the browser.
 - A `paths()` that calls the server lists nothing.
 
-A page that redirects, renders nothing, throws or takes over 30 seconds is skipped with a warning.
+A page that throws `Redirect` or `NotFound` stays client-rendered and is counted once in the build summary. Rendering nothing, another throw or taking over 30 seconds warns per page.
 An async `new()` on a default class settles before render; a rejection fails that page. A class built during render may reject after its page renders and warn.
 
 A default class runs `new()` before render; other classes run it during render. Effects never run at build, so DOM listeners and browser-only reads
