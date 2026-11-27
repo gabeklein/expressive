@@ -3,7 +3,7 @@ import { isCall } from "@expressive/rpc/http";
 import { bind, failure } from "@expressive/rpc/protocol";
 
 import type { App, AppOptions, HandleArgs, Settings } from "../settings";
-import { callApi, owns, serveApi, type Api } from "./api";
+import { callApi, endpointsOf, owns, serveApi, type Api } from "./api";
 import { check } from "./check";
 
 export interface Parts {
@@ -71,9 +71,17 @@ export function compose(settings: Settings = {}, { api, pages, dev = false }: Pa
       if (!isCall(request)) return refuse(error, dev);
       if (!(error instanceof HttpError)) console.error(error);
 
-      return failure(error, [], dev);
+      return failure(error, await errorsOf(api), dev);
     }
   };
+}
+
+async function errorsOf(api: Api | undefined) {
+  try {
+    return api ? endpointsOf(await api.routes()) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function around(handle: NonNullable<Settings["handle"]>, args: Omit<HandleArgs, "next">, below: (request: Request) => Promise<Response>, failed: (reply: Response) => Response): Promise<Response> {

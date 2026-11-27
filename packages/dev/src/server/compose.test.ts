@@ -336,7 +336,17 @@ describe("handle", () => {
 
     expect([refused.status, await refused.json()]).toEqual([409, { message: "held" }]);
     expect([redirected.status, redirected.headers.get("location")]).toEqual([302, "/login"]);
+    expect([called.status, await called.json()]).toMatchObject([409, { error: "Taken", message: "held" }]);
+  });
+
+  it("will answer a call handle refused without route classes when there are no routes, or they fail to load", async () => {
+    const broken = { prefix: "/api", routes: () => { throw new Error("api/ failed to scan"); } };
+    const handle = () => { throw new Taken("held"); };
+    const called = await compose({ handle }, { api: broken })(call("add", [1, 1]));
+    const bare = await compose({ handle })(call("add", [1, 1]));
+
     expect([called.status, await called.json()]).toMatchObject([409, { error: "http:HttpError", message: "held" }]);
+    expect([bare.status, await bare.json()]).toMatchObject([409, { error: "http:HttpError", message: "held" }]);
   });
 
   it("will log anything else as a 500, its message shown in dev only", async () => {
