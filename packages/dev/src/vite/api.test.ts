@@ -223,4 +223,13 @@ describe("scanCalls", () => {
       "sync() is not async - every call to it crosses the wire. Move helpers to a bare-named or _ file beside the route.",
     ]);
   });
+
+  it("will word a class that is not an Error as verifyApi does at runtime", async () => {
+    const root = project({ "api/(a).ts": "export class Row {} export async function rename() {}" });
+    const file = join(root, "api/(a).ts");
+    const { problems } = await scanCalls({ file, index: false, path: ["a"] }, readFileSync(file, "utf8"), SOURCES, () => false);
+
+    expect(problems).toHaveLength(1);
+    expect(() => verifyApi({ name: "api/a.ts", index: false, path: ["a"] }, { Row: class Row {}, async rename() {} })).toThrow(`api/a.ts: ${problems[0]}`);
+  });
 });

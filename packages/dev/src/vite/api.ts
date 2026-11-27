@@ -75,7 +75,7 @@ const isClass = (value: unknown) => typeof value == "function" && /^class\b/.tes
 
 const FUNCTION = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
 
-const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression => FUNCTION.has(value?.type as string);
+const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression => FUNCTION.has(value?.type ?? "");
 
 /** A route module's calls and error classes, and what is wrong with its exports. */
 export interface RouteScan {
@@ -176,14 +176,13 @@ export function helperAt(helpers: ApiHelper[], segments: string[]): ApiHelper | 
   return helpers.find(({ path }) => path.length === segments.length && path.every((segment, i) => segment.startsWith(":") || segment === segments[i]));
 }
 
-
 /** What is wrong with a helper - a function exported under a verb's name was meant as a route. */
 export function helperProblems({ name, file }: ApiHelper, source: string): string[] {
   const { exports, errors } = moduleOf(file, source);
 
   if (errors.length) return [`${name}: ${errors[0]}`];
 
-  const verbs = VERBS.filter(verb => FUNCTION.has(exports.get(verb)?.type as string));
+  const verbs = VERBS.filter(verb => isFunction(exports.get(verb)));
 
   return verbs.length ? [`${name}: exports ${verbs.join(", ")}, but a bare-named file is a helper, not a route - rename it ${leafOf(name)} to serve it.`] : [];
 }
