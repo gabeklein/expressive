@@ -307,6 +307,20 @@ describe("api calls", () => {
     expect([failed.status, (await failed.json()).message]).toEqual([500, "misnamed"]);
   });
 
+  it("will match a call's route by its decoded path, under a gate whose folder needs encoding too", async () => {
+    const seen: string[] = [];
+    const fetch = serve([
+      route(["café"], { default: () => void seen.push("gate") }, true),
+      callable(["café", "my notes"], { async list() { return "notes"; } }, { list: "list" }),
+      callable(["(x)"], { async x() { return "x"; } }, { x: "x" }),
+    ]);
+
+    expect(await (await fetch("/api/caf%C3%A9/my%20notes", call("list"))).json()).toEqual({ value: "notes" });
+    expect(await (await fetch("/api/(x)", call("x"))).json()).toEqual({ value: "x" });
+    expect((await fetch("/api/caf%C3%A9/%E0%A4%A", call("list"))).status).toBe(404);
+    expect(seen).toEqual(["gate"]);
+  });
+
   it("will answer a call under another prefix, and none for a route with only error classes", async () => {
     const fetch = serve([callable(["shop"], { async buy() { return 1; } }, { buy: "buy" }), { ...route(["plain"], { POST: () => "verb", Taken }), classes: { Taken: "Taken" } }], "/base/api");
 

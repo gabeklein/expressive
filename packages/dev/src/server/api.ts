@@ -132,23 +132,37 @@ const pick = (ids: Record<string, string> | undefined, exports: Exports) => Obje
 
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((part, i) => part === b[i]);
 
-/** Answer a call to a module under the folder: its folder gates outermost first, then the export its `x-expressive-call` names. */
+const decoded = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
+
+/**
+ * Answer a call to a module under the folder: its folder gates outermost first, then the export its `x-expressive-call` names.
+ * A route matches its decoded path, as in `serveApi`.
+ */
 export async function callApi(request: Request, api: Api, dev: boolean): Promise<Response> {
   let endpoints: Endpoint[] = [];
 
   try {
     const routes = await api.routes();
+    const skip = api.prefix.split("/").filter(Boolean).length;
+    const raw = new URL(request.url).pathname.split("/").filter(Boolean).slice(skip);
+    const path = raw.map(decoded);
 
     endpoints = routes
       .filter(route => Object.keys({ ...route.calls, ...route.classes }).length)
-      .map(route => ({ pattern: route.path, exports: async () => { const exports = await route.load(); return { calls: pick(route.calls, exports), classes: pick(route.classes, exports) }; } }));
+      .map(route => ({ pattern: same(route.path, path) ? raw : route.path, exports: async () => { const exports = await route.load(); return { calls: pick(route.calls, exports), classes: pick(route.classes, exports) }; } }));
 
     const gates: Seats = async pattern => {
-      const gate = routes.find(route => route.index && same(route.path, pattern));
+      const gate = routes.find(route => route.index && same(route.path, pattern.map(decoded)));
       if (gate) return (await gate.load()).default as () => unknown;
     };
 
-    return await dispatch(request, () => endpoints, dev, gates, undefined, api.prefix.split("/").filter(Boolean).length);
+    return await dispatch(request, () => endpoints, dev, gates, undefined, skip);
   } catch (error) {
     return failure(error, endpoints, dev);
   }
