@@ -139,6 +139,31 @@ test("redirects where a call's Redirect points", async ({ page, open }) => {
   await expect(page.getByRole("heading")).toHaveText("New room");
 });
 
+test("follows a call's Redirect to another room", async ({ page, open }) => {
+  await open("/");
+  await page.getByRole("link", { name: "Moved room" }).click();
+
+  await expect(page).toHaveURL("/room/1");
+  await expect(page.getByRole("heading")).toHaveText("Room 1");
+});
+
+test("follows a call's Redirect to another room on a cold load", async ({ page, open }) => {
+  await open("/room/moved");
+
+  await expect(page).toHaveURL("/room/1");
+  await expect(page.getByRole("heading")).toHaveText("Room 1");
+});
+
+test("enters another room from a page below the folder's index", async ({ page, open }) => {
+  const sent = calls(page, "/api/room");
+
+  await open("/room/1/notes");
+  await page.getByRole("link", { name: "Room 2" }).click();
+
+  await expect(page.getByRole("heading")).toHaveText("Room 2");
+  expect(sent).toEqual(['["1"]', '["2"]']);
+});
+
 test("drops a superseded call's refusal", async ({ page, open }) => {
   let release!: () => void;
   const held = new Promise<void>(done => (release = done));
