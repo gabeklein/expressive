@@ -4,7 +4,9 @@ import { basename, dirname, extname, join, relative, sep } from "node:path";
 import { importRel, UNMATCHED } from "./project";
 
 const ROUTE_EXT = new Set([".tsx", ".jsx", ".ts", ".js"]);
-const REMOTE = /^remote\.[cm]?[jt]s$/;
+const REMOTE = /^remote\.[cm]?[jt]s$/i;
+const VIEW = /\.[jt]sx$/;
+const PLACED = ["Page", "Layout", "Loading", "Catch"];
 export const CALL = "call.ts";
 
 const ROLES = [
@@ -66,7 +68,7 @@ export async function generateRoutes(appDir: string, outDir: string, scan: Expor
     !root.exports.has("Router") && "Router",
   ].filter(Boolean).join(", ")} }`;
   const scoped = some(root, node => !!scopeOf(node));
-  const either = some(root, node => !!hookOf(node));
+  const either = some(root, node => !!node.hook);
 
   return [
     `import ${pageImports} from "@expressive/dev";`,
@@ -143,9 +145,9 @@ function newNode(fields: Partial<RouteNode>): RouteNode {
 async function scanDir(dir: string, segment: string, name: string, scan: ExportScanner, appDir = dir): Promise<RouteNode> {
   const node = newNode({ segment, name });
   const entries = readdirSync(dir);
-  const remote = entries.find(entry => REMOTE.test(entry) || (entry === "remote" && statSync(join(dir, entry)).isDirectory()));
+  const remote = entries.find(entry => REMOTE.test(entry) || (/^remote$/i.test(entry) && statSync(join(dir, entry)).isDirectory()));
 
-  if (remote) throw new Error(moved(appDir, join(dir, remote)));
+  if (remote && !(await routable(join(dir, remote), scan))) throw new Error(moved(appDir, join(dir, remote)));
 
   for (const entry of entries) {
     const full = join(dir, entry);
@@ -201,9 +203,24 @@ async function scanDir(dir: string, segment: string, name: string, scan: ExportS
   return node;
 }
 
+async function routable(path: string, scan: ExportScanner): Promise<boolean> {
+  if (statSync(path).isDirectory()) {
+    for (const entry of readdirSync(path))
+      if (VIEW.test(entry) || (await routable(join(path, entry), scan))) return true;
+
+    return false;
+  }
+
+  if (!ROUTE_EXT.has(extname(path))) return false;
+
+  const { exports } = await scan(readFileSync(path, "utf8"), path);
+
+  return [...exports].some(name => PLACED.includes(name));
+}
+
 function moved(appDir: string, file: string): string {
   const project = dirname(appDir);
-  const folders = relative(appDir, dirname(file)).split(sep).filter(part => part && !/^\[.*\]$/.test(part));
+  const folders = relative(appDir, dirname(file)).split(sep).filter(Boolean).map(part => classify(part, true)!.segment).filter(segment => !/^[:*]/.test(segment));
   const shown = relative(project, file).split(sep).join("/") + (statSync(file).isDirectory() ? "/" : "");
 
   return `${shown}: server calls live in /api now - move it to ${["api", ...folders, "(name).ts"].join("/")}`;
@@ -316,7 +333,6 @@ const renders = (node: RouteNode): boolean => hasPage(node) || node.children.som
 
 const scopeOf = (node: RouteNode): string | undefined => node.alias.default;
 
-const hookOf = (node: RouteNode): string | undefined => node.hook;
 
 function collectWrappers(root: RouteNode, project: string): string[] {
   const wrappers: string[] = [];
@@ -339,7 +355,7 @@ function emitNode(node: RouteNode, isRoot: boolean, depth: number, slot: string,
   const pad = "  ".repeat(depth);
   const { Page, Layout, Loading, Catch } = node.alias;
   const label = node.label === undefined ? undefined : JSON.stringify(node.label);
-  const hook = hookOf(node);
+  const { hook } = node;
   const enter = node.classDefault === true ? `watching(() => ${lazy(node) ? `${node.alias.default}()` : node.alias.default}, ${JSON.stringify(sourceOf(node, dirname(outDir)))}, ${leafDefault(node) && !node.modelDefault})` : hook;
   const scope = scopeOf(node);
 

@@ -217,6 +217,16 @@ describe("app/ routing (codegen)", () => {
     await expect(generate({ "index.tsx": PAGE, "tally/index.tsx": PAGE, "tally/remote.ts": "" })).rejects.toThrow("app/tally/remote.ts: server calls live in /api now - move it to api/tally/(name).ts");
     await expect(generate({ "index.tsx": PAGE, "remote.mts": "" })).rejects.toThrow("app/remote.mts: server calls live in /api now - move it to api/(name).ts");
     await expect(generate({ "index.tsx": PAGE, "note/[id]/remote/index.ts": "" })).rejects.toThrow("app/note/[id]/remote/: server calls live in /api now - move it to api/note/(name).ts");
+    await expect(generate({ "index.tsx": PAGE, "(shop)/Remote.ts": "export async function buy() {}" })).rejects.toThrow("app/(shop)/Remote.ts: server calls live in /api now - move it to api/shop/(name).ts");
+    await expect(generate({ "index.tsx": PAGE, "docs/[...]/remote/feed/latest.ts": "export async function feed() {}", "docs/[...]/remote/feed/notes.md": "" })).rejects.toThrow("move it to api/docs/(name).ts");
+  });
+
+  it("will route a remote/ folder or keep a remote module holding route exports", async () => {
+    const out = await generate({ "index.tsx": PAGE, "remote/index.tsx": "export default () => <h1>remote</h1>", "tally/index.tsx": PAGE, "tally/remote.ts": PAGE, "news/remote/(today).ts": PAGE });
+
+    expect(out).toContain('to="remote"');
+    expect(out).toContain('to="today"');
+    expect(out).not.toContain("tally/remote");
   });
 
   it("will route a file named remote with no extension as nothing", async () => {
