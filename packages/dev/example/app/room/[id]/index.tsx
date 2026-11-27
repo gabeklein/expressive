@@ -8,10 +8,7 @@ export default class Room extends Model {
   id = "";
 
   protected async new() {
-    const { router, path } = this.route;
-    const { id } = router.match(path, "*")!.params;
-
-    this.id = await enter(id);
+    this.id = await enter(this.route.match!.id);
   }
 }
 

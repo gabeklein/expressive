@@ -188,7 +188,7 @@ export default () => {
 
 A page guards itself through its route `default`: `new()` awaits a call, which meets the gates
 first, so a refusal stops the page before it renders - [Guarding a page](#guarding-a-page). A guest
-here lands on `/login`:
+here lands on `/login` (`server/db.ts` stands for the app's data layer):
 
 ```ts
 // api/account/index.ts
@@ -199,13 +199,19 @@ export default () => {
 };
 
 // api/account/(me).ts
-export async function me() { return db.user(Current.get().cookies.session!); }
+import { Current } from "@expressive/dev/server";
+import { db } from "../../server/db";
+
+export async function me() {
+  return db.user(Current.get().cookies.session!);
+}
 ```
 
 ```tsx
 // app/account/index.tsx
 import { Model } from "@expressive/mvc";
 import { me } from "../../api/account/(me)";
+import type { User } from "../../server/db";
 
 export default class Account extends Model {
   user?: User = undefined;
@@ -213,6 +219,11 @@ export default class Account extends Model {
   protected async new() {
     this.user = await me();
   }
+}
+
+export function Page() {
+  const { user } = Account.get();
+  return <h1>Hi, {user?.name}</h1>;
 }
 ```
 
@@ -327,6 +338,7 @@ export default config({
   single-file app (`app.tsx`) gets the shell with 200 for every navigation. The page routes are
   the `app/` files exporting `Page` or a leaf `default` - a deep link into a route the scan can't see (a custom root
   `Router`, a `<Route>` in a `Layout`) gets the shell with 404; a `[...]` page claims those paths.
+- Calls honour a non-root Vite `base`; pages don't route under one yet.
 - In dev, Vite's own requests skip it: paths outside `base`, `/@vite/*`, `/@id/*`, `/@fs/*`,
   `/node_modules/*`, `/.expressive/*` other than calls, `/__inspect`, `/__open-in-editor`,
   `server.proxy`'s prefixes, the bare `?import`, `?url` and `?raw` flags, and source files under
@@ -514,7 +526,11 @@ export default () => {
 };
 
 // api/team/(members).ts
-export async function members(team: string) { return db.members(team); }
+import { db } from "../../server/db";
+
+export async function members(team: string) {
+  return db.members(team);
+}
 ```
 
 ```tsx
@@ -522,6 +538,7 @@ export async function members(team: string) { return db.members(team); }
 import { Route } from "@expressive/dev";
 import { Model, get } from "@expressive/mvc";
 import { members } from "../../api/team/(members)";
+import type { Member } from "../../server/db";
 
 export default class Team extends Model {
   route = get(Route);
@@ -541,9 +558,8 @@ export function Page() {
 - A refusal rejects the call, and `new()` with it: `Redirect` - or any error with a 3xx `status` and
   a `location` - navigates; anything else reaches the nearest `Catch`, whose `retry` builds the
   class again.
-- Calls sit on static paths, so a param page passes its params as arguments. A route's `match` is
-  its own path's: a folder `default` reads its params on the pages below it with
-  `route.router.match(route.path, "*")!.params`.
+- Calls sit on static paths, so a param page passes its params as arguments. A folder `default`
+  reads them from `match` too, on the pages below the folder's index as well.
 - A guard is a data load, not a separate check: every call still runs its gates.
 - A page whose `default` calls the server is not prerendered.
 

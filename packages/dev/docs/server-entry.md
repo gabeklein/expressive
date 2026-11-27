@@ -399,7 +399,7 @@ There is no Model every request gets, and none is needed:
 - **Request id, timing, logging:** `handle`, shipping with `ctx.waitUntil`; read in scope through the app's own `AsyncLocalStorage` around `next` or a forwarded header.
 - **Rate limiting:** by IP in `handle` (`throw new TooManyRequests()`), by user in a folder gate after the session; the counter is a module-scope service.
 
-An eager Model for every call and route is a one-line gate in `api/index.ts`, and a forgotten one fails closed, since `X.get()` throws. Prefer the lazy forms: a root remote gate gates every page (Gate check).
+An eager Model for every call and route is a one-line gate in `api/index.ts`, and a forgotten one fails closed, since `X.get()` throws. Prefer the lazy forms.
 
 ## Gate check
 

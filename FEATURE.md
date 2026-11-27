@@ -4,7 +4,7 @@ Next-like host for Expressive: Vite, `@expressive/dom` rendering, file-based rou
 
 ## Workflow
 
-- `feat/dev-serve` is the trunk for the server entry: `config`'s `handle` and `host`, `index.dev.ts`, folder gates, `api/` routes, gate check. Scope and shape are in `packages/dev/docs/server-entry.md` (signed off in #808), whose PR split it follows - PR 1 lands on `main`, PRs 2-7 here. Its PRs fold the note into this file (lines superseded: the note's question 4) and delete the note before the trunk merges to `main`. Dogfood through `gh workflow run preview.yml --ref feat/dev-serve`.
+- `feat/dev-serve` is the trunk for the server entry: `config`'s `handle` and `host`, `index.dev.ts`, folder gates, `api/` routes and calls. Scope and shape are in `packages/dev/docs/server-entry.md` (signed off in #808), whose PR split it follows - PR 1 lands on `main`, PRs 2-7 here. Its PRs fold the note into this file (lines superseded: the note's question 4) and delete the note before the trunk merges to `main`. Dogfood through `gh workflow run preview.yml --ref feat/dev-serve`.
 - `feat/dev-server` is the trunk. Each feature lands as its own PR into it, small enough to hand-review; the trunk merges to `main` when release-ready.
 - Merge `main` into the trunk as it moves. Upstream fixes (mvc, dom, router) land on `main` as their own PRs, never only here.
 - `backup/dev-server-full` holds the pre-trunk prototype - source for the queued features below. Its POST dispatch and client stubs seed the MVP; its `app/api` lane becomes the rpc folder (RPC). Delete once nothing is left to carve.
