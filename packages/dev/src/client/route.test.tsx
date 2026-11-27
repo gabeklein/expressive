@@ -64,14 +64,34 @@ it("will leave non-setup and unowned setup reports for other handlers", async ()
     value = 0;
     protected async new() { throw new NotFound("missing"); }
   }
+  class Broken extends Model {
+    protected async new() { throw new Error("broken"); }
+  }
   const task = Task.new();
+  Broken.new();
   await settle();
   task.set(null);
   task.value = 1;
-  expect(seen).toContain("setup");
+  expect(seen.filter(kind => kind == "setup")).toHaveLength(2);
   expect(seen).toContain("dead");
   router.set(null);
   stop();
+});
+
+it("will drop a Redirect from a Model below an unmatched route", async () => {
+  const seen: unknown[] = [];
+  const stop = Model.on({ catch(error) { seen.push(error); } });
+  const router = Router.new(Context.root);
+  class Guarded extends Route {
+    protected async new() { throw new Redirect("/other"); }
+  }
+  const route = Guarded.new({ to: "elsewhere" });
+  await settle();
+  route.set(null);
+  router.set(null);
+  stop();
+  expect(seen).toEqual([]);
+  expect(router.path).toBe("/");
 });
 
 describe("browser errors", () => {
@@ -373,6 +393,13 @@ describe("prebuilt defaults", () => {
     location("/");
     const root = await mount(() => <Route enter={() => Promise.resolve(undefined)}><Route as={() => <p>page</p>} /></Route>);
     await vi.waitFor(() => expect(root.textContent).toBe("page"));
+  });
+
+  it("will show a default's refusal in Catch without reporting it", async () => {
+    class Guard extends Model { protected async new() { throw new Error("refused"); } }
+    location("/");
+    const root = await mount(() => <Route Catch={({ error }: { error: Error }) => <p>{error.message}</p>}><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("refused"));
   });
 
   it("will build nothing from an entry that resolves after its route is left", async () => {

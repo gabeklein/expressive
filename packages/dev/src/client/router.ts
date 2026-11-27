@@ -9,9 +9,11 @@ export class Router extends BrowserRouter {
   protected new() {
     const stop = Model.on({
       catch(this: Model, error, kind) {
-        if (kind !== "setup" || !(error instanceof Redirect || error instanceof NotFound)) return error;
+        if (kind !== "setup") return error;
+        if (owns(this)) return;
+        if (!(error instanceof Redirect || error instanceof NotFound)) return error;
         let route = this instanceof Route ? this : this.get(Route, false);
-        if (route && (!route.matched || owns(this))) return;
+        if (route && !route.matched) return;
         if (error instanceof NotFound)
           while (route && !(route as Route & { Catch?: unknown }).Catch) route = route.parent;
         if (!route || route.router.is !== router) return error;
