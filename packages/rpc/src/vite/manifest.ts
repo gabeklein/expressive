@@ -24,7 +24,6 @@ export type Locate = (file: string) => Located | undefined;
 export interface Stub {
   from?: string;
   at?: unknown;
-  imports?: string[];
   lines?: string[];
 }
 
@@ -62,22 +61,11 @@ export class Manifest<E extends Exposed = Exposed> {
     return "id" in parent ? parent.id : this.classId(locate(parent.file)!, parent.name);
   }
 
-  byPattern(): E[][] {
-    const groups = new Map<string, E[]>();
-
-    for (const exposed of this.modules.values()) {
-      const key = pathOf(exposed);
-      groups.set(key, [...(groups.get(key) ?? []), exposed]);
-    }
-
-    return [...groups.values()];
-  }
-
-  stub(exposed: E, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), imports = [], lines = [] }: Stub = {}): string {
+  stub(exposed: E, locate: Locate, { from = "@expressive/rpc", at = pathOf(exposed), lines = [] }: Stub = {}): string {
     const json = JSON.stringify;
 
     return [
-      `import { ${["call", "define", ...imports].join(", ")} } from ${json(from)};`,
+      `import { call, define } from ${json(from)};`,
       ...this.parentImports(exposed),
       `const at = ${json(at)};`,
       ...exposed.calls.map(name => `export const ${name} = (...args) => call(at, ${json(this.callId(exposed, name))}, args);`),
@@ -103,34 +91,6 @@ export class Manifest<E extends Exposed = Exposed> {
       const args = [json(this.classId(exposed, name)), json(name), ...(parent ? [json(this.parentId(parent, locate))] : [])];
       return `export const ${name} = define(${args.join(", ")});`;
     });
-  }
-
-  table(group: E[], alias: (file: string) => string): string {
-    const pick = (names: (exposed: E) => string[], id: (exposed: E, name: string) => string) =>
-      group.flatMap(exposed => names(exposed).map(name => `${JSON.stringify(id(exposed, name))}: ${alias(exposed.file)}.${name}`)).join(", ");
-
-    const calls = pick(exposed => exposed.calls, (exposed, name) => this.callId(exposed, name));
-    const classes = pick(exposed => exposed.errors.map(error => error.name), (exposed, name) => this.classId(exposed, name));
-
-    return `calls: { ${calls} }, classes: { ${classes} }`;
-  }
-
-  async exports(group: E[], load: (file: string) => Promise<Record<string, unknown>>, check: (file: string, exports: Exports) => void): Promise<Exports> {
-    const calls: Record<string, unknown> = {};
-    const classes: Record<string, unknown> = {};
-
-    for (const exposed of group) {
-      const mod = await load(exposed.file);
-      const own: Record<string, unknown> = {};
-
-      for (const name of exposed.calls) calls[this.callId(exposed, name)] = mod[name];
-      for (const { name } of exposed.errors) own[this.classId(exposed, name)] = mod[name];
-
-      check(exposed.file, { calls, classes: own });
-      Object.assign(classes, own);
-    }
-
-    return { calls, classes };
   }
 
   protected seal(id: string): string {

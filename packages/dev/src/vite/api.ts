@@ -83,7 +83,7 @@ export async function scanCalls({ file, index, path }: Pick<ApiFile, "file" | "i
   const root = index && !path.length;
   const declared = new Set(root ? [] : [...names].filter(name => !served(name) && (isFunction(exports.get(name)) || isClassNode(exports.get(name)))));
   const plain = [...declared].filter(name => { const value = exports.get(name); return isFunction(value) && !value.async && !value.generator; });
-  const { calls, errors, problems: wrong } = await scanModule(file, source, sources, owned, {}, new Set([...declared].filter(name => !plain.includes(name))));
+  const { calls, errors, problems: wrong } = await scanModule(file, source, sources, owned, new Set([...declared].filter(name => !plain.includes(name))));
   const found = [...problems(names, index, root, !!classDefault, declared, calls.length), ...wrong, ...plain.map(sync)];
   const param = path.find(part => part.startsWith(":") || part === "*");
 

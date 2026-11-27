@@ -94,7 +94,7 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
   }
 
   async function scanned(at: Located, resolve: Resolve, only: ReadonlySet<string>) {
-    const { calls, errors, gate, problems } = await scanModule(at.file, readFileSync(at.file, "utf8"), sources(resolve), owned, {}, only);
+    const { calls, errors, gate, problems } = await scanModule(at.file, readFileSync(at.file, "utf8"), sources(resolve), owned, only);
 
     fail(at.file, problems);
 
