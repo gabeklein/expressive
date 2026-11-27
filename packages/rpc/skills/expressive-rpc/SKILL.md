@@ -292,6 +292,7 @@ export { Room } from "./room";   // a Durable Object, say
   export default app;
   ```
 - `@expressive/rpc/calls` is the server's: a client import fails the build, and a call to `handle` outside a server the plugin builds or runs throws. One rpc dev server per process serves it.
+- `@expressive/rpc/protocol`, and `@expressive/rpc/vite`'s named exports beside the plugin, are for hosts and generated code, not app API.
 
 ## Your own server
 
