@@ -324,6 +324,53 @@ describe("prebuilt defaults", () => {
     expect(gone).toHaveBeenCalledOnce();
   });
 
+  describe("a param folder", () => {
+    const destroyed = vi.fn();
+
+    class Room extends Model {
+      route = get(Route);
+      id = "";
+
+      protected async new() {
+        const { id } = this.route.match!;
+        this.set(null, () => destroyed(id));
+        await null;
+        this.id = id;
+      }
+    }
+
+    beforeEach(() => destroyed.mockClear());
+
+    it("will keep the leaving default until a param change below its index lands", async () => {
+      location("/room/1/notes");
+      const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={() => <p>room {Room.get().id}</p>} /><Route to="notes" as={() => <p>notes</p>} /></Route></Route>);
+      await vi.waitFor(() => expect(root.textContent).toBe("notes"));
+      router.goto("/room/2");
+      await vi.waitFor(() => expect(root.textContent).toBe("room 2"));
+      await settle();
+      expect(destroyed.mock.calls).toEqual([["1"]]);
+      router.goto("/room/3");
+      await vi.waitFor(() => expect(root.textContent).toBe("room 3"));
+      await settle();
+      expect(destroyed.mock.calls).toEqual([["1"], ["2"]]);
+    });
+
+    it.fails("will set up a class page below its index against the entered default", async () => {
+      const seen: string[] = [];
+      class Page extends Component {
+        room = get(Room);
+        protected new() { seen.push(this.room.id); }
+        render() { return <p>room {this.room.id}</p>; }
+      }
+      location("/room/1/notes");
+      const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={Page} /><Route to="notes" as={() => <p>notes</p>} /></Route></Route>);
+      await vi.waitFor(() => expect(root.textContent).toBe("notes"));
+      router.goto("/room/2");
+      await vi.waitFor(() => expect(root.textContent).toBe("room 2"));
+      expect(seen).toEqual(["2"]);
+    });
+  });
+
   it("will discard a build abandoned for another route", async () => {
     const releases: Array<() => void> = [];
     let current!: Guard;
