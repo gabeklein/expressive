@@ -177,7 +177,7 @@ describe("launch", { timeout: 30_000 }, () => {
     });
     const renderer = await launch(root);
 
-    expect((await renderer.render("/"))?.html).toContain("Taken</button>");
+    expect((await renderer.render("/") as Page).html).toContain("Taken</button>");
     expect(await renderer.render("/account")).toBeNull();
     renderer.close();
   });
