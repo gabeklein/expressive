@@ -10,7 +10,7 @@ export interface Endpoint<E extends Exports = Exports> {
   exports(): Promise<E>;
 }
 
-export interface Match<E extends Exports = Exports> {
+interface Match<E extends Exports = Exports> {
   endpoint: Endpoint<E>;
   segments: string[];
 }
@@ -38,7 +38,7 @@ function match(pattern: string[], at: string[]): string[] | undefined {
 const rank = (part: string) => (part === "*" ? 0 : part.startsWith(":") ? 1 : 2);
 const specificity = (pattern: string[]) => pattern.map(rank).join("") + "3";
 
-export function resolve<E extends Exports>(endpoints: Endpoint<E>[], at: string[]): Match<E> | undefined {
+function resolve<E extends Exports>(endpoints: Endpoint<E>[], at: string[]): Match<E> | undefined {
   const matches: Match<E>[] = [];
 
   for (const endpoint of endpoints) {
@@ -49,16 +49,9 @@ export function resolve<E extends Exports>(endpoints: Endpoint<E>[], at: string[
   return matches.sort((a, b) => specificity(b.endpoint.pattern).localeCompare(specificity(a.endpoint.pattern)))[0];
 }
 
-export type Call = (...args: unknown[]) => unknown;
+type Call = (...args: unknown[]) => unknown;
 
 export type Seats = (pattern: string[]) => Promise<Seat | Gate | undefined>;
-
-export interface Invocation {
-  request: Request;
-  at: string[];
-  name: string;
-  args: unknown[];
-}
 
 export interface Fault {
   error?: string;
@@ -69,41 +62,26 @@ export interface Fault {
 
 export type Outcome = { value: unknown } | { error: Fault; status?: number };
 
-export interface Options {
-  seats?: Seats;
-  dev?: boolean;
-  errors?: Record<string, unknown>;
-}
-
-export interface Located<E extends Exports = Exports> {
+interface Located<E extends Exports = Exports> {
   found?: Match<E>;
-  exports?: E;
   fn?: Call;
 }
 
-export interface Folder {
+interface Folder {
   request: Request;
   found?: Match;
   seats: Seats;
 }
 
-const unseated: Seats = async () => undefined;
-
-export async function locate<E extends Exports>(list: Endpoint<E>[], at: string[], name?: string): Promise<Located<E>> {
+export async function locate<E extends Exports>(list: Endpoint<E>[], at: string[], name: string | null): Promise<Located<E>> {
   const found = resolve(list, at);
   const exports = found && await found.endpoint.exports();
-  const fn = exports && name !== undefined ? callOf(exports, name) : undefined;
+  const fn = exports && name !== null ? callOf(exports, name) : undefined;
 
-  return { found, exports, fn };
+  return { found, fn };
 }
 
-export async function invoke({ request, at, name, args }: Invocation, endpoints: Endpoint[], { seats = unseated, dev = false, errors }: Options = {}): Promise<Outcome | undefined> {
-  const { found, fn } = await locate(endpoints, at, name);
-
-  if (fn) return attempt(() => inFolder({ request, found, seats }, () => fn(...args)), endpoints, dev, errors);
-}
-
-export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: boolean, errors?: Record<string, unknown>): Promise<Outcome> {
+export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: boolean, errors: Record<string, unknown>): Promise<Outcome> {
   try {
     return { value: await run() };
   } catch (error) {
@@ -112,7 +90,7 @@ export async function attempt(run: () => unknown, endpoints: Endpoint[], dev: bo
 }
 
 /** `within` along the folder `found` names, its seats and gates from `seats`. */
-export async function inFolder<T>({ request, found, seats }: Folder, run: () => T, fail?: (error: unknown) => Awaited<T> | Promise<Awaited<T>>): Promise<Awaited<T>> {
+export async function inFolder<T>({ request, found, seats }: Folder, run: () => T, fail: (error: unknown) => Awaited<T> | Promise<Awaited<T>>): Promise<Awaited<T>> {
   const { endpoint, segments } = found!;
   const along = await seatsAlong(seats, endpoint.pattern);
 
@@ -140,29 +118,7 @@ function decode(segment: string): string {
   }
 }
 
-export function walkOf(list: Endpoint[], at: string[]): { pattern: string[]; segments: string[] } {
-  const pattern: string[] = [];
-  const segments: string[] = [];
-
-  for (let i = 0; i < at.length; i++) {
-    const here = list.filter(endpoint => endpoint.pattern.length === i + 1);
-    const exact = resolve(here.filter(endpoint => endpoint.pattern[i] !== "*"), at.slice(0, i + 1));
-    const rest = !exact && resolve(here, at);
-
-    if (rest) {
-      pattern.push("*");
-      segments.push(rest.segments[i]);
-      break;
-    }
-
-    pattern.push(exact ? exact.endpoint.pattern[i] : at[i]);
-    segments.push(at[i]);
-  }
-
-  return { pattern, segments };
-}
-
-export function seatsAlong(seats: Seats, pattern: string[]): Promise<(Seat | Gate | undefined)[]> {
+function seatsAlong(seats: Seats, pattern: string[]): Promise<(Seat | Gate | undefined)[]> {
   return Promise.all(Array.from({ length: pattern.length + 1 }, (_, i) => seats(pattern.slice(0, i))));
 }
 
@@ -172,7 +128,7 @@ function callOf({ calls }: Exports, name: string): Call | undefined {
   return typeof fn === "function" ? (fn as Call) : undefined;
 }
 
-export async function fault(error: unknown, endpoints: Endpoint[], dev: boolean, errors?: Record<string, unknown>): Promise<{ error: Fault; status?: number }> {
+export async function fault(error: unknown, endpoints: Endpoint[], dev: boolean, errors: Record<string, unknown>): Promise<{ error: Fault; status?: number }> {
   if (!(error instanceof Error)) return { error: { message: "Internal error." } };
 
   const id = await classId(endpoints, error, errors);
@@ -197,7 +153,7 @@ function warn({ constructor: Type }: Error) {
   console.warn(`${Type.name} is not a known error class, so a build replies "Internal error." for it - export it from a module the client calls, or list it in errors.`);
 }
 
-export async function classId(endpoints: Endpoint[], error: Error, errors: Record<string, unknown> = {}): Promise<string | undefined> {
+async function classId(endpoints: Endpoint[], error: Error, errors: Record<string, unknown>): Promise<string | undefined> {
   const ids = new Map<unknown, string>();
 
   for (const { exports } of endpoints)

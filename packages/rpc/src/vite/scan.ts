@@ -22,11 +22,6 @@ export interface Scan {
   problems: string[];
 }
 
-export interface Extension {
-  claim?(name: string): Promise<string[] | undefined>;
-  default?(value: Value): Promise<string[]>;
-}
-
 export type Value = ESTree.Node | null | undefined;
 type Statement = ESTree.Program["body"][number];
 
@@ -58,15 +53,15 @@ const INDEX = /^index\.[cm]?[jt]sx?$/;
 
 export const DECLARED = "An index declares its gate itself - `export default () => guard()`, or a class extending an imported one.";
 
-export const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression =>
+const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression =>
   value?.type === "FunctionDeclaration" || value?.type === "FunctionExpression" || value?.type === "ArrowFunctionExpression";
 
 export const isClass = (value: Value): value is ESTree.Class =>
   value?.type === "ClassDeclaration" || value?.type === "ClassExpression";
 
-export const notAsync = (name: string) => `${name}() is not async - every call to it crosses the wire.`;
+const notAsync = (name: string) => `${name}() is not async - every call to it crosses the wire.`;
 
-export const notError = (name: string) => `${name} is a class but not an Error - only error classes reach the client.`;
+const notError = (name: string) => `${name} is a class but not an Error - only error classes reach the client.`;
 
 export const nameOf = (node: ESTree.ModuleExportName) => (node.type === "Identifier" ? node.name : String(node.value));
 
@@ -74,7 +69,7 @@ export const nameOf = (node: ESTree.ModuleExportName) => (node.type === "Identif
  * What a module under the folder gives the client. With `only`, the rest of its exports stay on the server
  * unchecked, save Error classes, which still cross; its default is a gate only if `only` names it.
  */
-export async function scanModule(file: string, source: string, sources: Sources, owned: (file: string) => boolean, extension: Extension = {}, only?: ReadonlySet<string>): Promise<Scan> {
+export async function scanModule(file: string, source: string, sources: Sources, owned: (file: string) => boolean, only?: ReadonlySet<string>): Promise<Scan> {
   const module = moduleOf(file, source);
   const modules = new Map([[file, module]]);
   const scan: Scan = { calls: [], errors: [], gate: false, problems: [...module.errors] };
@@ -87,8 +82,7 @@ export async function scanModule(file: string, source: string, sources: Sources,
 
   for (const [name, value] of module.exports) {
     if (name === "default") {
-      if (extension.default) scan.problems.push(...(await extension.default(value)));
-      else if (!only || only.has("default")) await gate(scan, value, module, sources, owned, modules);
+      if (!only || only.has("default")) await gate(scan, value, module, sources, owned, modules);
       continue;
     }
 
@@ -113,13 +107,6 @@ export async function scanModule(file: string, source: string, sources: Sources,
       if (value.generator) scan.problems.push(`${name}() is a generator - a call answers one value; return an array, or stream it from a route.`);
       else if (value.async) scan.calls.push(name);
       else scan.problems.push(notAsync(name));
-      continue;
-    }
-
-    const claimed = await extension.claim?.(name);
-
-    if (claimed) {
-      scan.problems.push(...claimed);
       continue;
     }
 

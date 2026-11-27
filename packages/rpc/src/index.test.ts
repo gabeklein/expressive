@@ -90,7 +90,7 @@ describe("types", () => {
     ts.createProgram([join(SRC, "index.ts"), join(SRC, "http.ts")], { ...options, types: ["node"], declaration: true, emitDeclarationOnly: true, outDir: "/decl", rootDir: SRC }).emit(undefined, (file, text) => emitted.set(file, text));
 
     const fixture = "/app/main.ts";
-    const files = new Map([...emitted, [fixture, `import { configure, Current, NotFound } from "../decl/index";\nimport { handler, toNode } from "../decl/http";\nconfigure({ base: "https://api.example.com" });\nexport const node = toNode(handler([]));\nexport const current = Current;\nexport const err: Error = new NotFound("x");\n`]]);
+    const files = new Map([...emitted, [fixture, `import { configure, Current, NotFound } from "../decl/index";\nimport { handler, toNode } from "../decl/http";\nconfigure({ base: "https://api.example.com" });\nexport const node = toNode(handler({}));\nexport const current = Current;\nexport const err: Error = new NotFound("x");\n`]]);
     const host = ts.createCompilerHost({});
     const program = ts.createProgram([fixture], { ...options, types: [], lib: ["lib.es2023.d.ts", "lib.dom.d.ts"], noEmit: true }, {
       ...host,

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { config, serve, Cookies } from '@expressive/dev/server';
-import { expressive, runDev, runBuild } from '@expressive/dev/vite';
+import { config } from '@expressive/dev';
+import { compose, listen, Cookies } from '@expressive/dev/server';
+import { expressive, runBuild } from '@expressive/dev/vite';
 
-for (const [name, value] of Object.entries({ config, serve, Cookies, expressive, runDev, runBuild }))
+for (const [name, value] of Object.entries({ config, compose, listen, Cookies, expressive, runBuild }))
   assert.equal(typeof value, 'function', name + ' is not exported by the built dist');
 
 const manifest = JSON.parse(readFileSync('node_modules/@expressive/dev/package.json', 'utf8'));

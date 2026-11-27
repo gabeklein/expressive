@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DECLARED, isClass, scanModule, type Extension, type Sources } from "./scan";
+import { DECLARED, scanModule, type Sources } from "./scan";
 
 const HTTP = `import { Current, HttpError, NotFound } from "@expressive/rpc";`;
 const MVC = `import { Model } from "@expressive/mvc";`;
 
-function scan(source: string, file = "/app/api/todos.ts", others: Record<string, string> = {}, extension?: Extension) {
+function scan(source: string, file = "/app/api/todos.ts", others: Record<string, string> = {}) {
   const sources: Sources = {
     resolve: async (spec, importer) => {
       const file = new URL(spec, `file://${importer}`).pathname + ".ts";
@@ -14,7 +14,7 @@ function scan(source: string, file = "/app/api/todos.ts", others: Record<string,
     read: file => others[file],
   };
 
-  return scanModule(file, source, sources, file => file.startsWith("/app/api/"), extension);
+  return scanModule(file, source, sources, file => file.startsWith("/app/api/"));
 }
 
 describe("calls", () => {
@@ -353,41 +353,10 @@ describe("gates", () => {
   });
 });
 
-describe("extension", () => {
-  it("will let the extension claim an exported class, leaving the rest to the error rules", async () => {
-    const offered: string[] = [];
-    const claim = async (name: string) => (offered.push(name), name === "Cart" ? [] : name === "Odd" ? ["Odd is odd"] : undefined);
-    const found = await scan(`${HTTP} ${MVC}
-      export class Cart extends Model {}
-      export class Odd extends Model {}
-      export class Over extends HttpError {}
-      export class Plain {}
-      export async function add() {}
-    `, undefined, undefined, { claim });
-
-    expect(offered).toEqual(["Cart", "Odd", "Over", "Plain"]);
-    expect(found).toEqual({
-      calls: ["add"],
-      errors: [{ name: "Over", parent: { id: "http:HttpError" } }],
-      gate: false,
-      problems: ["Odd is odd", "Plain is a class but not an Error - only error classes reach the client."],
-    });
-  });
-
-  it("will hand the default to the extension in place of the gate rules, in any module", async () => {
-    const seen: boolean[] = [];
-    const extension: Extension = { default: async value => (seen.push(isClass(value)), isClass(value) ? [] : ["not a class"]) };
-
-    expect(await scan(`${MVC} export default class Seat extends Model {}`, undefined, undefined, extension)).toEqual({ calls: [], errors: [], gate: false, problems: [] });
-    expect((await scan(`export default 1`, "/app/api/index.ts", undefined, extension)).problems).toEqual(["not a class"]);
-    expect(seen).toEqual([true, false]);
-  });
-});
-
 describe("only", () => {
   const only = (source: string, names: string[], file?: string, others?: Record<string, string>) => {
     const sources: Sources = { resolve: async spec => (spec.endsWith("base") ? "/app/api/base.ts" : undefined), read: () => `export class Base extends Error {}` };
-    return scanModule(file ?? "/app/api/todos.ts", source, sources, file => file.startsWith("/app/api/"), {}, new Set(names));
+    return scanModule(file ?? "/app/api/todos.ts", source, sources, file => file.startsWith("/app/api/"), new Set(names));
   };
 
   it("will take only the names given as calls, leaving the rest unchecked on the server", async () => {

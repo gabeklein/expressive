@@ -1,4 +1,4 @@
-import { attempt, fault, inFolder, locate, type Call, type Endpoint, type Exports, type Match, type Outcome, type Seats } from "../call";
+import { attempt, fault, inFolder, locate, type Endpoint, type Outcome, type Seats } from "../call";
 import { CODEC, parse, stringify } from "../codec";
 import { bodyOf } from "../body";
 import { ensureInstalled, pass, within } from "../context";
@@ -7,29 +7,11 @@ import { reserved, walk, type Tree } from "../route";
 
 export function isCall(request: Request): boolean {
   const { headers } = request;
-  const named = headers.has("x-expressive-call") || headers.has("x-expressive-get");
 
-  return request.method === "POST" && named && !!headers.get("content-type")?.startsWith("application/json");
+  return request.method === "POST" && headers.has("x-expressive-call") && !!headers.get("content-type")?.startsWith("application/json");
 }
-
-export interface Incoming<E extends Exports = Exports> {
-  request: Request;
-  list: Endpoint<E>[];
-  at: string[];
-  pathname: string;
-  found?: Match<E>;
-  exports?: E;
-  dev: boolean;
-  seats: Seats;
-}
-
-export type Handle = (args: unknown[]) => Promise<Response>;
-
-export type Tier<E extends Exports> = (incoming: Incoming<E>, fn?: Call) => Promise<Handle | undefined>;
 
 export interface HandlerOptions {
-  dev?: boolean;
-  seats?: Seats;
   /** Path the calls are served under, such as `/api` - a request outside it is not a call. */
   base?: string;
   /** Error classes a call may throw, by id - one thrown keeps its class and fields on the client. */
@@ -40,34 +22,26 @@ export interface HandlerOptions {
  * Answer the calls in `tree` - give any other request `undefined`.
  *
  * A call's address is its place in the tree: `api.admin.users.ban` answers `POST /admin/users`
- * named `ban`. An error thrown that `errors` does not list replies 500 - its message in `dev`, a
- * generic one otherwise. Throws if any name in the tree is `with` or `then`.
+ * named `ban`. An error thrown that `errors` does not list replies 500 with a generic message -
+ * its own under the plugin's dev server. Throws if any name in the tree is `with` or `then`.
  *
  * @example
  * export default { fetch: handler(api, { base: "/api", errors: { Duplicate } }) };
  */
 export function handler(tree: Tree, options?: HandlerOptions): (request: Request) => Promise<Response | undefined>;
 
-export function handler(endpoints: Endpoint[] | (() => Endpoint[]), options?: HandlerOptions): (request: Request) => Promise<Response | undefined>;
-
-export function handler(endpoints: Tree | Endpoint[] | (() => Endpoint[]), { dev = false, seats, base = "", errors }: HandlerOptions = {}): (request: Request) => Promise<Response | undefined> {
+export function handler(tree: Tree, { dev = false, base = "", errors }: HandlerOptions & { dev?: boolean } = {}): (request: Request) => Promise<Response | undefined> {
   const prefix = base.split("/").filter(Boolean);
   const under = (request: Request) => {
     const at = new URL(request.url).pathname.split("/").filter(Boolean);
     return prefix.every((part, i) => at[i] === part);
   };
-
-  if (Array.isArray(endpoints) || typeof endpoints == "function") {
-    const list = typeof endpoints == "function" ? endpoints : () => endpoints;
-    return async request => (isCall(request) && under(request) ? dispatch(request, list, dev, seats, undefined, prefix.length) : undefined);
-  }
-
   const table = { ...ERRORS, ...errors };
 
-  reserved(endpoints);
+  reserved(tree);
   ensureInstalled();
 
-  return async request => (isCall(request) && under(request) ? answer(request, endpoints, dev, table, prefix.length) : undefined);
+  return async request => (isCall(request) && under(request) ? answer(request, tree, dev, table, prefix.length) : undefined);
 }
 
 async function answer(request: Request, tree: Tree, dev: boolean, errors: Record<string, unknown>, skip: number): Promise<Response> {
@@ -86,22 +60,21 @@ async function answer(request: Request, tree: Tree, dev: boolean, errors: Record
 
 const unseated: Seats = async () => undefined;
 
-export async function dispatch<E extends Exports>(request: Request, endpoints: () => Endpoint<E>[], dev: boolean, seats = unseated, tier?: Tier<E>, skip = 0): Promise<Response> {
+export async function dispatch(request: Request, endpoints: () => Endpoint[], dev: boolean, seats = unseated, skip = 0): Promise<Response> {
   const list = endpoints();
-  const { pathname } = new URL(request.url);
-  const at = pathname.split("/").filter(Boolean).slice(skip);
-  const name = request.headers.has("x-expressive-get") ? undefined : request.headers.get("x-expressive-call") ?? undefined;
-  const { found, exports, fn } = await locate(list, at, name);
-  const incoming = { request, list, at, pathname, found, exports, dev, seats };
-  const handle = tier ? await tier(incoming, fn) : fn && plain(incoming, fn);
+  const at = new URL(request.url).pathname.split("/").filter(Boolean).slice(skip);
+  const name = request.headers.get("x-expressive-call");
+  const { found, fn } = await locate(list, at, name);
 
-  if (!handle) return reply(404, { message: "Not found." });
+  if (!fn) return reply(404, { message: "Not found." });
 
   const args = await readArgs(request);
 
   if (!args) return reply(400, { message: "Expected a JSON array of arguments." });
 
-  return handle(args);
+  const fail = async (error: unknown) => respond(await fault(error, list, dev, ERRORS));
+
+  return inFolder({ request, found, seats }, async () => respond(await attempt(() => fn(...args), list, dev, ERRORS)), fail).catch(fail);
 }
 
 type Fetch = (request: Request, ...rest: any[]) => Response | undefined | Promise<Response | undefined>;
@@ -121,14 +94,6 @@ export function scoped<A extends { fetch?: Fetch }>(app: A): A {
   const run: Fetch = (request, ...rest) => within(request, [], () => pass(() => fetch.call(app, bodyOf(request), ...rest)));
 
   return Object.assign(Object.create(Object.getPrototypeOf(app)), app, { fetch: run });
-}
-
-function plain(incoming: Incoming, fn: Call): Handle {
-  const { list, dev } = incoming;
-
-  const fail = async (error: unknown) => respond(await fault(error, list, dev, ERRORS));
-
-  return args => inFolder(incoming, async () => respond(await attempt(() => fn(...args), list, dev, ERRORS)), fail).catch(fail);
 }
 
 async function readArgs(request: Request): Promise<unknown[] | undefined> {
@@ -156,8 +121,6 @@ function statusOf(status?: number): number {
   return status !== undefined && status >= 400 && status < 600 ? status : 500;
 }
 
-export function reply(status: number, value?: unknown, headers: Record<string, string> = {}): Response {
-  if (value === undefined) return new Response(null, { status, headers });
-
+function reply(status: number, value: unknown, headers: Record<string, string> = {}): Response {
   return new Response(stringify(value), { status, headers: { ...headers, "content-type": CODEC } });
 }

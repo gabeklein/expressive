@@ -2,7 +2,9 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 
 import { VERBS, type ApiRoute, type Exports } from "../server/api";
-import { isClass as isClassNode, isFunction, moduleOf, notAsync, notError, scanModule, type ErrorClass, type Sources } from "@expressive/rpc/vite";
+import { isClass as isClassNode, moduleOf, scanModule, type ErrorClass, type Sources, type Value } from "@expressive/rpc/vite";
+import type { ESTree } from "vite";
+
 import { scanExports } from "./scan";
 
 const EXT = new Set([".ts", ".tsx", ".js", ".jsx"]);
@@ -23,7 +25,9 @@ const OTHER = `${VERBS.join(", ")}, a default, async functions or Error subclass
 
 const served = (name: string) => name === "default" || VERBS.includes(name);
 
-const sync = (name: string) => `${notAsync(name)} Move helpers to a bare-named or _ file beside the route.`;
+const sync = (name: string) => `${name}() is not async - every call to it crosses the wire. Move helpers to a bare-named or _ file beside the route.`;
+
+const notError = (name: string) => `${name} is a class but not an Error - only error classes reach the client.`;
 
 /**
  * What is wrong with a module's exports - `names` its runtime exports, `classDefault` whether its `default` is a class.
@@ -69,6 +73,10 @@ export function verifyApi({ name, index, path }: Omit<ApiRoute, "load">, exports
 
 const isClass = (value: unknown) => typeof value == "function" && /^class\b/.test(Function.prototype.toString.call(value));
 
+const FUNCTION = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
+
+const isFunction = (value: Value): value is ESTree.Function | ESTree.ArrowFunctionExpression => FUNCTION.has(value?.type ?? "");
+
 /** A route module's calls and error classes, and what is wrong with its exports. */
 export interface RouteScan {
   calls: string[];
@@ -83,7 +91,7 @@ export async function scanCalls({ file, index, path }: Pick<ApiFile, "file" | "i
   const root = index && !path.length;
   const declared = new Set(root ? [] : [...names].filter(name => !served(name) && (isFunction(exports.get(name)) || isClassNode(exports.get(name)))));
   const plain = [...declared].filter(name => { const value = exports.get(name); return isFunction(value) && !value.async && !value.generator; });
-  const { calls, errors, problems: wrong } = await scanModule(file, source, sources, owned, {}, new Set([...declared].filter(name => !plain.includes(name))));
+  const { calls, errors, problems: wrong } = await scanModule(file, source, sources, owned, new Set([...declared].filter(name => !plain.includes(name))));
   const found = [...problems(names, index, root, !!classDefault, declared, calls.length), ...wrong, ...plain.map(sync)];
   const param = path.find(part => part.startsWith(":") || part === "*");
 
@@ -168,15 +176,13 @@ export function helperAt(helpers: ApiHelper[], segments: string[]): ApiHelper | 
   return helpers.find(({ path }) => path.length === segments.length && path.every((segment, i) => segment.startsWith(":") || segment === segments[i]));
 }
 
-const FUNCTION = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
-
 /** What is wrong with a helper - a function exported under a verb's name was meant as a route. */
 export function helperProblems({ name, file }: ApiHelper, source: string): string[] {
   const { exports, errors } = moduleOf(file, source);
 
   if (errors.length) return [`${name}: ${errors[0]}`];
 
-  const verbs = VERBS.filter(verb => FUNCTION.has(exports.get(verb)?.type as string));
+  const verbs = VERBS.filter(verb => isFunction(exports.get(verb)));
 
   return verbs.length ? [`${name}: exports ${verbs.join(", ")}, but a bare-named file is a helper, not a route - rename it ${leafOf(name)} to serve it.`] : [];
 }

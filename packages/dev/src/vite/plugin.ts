@@ -15,7 +15,7 @@ import { layered } from "../server/env";
 import { GENERATED, SHELL, bootstrap, ensureBootstrap, importRel, prerenderEntry, PRERENDER_CALL, PRERENDER_ENTRY, resolveProject, fetchEntry, serverEntry, type Project } from "./project";
 import { Exposure } from "./remote";
 import { CALL, generateRoutes, pagePatterns, staticPaths, type ExportScanner, type Scan } from "./routes";
-import { isCall, send, toRequest } from "@expressive/rpc/http";
+import { isCall, send, toRequest } from "@expressive/rpc/protocol";
 import { guardScript, isClass, moduleOf, type Module, type Sources } from "@expressive/rpc/vite";
 import { staticFile } from "../server/listen";
 import { install } from "../server/install";
@@ -26,7 +26,6 @@ const MAIN = "main.tsx";
 const ROUTES = "routes.tsx";
 const SERVER = "server.ts";
 const PRERENDER = "prerender.tsx";
-const DOM_SERVER = "@expressive/dom/server";
 const SETTINGS = "settings.ts";
 const INDEX = "settings-index.ts";
 
@@ -38,17 +37,19 @@ export interface Host {
 const DEPS = [
   "@expressive/mvc",
   "@expressive/mvc/hot",
-  "@expressive/jsx",
-  "@expressive/jsx/jsx-runtime",
-  "@expressive/jsx/jsx-dev-runtime",
-  "@expressive/dom",
-  "@expressive/dom/jsx-runtime",
-  "@expressive/dom/jsx-dev-runtime",
-  "@expressive/router",
-  "@expressive/rpc",
   "@expressive/dev",
   "@expressive/dev/jsx-runtime",
   "@expressive/dev/jsx-dev-runtime",
+  ...[
+    "@expressive/jsx",
+    "@expressive/jsx/jsx-runtime",
+    "@expressive/jsx/jsx-dev-runtime",
+    "@expressive/dom",
+    "@expressive/dom/jsx-runtime",
+    "@expressive/dom/jsx-dev-runtime",
+    "@expressive/router",
+    "@expressive/rpc",
+  ].map(dep => `@expressive/dev > ${dep}`),
 ];
 
 const HOSTED = ["@expressive/inspect/vite/client", "@expressive/inspect/install", "@expressive/inspect"];
@@ -115,6 +116,11 @@ export function host(dotenv: boolean): Plugin<Host> {
     const known = await patterns();
     return !known || routed(known, pathname) ? 200 : 404;
   };
+
+  const own = (id: string, importer?: string) =>
+    (id === "@expressive/dom" && importer === mainId) ||
+    (id === "@expressive/dom/server" && importer === prerenderId) ||
+    (id === "@expressive/rpc" && importer === callId);
 
   const generatedPath = (id: string, importer?: string) => {
     if (id.startsWith(`/${GENERATED}/`)) return join(root, id);
@@ -261,7 +267,7 @@ export function host(dotenv: boolean): Plugin<Host> {
       }
 
       if (id === htmlId && !existsSync(htmlId)) return htmlId;
-      if (id === DOM_SERVER && importer === prerenderId) return this.resolve(id, fileURLToPath(import.meta.url), { skipSelf: true });
+      if (own(id, importer)) return this.resolve(id, fileURLToPath(import.meta.url), { skipSelf: true });
 
       if (options.ssr || !importer || !existsSync(apiDir)) return;
 

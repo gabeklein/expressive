@@ -44,7 +44,7 @@ type Resolve = (spec: string, importer: string) => Promise<string | undefined>;
 
 interface Runtime {
   bind: typeof import("../context").bind;
-  handler: typeof import("../http/call").handler;
+  handler: (tree: import("../route").Tree, options: import("../http/call").HandlerOptions & { dev: boolean }) => (request: Request) => Promise<Response | undefined>;
   route: typeof import("../route").route;
   scoped: typeof import("../http/call").scoped;
   verify: typeof import("../call").verify;
@@ -94,7 +94,7 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
   }
 
   async function scanned(at: Located, resolve: Resolve, only: ReadonlySet<string>) {
-    const { calls, errors, gate, problems } = await scanModule(at.file, readFileSync(at.file, "utf8"), sources(resolve), owned, {}, only);
+    const { calls, errors, gate, problems } = await scanModule(at.file, readFileSync(at.file, "utf8"), sources(resolve), owned, only);
 
     fail(at.file, problems);
 

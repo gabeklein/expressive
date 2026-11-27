@@ -72,7 +72,7 @@ describe("vite host", () => {
     const server = await serve(project({ "app/index.tsx": PAGE, "app/blog/[slug].tsx": PAGE }));
 
     const main = await server.transformRequest("/.expressive/main.tsx");
-    expect(main?.code).toContain("dev/src/index");
+    expect(main?.code).toContain("dom/src/index");
     expect(main?.code).toContain("/.expressive/routes.tsx");
 
     const routes = await server.transformRequest("/.expressive/routes.tsx");
@@ -279,15 +279,30 @@ describe("vite host", () => {
     expect(code).toContain("for (const list of [])");
   });
 
-  it("will resolve the prerender entry's renderer from this package", async () => {
+  it("will resolve the generated entries' dom and rpc imports from this package, for an app that installs neither", async () => {
     const root = project({ "app.tsx": "export default () => null" });
     const host = expressive();
     await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [host] }, "build");
-    const resolve = vi.fn(async () => ({ id: "renderer" }));
+    const resolve = vi.fn(async (id: string) => ({ id: `own:${id}` }));
     const hook = host.resolveId as (this: unknown, id: string, importer: string, options: object) => Promise<unknown>;
+    const at = (file: string) => join(realpathSync(root), ".expressive", file);
 
-    expect(await hook.call({ resolve }, "@expressive/dom/server", join(realpathSync(root), ".expressive/prerender.tsx"), {})).toEqual({ id: "renderer" });
-    expect(resolve).toHaveBeenCalledWith("@expressive/dom/server", expect.stringMatching(/plugin\.ts$/), { skipSelf: true });
+    expect(await hook.call({ resolve }, "@expressive/dom/server", at("prerender.tsx"), {})).toEqual({ id: "own:@expressive/dom/server" });
+    expect(await hook.call({ resolve }, "@expressive/dom", at("main.tsx"), {})).toEqual({ id: "own:@expressive/dom" });
+    expect(await hook.call({ resolve }, "@expressive/rpc", at("call.ts"), {})).toEqual({ id: "own:@expressive/rpc" });
+    expect(resolve.mock.calls.map(([id, from, options]: any[]) => [id, /plugin\.ts$/.test(from), options])).toEqual([
+      ["@expressive/dom/server", true, { skipSelf: true }],
+      ["@expressive/dom", true, { skipSelf: true }],
+      ["@expressive/rpc", true, { skipSelf: true }],
+    ]);
+  });
+
+  it("will include dom, rpc and the rest of dev's own dependencies for pre-bundling through dev", async () => {
+    const root = project({ "app.tsx": "export default () => null" });
+    const config = await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [expressive()] }, "serve");
+
+    expect(config.optimizeDeps.include).toEqual(expect.arrayContaining(["@expressive/dev", "@expressive/dev > @expressive/dom", "@expressive/dev > @expressive/rpc"]));
+    expect(config.optimizeDeps.include).not.toContain("@expressive/dom");
   });
 
   it("will keep the prerender entry as a build's input, and the shell otherwise", async () => {
