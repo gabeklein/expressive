@@ -1,6 +1,6 @@
 {
   "name": "@expressive/rpc",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Typed server calls for any Vite client build: a folder of async functions, stubs on the client, a server bundle for Workers, Bun or Node, or your own server.",
   "license": "MIT",
   "author": {
@@ -62,7 +62,7 @@
     "es-module-lexer": "^1.6.0"
   },
   "peerDependencies": {
-    "@expressive/mvc": "^0.97.1",
+    "@expressive/mvc": "^0.98.0",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {

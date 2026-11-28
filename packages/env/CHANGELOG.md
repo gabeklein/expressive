@@ -1,5 +1,13 @@
 # @expressive/env
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`5d717d2`](https://github.com/gabeklein/expressive/commit/5d717d2850a5527e15ee58770f3a526b1e5500a9), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`bd33e34`](https://github.com/gabeklein/expressive/commit/bd33e34af218dee798dcbca862b1ee8f21754393), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`1afeb40`](https://github.com/gabeklein/expressive/commit/1afeb40298921c57a3990a31e6ebdae5630fc152), [`3600c49`](https://github.com/gabeklein/expressive/commit/3600c493cffab48675bc6dbb4d47070a261e9942)]:
+  - @expressive/mvc@0.98.0
+  - @expressive/cli@0.3.1
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,5 +1,42 @@
 # @expressive/dom
 
+## 0.14.0
+
+### Minor Changes
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) `@expressive/dom` renders the JSX runtime's default element and no longer registers a JSX host - the package has no import side effects. Unmatched `_name` warnings now come only from elements made by the dev runtime - not `createElement` or a production build - rather than turning on for the whole process. An element from another copy of `@expressive/dom` now renders instead of throwing; one from another JSX host (such as `@expressive/react` imported in the same build) throws naming it.
+
+### Patch Changes
+
+- [#837](https://github.com/gabeklein/expressive/pull/837) [`65b13a0`](https://github.com/gabeklein/expressive/commit/65b13a0a7319b9dd1e67b53e255a07f0fbc7820e) A `catch` boundary with `fallback={false}` passes suspension to the nearest ancestor with a fallback, as documented and as React does, instead of hiding its content.
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) `render` and `hydrate` create nodes in the container's own document rather than the global `document`, so rendering into an iframe or another document works. A `Portal` selector resolves against that document.
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) Importing `@expressive/dom` no longer registers anything on mvc - rendering installs what it needs. A capitalized method read before the dom module loaded now re-renders with its owner, rather than rendering untracked.
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) `renderToString` renders through the same reconciler as `render()`, so server and client resolve components, context, `catch` and suspense one way. A server render does not wait on a void required `set` factory, as readiness never gates render. Head elements keep document order when an earlier one suspends.
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) New package `@expressive/jsx`, the base JSX host: the renderer, the style engine (`style`, `Style`, `Css`), and the JSX runtime. `@expressive/dom` now builds on it as the DOM host, with the same API. A second copy of `@expressive/jsx` in one app is reported with a console error on its first render, `style()` or dom's `renderToString`.
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx-runtime`. This covers:
+  - `jsx`, `jsxs` and `jsxDEV`;
+  - `Fragment`;
+  - `host()` and `onElement`;
+  - `childrenOf`, `isElement`, `typeOf` and `propsOf`;
+  - the `JSX`, `Element` and `HostRuntime` types.
+
+  `@expressive/mvc/jsx-runtime` becomes `@expressive/mvc/host`, keeping only the `Host` manifest and the host seams `resolver`, `methodOf` and `elements` - a custom host renames `declare module '@expressive/mvc/jsx-runtime'` and its imports of `resolver`, `methodOf` and `elements` to `@expressive/mvc/host`. `@expressive/mvc/jsx-dev-runtime` is removed. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`.
+
+  Every copy of `@expressive/jsx` in a realm shares one host registry, so an app that resolves two copies still has one host - and so do separately bundled apps on one page or in one process; a React app beside a dom app is not supported, and dom reports the foreign elements. A host that registers with the same `jsx` replaces its members; another `jsx` throws.
+
+  Without a registered host, the runtime creates its own element instead of throwing "No JSX host is registered", and the introspection functions read it. `jsxDEV` marks the element with the compiler's `source`, and `onElement(hook)` reports each element as it is created.
+
+  DOM element typing - intrinsics, events, `style`, and Model props through `LibraryManagedAttributes` - now comes from `@expressive/dom/jsx-runtime`. Apps on `@expressive/dom`, `@expressive/dev` or `@expressive/react` change nothing.
+
+- Updated dependencies [[`5d717d2`](https://github.com/gabeklein/expressive/commit/5d717d2850a5527e15ee58770f3a526b1e5500a9), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`bd33e34`](https://github.com/gabeklein/expressive/commit/bd33e34af218dee798dcbca862b1ee8f21754393), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`1afeb40`](https://github.com/gabeklein/expressive/commit/1afeb40298921c57a3990a31e6ebdae5630fc152), [`1b9ca5e`](https://github.com/gabeklein/expressive/commit/1b9ca5e831c2e22f9f848a4d4840957640bf92de), [`3600c49`](https://github.com/gabeklein/expressive/commit/3600c493cffab48675bc6dbb4d47070a261e9942)]:
+  - @expressive/mvc@0.98.0
+  - @expressive/jsx@0.1.0
+
 ## 0.13.4
 
 ### Patch Changes

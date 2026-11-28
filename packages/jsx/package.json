@@ -1,6 +1,6 @@
 {
   "name": "@expressive/jsx",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Base JSX host for Expressive: renderer, style engine and JSX runtime.",
   "license": "MIT",
   "author": {
@@ -48,7 +48,7 @@
     "test": "bun run typecheck && bun run coverage"
   },
   "peerDependencies": {
-    "@expressive/mvc": "^0.97.1"
+    "@expressive/mvc": "^0.98.0"
   },
   "devDependencies": {
     "@expressive/mvc": "workspace:^",
