@@ -139,7 +139,6 @@ test("redirects where a call's Redirect points", async ({ page, open }) => {
 });
 
 test("follows a call's Redirect to another room", async ({ page, open }) => {
-  test.fail(true, "a redirect to another value of the same param - fixed in #859");
   await open("/");
   await page.getByRole("link", { name: "Moved room" }).click();
 
@@ -148,7 +147,6 @@ test("follows a call's Redirect to another room", async ({ page, open }) => {
 });
 
 test("follows a call's Redirect to another room on a cold load", async ({ page, open: _ }) => {
-  test.fail(true, "a redirect to another value of the same param - fixed in #859");
   await page.goto("/room/moved");
 
   await expect(page).toHaveURL("/room/1");

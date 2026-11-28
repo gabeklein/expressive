@@ -2,7 +2,7 @@ import { Component, Model, set, unbind } from '@expressive/mvc';
 import { childrenOf, Fragment, isElement, propsOf, typeOf } from '@expressive/jsx/jsx-runtime';
 import type { JSX } from '@expressive/jsx/jsx-runtime';
 
-import { Redirect } from './redirect';
+import { HOLD, isRedirect } from './redirect';
 import { Router, uncommitted } from './router';
 import { fillParams, fullPattern, matchPattern, paramNames, patternSegment } from './url';
 
@@ -237,8 +237,9 @@ export class Route extends Component {
   }
 
   /**
-   * Handles a thrown `Redirect` - navigates to its `to`, showing `fallback` until the navigation
-   * lands. Any other error passes on to the next boundary up.
+   * Handles a thrown `Redirect` - navigates to its `to`. A pushed navigation keeps the current screen
+   * where the host holds (dom, React 18+); otherwise `fallback` shows until it lands. Any other error
+   * passes to the next boundary up.
    *
    * An override handling its own errors returns `super.catch(error)` for the rest.
    */
@@ -269,6 +270,7 @@ let release: (() => boolean) | undefined;
 
 Route.on({
   setup(self) {
+    Object.defineProperty(self, HOLD, { get: () => uncommitted(self.router) });
     Object.defineProperty(self, 'render', {
       configurable: true,
       writable: true,
@@ -286,7 +288,7 @@ Route.on({
 
 /** A `Redirect` rejected from an async `new()` - the nearest Route navigates, unless it was left meanwhile. */
 function rejected(this: Model, error: unknown, kind: string) {
-  if (kind == 'setup' && error instanceof Redirect) {
+  if (kind == 'setup' && isRedirect(error)) {
     const route = this instanceof Route ? this : this.get(Route, false);
 
     if (route && (!route.matched || follow(route, error))) return;
@@ -299,7 +301,7 @@ function rejected(this: Model, error: unknown, kind: string) {
 function follow(route: Route, error: unknown): Promise<void> | undefined {
   const { router } = route;
 
-  if (!(error instanceof Redirect) || REDIRECTING.has(router)) return;
+  if (!isRedirect(error) || REDIRECTING.has(router)) return;
 
   REDIRECTING.add(router);
 
@@ -338,9 +340,10 @@ function frame(this: Route): Component.Node {
     return null;
 
   if (redirect) {
+    const { path } = router;
     const target = guard(self, redirect);
     if (target) return send(self, target);
-    if (router.rejected === router.path) return null;
+    if (router.rejected === path) return null;
   }
 
   let T = self.constructor as typeof Route;

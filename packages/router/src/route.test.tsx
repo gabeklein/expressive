@@ -528,6 +528,29 @@ describe('Route', () => {
         expect(getByText('login')).toBeDefined();
       });
 
+      it.each([
+        ['sync, on load', false, false],
+        ['async, on load', true, false],
+        ['async, in-app', true, true]
+      ])('will redirect to another value of its own param (%s)', async (_, async, inApp) => {
+        location(inApp ? '/' : '/room/old');
+        const verdict = () => router.current.path == '/room/old' ? '/room/1' : undefined;
+        const redirect = async ? () => Promise.resolve(verdict()) : verdict;
+        const view = await renderAct(
+          <Route>
+            <Route to="" as={Home} />
+            <Route to="room/:id" redirect={redirect}>
+              <Route as={Post} />
+            </Route>
+          </Route>
+        );
+
+        if (inApp) await visit('/room/old');
+
+        expect(window.location.pathname).toBe('/room/1');
+        expect(view.container.textContent).toBe('id: 1');
+      });
+
       describe('async', () => {
         it('will show fallback while pending, then allow', async () => {
           location('/admin');
@@ -567,6 +590,7 @@ describe('Route', () => {
           expect(window.location.pathname).toBe('/login');
           expect(getByText('login')).toBeDefined();
         });
+
         it('will rethrow the pending verdict to a render retried before it settles', async () => {
           location('/admin');
           let ran = 0;

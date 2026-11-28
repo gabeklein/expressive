@@ -5685,6 +5685,88 @@ describe('on catch stage (static)', () => {
 
 describe('computed (getters)', () => {
   it.each([
+    ['an effect which stops', (create: () => void) => {
+      class Other extends Model {}
+
+      Other.new().get(create)();
+    }],
+    ['a new() which is destroyed', (create: () => void) => {
+      class Reader extends Model {
+        new() {
+          create();
+        }
+      }
+
+      Reader.new().set(null);
+    }]
+  ])('will keep deriving when read in its own new(), created inside %s', async (_, within) => {
+    class Leaf extends Model {
+      value = 1;
+    }
+
+    class Source extends Model {
+      foo = 1;
+      leaf = new Leaf();
+
+      get double() {
+        return this.foo * 2 + this.leaf.value;
+      }
+
+      new() {
+        void this.double;
+      }
+    }
+
+    let source!: Source;
+
+    within(() => void (source = Source.new()));
+
+    source.foo = 2;
+    await expect(source).toHaveUpdated();
+    expect(source.double).toBe(5);
+
+    source.leaf.value = 2;
+    await expect(source).toHaveUpdated();
+    expect(source.double).toBe(6);
+  });
+
+  it.each([
+    ['first', false],
+    ['again after its input changes', true]
+  ])('will keep deriving after a new() which read it %s is destroyed', async (_, again) => {
+    class Child extends Model {
+      value = 1;
+    }
+
+    class Source extends Model {
+      child = new Child();
+      get double() {
+        return this.child.value * 2;
+      }
+    }
+
+    const source = Source.new();
+    const next = Child.new();
+
+    class Reader extends Model {
+      new() {
+        void source.double;
+      }
+    }
+
+    if (again) void source.double;
+
+    source.child = next;
+    Reader.new().set(null);
+    await expect(source).toHaveUpdated();
+
+    next.value = 5;
+    await expect(source).toHaveUpdated();
+
+    expect(source.double).toBe(10);
+  });
+
+  it.each([
     ['will read last value after destroy', true, 4],
     ['will read undefined if never evaluated before destroy', false, undefined]
   ])('%s', (_, evaluate, expected) => {

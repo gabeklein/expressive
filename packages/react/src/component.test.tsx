@@ -2109,10 +2109,23 @@ describe('router Redirect', () => {
     return { gate, Page };
   }
 
-  async function mount(path: string, routes: React.ReactNode) {
+  function counted() {
+    const caught = vi.fn();
+
+    class Guard extends Route {
+      catch(error: Error) {
+        caught(error);
+        return super.catch(error);
+      }
+    }
+
+    return { caught, Guard };
+  }
+
+  async function mount(path: string, routes: React.ReactNode, reactStrictMode = false) {
     const router = Router.new();
     router.path = path;
-    const view = render(<Component for={router}>{routes}</Component>);
+    const view = render(<Component for={router}>{routes}</Component>, { reactStrictMode });
     await act(flushMicrotasks);
     return { router, view };
   }
@@ -2177,6 +2190,149 @@ describe('router Redirect', () => {
     const { view } = await suspended();
 
     expect(view).toHaveText('home');
+  });
+
+  preactDiffers('will hold the screen through a render-time redirect', async () => {
+    const { gate, Page } = held();
+    const target = mockPromise<void>();
+    let ready = false;
+    target.then(() => (ready = true));
+
+    const Login = () => {
+      if (!ready) throw target;
+      return <h1>login</h1>;
+    };
+
+    const routes = <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Route to="/me" as={Page} />
+      <Route to="/login" as={Login} />
+    </>;
+    const { router, view } = await mount('/', routes);
+
+    await act(async () => router.goto('/me'));
+    await act(async () => gate.resolve());
+    await act(flushMicrotasks);
+    expect(router.path).toBe('/login');
+    expect(view).toHaveText('home');
+
+    view.rerender(<Component for={router}>{routes}</Component>);
+    expect(view).toHaveText('home');
+
+    await act(async () => target.resolve());
+    expect(view).toHaveText('login');
+  });
+
+  preactDiffers('will hold the screen through an immediate redirect under StrictMode', async () => {
+    const target = mockPromise<void>();
+    const { caught, Guard } = counted();
+    let ready = false;
+
+    target.then(() => (ready = true));
+
+    const Login = () => {
+      if (!ready) throw target;
+      return <h1>login</h1>;
+    };
+
+    const { router, view } = await mount('/', <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Guard to="/me" as={() => { throw new Redirect('/login'); }} />
+      <Route to="/login" as={Login} />
+    </>, true);
+
+    await act(async () => router.goto('/me'));
+    await act(flushMicrotasks);
+    expect(router.path).toBe('/login');
+    expect(view).toHaveText('home');
+    expect(caught).toHaveBeenCalledTimes(1);
+
+    await act(async () => target.resolve());
+    expect(view).toHaveText('login');
+  });
+
+  preactDiffers('will follow one Redirect thrown on separate visits', async () => {
+    const redirect = new Redirect('/login');
+    const { caught, Guard } = counted();
+    const { router, view } = await mount('/', <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Guard to="/me" as={() => { throw redirect; }} />
+      <Route to="/login" as={() => <h1>login</h1>} />
+    </>);
+
+    for (let visit = 0; visit < 2; visit++) {
+      await act(async () => router.goto('/me'));
+      await act(flushMicrotasks);
+      expect(router.path).toBe('/login');
+      expect(view).toHaveText('login');
+      expect(caught).toHaveBeenCalledTimes(visit + 1);
+
+      await act(async () => router.goto('/'));
+      expect(view).toHaveText('home');
+    }
+  });
+
+  preactDiffers('will catch a redirect re-thrown while held once', async () => {
+    const redirect = new Redirect('/login');
+    const gate = mockPromise<void>();
+    const caught = vi.fn();
+
+    class Guard extends Route {
+      async catch(error: Error) {
+        caught(error);
+        await gate;
+        return super.catch(error);
+      }
+    }
+
+    const routes = <>
+      <Route to="/" as={() => <h1>home</h1>} />
+      <Guard to="/me" as={() => { throw redirect; }} />
+      <Route to="/login" as={() => <h1>login</h1>} />
+    </>;
+    const { router, view } = await mount('/', routes);
+
+    await act(async () => router.goto('/me'));
+    await act(flushMicrotasks);
+    expect(view).toHaveText('home');
+
+    await act(async () => {
+      React.startTransition(() => view.rerender(<Component for={router}>{routes}</Component>));
+      await flushMicrotasks();
+      gate.resolve();
+    });
+    await act(flushMicrotasks);
+    expect(caught).toHaveBeenCalledTimes(1);
+    expect(view).toHaveText('login');
+  });
+
+  reactOnly.it('will show the fallback for a render-time redirect without transitions', async () => {
+    const { startTransition } = React;
+    const target = mockPromise<void>();
+    let ready = false;
+    target.then(() => (ready = true));
+
+    const Login = () => {
+      if (!ready) throw target;
+      return <h1>login</h1>;
+    };
+
+    const { router, view } = await mount('/', <>
+      <Route to="/" as={() => <h1>home</h1>} fallback={<p>loading</p>} />
+      <Route to="/me" as={() => { throw new Redirect('/login'); }} fallback={<p>loading</p>} />
+      <Route to="/login" as={Login} />
+    </>);
+
+    try {
+      Object.assign(React, { startTransition: undefined });
+      await act(async () => router.goto('/me'));
+      await act(flushMicrotasks);
+    } finally {
+      Object.assign(React, { startTransition });
+    }
+
+    expect(router.path).toBe('/login');
+    expect(view).toHaveText('loading');
   });
 
   it('will push from a navigation the page suspended', async () => {

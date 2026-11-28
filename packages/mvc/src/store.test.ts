@@ -82,6 +82,61 @@ describe('compute', () => {
 
     expect(data.double).toBe(4);
   });
+
+  it('will keep deriving after an effect which first read it stops', async () => {
+    const { data } = managed({ foo: 1 } as { foo: number; double?: number });
+    const { data: other } = managed({});
+
+    store.compute(data, 'double', (self: typeof data) => self.foo * 2);
+    observable.watch(other, () => void data.double)();
+
+    data.foo = 2;
+    await Promise.resolve();
+
+    expect(data.double).toBe(4);
+  });
+
+  it('will keep deriving after an effect which read it stale stops', async () => {
+    const { data: child } = managed({ value: 1 });
+    const { data: next } = managed({ value: 1 });
+    const { data: other } = managed({});
+    const { data } = managed({ child } as { child: typeof child; double?: number });
+
+    store.compute(data, 'double', (self: typeof data) => self.child.value * 2);
+    expect(data.double).toBe(2);
+
+    data.child = next;
+    observable.watch(other, () => void data.double)();
+    await Promise.resolve();
+
+    next.value = 5;
+    await Promise.resolve();
+
+    expect(data.double).toBe(10);
+  });
+
+  it('will release what it read when its owner is destroyed', async () => {
+    const { data: shared } = managed({ value: 1 });
+    const { data: other } = managed({});
+    const listeners = () => observable.observer(shared)!.listeners.size;
+    const before = listeners();
+
+    for (let i = 0; i < 3; i++) {
+      const { data } = managed({ shared } as { shared: typeof shared; double?: number });
+
+      store.compute(data, 'double', (self: typeof data) => self.shared.value * 2);
+      observable.watch(other, () => void data.double)();
+
+      shared.value++;
+      observable.watch(other, () => void data.double)();
+      await Promise.resolve();
+      void data.double;
+
+      observable.event(data, null);
+    }
+
+    expect(listeners()).toBe(before);
+  });
 });
 
 describe('values', () => {

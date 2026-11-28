@@ -1,5 +1,5 @@
 import { CAUSE, REPORT } from './dispatch';
-import { event, listener, Observer, observer, touch, unwrap, watch } from './observable';
+import { capture, event, listener, Observer, observer, touch, unwrap, watch } from './observable';
 
 type Key = Observer.Event;
 
@@ -187,7 +187,7 @@ function compute(target: object, key: string, getter: (self: any) => unknown) {
       isAsync = true;
     }
 
-    if (STALE.delete(run)) run();
+    if (STALE.delete(run)) capture(() => run());
 
     return access(target, key, suspended);
   }

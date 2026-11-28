@@ -24,6 +24,22 @@ describe('Redirect', () => {
     expect(view.container.textContent).toBe('new');
   });
 
+  it('will navigate on a Redirect from another copy of the router', async () => {
+    location('/legacy');
+    const foreign = Object.defineProperty(Object.assign(new Error('Redirect to /new'), { to: '/new' }), Symbol.for('@expressive/router#redirect'), { value: true });
+    const Legacy = () => {
+      throw foreign;
+    };
+    const view = await renderAct(
+      <>
+        <Route to="/legacy" as={Legacy} />
+        <Route to="/new" as={() => <h1>new</h1>} />
+      </>
+    );
+    expect(window.location.pathname).toBe('/new');
+    expect(view.container.textContent).toBe('new');
+  });
+
   it('will navigate when thrown from new()', async () => {
     location('/legacy');
     class Legacy extends Component {
@@ -81,6 +97,41 @@ describe('Redirect', () => {
 
     await act(() => window.history.back());
     expect(window.location.pathname).toBe('/');
+  });
+
+  it.each(['immediately', 'after suspending'])('will hold the screen through a redirect thrown %s', async (when) => {
+    location('/');
+    const page = mockPromise<void>();
+    const target = mockPromise<void>();
+    let paged = when == 'immediately';
+    let ready = false;
+
+    page.then(() => (paged = true));
+    target.then(() => (ready = true));
+
+    const Me = () => {
+      if (!paged) throw page;
+      throw new Redirect('/login');
+    };
+    const Login = () => {
+      if (!ready) throw target;
+      return <h1>login</h1>;
+    };
+    const view = await renderAct(
+      <>
+        <Route to="/" as={() => <h1>home</h1>} />
+        <Route to="/me" as={Me} />
+        <Route to="/login" as={Login} />
+      </>
+    );
+
+    await act(() => router.current.goto('/me'));
+    await act(() => page.resolve());
+    expect(router.current.path).toBe('/login');
+    expect(view.container.textContent).toBe('home');
+
+    await act(() => target.resolve());
+    expect(view.container.textContent).toBe('login');
   });
 
   it('will not navigate from a tree abandoned mid-hold', async () => {
@@ -154,6 +205,23 @@ describe('Redirect', () => {
     );
     expect(caught).toEqual([new Redirect('/a')]);
     expect(window.location.pathname).toBe('/b');
+    expect(view.container.textContent).toBe('');
+  });
+
+  it('will pass on a redirect loop met during a held navigation', async () => {
+    location('/');
+    const caught: Error[] = [];
+    const view = await renderAct(
+      <Component catch={(error) => { caught.push(error); return new Promise(() => {}); }}>
+        <Route to="/" as={() => <h1>home</h1>} />
+        <Route to="/a" as={() => { throw new Redirect('/b'); }} />
+        <Route to="/b" as={() => { throw new Redirect('/a'); }} />
+      </Component>
+    );
+
+    await act(() => router.current.goto('/a'));
+    expect(caught).toEqual([new Redirect('/a')]);
+    expect(router.current.path).toBe('/b');
     expect(view.container.textContent).toBe('');
   });
 
