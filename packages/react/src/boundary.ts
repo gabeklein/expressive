@@ -50,12 +50,19 @@ export function dedupe(on: Component, context: Context) {
   return entry;
 };
 
+const REDIRECT = Symbol.for('@expressive/router#redirect');
+const HOLD = Symbol.for('@expressive/router#hold-redirect');
+
+type Branded = { [key: symbol]: unknown };
+
 export class ErrorBoundary extends React.Component<{
   self: Component;
   children: React.ReactNode;
 }> {
   state = {} as { error?: Error };
   recovering = false;
+  mounted = false;
+  holding = new Map<Error, Promise<void>>();
 
   constructor(props: ErrorBoundary['props']) {
     super(props);
@@ -66,6 +73,10 @@ export class ErrorBoundary extends React.Component<{
   }
 
   componentDidCatch(error: Error) {
+    this.handle(error);
+  }
+
+  handle(error: Error) {
     const { self } = this.props;
     const { fallback } = self;
     const reset = (error?: Error) => {
@@ -73,18 +84,47 @@ export class ErrorBoundary extends React.Component<{
       this.setState({ error });
     };
 
-    Promise.resolve((self.props.catch || self.catch)!.call(self, error, self.is))
-      .then(() => reset(), reset)
-      .finally(() => self.set({ fallback }, true));
+    const recovered = Promise.resolve((self.props.catch || self.catch)!.call(self, error, self.is))
+      .then(() => reset(), reset);
+
+    recovered.finally(() => self.set({ fallback }, true));
+    return recovered;
+  }
+
+  componentDidMount() {
+    this.mounted = true;
   }
 
   componentDidUpdate() {
     this.recovering = false;
   }
 
+  componentWillUnmount() {
+    this.mounted = false;
+  }
+
   render() {
-    if (!this.state.error) return this.props.children;
-    if (this.recovering) throw this.state.error;
-    return this.props.self.fallback;
+    const { error } = this.state;
+
+    if (!error) return this.props.children;
+    if (this.recovering) throw error;
+    if (!this.holds(error)) return this.props.self.fallback;
+
+    let pending = this.holding.get(error);
+
+    if (!pending) {
+      const done = () => this.holding.delete(error);
+
+      pending = Promise.resolve().then(() => this.handle(error));
+      this.holding.set(error, pending);
+      pending.then(done, done);
+    }
+
+    throw pending;
+  }
+
+  holds(error: Error) {
+    return this.mounted && (error as Error & Branded)[REDIRECT] && (this.props.self as Component & Branded)[HOLD] &&
+      (this as any)._reactInternals.mode & Number(!!React.startTransition);
   }
 };
