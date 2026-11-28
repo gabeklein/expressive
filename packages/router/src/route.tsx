@@ -338,9 +338,10 @@ function frame(this: Route): Component.Node {
     return null;
 
   if (redirect) {
+    const { path } = router;
     const target = guard(self, redirect);
     if (target) return send(self, target);
-    if (router.rejected === router.path) return null;
+    if (router.rejected === path) return null;
   }
 
   let T = self.constructor as typeof Route;
