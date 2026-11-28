@@ -1,5 +1,48 @@
 # @expressive/router
 
+## 0.11.0
+
+### Minor Changes
+
+- [#837](https://github.com/gabeklein/expressive/pull/837) [`65b13a0`](https://github.com/gabeklein/expressive/commit/65b13a0a7319b9dd1e67b53e255a07f0fbc7820e) `Redirect` is now an error, and the `<Redirect>` component is gone. Throw it while rendering or from a Component's `new()` - sync or async - and the nearest `Route` catches it and navigates to its `to`. The decision becomes a value the router acts on, so a tree rendered under a held navigation no longer navigates as a side effect of mounting.
+
+  History is replaced on a cold load and pushed during in-app navigation, so Back still reaches the page the user came from. A `redirect` prop verdict follows the same rule (it always replaced before) and navigates once per verdict.
+
+  Every `Route` is now a `catch` boundary: it handles `Redirect` and passes any other error to the next boundary up. A `Route` subclass overriding `catch` returns `super.catch(error)` for what it doesn't handle. On dom, an error with no boundary above its Route now surfaces as an unhandled rejection rather than a throw from `render()`. On React, `createRoot`'s default `onCaughtError` logs each caught `Redirect` - pass one that skips it.
+
+  A redirect caught before the previous one lands passes on as an error, so a redirect loop fails instead of spinning.
+
+  Migrating:
+
+  - `<Redirect to="/x" />` → `throw new Redirect("/x")`
+  - `<Redirect when={x} to="/x" />` → `if (x) throw new Redirect("/x")`
+  - `replace` → dropped; replacing follows the cold-load rule above
+  - in an event handler or effect → `Route.get().goto("/x")`
+
+### Patch Changes
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx-runtime`. This covers:
+  - `jsx`, `jsxs` and `jsxDEV`;
+  - `Fragment`;
+  - `host()` and `onElement`;
+  - `childrenOf`, `isElement`, `typeOf` and `propsOf`;
+  - the `JSX`, `Element` and `HostRuntime` types.
+
+  `@expressive/mvc/jsx-runtime` becomes `@expressive/mvc/host`, keeping only the `Host` manifest and the host seams `resolver`, `methodOf` and `elements` - a custom host renames `declare module '@expressive/mvc/jsx-runtime'` and its imports of `resolver`, `methodOf` and `elements` to `@expressive/mvc/host`. `@expressive/mvc/jsx-dev-runtime` is removed. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`.
+
+  Every copy of `@expressive/jsx` in a realm shares one host registry, so an app that resolves two copies still has one host - and so do separately bundled apps on one page or in one process; a React app beside a dom app is not supported, and dom reports the foreign elements. A host that registers with the same `jsx` replaces its members; another `jsx` throws.
+
+  Without a registered host, the runtime creates its own element instead of throwing "No JSX host is registered", and the introspection functions read it. `jsxDEV` marks the element with the compiler's `source`, and `onElement(hook)` reports each element as it is created.
+
+  DOM element typing - intrinsics, events, `style`, and Model props through `LibraryManagedAttributes` - now comes from `@expressive/dom/jsx-runtime`. Apps on `@expressive/dom`, `@expressive/dev` or `@expressive/react` change nothing.
+
+- [#855](https://github.com/gabeklein/expressive/pull/855) [`1b9ca5e`](https://github.com/gabeklein/expressive/commit/1b9ca5e831c2e22f9f848a4d4840957640bf92de) A `Redirect` thrown while rendering during a pushed in-app navigation keeps the current screen until its target is ready, instead of flashing the Route `fallback` - on `@expressive/dom` and on React 18+ with a concurrent root. Preact, older React, cold loads and replacing navigations still show the fallback. A `Redirect` from a second copy of the router is now recognized too.
+
+- [#859](https://github.com/gabeklein/expressive/pull/859) [`bd33e34`](https://github.com/gabeklein/expressive/commit/bd33e34af218dee798dcbca862b1ee8f21754393) A `redirect` guard sending its route to another value of its own param - `/room/old` to `/room/1` - renders the target instead of a blank page.
+- Updated dependencies [[`5d717d2`](https://github.com/gabeklein/expressive/commit/5d717d2850a5527e15ee58770f3a526b1e5500a9), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`bd33e34`](https://github.com/gabeklein/expressive/commit/bd33e34af218dee798dcbca862b1ee8f21754393), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`1afeb40`](https://github.com/gabeklein/expressive/commit/1afeb40298921c57a3990a31e6ebdae5630fc152), [`1b9ca5e`](https://github.com/gabeklein/expressive/commit/1b9ca5e831c2e22f9f848a4d4840957640bf92de), [`3600c49`](https://github.com/gabeklein/expressive/commit/3600c493cffab48675bc6dbb4d47070a261e9942)]:
+  - @expressive/mvc@0.98.0
+  - @expressive/jsx@0.1.0
+
 ## 0.10.7
 
 ### Patch Changes

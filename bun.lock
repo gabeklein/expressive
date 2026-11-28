@@ -47,14 +47,14 @@
     },
     "packages/cli": {
       "name": "@expressive/cli",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "@expressive/steps": "workspace:*",
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
       },
       "optionalPeers": [
         "@expressive/mvc",
@@ -62,18 +62,18 @@
     },
     "packages/dev": {
       "name": "@expressive/dev",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "expressive": "dist/cli.js",
       },
       "dependencies": {
-        "@expressive/cli": "^0.3.0",
-        "@expressive/dom": "^0.13.4",
-        "@expressive/env": "^0.2.0",
-        "@expressive/inspect": "^0.6.7",
-        "@expressive/jsx": "^0.0.0",
-        "@expressive/router": "^0.10.7",
-        "@expressive/rpc": "^0.5.1",
+        "@expressive/cli": "^0.3.1",
+        "@expressive/dom": "^0.14.0",
+        "@expressive/env": "^0.2.1",
+        "@expressive/inspect": "^0.6.8",
+        "@expressive/jsx": "^0.1.0",
+        "@expressive/router": "^0.11.0",
+        "@expressive/rpc": "^0.5.2",
         "es-module-lexer": "^1.6.0",
         "vite": "^8.0.0",
       },
@@ -84,14 +84,14 @@
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.0",
+        "@expressive/mvc": "^0.98.0",
       },
     },
     "packages/dom": {
       "name": "@expressive/dom",
-      "version": "0.13.4",
+      "version": "0.14.0",
       "dependencies": {
-        "@expressive/jsx": "^0.0.0",
+        "@expressive/jsx": "^0.1.0",
       },
       "devDependencies": {
         "@expressive/mvc": "workspace:^",
@@ -100,7 +100,7 @@
         "vite": "^7.3.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
         "vite": ">=5",
       },
       "optionalPeers": [
@@ -109,12 +109,12 @@
     },
     "packages/env": {
       "name": "@expressive/env",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "bin": {
         "expressive": "dist/cli.js",
       },
       "dependencies": {
-        "@expressive/cli": "^0.3.0",
+        "@expressive/cli": "^0.3.1",
       },
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
@@ -123,7 +123,7 @@
         "vite": "^8.0.0",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
         "vite": "^8.0.0",
       },
       "optionalPeers": [
@@ -132,9 +132,9 @@
     },
     "packages/inspect": {
       "name": "@expressive/inspect",
-      "version": "0.6.7",
+      "version": "0.6.8",
       "dependencies": {
-        "@expressive/jsx": "^0.0.0",
+        "@expressive/jsx": "^0.1.0",
       },
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
@@ -142,7 +142,7 @@
         "vite": "^7.3.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
         "vite": ">=5",
       },
       "optionalPeers": [
@@ -151,19 +151,19 @@
     },
     "packages/jsx": {
       "name": "@expressive/jsx",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@expressive/mvc": "workspace:^",
         "@types/node": "^25.2.0",
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
       },
     },
     "packages/mvc": {
       "name": "@expressive/mvc",
-      "version": "0.97.1",
+      "version": "0.98.0",
       "devDependencies": {
         "@types/node": "^18.19.0",
         "tsdown": "^0.20.1",
@@ -171,12 +171,12 @@
     },
     "packages/react": {
       "name": "@expressive/react",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
-        "@expressive/jsx": "^0.0.0",
+        "@expressive/jsx": "^0.1.0",
       },
       "devDependencies": {
-        "@expressive/mvc": "^0.97.0",
+        "@expressive/mvc": "^0.98.0",
         "@expressive/router": "workspace:^",
         "@testing-library/preact": "^3.2.3",
         "@testing-library/react": "^16.3.0",
@@ -192,7 +192,7 @@
         "vite": "^7.3.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.0",
+        "@expressive/mvc": "^0.98.0",
         "preact": "^10.5.0",
         "react": ">=16.14.0 <20.0.0",
         "vite": ">=5",
@@ -205,22 +205,22 @@
     },
     "packages/router": {
       "name": "@expressive/router",
-      "version": "0.10.7",
+      "version": "0.11.0",
       "dependencies": {
-        "@expressive/jsx": "^0.0.0",
+        "@expressive/jsx": "^0.1.0",
       },
       "devDependencies": {
         "@expressive/dom": "workspace:^",
-        "@expressive/mvc": "^0.97.0",
+        "@expressive/mvc": "^0.98.0",
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.0",
+        "@expressive/mvc": "^0.98.0",
       },
     },
     "packages/rpc": {
       "name": "@expressive/rpc",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "dependencies": {
         "es-module-lexer": "^1.6.0",
       },
@@ -231,7 +231,7 @@
         "vite": "^8.0.0",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
         "vite": "^8.0.0",
       },
       "optionalPeers": [
@@ -250,13 +250,13 @@
     },
     "packages/steps": {
       "name": "@expressive/steps",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "devDependencies": {
         "@expressive/mvc": "workspace:*",
         "tsdown": "^0.20.1",
       },
       "peerDependencies": {
-        "@expressive/mvc": "^0.97.1",
+        "@expressive/mvc": "^0.98.0",
       },
     },
     "website": {

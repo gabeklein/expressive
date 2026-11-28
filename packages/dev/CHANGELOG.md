@@ -1,5 +1,42 @@
 # @expressive/dev
 
+## 0.6.0
+
+### Minor Changes
+
+- [#837](https://github.com/gabeklein/expressive/pull/837) [`65b13a0`](https://github.com/gabeklein/expressive/commit/65b13a0a7319b9dd1e67b53e255a07f0fbc7820e) `Redirect` from `@expressive/dev` is now the router's error rather than a component: `throw new Redirect(to)` from a page, a class `Page` or a Component's `new()`, and the route navigates - before reaching the folder's `Catch`.
+
+- [#814](https://github.com/gabeklein/expressive/pull/814) [`d34e149`](https://github.com/gabeklein/expressive/commit/d34e149d176032b5dc16376f057aabdcba038e4f) Remove twins. A remote entry's default no longer reaches the client: there is no twin of it, no `route.remote`, no pooled Model classes, and no stream at `/.expressive/stream`. Methods on a default Model are no longer callable from the client, and a remote that exports a Model class now fails the build. A remote entry's default is now a function gate, run before each call through its folder: it refuses by throwing or by activating a Model whose `new()` fails, and the Models it activates are found by `get()` in the call. A class default - including a Model with `static key()`/`ttl` - fails the build.
+
+### Patch Changes
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) `@expressive/dev` declares no import side effects, now that `@expressive/dom` registers nothing on import.
+
+- [#845](https://github.com/gabeklein/expressive/pull/845) [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f) The JSX runtime moves from `@expressive/mvc/jsx-runtime` to `@expressive/jsx/jsx-runtime`. This covers:
+  - `jsx`, `jsxs` and `jsxDEV`;
+  - `Fragment`;
+  - `host()` and `onElement`;
+  - `childrenOf`, `isElement`, `typeOf` and `propsOf`;
+  - the `JSX`, `Element` and `HostRuntime` types.
+
+  `@expressive/mvc/jsx-runtime` becomes `@expressive/mvc/host`, keeping only the `Host` manifest and the host seams `resolver`, `methodOf` and `elements` - a custom host renames `declare module '@expressive/mvc/jsx-runtime'` and its imports of `resolver`, `methodOf` and `elements` to `@expressive/mvc/host`. `@expressive/mvc/jsx-dev-runtime` is removed. Portable components set `"jsxImportSource": "@expressive/jsx"` in place of `@expressive/mvc`.
+
+  Every copy of `@expressive/jsx` in a realm shares one host registry, so an app that resolves two copies still has one host - and so do separately bundled apps on one page or in one process; a React app beside a dom app is not supported, and dom reports the foreign elements. A host that registers with the same `jsx` replaces its members; another `jsx` throws.
+
+  Without a registered host, the runtime creates its own element instead of throwing "No JSX host is registered", and the introspection functions read it. `jsxDEV` marks the element with the compiler's `source`, and `onElement(hook)` reports each element as it is created.
+
+  DOM element typing - intrinsics, events, `style`, and Model props through `LibraryManagedAttributes` - now comes from `@expressive/dom/jsx-runtime`. Apps on `@expressive/dom`, `@expressive/dev` or `@expressive/react` change nothing.
+
+- Updated dependencies [[`5d717d2`](https://github.com/gabeklein/expressive/commit/5d717d2850a5527e15ee58770f3a526b1e5500a9), [`65b13a0`](https://github.com/gabeklein/expressive/commit/65b13a0a7319b9dd1e67b53e255a07f0fbc7820e), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`bd33e34`](https://github.com/gabeklein/expressive/commit/bd33e34af218dee798dcbca862b1ee8f21754393), [`54b60e9`](https://github.com/gabeklein/expressive/commit/54b60e923a827e31b34f88013f0ce05280a2314f), [`1afeb40`](https://github.com/gabeklein/expressive/commit/1afeb40298921c57a3990a31e6ebdae5630fc152), [`1b9ca5e`](https://github.com/gabeklein/expressive/commit/1b9ca5e831c2e22f9f848a4d4840957640bf92de), [`bd33e34`](https://github.com/gabeklein/expressive/commit/bd33e34af218dee798dcbca862b1ee8f21754393), [`65b13a0`](https://github.com/gabeklein/expressive/commit/65b13a0a7319b9dd1e67b53e255a07f0fbc7820e), [`3600c49`](https://github.com/gabeklein/expressive/commit/3600c493cffab48675bc6dbb4d47070a261e9942)]:
+  - @expressive/mvc@0.98.0
+  - @expressive/jsx@0.1.0
+  - @expressive/dom@0.14.0
+  - @expressive/inspect@0.6.8
+  - @expressive/router@0.11.0
+  - @expressive/rpc@0.5.2
+  - @expressive/cli@0.3.1
+  - @expressive/env@0.2.1
+
 ## 0.5.0
 
 ### Minor Changes
