@@ -109,7 +109,7 @@ Arguments and results cross as JSON plus what JSON loses: `Date` (an invalid one
 
 ## Errors
 
-`HttpError` and its subclasses map to statuses: `BadRequest` 400, `Unauthorized` 401, `PaymentRequired` 402, `Forbidden` 403, `NotFound` 404, `MethodNotAllowed` 405, `Conflict` 409, `Gone` 410, `PayloadTooLarge` 413, `UnprocessableEntity` 422, `TooManyRequests` 429, `InternalError` 500, `NotImplemented` 501, `ServiceUnavailable` 503. A status outside 400-599 replies 500 with the error's fields intact - `Redirect(location, status = 302)` arrives as a `Redirect` carrying both, for the client to act on. Extend one, or set `status` on your own, to add a kind.
+`HttpError` and its subclasses map to statuses: `BadRequest` 400, `Unauthorized` 401, `PaymentRequired` 402, `Forbidden` 403, `NotFound` 404, `MethodNotAllowed` 405, `Conflict` 409, `Gone` 410, `PayloadTooLarge` 413, `UnprocessableEntity` 422, `TooManyRequests` 429, `InternalError` 500, `NotImplemented` 501, `ServiceUnavailable` 503. A 3xx status replies 400, and any other outside 400-599 replies 500, with the error's fields intact - `Redirect(location, status = 302)` arrives as a `Redirect` carrying both, for the client to act on. Extend one, or set `status` on your own, to add a kind.
 
 An exported Error class crosses by the name it is exported under - `"error": "Duplicate"` on the wire, and the rebuilt error's `name`. Names are app-wide: two classes exported under one name fail the build - rename at the export (`export { Taken as ClaimTaken }`); one class reached twice is fine. Keep error classes in a module both sides import (`lib/errors.ts`) and pass them to the client's `errors` to rebuild them as themselves. Any other thrown error replies 500 - its message in dev, with a warning naming its class, a generic one in build.
 
@@ -150,8 +150,33 @@ export default () => {
 - A Model counts when it activates during the gate or while one it activated settles, after an `await` too - `X.new()`, or `new X()` then `.set()`.
 - Nothing is cached across calls - keep a costly check (verifying a token) behind a long-lived service, built at module scope: one first built inside a gate is the call's, and destroyed with it.
 - A class gate below a function gate is per call too - its `key()` and `ttl` cache nothing.
-- The gate returns nothing - a returned Model is not handed on.
+- Finishing passes. Returning a `Response`, or a fetch handler (`() => app.fetch`, called with `(request, env, ctx)`), answers instead and the call never runs - its reply goes out as is, and the client rejects the call with an `HttpError` carrying its status. Any other return value is ignored - a returned Model is not handed on.
+- `Current.get().next()` wraps the call: it waits for the gate's Models (refusing if one failed), runs everything below once, and resolves with the call's reply - its error reply too, rather than rejecting. Returning nothing after it passes that reply on:
+
+  ```ts
+  export default async () => {
+    const reply = await Current.get().next();
+    if (reply.status >= 500) await audit(reply.status);
+  };
+  ```
 - An index declares its gate itself: share one as `export default () => guard()`, not by exporting the import.
+
+### Replying from a gate or route
+
+In a gate, and in a [server entry](#server-entry)'s routes, `Current.get()` also reads the body and decides the reply:
+
+```ts
+const { json, send } = Current.get();
+const event = await json(Event.parse);   // the check types it; a throw refuses with BadRequest
+await send(200);                         // the reply leaves
+await process(event);                    // after-work
+```
+
+- `json(check?)` parses a `application/json` or `+json` body, `undefined` when empty; anything else, invalid JSON or a throwing `check` rejects with `BadRequest` (an `HttpError` from `check` keeps its status). `text()` reads it as a string. Both cap the body at 1 MB (`PayloadTooLarge`). `request` reads the same once-buffered body, uncapped.
+- `send(body?)` or `send(status, body?)` decides the reply and resolves once it has left; code after it is after-work, handed to the host's `ctx.waitUntil`. A number is a status, a `Response` the whole reply; plain objects, arrays, numbers, booleans and `null` go as JSON, a string as text, bytes, `Blob`, `FormData`, `URLSearchParams` as `Response` takes them, a `ReadableStream` or async iterable streamed, each pull in the request's scope, which stays open until the stream ends - a returned `Response`'s own stream does not hold it. Nothing is 204. A Model, a class instance, a `Map` or a `bigint` throws - send its values. `Current.send(...)` is sugar.
+- A second `send`, or `setHeader` after one, throws. In a call `send`, `json`, `text` and `next` throw - a call answers with its return value.
+- `ctx` is the host's execution context, with stand-ins where it lacks a member - `waitUntil` logs a rejection. `params` is what the host matched, `{}` in a call.
+- Headers and cookies join the reply of the layer that set them - a gate's set after `await next()` reach its own reply once.
 
 ### Cookies
 
@@ -194,7 +219,7 @@ export async function logout() {
 
 Set-Cookie reaches a browser's cookie jar on its own; a cross-origin client needs `credentials: "include"` in its `transport`.
 
-`Current` is the lower level, for adapters and libraries: `.request`, `.url`, `.cookies` (every cookie as sent, undeclared ones included), `.env` (the built server's second `fetch` argument, the plugin's `env` in dev, `{}` without; type it with `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`) and `setHeader(name, value)` for any other reply header - the reply's own (`content-type` and the like) win; read one on the client through `configure({ reply })`.
+`Current` is the lower level, for adapters and libraries: `.request`, `.url`, `.cookies` (every cookie as sent, undeclared ones included), `.env` (the built server's second `fetch` argument, the plugin's `env` in dev, `{}` without; type it with `declare module "@expressive/rpc" { interface Env { API_KEY: string } }`), `.ctx` (the third) and `setHeader(name, value)` for any other reply header - the reply's own (`content-type` and the like) win; read one on the client through `configure({ reply })`.
 
 ## Client
 
@@ -211,7 +236,7 @@ configure({
 });
 ```
 
-`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in.
+`client(options)` builds a separate one. Without a `location`, a relative `base` throws - pass an absolute one. `configure({ base })` goes in front of the plugin's `base` - an origin, not the path again. `errors: { Duplicate }` rebuilds a thrown error as the class given for its name, not a stand-in. A reply that isn't rpc's own - a gate's answer, a host error page - rejects with an `HttpError` carrying its status and text; a test double replies with `content-type: application/json; codec=expressive`.
 
 Every stub is a member of the client's `api` tree - `api.admin.users.ban` is `ban` from `api/admin/users.ts`, the same function each access. Any node or call takes `.with({ signal, timeout })` for the calls under it; nested, the inner extend the outer:
 
@@ -252,7 +277,7 @@ export { Room } from "./room";   // a Durable Object, say
 
 - `handle(request)` answers a call and gives anything else `undefined`. Pass the request as received - under `rpc({ base })` it matches the prefix itself.
 - The entry and the calls share one copy of every module, in dev and in the build.
-- The entry's `fetch` runs in the request's scope, as a call does: `Current.get()` is the request and a `Cookies` subclass reads and sets cookies in any route, what it sets joining the route's response. A folder's gate is the calls' - a route checks its own access.
+- The entry's `fetch` runs in the request's scope, as a call does: `Current.get()` is the request and a `Cookies` subclass reads and sets cookies in any route, what it sets joining the route's response. `json`, `text` and `send` work there ([Replying](#replying-from-a-gate-or-route)); returning nothing passes on, and `next` throws. A folder's gate is the calls' - a route checks its own access.
 - `vite build` bundles the entry as `dist/server/index.js`, its other exports included.
 - In dev the entry's `fetch` runs on every request before Vite, with `ctx.waitUntil` logging a rejection. `env` is `rpc({ env })`'s result (say, wrangler's `getPlatformProxy().env`) plus an `ASSETS` that hands the request back to Vite.
 - In Hono, `handle` is middleware - `undefined` falls through to `next()`. Hono's `mount()` would strip the prefix and wants a handler that always returns a `Response`; neither fits, so skip it:
@@ -267,6 +292,7 @@ export { Room } from "./room";   // a Durable Object, say
   export default app;
   ```
 - `@expressive/rpc/calls` is the server's: a client import fails the build, and a call to `handle` outside a server the plugin builds or runs throws. One rpc dev server per process serves it.
+- `@expressive/rpc/protocol`, and `@expressive/rpc/vite`'s named exports beside the plugin, are for hosts and generated code, not app API.
 
 ## Your own server
 
@@ -339,6 +365,5 @@ Use `vite build` or `createBuilder().buildApp()` - the legacy `build()` API buil
 ## Limits
 
 - Binary goes base64 inside the JSON body - fine for documents and images, not for large uploads; take those through a [server entry](#server-entry). No `Blob`, `File` or streams as arguments.
-- Worker bindings (`env`) and `ctx` do not reach calls - import `env` and `waitUntil` from `cloudflare:workers`, or handle the request in the entry.
 - Module state lives per isolate or process - keep shared state in a store.
 - An error class extending a package's export (`extends ZodError`) is not followed; the server checks it is an `Error` at startup.

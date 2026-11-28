@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { afterFlush, schedule, transition, unschedule } from './scheduler';
+import { afterFlush, schedule, seal, transition, unseal, unschedule } from './scheduler';
 import type { Schedulable } from './scheduler';
 import { mockError, mockPromise } from '../../test.setup';
 
@@ -198,6 +198,81 @@ it('will run empty scopes first and defer the batch when one suspends', async ()
   waiting.resolve();
   await vi.runAllTimersAsync();
   expect(order).toEqual(['arriving', 'leaving']);
+});
+
+it('will run an empty scope after a scope around it that renders nothing', async () => {
+  const order: string[] = [];
+
+  const scope = (name: string, empty: boolean, output: unknown = 'content', inside: Schedulable[] = []): Schedulable => {
+    const self: Schedulable = {
+      ...target(vi.fn(() => void order.push(name))),
+      empty: () => empty,
+      enclosed: (into) => inside.forEach((scope) => into.add(scope)),
+      probe: () => void (self.probed = { output })
+    };
+
+    return self;
+  };
+
+  const inside = scope('inside', true);
+
+  transition(() => {
+    schedule(inside);
+    schedule(scope('leaving', false, null, [inside]));
+    schedule(scope('arriving', true));
+  });
+
+  await vi.runAllTimersAsync();
+  expect(order).toEqual(['arriving', 'leaving', 'inside']);
+
+  order.length = 0;
+
+  transition(() => {
+    schedule(scope('staying', false, 'content', [inside]));
+    schedule(inside);
+  });
+
+  await vi.runAllTimersAsync();
+  expect(order).toEqual(['inside', 'staying']);
+});
+
+it('will run the scopes inside one whose probe failed after it, in its own place', async () => {
+  const order: string[] = [];
+  const inside = { ...target(vi.fn(() => void order.push('inside'))), empty: () => true };
+  const failed: Schedulable = {
+    ...target(vi.fn(() => void order.push('failed'))),
+    empty: () => false,
+    enclosed: (into) => void into.add(inside),
+    probe: () => {}
+  };
+  const arriving = { ...target(vi.fn(() => void order.push('arriving'))), empty: () => true };
+
+  transition(() => {
+    schedule(inside);
+    schedule(failed);
+    schedule(arriving);
+  });
+
+  await vi.runAllTimersAsync();
+  expect(order).toEqual(['arriving', 'failed', 'inside']);
+});
+
+it('will hold sealed scopes, then run those queued once unsealed', async () => {
+  const outer = target();
+  const queued = target();
+  const idle = target();
+
+  seal(outer, new Set([queued, idle]));
+
+  schedule(queued);
+  transition(() => schedule(queued));
+  await vi.runAllTimersAsync();
+  expect(queued.update).not.toHaveBeenCalled();
+
+  unseal(outer);
+  await vi.runAllTimersAsync();
+  expect(queued.update).toHaveBeenCalledOnce();
+  expect(idle.update).not.toHaveBeenCalled();
 });
 
 it('will let urgent work overtake a deferred scope', async () => {

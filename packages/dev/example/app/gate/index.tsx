@@ -1,18 +1,22 @@
-import { Component, set } from "@expressive/mvc";
+import { Model } from "@expressive/mvc";
 
-import { member, welcome } from "./remote";
+import { welcome } from "../../api/gate";
 
-export default async () => ((await member()) ? undefined : "/login");
+export default class Visit extends Model {
+  name = "";
 
-export class Page extends Component {
-  name = set(() => welcome());
-
-  render() {
-    return (
-      <>
-        <h1>Gate</h1>
-        <p>Welcome, {this.name}</p>
-      </>
-    );
+  protected async new() {
+    this.name = await welcome();
   }
+}
+
+export function Page() {
+  const { name } = Visit.get();
+
+  return (
+    <>
+      <h1>Gate</h1>
+      <p>Welcome, {name}</p>
+    </>
+  );
 }

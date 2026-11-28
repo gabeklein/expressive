@@ -57,6 +57,8 @@ Routes are nested JSX. `to` is the pattern segment; `as` is the page (or layout)
 
 A parent-less `<Route>` with no `to` is its own root: always matched, capturing everything below.
 
+Siblings with `as` that match the same path render the first declared - an index before a catch-all gets the parent path, a catch-all declared first shadows it. A trailing `*` matches zero segments too.
+
 ### Flat leaf vs. nested scope
 
 A multi-segment `to` (`to="users/:id"`) is a **flat leaf** - it does *not* synthesize an intermediate `users` scope. Nesting is the explicit (and only) way to open one:

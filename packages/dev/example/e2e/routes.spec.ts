@@ -36,7 +36,13 @@ test("provides a route's default class to its pages", async ({ page, open }) => 
   await expect(page.getByRole("heading")).toHaveText("Post: unknown (draft)");
 });
 
-test("an entry hook redirects until it allows the route", async ({ page, open }) => {
+test("shows the blog Catch when a separate page throws NotFound", async ({ page, open }) => {
+  await open("/blog/missing");
+  await expect(page.getByRole("alert")).toContainText("Blog post not found");
+  await expect(page.getByRole("heading")).toHaveText("Blog post not found");
+});
+
+test("a default class redirects until it allows the route", async ({ page, open }) => {
   await open("/admin");
   await expect(page).toHaveURL("/");
   await expect(page.getByRole("heading")).toHaveText("Home");
@@ -45,6 +51,16 @@ test("an entry hook redirects until it allows the route", async ({ page, open })
   await open("/admin");
   await expect(page).toHaveURL("/admin");
   await expect(page.getByRole("heading")).toHaveText("Admin area");
+});
+
+test("leaves a [...] page whose none route redirects for a static page beside it", async ({ page, open }) => {
+  await open("/desk");
+  await expect(page).toHaveURL("/desk/claim");
+  await expect(page.getByRole("heading")).toHaveText("Claim");
+
+  await page.getByRole("link", { name: "File a report" }).click();
+  await expect(page.getByRole("heading")).toHaveText("Report");
+  await expect(page).toHaveURL("/desk/report");
 });
 
 test("falls through to the 404 page", async ({ page, open }) => {
@@ -98,7 +114,7 @@ test("shows the layout's Loading while a page's code arrives on a cold load, or 
   await expect(page.getByText("Loading…")).toHaveCount(0);
 });
 
-test("prerenders pages beside a remote, leaving those that call the server to the browser", async ({ request }, { project }) => {
+test("prerenders pages, leaving those that call the server to the browser", async ({ request }, { project }) => {
   test.skip(project.name == "dev", "prerendering runs at build");
 
   const html = async (path: string) => (await request.get(path, { headers: { accept: "text/html" } })).text();

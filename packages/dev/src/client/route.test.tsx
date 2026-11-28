@@ -1,0 +1,734 @@
+// @vitest-environment happy-dom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NotFound, Redirect } from "@expressive/rpc";
+import { Component, Context, Model, get, set } from "@expressive/mvc";
+import { accept } from "@expressive/mvc/hot";
+import { NavLinks, Redirect as RouterRedirect } from "@expressive/router";
+
+import { browserRouter, location, mount, settle } from "../../test.setup";
+import { Route } from "./route";
+import { Router } from "./router";
+
+afterEach(() => vi.unstubAllGlobals());
+
+it("will reject a caught error during server rendering", async () => {
+  const route = Route.new();
+  const error = new Error("server");
+  vi.stubGlobal("window", undefined);
+
+  await expect(route.catch(error)).rejects.toBe(error);
+  route.set(null);
+});
+
+it.each([new Redirect("/other"), new RouterRedirect("/other")])("will follow a %s during server rendering", async error => {
+  const router = Router.new(Context.root);
+  const route = Route.new();
+  vi.stubGlobal("window", undefined);
+  await route.catch(error);
+  expect(router.path).toBe("/other");
+  vi.unstubAllGlobals();
+  route.set(null);
+  router.set(null);
+});
+
+it.each([new Redirect("https://auth.example.com/login"), new RouterRedirect("//auth.example.com/login")])("will reject a redirect off the site during server rendering", async error => {
+  const router = Router.new(Context.root);
+  const route = Route.new();
+  vi.stubGlobal("window", undefined);
+  await expect(route.catch(error)).rejects.toBe(error);
+  expect(router.path).toBe("/");
+  vi.unstubAllGlobals();
+  route.set(null);
+  router.set(null);
+});
+
+it("will release a prebuilt default without a browser window", async () => {
+  const router = Router.new(Context.root);
+  const gone = vi.fn();
+  class Guard extends Model { protected new() { return gone; } }
+  const route = Route.new({ enter: () => Guard });
+  vi.stubGlobal("window", undefined);
+  await (route.redirect as () => Promise<unknown>)();
+  route.set(null);
+  expect(gone).toHaveBeenCalledOnce();
+  vi.unstubAllGlobals();
+  router.set(null);
+});
+
+it("will leave non-setup and unowned setup reports for other handlers", async () => {
+  const seen: string[] = [];
+  const stop = Model.on({ catch(_error, kind) { seen.push(kind); } });
+  const router = Router.new(Context.root);
+  class Task extends Model {
+    value = 0;
+    protected async new() { throw new NotFound("missing"); }
+  }
+  class Broken extends Model {
+    protected async new() { throw new Error("broken"); }
+  }
+  const task = Task.new();
+  Broken.new();
+  await settle();
+  task.set(null);
+  task.value = 1;
+  expect(seen.filter(kind => kind == "setup")).toHaveLength(2);
+  expect(seen).toContain("dead");
+  router.set(null);
+  stop();
+});
+
+it("will drop a Redirect from a Model below an unmatched route", async () => {
+  const seen: unknown[] = [];
+  const stop = Model.on({ catch(error) { seen.push(error); } });
+  const router = Router.new(Context.root);
+  class Guarded extends Route {
+    protected async new() { throw new Redirect("/other"); }
+  }
+  const route = Guarded.new({ to: "elsewhere" });
+  await settle();
+  route.set(null);
+  router.set(null);
+  stop();
+  expect(seen).toEqual([]);
+  expect(router.path).toBe("/");
+});
+
+describe("browser errors", () => {
+  const router = browserRouter() as unknown as { current: { path: string; set(key: "path"): unknown } };
+
+  it("will keep a caught error on the same path and ignore a second retry", async () => {
+    let retry: (() => void) | undefined;
+    const Catch = ({ retry: again }: { retry: () => void }) => {
+      retry = again;
+      return <p>caught</p>;
+    };
+    location("/broken");
+    const root = await mount(() => <Route Catch={Catch}><Route to="broken" as={() => { throw new Error("broken"); }} /></Route>);
+
+    expect(root.textContent).toBe("caught");
+    router.current.set("path");
+    await settle();
+    expect(root.textContent).toBe("caught");
+    retry!();
+    retry!();
+    await settle();
+  });
+
+  it("will enter a refused route again on retry", async () => {
+    let retry!: () => void;
+    let tries = 0;
+    const enter = () => { if (tries++ < 2) throw new Error("refused"); };
+    const Catch = ({ retry: again }: { retry: () => void }) => ((retry = again), <p>caught</p>);
+    location("/");
+    const root = await mount(() => <Route Catch={Catch}><Route enter={enter}><Route as={() => <p>page</p>} /></Route></Route>);
+
+    await vi.waitFor(() => expect(root.textContent).toBe("caught"));
+    retry();
+    await vi.waitFor(() => expect(tries).toBe(2));
+    retry();
+    await vi.waitFor(() => expect(root.textContent).toBe("page"));
+  });
+
+  it("will show Catch for a non-http redirect without navigating", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const root = await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { throw new Redirect("javascript:alert(1)"); }} /></Route>);
+    expect(root.textContent).toBe("caught");
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("will show Catch for an invalid redirect URL", async () => {
+    const root = await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { throw new Redirect("http://["); }} /></Route>);
+    expect(root.textContent).toBe("caught");
+  });
+
+  it("will assign an external redirect and an unserved local path", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const root = await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { throw new Redirect("/api/auth/start"); }} /></Route>);
+    expect(assign).toHaveBeenCalledWith(new URL("/api/auth/start", window.location.href).href);
+    expect(root.textContent).toBe("");
+    const external = await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { throw new Redirect("https://auth.example.com/login"); }} /></Route>);
+    expect(assign).toHaveBeenLastCalledWith("https://auth.example.com/login");
+    expect(external.textContent).toBe("");
+  });
+
+  it("will skip a missing-path route when resolving a redirect target", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const root = await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { throw new Redirect("/lost"); }} /><Route none as={() => <p>missing</p>} /></Route>);
+    expect(assign).toHaveBeenCalledWith(new URL("/lost", window.location.href).href);
+    expect(root.textContent).toBe("");
+  });
+
+  it("will find a redirect target below a non-route wrapper", async () => {
+    const root = await mount(() => <Route><><Route as={() => { throw new Redirect("/served"); }} /><Route to="served" as={() => <p>served</p>} /></></Route>);
+    await settle();
+    expect(root.textContent).toBe("served");
+  });
+
+  it("will release the path listener when a caught route is destroyed", async () => {
+    let route!: Route;
+    location("/");
+    await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { route = Route.get().parent as Route; return <p>ready</p>; }} /></Route>);
+    let resolved = false;
+    const pending = route.catch(new Error("broken")).then(() => { resolved = true; });
+    route.set(null);
+    router.current.path = "/other";
+    await settle();
+    expect(resolved).toBe(false);
+    void pending;
+  });
+
+  it("will keep a caught route pending when the path is set to the same value", async () => {
+    let route!: Route;
+    location("/");
+    await mount(() => <Route Catch={() => <p>caught</p>}><Route as={() => { route = Route.get().parent as Route; return <p>ready</p>; }} /></Route>);
+    let resolved = false;
+    const pending = route.catch(new Error("broken")).then(() => { resolved = true; });
+    await settle();
+    router.current.set("path");
+    await settle();
+    expect(resolved).toBe(false);
+    route.set(null);
+    void pending;
+  });
+});
+
+describe("default reports", () => {
+  let router: Router;
+  let seen: [string, string | undefined][];
+  let stop: () => void;
+  beforeEach(() => {
+    seen = [];
+    stop = Model.on({ catch(error, _kind, key) { seen.push([(error as Error).message, key]); } });
+    router = Router.new(Context.root);
+  });
+  afterEach(() => {
+    router.set(null);
+    stop();
+  });
+
+  it("will show an async new() rejection in Catch once, reporting nothing", async () => {
+    class Guard extends Model { protected async new() { throw new Error("refused"); } }
+    const Catch = vi.fn(({ error }: { error: Error }) => <p>{error.message}</p>);
+    location("/");
+    const root = await mount(() => <Route Catch={Catch}><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("refused"));
+    await settle();
+    expect(Catch).toHaveBeenCalledOnce();
+    expect(seen).toEqual([]);
+  });
+
+  it("will report a required async field that throws", async () => {
+    class Guard extends Model { value = set(async () => { throw new Error("field"); }, true); }
+    location("/");
+    await mount(() => <Route Catch={() => <p>caught</p>}><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(seen).toContainEqual(["field", "value"]));
+  });
+
+  it("will follow a Redirect thrown from a field", async () => {
+    class Guard extends Model { value = set(async () => { throw new Redirect("/other"); }, true); }
+    location("/");
+    const root = await mount(() => <Route><Route enter={() => Guard}><Route as={() => <p>page</p>} /></Route><Route to="other" as={() => <p>other</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("other"));
+    expect(seen).toEqual([]);
+  });
+
+  it("will report a superseded guard's rejection unless it is an HttpError", async () => {
+    const rejects: ((error: Error) => void)[] = [];
+    class Guard extends Model { protected new() { return new Promise<void>((_, fail) => rejects.push(fail)); } }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => Guard}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(rejects).toHaveLength(1));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    rejects[0](new TypeError("broken"));
+    await vi.waitFor(() => expect(seen).toEqual([["broken", undefined]]));
+    router.goto("/a");
+    await vi.waitFor(() => expect(rejects).toHaveLength(2));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    rejects[1](new NotFound("gone"));
+    await settle();
+    expect(seen).toEqual([["broken", undefined]]);
+  });
+
+  it("will give a folder default its params on a page below the folder's index", async () => {
+    class Room extends Model {
+      route = get(Route);
+      id = "";
+      protected new() { this.id = this.route.match!.id; }
+    }
+    let folder!: Route;
+    const Notes = () => ((folder = Route.get().parent as Route), <p>notes {Room.get().id}</p>);
+    location("/room/7/notes");
+    const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={() => <p>index</p>} /><Route to="notes" as={Notes} /><Route to="files" as={() => <p>files</p>} /></Route><Route to="other" as={() => <p>other</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("notes 7"));
+    const params = folder.match;
+    router.goto("/room/7/files");
+    await vi.waitFor(() => expect(root.textContent).toBe("files"));
+    expect(folder.match).toBe(params);
+    router.goto("/other");
+    await vi.waitFor(() => expect(root.textContent).toBe("other"));
+    expect(folder.match).toBeUndefined();
+  });
+});
+
+describe("prebuilt defaults", () => {
+  let router: Router;
+  let logged: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    router = Router.new(Context.root);
+    logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    expect(logged).not.toHaveBeenCalled();
+    logged.mockRestore();
+    router.set(null);
+  });
+
+  it("will await new before rendering and provide the instance below", async () => {
+    let release!: () => void;
+    const order: string[] = [];
+    class Session extends Model {
+      name = "ada";
+      protected async new() {
+        order.push("new");
+        await new Promise<void>(resolve => (release = resolve));
+        order.push("ready");
+      }
+    }
+    const Page = () => {
+      order.push("render");
+      return <p>{Session.get().name}</p>;
+    };
+    location("/");
+    const root = await mount(() => <Route enter={() => Session} fallback={null}><Route as={Page} /></Route>);
+    expect(root.textContent).toBe("");
+    expect(order).toEqual(["new"]);
+    release();
+    await vi.waitFor(() => expect(root.textContent).toBe("ada"));
+    expect(order).toEqual(["new", "ready", "render"]);
+  });
+
+  it("will replace a default after a param change without leaving two in context", async () => {
+    const gone = vi.fn();
+    let built = 0;
+    class Guard extends Model { protected new() { built++; return gone; } }
+    location("/note/1");
+    const root = await mount(() => <Route><Route to="note/:id" enter={() => Guard}><Route as={() => <p>{Guard.get().is.toString() && "ready"}</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("ready"));
+    router.goto("/note/2");
+    await vi.waitFor(() => expect(built).toBe(2));
+    expect(root.textContent).toBe("ready");
+    expect(gone).toHaveBeenCalledOnce();
+  });
+
+  describe("a param folder", () => {
+    const destroyed = vi.fn();
+
+    class Room extends Model {
+      route = get(Route);
+      id = "";
+
+      protected async new() {
+        const { id } = this.route.match!;
+        this.set(null, () => destroyed(id));
+        await null;
+        this.id = id;
+      }
+    }
+
+    beforeEach(() => destroyed.mockClear());
+
+    it("will keep the leaving default until a param change below its index lands", async () => {
+      location("/room/1/notes");
+      const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={() => <p>room {Room.get().id}</p>} /><Route to="notes" as={() => <p>notes</p>} /></Route></Route>);
+      await vi.waitFor(() => expect(root.textContent).toBe("notes"));
+      router.goto("/room/2");
+      await vi.waitFor(() => expect(root.textContent).toBe("room 2"));
+      await settle();
+      expect(destroyed.mock.calls).toEqual([["1"]]);
+      router.goto("/room/3");
+      await vi.waitFor(() => expect(root.textContent).toBe("room 3"));
+      await settle();
+      expect(destroyed.mock.calls).toEqual([["1"], ["2"]]);
+    });
+
+    it.fails("will set up a class page below its index against the entered default", async () => {
+      const seen: string[] = [];
+      class Page extends Component {
+        room = get(Room);
+        protected new() { seen.push(this.room.id); }
+        render() { return <p>room {this.room.id}</p>; }
+      }
+      location("/room/1/notes");
+      const root = await mount(() => <Route><Route to="room/:id" enter={() => Room}><Route as={Page} /><Route to="notes" as={() => <p>notes</p>} /></Route></Route>);
+      await vi.waitFor(() => expect(root.textContent).toBe("notes"));
+      router.goto("/room/2");
+      await vi.waitFor(() => expect(root.textContent).toBe("room 2"));
+      expect(seen).toEqual(["2"]);
+    });
+  });
+
+  it("will discard a build abandoned for another route", async () => {
+    const releases: Array<() => void> = [];
+    let current!: Guard;
+    class Guard extends Model {
+      protected async new() { current = this; await new Promise<void>(resolve => releases.push(resolve)); }
+    }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => Guard}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    releases[0]();
+    await vi.waitFor(() => expect(current.get(null)).toBe(true));
+    router.goto("/a");
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[1]();
+    await vi.waitFor(() => expect(root.textContent).toBe("a"));
+  });
+
+  it.each([new Redirect("/signin"), new NotFound("missing")])("will ignore a late %s from an abandoned default", async error => {
+    let reject!: (error: Error) => void;
+    class Guard extends Model { protected new() { return new Promise<void>((_, fail) => (reject = fail)); } }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => Guard}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /><Route to="signin" as={() => <p>signin</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(reject).toBeTypeOf("function"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    reject(error);
+    await settle();
+    expect(root.textContent).toBe("b");
+  });
+
+  it("will mount nested routes under an unmatched folder and list them", async () => {
+    let child!: Route;
+    class Child extends Route { protected new() { child = this; } }
+    location("/c");
+    const root = await mount(() => <Route><NavLinks /><Route to="a" label="A"><Child to="b" label="B" as={() => <p>b</p>} /></Route><Route to="c" as={() => <p>c</p>} /></Route>);
+    await vi.waitFor(() => expect(child).toBeDefined());
+    expect(root.textContent).toContain("B");
+  });
+
+  it("will hold the current screen while a new default awaits", async () => {
+    let release!: () => void;
+    class Guard extends Model {
+      protected async new() { await new Promise<void>(resolve => (release = resolve)); }
+    }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="next" enter={() => Guard}><Route as={() => <p>next</p>} /></Route></Route>);
+    router.goto("/next");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(root.textContent).toBe("home");
+    release();
+    await vi.waitFor(() => expect(root.textContent).toBe("next"));
+  });
+
+  it("will keep the leaving default live during a held navigation", async () => {
+    let release!: () => void;
+    let current!: Guard;
+    class Guard extends Model { count = 0; protected new() { current = this; } }
+    class Slow extends Model { protected new() { return new Promise<void>(done => (release = done)); } }
+    location("/a");
+    const root = await mount(() => <Route><Route to="a" enter={() => Guard}><Route as={() => <p>{Guard.get().count}</p>} /></Route><Route to="b" enter={() => Slow}><Route as={() => <p>b</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("0"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    current.count = 1;
+    await vi.waitFor(() => expect(root.textContent).toBe("1"));
+    release();
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    expect(current.get(null)).toBe(true);
+  });
+
+  it("will keep a default when a held navigation is superseded back to it", async () => {
+    let release!: () => void;
+    let current!: Guard;
+    class Guard extends Model { protected new() { current = this; } }
+    class Slow extends Model { protected new() { return new Promise<void>(done => (release = done)); } }
+    location("/a");
+    const root = await mount(() => <Route><Route to="a" enter={() => Guard}><Route as={() => <p>a</p>} /></Route><Route to="b" enter={() => Slow}><Route as={() => <p>b</p>} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("a"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    router.goto("/a");
+    release();
+    await settle();
+    expect(root.textContent).toBe("a");
+    expect(current.get(null)).toBe(false);
+  });
+
+  it("will render a prebuilt Component around its page and destroy it on leave", async () => {
+    const gone = vi.fn();
+    class Frame extends Component {
+      protected new() { return gone; }
+      render(props: { children?: Component.Node }) { return <section>{props.children}</section>; }
+    }
+    location("/x");
+    const root = await mount(() => <Route><Route to="x" enter={() => Frame}><Route as={() => <p>inside</p>} /></Route><Route to="y" as={() => <p>other</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("inside"));
+    window.history.pushState(null, "", "/y");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await vi.waitFor(() => expect(root.textContent).toBe("other"));
+    expect(gone).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])("will keep %s new errors out of render", async asyncNew => {
+    const page = vi.fn(() => <p>page</p>);
+    class Guard extends Model {
+      protected new() {
+        if (asyncNew) return Promise.reject(new NotFound("missing"));
+        throw new NotFound("missing");
+      }
+    }
+    location("/x");
+    const root = await mount(() => <Route Catch={({ error }) => <p>{error.message}</p>}><Route to="x" enter={() => Guard}><Route as={page} /></Route></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("missing"));
+    expect(page).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("will redirect from %s new before rendering", async asyncNew => {
+    const page = vi.fn(() => <p>guarded</p>);
+    class Guard extends Model {
+      protected new() {
+        if (asyncNew) return Promise.reject(new Redirect("/allowed"));
+        throw new Redirect("/allowed");
+      }
+    }
+    location("/guarded");
+    const root = await mount(() => <Route><Route to="guarded" enter={() => Guard}><Route as={page} /></Route><Route to="allowed" as={() => <p>allowed</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("allowed"));
+    expect(page).not.toHaveBeenCalled();
+  });
+
+  it("will handle a built default's rejection only through its guard", async () => {
+    let caught = 0;
+    class Guard extends Model { protected async new() { throw new Redirect("/allowed"); } }
+    class Scoped extends Route {
+      catch(error: Error) { caught++; return super.catch(error); }
+    }
+    location("/guarded");
+    const root = await mount(() => <Route><Scoped to="guarded" enter={() => Guard}><Route as={() => <p>guarded</p>} /></Scoped><Route to="allowed" as={() => <p>allowed</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("allowed"));
+    expect(caught).toBe(0);
+  });
+
+  it("will render below an entry that resolves to no default", async () => {
+    location("/");
+    const root = await mount(() => <Route enter={() => Promise.resolve(undefined)}><Route as={() => <p>page</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("page"));
+  });
+
+  it("will build nothing from an entry that resolves after its route is left", async () => {
+    let release!: (type: Model.Extends) => void;
+    const built = vi.fn();
+    class Guard extends Model { protected new() { built(); } }
+    location("/");
+    const root = await mount(() => <Route><Route as={() => <p>home</p>} /><Route to="a" enter={() => new Promise<Model.Extends>(resolve => (release = resolve))}><Route as={() => <p>a</p>} /></Route><Route to="b" as={() => <p>b</p>} /></Route>);
+    router.goto("/a");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    router.goto("/b");
+    await vi.waitFor(() => expect(root.textContent).toBe("b"));
+    release(Guard);
+    await settle();
+    expect(built).not.toHaveBeenCalled();
+  });
+
+  it("will wait for a required factory before rendering", async () => {
+    let release!: (value: string) => void;
+    class Guard extends Model {
+      value = set(() => new Promise<string>(resolve => (release = resolve)), true);
+    }
+    const page = vi.fn(() => <p>{Guard.get().value}</p>);
+    location("/");
+    const root = await mount(() => <Route enter={() => Guard}><Route as={page} /></Route>);
+    expect(page).not.toHaveBeenCalled();
+    release("ready");
+    await vi.waitFor(() => expect(root.textContent).toBe("ready"));
+  });
+
+  it("will rebuild a default after its new method changes", async () => {
+    let built = 0;
+    const gone = vi.fn();
+    class Guard extends Model {
+      protected new() { built++; return gone; }
+    }
+    const entry = Object.assign(() => Guard, { source: "app/guard.tsx" });
+    location("/");
+    const root = await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("ready"));
+    expect(built).toBe(1);
+    accept("dev-route-default", { Guard });
+    accept("dev-route-default", { Guard: class Guard extends Model {
+      protected new() { built += 1; return gone; }
+    } });
+    window.dispatchEvent(new Event("expressive:route-update"));
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/other.tsx"] }));
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/xapp/guard.tsx"] }));
+    expect(built).toBe(1);
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/guard.tsx"] }));
+    await vi.waitFor(() => expect(built).toBe(2));
+    expect(gone).toHaveBeenCalledOnce();
+  });
+
+  it("will keep a default when render or Page changes in its source module", async () => {
+    let built = 0;
+    const gone = vi.fn();
+    const version = (tag: string) => class Guard extends Component {
+      value = 4;
+      protected new() { built++; return gone; }
+      render(props: { children?: Component.Node }) { return <section data-tag={tag}>{props.children}</section>; }
+    };
+    const Guard = accept("dev-route-render", { Guard: version("old") }).Guard;
+    const entry = Object.assign(() => Guard, { source: "app/guard.tsx" });
+    location("/");
+    const root = await mount(() => <Route enter={entry}><Route as={() => <p>{Guard.get().value}</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("4"));
+    expect(gone).not.toHaveBeenCalled();
+    accept("dev-route-render", { Guard: version("new") });
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/guard.tsx"] }));
+    expect(built).toBe(1);
+    expect(gone).not.toHaveBeenCalled();
+    expect(root.textContent).toBe("4");
+    await vi.waitFor(() => expect(root.querySelector("section")?.getAttribute("data-tag")).toBe("new"));
+  });
+
+  it("will rebuild when a hot update changes new", async () => {
+    let built = 0;
+    class Guard extends Model { protected new() { built += 1; } }
+    accept("dev-route-new", { Guard });
+    let Current: Model.Extends = Guard;
+    const entry = Object.assign(() => Current, { source: "app/new.tsx", current: () => Current });
+    location("/");
+    await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(built).toBe(1));
+    Current = accept("dev-route-new", { Guard: class Guard extends Model {
+      protected new() { built += 2; }
+    } }).Guard;
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/new.tsx"] }));
+    await vi.waitFor(() => expect(built).toBe(3));
+  });
+
+  it("will rebuild when hot replacement retires the default class", async () => {
+    let built = 0;
+    class Guard extends Model { value = 1; protected new() { built++; } }
+    accept("dev-route-fields", { Guard });
+    let Current: Model.Extends = Guard;
+    const entry = Object.assign(() => Current, { source: "app/guard.tsx", current: () => Current });
+    location("/");
+    const root = await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(root.textContent).toBe("ready"));
+    class Other extends Model {}
+    accept("dev-route-other", { Other });
+    accept("dev-route-other", { Other: class Other extends Model { changed = true; } });
+    Current = accept("dev-route-fields", { Guard: class Guard extends Model {
+      value = 2;
+      extra = true;
+      protected new() { built++; }
+    } }).Guard;
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/guard.tsx"] }));
+    await vi.waitFor(() => expect(built).toBe(2));
+    expect(root.textContent).toBe("ready");
+  });
+
+  it("will rebuild when a hot update changes the default export", async () => {
+    let built = 0;
+    class First extends Model { protected new() { built++; } }
+    class Second extends Model { protected new() { built++; } }
+    let Current: Model.Extends = First;
+    const entry = Object.assign(() => Current, { source: "app/change.tsx", current: () => Current });
+    location("/");
+    await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(built).toBe(1));
+    Current = Second;
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/change.tsx"] }));
+    await vi.waitFor(() => expect(built).toBe(2));
+  });
+
+  it("will compare a lazy default export after hot updates", async () => {
+    let built = 0;
+    class First extends Model { protected new() { built++; } }
+    class Second extends Model { protected new() { built++; } }
+    let Current: Model.Extends = First;
+    let fails = false;
+    const entry = Object.assign(() => Current, {
+      source: "app/lazy.tsx",
+      current: () => fails ? Promise.reject(new Error("update")) : Promise.resolve(Current),
+    });
+    location("/");
+    await mount(() => <Route enter={entry}><Route as={() => <p>ready</p>} /></Route>);
+    await vi.waitFor(() => expect(built).toBe(1));
+    const update = () => window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/lazy.tsx"] }));
+    update();
+    await settle();
+    expect(built).toBe(1);
+    Current = Second;
+    update();
+    await vi.waitFor(() => expect(built).toBe(2));
+    fails = true;
+    update();
+    await settle();
+    expect(built).toBe(2);
+  });
+
+  it("will keep one destroy registration across three builds", async () => {
+    let active = 0;
+    let dispose!: () => void;
+    class Guard extends Model {}
+    const route = Route.new();
+    const original = route.set.bind(route);
+    vi.spyOn(route, "set").mockImplementation(((status: unknown, callback?: () => void) => {
+      const result = (original as (...args: unknown[]) => unknown)(status, callback);
+      if (status !== null || callback?.name !== "dispose") return result;
+      dispose = callback;
+      active++;
+      return () => { active--; return (result as () => boolean)(); };
+    }) as typeof route.set);
+    route.enter = () => Guard;
+    for (let i = 0; i < 3; i++) {
+      await (route.redirect as () => Promise<unknown>)();
+      expect(active).toBe(1);
+    }
+    dispose();
+    dispose();
+    expect(active).toBe(0);
+    route.set(null);
+  });
+
+  it("will keep a default when an unrelated hot update arrives", async () => {
+    const gone = vi.fn();
+    class Guard extends Model { protected new() { return gone; } }
+    location("/");
+    await mount(() => <Route enter={() => Guard}><Route as={() => <p>ready</p>} /></Route>);
+    window.dispatchEvent(new CustomEvent("expressive:route-update", { detail: ["/app/guard.tsx"] }));
+    expect(gone).not.toHaveBeenCalled();
+  });
+
+  it("will keep a default when navigating inside its route", async () => {
+    const gone = vi.fn();
+    class Guard extends Model { protected new() { return gone; } }
+    location("/x");
+    const root = await mount(() => <Route enter={() => Guard}><Route to="x" as={() => <p>x</p>} /><Route to="y" as={() => <p>y</p>} /></Route>);
+    router.goto("/y");
+    await vi.waitFor(() => expect(root.textContent).toBe("y"));
+    expect(gone).not.toHaveBeenCalled();
+  });
+
+  it("will retry a caught route after a hot update", async () => {
+    let broken = true;
+    const Page = () => {
+      if (broken) throw new Error("broken");
+      return <p>fixed</p>;
+    };
+    location("/");
+    const root = await mount(() => <Route Catch={() => <p>caught</p>}><Route as={Page} /></Route>);
+    expect(root.textContent).toBe("caught");
+    broken = false;
+    window.dispatchEvent(new Event("expressive:route-update"));
+    await vi.waitFor(() => expect(root.textContent).toBe("fixed"));
+  });
+});

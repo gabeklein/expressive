@@ -28,5 +28,9 @@ it("will push history in a browser", async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(pushState).toHaveBeenCalledWith(null, "", "/next");
+  expect(router.path).toBe("/next");
+  router.goto("/blog/new");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(router.path).toBe("/blog/new");
   router.set(null);
 });

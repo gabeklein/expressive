@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer as listen } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -7,6 +7,7 @@ import type { Plugin } from 'vite';
 import inspect from '../../packages/inspect/src/vite';
 import domHot from '../../packages/dom/src/vite';
 import reactHot from '../../packages/react/src/vite';
+import { expressive } from '../../packages/dev/src/vite';
 import { Browser, CHROME, until } from './chrome';
 
 /**
@@ -1267,13 +1268,376 @@ export class Session extends Base {
   return results.filter((ok) => !ok).length;
 }
 
+async function settings() {
+  const dir = join(ROOT, 'settings');
+  const packages = ['mvc', 'dom', 'router', 'rpc', 'env', 'inspect', 'dev'];
+  let ok = false;
+
+  write(dir, {
+    'index.ts': `import { config } from '@expressive/dev';
+import { label } from './label';
+
+export default config({
+  async handle({ request, env, next }) {
+    if (new URL(request.url).pathname === '/label') return new Response(label + ' old');
+    if (new URL(request.url).pathname === '/env') return new Response(String((env as any).NAME ?? 'none'));
+    return next();
+  }
+});
+`,
+    'label.ts': `export const label = 'handle';
+`,
+    'app/index.tsx': `export const Page = () => <h1>hi</h1>;
+`
+  });
+
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-settings'),
+    plugins: [expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+
+  await vite.listen();
+
+  const { port } = vite.httpServer!.address() as { port: number };
+  const label = async () => (await fetch(`http://127.0.0.1:${port}/label`)).text();
+  const named = async () => (await fetch(`http://127.0.0.1:${port}/env`)).text();
+  const stood = async () => (await fetch(`http://127.0.0.1:${port}/stand`)).text();
+  const stand = (name: string, tag: string) => `import settings from './index';
+
+const inner = settings.handle!;
+
+settings.env = () => ({ NAME: '${name}' });
+settings.handle = args => (new URL(args.request.url).pathname === '/stand' ? new Response('${tag}') : inner(args));
+
+export default settings;
+`;
+
+  try {
+    if ((await label()) != 'handle old') throw new Error(`before the edit: ${await label()}`);
+
+    await Bun.write(join(dir, 'index.ts'), (await Bun.file(join(dir, 'index.ts')).text()).replace("' old'", "' new'"));
+    await until(async () => (await label()) == 'handle new');
+
+    await Bun.write(join(dir, 'label.ts'), "export const label = 'imported';\n");
+    await until(async () => (await label()) == 'imported new');
+
+    console.log('PASS [server] index.ts edit swaps handle, its imports too');
+
+    await Bun.write(join(dir, 'index.dev.ts'), stand('dev', 'one'));
+    await until(async () => (await named()) == 'dev');
+    if ((await stood()) != 'one') throw new Error(`index.dev.ts's handle not read: ${await stood()}`);
+
+    await Bun.write(join(dir, 'index.dev.ts'), stand('changed', 'two'));
+    await until(async () => (await stood()) == 'two');
+    if ((await named()) != 'dev') throw new Error(`env() ran again on reload: ${await named()}`);
+
+    await Bun.write(join(dir, 'index.ts'), (await Bun.file(join(dir, 'index.ts')).text()).replace("' new'", "' newer'"));
+    await until(async () => (await label()) == 'imported newer');
+    if ((await stood()) != 'two' || (await named()) != 'dev') throw new Error(`index.ts edit dropped index.dev.ts: ${await stood()}, ${await named()}`);
+
+    rmSync(join(dir, 'index.dev.ts'));
+    await until(async () => (await named()) == 'none');
+
+    ok = true;
+    console.log('PASS [server] index.dev.ts added, edited and removed, env() once per server');
+  } catch (error) {
+    console.log(`FAIL [server] settings edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await vite.close();
+  }
+
+  return ok ? 0 : 1;
+}
+
+async function api() {
+  const dir = join(ROOT, 'api');
+  const packages = ['mvc', 'dom', 'router', 'rpc', 'env', 'inspect', 'dev'];
+  let ok = false;
+
+  write(dir, {
+    'api/(hello).ts': `import { label } from './label';
+import { suffix } from '../server/suffix';
+
+export const GET = () => label + suffix + ' old';
+`,
+    'api/label.ts': `export const label = 'hello';
+`,
+    'api/(greet).ts': `export async function greet(name: string) { return 'hi ' + name; }
+`,
+    'server/suffix.ts': `export const suffix = '';
+`,
+    'app/index.tsx': `export const Page = () => <h1>hi</h1>;
+`
+  });
+
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-api'),
+    plugins: [expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+
+  await vite.listen();
+
+  const { port } = vite.httpServer!.address() as { port: number };
+  const get = async (path: string) => {
+    const reply = await fetch(`http://127.0.0.1:${port}${path}`);
+    return `${reply.status} ${await reply.text()}`;
+  };
+
+  try {
+    if ((await get('/api/hello')) != '200 hello old') throw new Error(`before the edit: ${await get('/api/hello')}`);
+
+    await Bun.write(join(dir, 'api/(hello).ts'), (await Bun.file(join(dir, 'api/(hello).ts')).text()).replace("' old'", "' new'"));
+    await until(async () => (await get('/api/hello')) == '200 hello new');
+
+    await Bun.write(join(dir, 'api/label.ts'), "export const label = 'helper';\n");
+    await until(async () => (await get('/api/hello')) == '200 helper new');
+
+    await Bun.write(join(dir, 'server/suffix.ts'), "export const suffix = '+server';\n");
+    await until(async () => (await get('/api/hello')) == '200 helper+server new');
+
+    if (!(await get('/api/label')).startsWith('404 ')) throw new Error(`helper served: ${await get('/api/label')}`);
+
+    renameSync(join(dir, 'api/(hello).ts'), join(dir, 'api/hello.ts'));
+    await until(async () => (await get('/api/hello')).startsWith('404 ') && (await get('/api/hello')).includes('rename it api/(hello).ts'));
+
+    renameSync(join(dir, 'api/hello.ts'), join(dir, 'api/(hello).ts'));
+    await until(async () => (await get('/api/hello')) == '200 helper+server new');
+
+    await Bun.write(join(dir, 'api/(hello).ts'), "export const POST = () => 'posted';\n");
+    await until(async () => (await get('/api/hello')).startsWith('405 '));
+
+    await Bun.write(join(dir, 'api/added/index.ts'), "export default () => new Response('gated', { status: 403 });\nexport const GET = () => 'added';\n");
+    await until(async () => (await get('/api/added')) == '403 gated');
+
+    rmSync(join(dir, 'api/added'), { recursive: true });
+    await until(async () => (await get('/api/added')).startsWith('404 '));
+
+    const call = async (name: string) => {
+      const reply = await fetch(`http://127.0.0.1:${port}/api/greet`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-expressive-call': name }, body: '["ada"]' });
+      return `${reply.status} ${await reply.text()}`;
+    };
+    const loaded = async (name: string, expected: string) => {
+      await vite.transformRequest('/api/(greet).ts');
+      return (await call(name)) == expected;
+    };
+
+    await until(() => loaded('greet', '200 {"value":"hi ada"}'));
+
+    await Bun.write(join(dir, 'api/(greet).ts'), "export async function greet(name: string) { return 'hello ' + name; }\nexport async function wave() { return 'wave'; }\n");
+    await until(async () => (await call('greet')) == '200 {"value":"hello ada"}');
+    await until(() => loaded('wave', '200 {"value":"wave"}'));
+
+    ok = true;
+    console.log('PASS [server] api/ route edited, its helper and import edited, renamed to a helper and back, a folder gate added and removed, a call edited and added');
+  } catch (error) {
+    console.log(`FAIL [server] api/ edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await vite.close();
+  }
+
+  return ok ? 0 : 1;
+}
+
+const rpcSource = (): Plugin => ({
+  name: 'rpc-source',
+  enforce: 'pre',
+  resolveId(id, importer, options) {
+    const [, sub] = /^@expressive\/rpc(?:\/(.+))?$/.exec(id) ?? [];
+
+    if (sub) return this.resolve(`${src('rpc')}/${sub}`, importer, options);
+    if (id == '@expressive/rpc') return join(src('rpc'), options.ssr ? 'server.ts' : 'client.ts');
+  }
+});
+
+async function gates() {
+  const dir = join(ROOT, 'gates');
+  const packages = ['mvc', 'dom', 'router', 'env', 'inspect', 'dev'];
+  let ok = false;
+
+  write(dir, {
+    'app/index.tsx': `export const Page = () => <h1>Home</h1>;
+`,
+    'app/vault/index.tsx': `import { Component } from '@expressive/mvc';
+import { open } from '../../api/vault/(open)';
+
+export class Page extends Component {
+  shown = '';
+
+  async run() {
+    try {
+      this.shown = await open();
+    } catch (error) {
+      this.shown = (error as Error).message;
+    }
+  }
+
+  render() {
+    return <><h1>Vault</h1><button onClick={() => this.run()}>Open</button><p id="shown">{this.shown}</p></>;
+  }
+}
+`,
+    'api/vault/index.ts': `export default () => {};
+`,
+    'api/vault/(open).ts': `export async function open() { return 'open'; }
+`
+  });
+
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-gates'),
+    plugins: [rpcSource(), expressive()],
+    resolve: { alias: packages.flatMap(pkg => [{ find: new RegExp(`^@expressive/${pkg}$`), replacement: src(pkg) }, { find: new RegExp(`^@expressive/${pkg}/(.+)$`), replacement: `${src(pkg)}/$1` }]) },
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+
+  await vite.listen();
+
+  const { port } = vite.httpServer!.address() as { port: number };
+  const browser = new Browser();
+  const shown = (text: string) => until(async () => (await browser.text('#shown')) == text);
+  const press = () => browser.eval(`document.querySelector('button').click()`);
+
+  try {
+    await browser.open(`http://127.0.0.1:${port}/vault`, join(ROOT, '.chrome-gates'));
+    await until(() => browser.text('h1'), 20000);
+    await browser.eval(`window.__probe = 'alive'`);
+
+    await press();
+    await shown('open');
+
+    await Bun.write(join(dir, 'api/vault/index.ts'), "export default () => { throw new Error('Closed for the night.'); };\n");
+    await sleep(500);
+    await press();
+    await shown('Closed for the night.');
+
+    if ((await browser.eval('window.__probe')) != 'alive') throw new Error('the gate edit reloaded the page');
+
+    ok = true;
+    console.log('PASS [dev] api/ folder gate edited - the next call sees it, without a reload');
+  } catch (error) {
+    console.log(`FAIL [dev] gate edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await browser.close();
+    await vite.close();
+  }
+
+  return ok ? 0 : 1;
+}
+
+async function routeDefault() {
+  const dir = join(ROOT, 'route-default');
+  const file = join(dir, 'counter.tsx');
+  const page = (label: string, title: string, initial: number, field: string) => `import { Component } from '@expressive/mvc';
+export default class Counter extends Component {
+  count = ${field};
+  protected new() { this.count = ${initial}; }
+  render(props: { children?: Component.Node }) { return <section><h1>${title}</h1>{props.children}</section>; }
+}
+export function Page() {
+  const counter = Counter.get();
+  return <button id="count" onClick={() => counter.count++}>${label} {counter.count}</button>;
+}
+`;
+  write(dir, {
+    'index.html': '<!doctype html><html><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>',
+    'main.tsx': `import { render } from '@expressive/dom';
+import { App } from './app';
+
+render(<App />, document.getElementById('root')!);
+`,
+    'app.tsx': `import { Route, Router } from 'dev-client';
+import Counter, { Page } from './counter';
+
+const entry = Object.assign(() => Counter, { source: 'counter.tsx', current: () => Counter });
+
+export const App = () => <Router><Route to="counter" enter={entry}><Route as={Page} /></Route></Router>;
+
+if (import.meta.hot) import.meta.hot.on('vite:afterUpdate', payload => dispatchEvent(new CustomEvent('expressive:route-update', { detail: payload.updates.map(update => update.path) })));
+`,
+    'counter.tsx': page('count', 'old', 1, '0'),
+  });
+  const hot = domHot();
+  const transform = hot.transform as Function;
+  hot.transform = async function(code, id, options) {
+    if (id.split('?')[0].startsWith(resolve('packages') + '/')) return;
+    return transform.call(this, code, id, options);
+  };
+  const vite = await createServer({
+    configFile: false,
+    root: dir,
+    logLevel: 'silent',
+    cacheDir: join(ROOT, '.vite-route-default'),
+    plugins: [hot],
+    esbuild: { jsx: 'automatic', jsxImportSource: '@expressive/dom' },
+    resolve: { alias: {
+      'dev-client': resolve('packages/dev/src/client/index.ts'),
+      '@expressive/dom': src('dom'),
+      '@expressive/jsx': src('jsx'),
+      '@expressive/mvc': src('mvc'),
+      '@expressive/router': src('router')
+    } },
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true }
+  });
+  await vite.listen();
+  const { port } = vite.httpServer!.address() as { port: number };
+  const browser = new Browser();
+  const count = (value: string) => until(async () => (await browser.text('#count')) == value);
+  let ok = false;
+  try {
+    await browser.open(`http://127.0.0.1:${port}/counter`, join(ROOT, '.chrome-route-default'));
+    await count('count 1');
+    await browser.eval(`document.getElementById('count').click()`);
+    await count('count 2');
+    await Bun.write(file, page('count', 'new', 1, '0'));
+    await until(async () => (await browser.text('h1')) == 'new');
+    await count('count 2');
+    await Bun.write(file, page('total', 'new', 1, '0'));
+    await count('total 2');
+    await Bun.write(file, page('total', 'new', 3, '0'));
+    await count('total 3');
+    await browser.eval(`document.getElementById('count').click()`);
+    await count('total 4');
+    await Bun.write(file, page('total', 'new', 3, '5'));
+    await count('total 3');
+    ok = true;
+    console.log('PASS [dev] routed default keeps state across render and Page edits, rebuilds for new and field edits');
+  } catch (error) {
+    console.log(`FAIL [dev] routed default edit - ${error instanceof Error ? error.message : error}`);
+  } finally {
+    await browser.close();
+    await vite.close();
+  }
+  return ok ? 0 : 1;
+}
+
+
 let failed = 0;
 
 try {
   failed += await server();
+  failed += await settings();
+  failed += await api();
 
-  if (chrome) for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
-  else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);
+  if (chrome) {
+    failed += await gates();
+    failed += await routeDefault();
+    for (const mode of ['react', 'strict', 'dom'] as const) failed += await run(mode);
+  } else console.log(`No Chrome at ${CHROME} - set CHROME to run the browser modes.`);
 } finally {
   rmSync(ROOT, { recursive: true, force: true });
 }

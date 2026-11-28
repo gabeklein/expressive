@@ -131,8 +131,8 @@ async function serve(root: string, config: InlineConfig = {}) {
   return server;
 }
 
-async function listen(root: string, config?: InlineConfig) {
-  const server = await serve(root, config);
+async function listen(root: string, config: InlineConfig = {}, watch = false) {
+  const server = await serve(root, watch ? config : { ...config, server: { host: "127.0.0.1", watch: null, ...config.server } });
 
   await server.listen(0);
 
@@ -302,7 +302,7 @@ describe("dev server", () => {
 
   it("will take an edit to a server module on the next call", async () => {
     const root = project();
-    const { server, post } = await listen(root);
+    const { server, post } = await listen(root, {}, true);
 
     await server.transformRequest("/api/todos.ts");
     expect(await post("/todos", "list", [], "a")).toMatchObject({ body: { value: ["one"] } });
@@ -318,7 +318,7 @@ describe("dev server", () => {
 
     await install(root);
 
-    const { server, post } = await listen(root, { resolve: {} });
+    const { server, post } = await listen(root, { resolve: {} }, true);
     const edit = (file: string, from: string, to: string) => writeFileSync(join(root, file), readFileSync(join(root, file), "utf8").replace(from, to));
 
     await server.transformRequest("/api/todos.ts");
@@ -329,8 +329,10 @@ describe("dev server", () => {
     await vi.waitFor(async () => expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } }), { timeout: 5000 });
 
     edit("api/index.ts", `"Refused."`, `"Sign in."`);
-    await vi.waitFor(async () => expect(await post("/todos", "list")).toMatchObject({ status: 401, body: { message: "Sign in." } }), { timeout: 5000 });
-    expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } });
+    await vi.waitFor(async () => {
+      expect(await post("/todos", "list")).toMatchObject({ status: 401, body: { message: "Sign in." } });
+      expect(await post("/todos", "list", [], "a")).toEqual({ status: 200, body: { value: ["two"] } });
+    }, { timeout: 5000 });
   }, 30_000);
 
   it("will run a folder's function gate, its Models in reach of the call", async () => {
@@ -727,7 +729,7 @@ describe("entry", () => {
 
   it("will take an edit to the entry on the next request", async () => {
     const root = project(ENTRY);
-    const { server } = await listen(root, { plugins: [rpc({ entry: "server.ts" })] });
+    const { server } = await listen(root, { plugins: [rpc({ entry: "server.ts" })] }, true);
 
     expect(await (await get(server, "/count")).json()).toEqual({ count: 0, name: null });
 
@@ -864,7 +866,7 @@ describe("groups", () => {
   it("will stub a plain module for every server module reaching it, whichever loads first", async () => {
     const root = project({ ...REACH, "api/c/index.ts": `export const c = {};` });
     const skip = new Set<string>();
-    const { server, post } = await listen(root, { plugins: [rpc({ test: path => /(^|\/)index\.ts$/.test(path) && !skip.has(path) })] });
+    const { server, post } = await listen(root, { plugins: [rpc({ test: path => /(^|\/)index\.ts$/.test(path) && !skip.has(path) })] }, true);
     const stub = async () => (await server.transformRequest("/api/lib/p.ts?rpc"))!.code;
 
     await server.transformRequest("/api/a/index.ts");
@@ -914,7 +916,7 @@ describe("groups", () => {
 
   it("will stop answering a leaf its module drops", async () => {
     const root = project(GROUPS);
-    const { server, post } = await listen(root, INDEXES());
+    const { server, post } = await listen(root, INDEXES(), true);
 
     await server.transformRequest("/api/shop/index.ts");
     await server.transformRequest("/api/shop/cart.ts?rpc");

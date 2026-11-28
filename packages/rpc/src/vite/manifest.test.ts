@@ -95,73 +95,30 @@ describe("stub", () => {
 });
 
 describe("stub for a host", () => {
-  it("will import from the host's runtime, with its own path and lines after the errors", () => {
+  it("will import from the host's runtime, with its own path", () => {
     const stub = new Manifest().stub(exposed("/app/api/todos.ts", { calls: ["list"], errors: [{ name: "Over" }] }), at, {
       from: "/runtime.ts",
       at: ["blog", ":slug"],
-      imports: ["twin"],
-      lines: ["export default twin(at);"],
     });
 
     expect(stub).toBe([
-      `import { call, define, twin } from "/runtime.ts";`,
+      `import { call, define } from "/runtime.ts";`,
       `const at = ["blog",":slug"];`,
       `export const list = (...args) => call(at, "todos:list", args);`,
       `export const Over = define("/#todos:Over", "Over");`,
-      "export default twin(at);",
       "",
     ].join("\n"));
   });
 });
 
-describe("exports", () => {
-  it("will load each module of a folder under its ids, checking each module's classes", async () => {
-    const manifest = new Manifest();
-    const group = [
-      exposed("/app/api/todos.ts", { calls: ["list"], errors: [{ name: "Over" }] }),
-      exposed("/app/api/index.ts", { calls: ["ping"], errors: [{ name: "Down" }] }),
-    ];
-    const modules: Record<string, Record<string, unknown>> = {
-      "/app/api/todos.ts": { list: "list()", Over: "Over" },
-      "/app/api/index.ts": { ping: "ping()", Down: "Down" },
-    };
-    const check = vi.fn();
-
-    expect(await manifest.exports(group, async file => modules[file], check)).toEqual({
-      calls: { "todos:list": "list()", ping: "ping()" },
-      classes: { "/#todos:Over": "Over", "/#Down": "Down" },
-    });
-    expect(check.mock.calls.map(([file, { classes }]) => [file, classes])).toEqual([
-      ["/app/api/todos.ts", { "/#todos:Over": "Over" }],
-      ["/app/api/index.ts", { "/#Down": "Down" }],
-    ]);
-  });
-});
-
 describe("stub", () => {
   it("will stub each call through the shared client's call, at the folder's path, and each error class by define", () => {
-    const stub = new Manifest().stub(exposed("/app/api/admin/todos.ts", { calls: ["list"], errors: [{ name: "Late", parent: { file: "/app/api/errors.ts", name: "Billing" } }, { name: "Over" }] }), at, { imports: ["twin"] });
+    const stub = new Manifest().stub(exposed("/app/api/admin/todos.ts", { calls: ["list"], errors: [{ name: "Late", parent: { file: "/app/api/errors.ts", name: "Billing" } }, { name: "Over" }] }), at);
 
-    expect(stub).toContain(`import { call, define, twin } from "@expressive/rpc";`);
+    expect(stub).toContain(`import { call, define } from "@expressive/rpc";`);
     expect(stub).toContain(`import "../errors.ts";`);
     expect(stub).toContain(`const at = "/admin";\nexport const list = (...args) => call(at, "todos:list", args);`);
     expect(stub).toContain(`export const Late = define("/admin#todos:Late", "Late", "/#errors:Billing");\nexport const Over = define("/admin#todos:Over", "Over");`);
-  });
-});
-
-describe("byPattern", () => {
-  it("will group modules by folder, and list each group's calls and errors under their ids", () => {
-    const manifest = new Manifest();
-    const todos = exposed("/app/api/todos.ts", { calls: ["list"], errors: [{ name: "Over" }] });
-    const index = exposed("/app/api/index.ts", { calls: ["ping"] });
-    const users = exposed("/app/api/admin/users.ts", { calls: ["ban"] });
-
-    for (const module of [todos, index, users]) manifest.modules.set(module.file, module);
-
-    const groups = manifest.byPattern();
-
-    expect(groups).toEqual([[todos, index], [users]]);
-    expect(manifest.table(groups[0], file => (file.endsWith("todos.ts") ? "m0" : "m1"))).toBe(`calls: { "todos:list": m0.list, "ping": m1.ping }, classes: { "/#todos:Over": m0.Over }`);
   });
 });
 

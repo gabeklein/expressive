@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Component, Context, has, Model } from '@expressive/mvc';
+import { Component, Context, has, Model, pending } from '@expressive/mvc';
 import { placement } from '@expressive/mvc/host';
 
-import { flushMicrotasks, mockPromise, mount, place, render } from '../../test.setup';
+import { Portal } from '../node/vnode';
+import { flushMicrotasks, mockError, mockPromise, mount, place, render, until } from '../../test.setup';
+
+const error = mockError();
 
 describe('component', () => {
   it('will run an effect from new() once inserted', async () => {
@@ -156,6 +159,83 @@ describe('component', () => {
     expect(message.get(null)).toBe(false);
     expect(cleanup).not.toHaveBeenCalled();
     message.set(null);
+  });
+});
+
+describe('transition', () => {
+  class Nav extends Model {
+    page = 'a';
+  }
+
+  const stale = vi.fn();
+
+  function Stale() {
+    return stale();
+  }
+
+  function Inner() {
+    return Nav.get().page == 'b' ? <Stale /> : null;
+  }
+
+  function Next() {
+    return Nav.get().page == 'b' ? <p>B</p> : null;
+  }
+
+  beforeEach(() => stale.mockClear());
+
+  async function leave(Outer: (() => Component.Node) | (new () => Component)) {
+    class App extends Component {
+      nav = new Nav();
+
+      render() {
+        return <><Outer /><Next /></>;
+      }
+    }
+
+    const [app, root, release] = mount(App);
+
+    try {
+      pending(() => (app.nav.page = 'b'));
+      await until(() => expect(root.textContent).toBe('B'));
+      expect(stale).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  }
+
+  it('will update an empty scope after one around it leaves, with no DOM globals', async () => {
+    vi.stubGlobal('Node', undefined);
+
+    try {
+      await leave(() => Nav.get().page == 'a' ? <div><Inner /></div> : null);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('will update an empty scope in a fallback after its suspended owner leaves', async () => {
+    const waiting = mockPromise<void>();
+
+    function Wait(): Component.Node {
+      throw waiting;
+    }
+
+    class Outer extends Component {
+      fallback = <Inner />;
+
+      render() {
+        return Nav.get().page == 'a' ? <Wait /> : null;
+      }
+    }
+
+    await leave(Outer);
+  });
+
+  it('will update an empty scope in a portal after one around it leaves', async () => {
+    const into = document.createElement('aside');
+
+    await leave(() => Nav.get().page == 'a' ? <Portal into={into}><Inner /></Portal> : null);
   });
 });
 

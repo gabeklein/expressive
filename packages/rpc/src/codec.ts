@@ -98,6 +98,11 @@ function entries(record: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+/** A codec reply's content type - its parameter tells it from any other JSON reply. */
+export const CODEC = "application/json; charset=utf-8; codec=expressive";
+
+export const isCodec = (response: Response) => /;\s*codec=expressive\s*(;|$)/i.test(response.headers.get("content-type") ?? "");
+
 export const stringify = (value: unknown): string => JSON.stringify(encode(value));
 
 export const parse = (text: string): unknown => decode(JSON.parse(text));

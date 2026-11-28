@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import type { Exposed, Exposure } from "./remote";
-import type { Remote } from "./routes";
+import type { Pages } from "../server/compose";
+import type { ApiFile } from "./api";
 
 export interface Project {
   root: string;
@@ -58,13 +58,15 @@ function appEntry(root: string): Pick<Project, "appDir" | "appPath"> {
 
 export const PRERENDERED = "data-prerender";
 
+export const UNMATCHED = "@expressive/dev#unmatched";
+
 export const PRERENDER_ENTRY = `/${GENERATED}/prerender.tsx`;
 
 const SETTLE = 30_000;
 
 export function bootstrap(appImport: string): string {
   return `\
-import { hydrate, render } from "@expressive/dev";
+import { hydrate, render } from "@expressive/dom";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import App from ${JSON.stringify(appImport)};
 
@@ -87,7 +89,8 @@ export function prerenderEntry(appImport: string, sources: string[]): string {
 
   return `\
 import { renderToString } from "@expressive/dom/server";
-import { Router } from "@expressive/dev";
+import { Model } from "@expressive/mvc";
+import { NotFound, Redirect, Router } from "@expressive/dev";
 import { jsx } from "@expressive/dev/jsx-runtime";
 import { scope } from "./call.ts";
 import App from ${JSON.stringify(appImport)};
@@ -108,20 +111,41 @@ export async function paths() {
   return found;
 }
 
+const pages = new WeakMap();
+
+Model.on({
+  setup(self) {
+    pages.set(self, scope.getStore());
+  },
+  catch(error, kind) {
+    if (kind == "dead" || kind == "unused") return error;
+
+    const mark = pages.get(this);
+
+    if (mark && !mark.done) mark.failed ??= [error];
+    else console.warn((mark ? mark.path : "A Model") + " failed after its page rendered at build: " + (error?.message ?? error));
+  },
+});
+
 export default async function page(path) {
   let router;
   const stop = Router.on({ setup(self) { router = self; } });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new Error("did not settle within ${SETTLE / 1000}s.")), ${SETTLE});
-  const mark = { called: false, abort };
+  const mark = { called: false, abort, path };
 
   try {
     const output = await scope.run(mark, () => renderToString(jsx(App, { path }), { signal: abort.signal }));
-    return mark.called ? null : { ...output, path: router ? router.path : path };
+    if (mark.called) return null;
+    if (mark.failed) throw mark.failed[0];
+    return { ...output, path: router ? router.path : path };
   } catch (error) {
     if (mark.called) return null;
+    if (error?.[Symbol.for("${UNMATCHED}")]) return "unmatched";
+    if (error instanceof Redirect || error instanceof NotFound) return "decided";
     throw error;
   } finally {
+    mark.done = true;
     clearTimeout(timer);
     stop();
   }
@@ -177,50 +201,49 @@ function injectBeforeBody(html: string, tag: string): string {
     : html + "\n" + tag + "\n";
 }
 
-export function serverEntry(project: Project, from: string, exposure: Exposure, gates: Remote[]): string {
-  const configSpec = project.configPath && JSON.stringify(importRel(from, project.configPath));
-  const files = [...new Set([...exposure.modules.keys(), ...gates.map(gate => gate.file)])];
-  const modules = files.map(file => JSON.stringify(importRel(from, file)));
-  const alias = (file: string) => `s${files.indexOf(file)}`;
+/** The `api/` folder's modules for an entry, `routes` undefined without one. */
+export interface ApiEntry {
+  prefix: string;
+  routes?: ApiFile[];
+}
 
-  const entries = exposure.byPattern().map(group =>
-    `    { pattern: ${JSON.stringify(group[0].pattern)}, async exports() { return { ${exposure.table(group, alias)} }; } },`);
+const apiImports = (from: string, { routes = [] }: ApiEntry) => routes.map(({ file }, i) => `import * as a${i} from ${JSON.stringify(importRel(from, file))};`);
+
+const apiRef = ({ name, path, index, calls, classes }: ApiFile) => {
+  const ids = Object.keys({ ...calls, ...classes }).length ? `, calls: ${JSON.stringify(calls)}, classes: ${JSON.stringify(classes)}` : "";
+
+  return `{ name: ${JSON.stringify(name)}, path: ${JSON.stringify(path)}, index: ${index}${ids} }`;
+};
+
+export function serverEntry(project: Project, from: string, api: ApiEntry, pages: Pages): string {
+  const configSpec = project.configPath && JSON.stringify(importRel(from, project.configPath));
 
   return [
     `import { fileURLToPath } from "node:url";`,
-    `import { serve } from "@expressive/dev/server";`,
-    configSpec ? `import config from ${configSpec};` : `const config = {};`,
-    ...modules.map((m, i) => `import * as s${i} from ${m};`),
+    `import { listen } from "@expressive/dev/server";`,
+    configSpec ? `import settings from ${configSpec};` : `const settings = {};`,
+    ...apiImports(from, api),
     "",
-    "serve({",
-    "  config,",
+    "listen({",
+    "  settings,",
     `  client: fileURLToPath(new URL("../client/", import.meta.url)),`,
-    "  sidecars: [", ...entries, "  ],",
-    "  gates: [", ...gates.map(gate => `    { pattern: ${JSON.stringify(gate.pattern)}, gate: ${alias(gate.file)}.default },`), "  ],",
+    ...(api.routes ? [`  api: { prefix: ${JSON.stringify(api.prefix)}, routes: [`, ...api.routes.map((route, i) => `    { ...${apiRef(route)}, module: a${i} },`), "  ] },"] : []),
+    `  pages: ${JSON.stringify(pages)},`,
     "});",
     "",
   ].join("\n");
 }
 
-export function fetchEntry(project: Project, from: string, exposure: Exposure, named: string[]): string {
+export function fetchEntry(project: Project, from: string, named: string[], api: ApiEntry, pages: Pages): string {
   const configSpec = JSON.stringify(importRel(from, project.configPath!));
-  const files = [...exposure.modules.keys()];
-  const ref = (remote: Exposed, name: string) => [files.indexOf(remote.file), name];
-  const ids = (group: Exposed[], names: (remote: Exposed) => string[], id: (remote: Exposed, name: string) => string) =>
-    Object.fromEntries(group.flatMap(remote => names(remote).map(name => [id(remote, name), ref(remote, name)])));
-  const manifest = exposure.byPattern().map(group => ({
-    pattern: group[0].pattern,
-    calls: ids(group, remote => remote.calls, (remote, name) => exposure.callId(remote, name)),
-    classes: ids(group, remote => remote.errors.map(error => error.name), (remote, name) => exposure.classId(remote, name)),
-  }));
 
   return [
-    `import { fetchHandler } from "@expressive/dev/fetch";`,
-    `import config from ${configSpec};`,
-    ...files.map((file, i) => `import * as s${i} from ${JSON.stringify(importRel(from, file))};`),
+    `import { compose } from "@expressive/dev/fetch";`,
+    `import settings from ${configSpec};`,
+    ...apiImports(from, api),
     `export { ${named.join(", ")} } from ${configSpec};`,
     "",
-    `export default fetchHandler(config, [${files.map((_, i) => `s${i}`).join(", ")}], ${JSON.stringify(manifest)});`,
+    `export default compose(settings, [${(api.routes ?? []).map((_, i) => `a${i}`).join(", ")}], ${api.routes ? `{ prefix: ${JSON.stringify(api.prefix)}, routes: [${api.routes.map(apiRef).join(", ")}] }` : "null"}, ${JSON.stringify(pages)});`,
     "",
   ].join("\n");
 }

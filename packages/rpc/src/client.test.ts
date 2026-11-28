@@ -3,7 +3,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Endpoint } from "./call";
 import { handler } from "./http/call";
 import * as shared from "./client";
 
@@ -32,7 +31,7 @@ function serve(...replies: Reply[]) {
   const fetch = vi.fn(async (_path: unknown, _init?: RequestInit) => {
     const { body, status = 200, epoch = "e1" } = replies.shift()!;
 
-    return new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": epoch } });
+    return new Response(JSON.stringify(body), { status, headers: { "x-expressive-epoch": epoch, "content-type": "application/json; codec=expressive" } });
   });
 
   vi.stubGlobal("fetch", fetch);
@@ -159,37 +158,27 @@ describe("errors", () => {
   });
 });
 
-describe("pathOf", () => {
-  const { pathOf } = client();
+describe("reply", () => {
+  it("will reject a reply that isn't the codec's with an HttpError carrying its status, plain JSON and a 2xx included", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Gated.", { status: 200 })));
+    const text = await client().call("/tally", "add", []).catch((e: Error) => e);
 
-  it("will fill a pattern's params from the location", () => {
-    history.replaceState(null, "", "/blog/hello/edit?draft=1");
-    expect(pathOf(["blog", ":slug"], "add")).toBe("/blog/hello");
-  });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: true }, { status: 201 })));
+    const json = await client().call("/tally", "add", []).catch((e: Error) => e);
 
-  it("will fill a catch-all with the rest of the location", () => {
-    expect(pathOf(["docs", "*"], "none", "/docs/a/b")).toBe("/docs/a/b");
-  });
+    expect(text).toBeInstanceOf(shared.HttpError);
+    expect(text).toMatchObject({ message: "Gated.", status: 200 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 502 })));
+    const bare = await client().call("/tally", "add", []).catch((e: Error) => e);
 
-  it("will throw if called from outside the pattern's folder", () => {
-    expect(() => pathOf(["blog", ":slug"], "add", "/about")).toThrow("add() belongs to /blog/:slug and cannot be called from /about.");
-    expect(() => pathOf(["blog"], "add", "/about")).toThrow("belongs to /blog");
-  });
-});
-
-describe("send", () => {
-  it("will resolve nothing for a reply of not modified", async () => {
-    const fetch = vi.fn(async () => new Response(null, { status: 304 }));
-    vi.stubGlobal("fetch", fetch);
-
-    expect(await client().send("/tally", {}, [])).toBeUndefined();
+    expect(json).toMatchObject({ message: '{"ok":true}', status: 201 });
+    expect(bare).toMatchObject({ message: "", status: 502 });
   });
 });
 
 describe("configure", () => {
   const add = vi.fn(async (a: number, b: number) => a + b);
-  const endpoints: Endpoint[] = [{ pattern: ["tally"], exports: async () => ({ calls: { add }, classes: {} }) }];
-  const inProcess = handler(endpoints);
+  const inProcess = handler({ tally: { add } });
   const transport = vi.fn(async (request: Request) => (await inProcess(request))!);
 
   beforeEach(() => {
@@ -278,8 +267,7 @@ describe("configure", () => {
 describe("values", () => {
   it("will carry what JSON loses both ways through a call, in process", async () => {
     const later = vi.fn(async (when: Date, step: bigint | undefined, tags: Set<string>) => ({ at: new Date(when.getTime() + Number(step ?? 1000n)), tags: [...tags], step }));
-    const endpoints: Endpoint[] = [{ pattern: ["clock"], exports: async () => ({ calls: { later }, classes: {} }) }];
-    const inProcess = handler(endpoints);
+    const inProcess = handler({ clock: { later } });
     const rpc = client({ base: "http://localhost", transport: async request => (await inProcess(request))! });
     const when = new Date("2026-11-08T12:00:00.000Z");
 
@@ -296,8 +284,7 @@ describe("values", () => {
     const check = async () => {
       throw new Late("Overdue.");
     };
-    const endpoints: Endpoint[] = [{ pattern: ["clock"], exports: async () => ({ calls: { check }, classes: { "clock#Late": Late } }) }];
-    const inProcess = handler(endpoints);
+    const inProcess = handler({ clock: { check } }, { errors: { "clock#Late": Late } });
     const rpc = client({ base: "http://localhost", transport: async request => (await inProcess(request))! });
     const Remote = rpc.define("clock#Late", "Late");
     const error = await rpc.call("/clock", "check", []).catch(error => error);

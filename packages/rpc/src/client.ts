@@ -1,6 +1,6 @@
-import { parse, stringify } from "./codec";
+import { isCodec, parse, stringify } from "./codec";
 import { registry } from "./registry";
-import { ERRORS } from "./errors";
+import { ERRORS, HttpError } from "./errors";
 
 export {
   BadRequest,
@@ -58,25 +58,6 @@ export function client<T = any>(initial: ClientOptions = {}) {
     if (next.errors) add(next.errors);
   }
 
-  function pathOf(pattern: string[], name: string, from = globalThis.location?.pathname): string {
-    if (from === undefined)
-      throw new Error(`Cannot fill /${pattern.join("/")} for ${name}() - a pattern needs a page location to read its params from. Pass the path to fill from as pathOf's third argument.`);
-
-    const at = from.split("/").filter(Boolean);
-    const path = pattern.map((part, i) => {
-      if (part === "*") return at.slice(i).join("/");
-
-      const matches = at[i] !== undefined && (part.startsWith(":") || part === at[i]);
-
-      if (!matches)
-        throw new Error(`${name}() belongs to /${pattern.join("/")} and cannot be called from ${from}.`);
-
-      return at[i];
-    });
-
-    return "/" + path.join("/");
-  }
-
   async function send(path: string, headers: Record<string, string>, body: unknown, { signal, timeout }: CallOptions = {}): Promise<any> {
     const { base = "", transport } = options;
     const url = base + path;
@@ -99,7 +80,8 @@ export function client<T = any>(initial: ClientOptions = {}) {
   }
 
   async function settle(res: Response): Promise<any> {
-    if (res.status === 304) return;
+    if (!isCodec(res))
+      throw Object.assign(new HttpError(await res.text()), { status: res.status });
 
     const body = parse(await res.text()) as any;
 
@@ -135,7 +117,7 @@ export function client<T = any>(initial: ClientOptions = {}) {
 
   const api: Remote<T> = node([], {});
 
-  return { api, call, configure, define, pathOf, send };
+  return { api, call, configure, define };
 }
 
 export const { api, call, configure, define } = client();

@@ -44,7 +44,7 @@ type Resolve = (spec: string, importer: string) => Promise<string | undefined>;
 
 interface Runtime {
   bind: typeof import("../context").bind;
-  handler: typeof import("../http/call").handler;
+  handler: (tree: import("../route").Tree, options: import("../http/call").HandlerOptions & { dev: boolean }) => (request: Request) => Promise<Response | undefined>;
   route: typeof import("../route").route;
   scoped: typeof import("../http/call").scoped;
   verify: typeof import("../call").verify;
@@ -94,7 +94,7 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
   }
 
   async function scanned(at: Located, resolve: Resolve, only: ReadonlySet<string>) {
-    const { calls, errors, gate, problems } = await scanModule(at.file, readFileSync(at.file, "utf8"), sources(resolve), owned, {}, only);
+    const { calls, errors, gate, problems } = await scanModule(at.file, readFileSync(at.file, "utf8"), sources(resolve), owned, only);
 
     fail(at.file, problems);
 
@@ -129,8 +129,8 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
 
       if (surveyed.get(file) === mtimeMs) continue;
 
-      surveyed.set(file, mtimeMs);
       reach.set(file, leaves((await scanSurface(file, readFileSync(file, "utf8"), sources(resolve), owned)).tree));
+      surveyed.set(file, mtimeMs);
     }
   }
 
@@ -235,9 +235,9 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
 
       if (id === ENTRY && main) {
         const from = JSON.stringify(main);
-        return `import app from ${from};\nimport { scoped } from "@expressive/rpc/http";\nimport { bind } from "@expressive/rpc/protocol";\n\nexport * from ${from};\nconst scope = scoped(app);\nconst run = scope?.fetch;\nexport default run ? Object.assign(scope, { fetch(request, env, ...rest) { if (env) bind(request, env); return run.call(scope, request, env, ...rest); } }) : scope;\n`;
+        return `import app from ${from};\nimport { scoped } from "@expressive/rpc/http";\nimport { bind } from "@expressive/rpc/protocol";\n\nexport * from ${from};\nconst scope = scoped(app);\nconst run = scope?.fetch;\nexport default run ? Object.assign(scope, { fetch(request, env, ...rest) { if (env) bind(request, env, rest[0]); return run.call(scope, request, env, ...rest); } }) : scope;\n`;
       }
-      if (id === ENTRY) return `import { handle } from "@expressive/rpc/calls";\nimport { bind } from "@expressive/rpc/protocol";\n\nexport default { async fetch(request, env) { if (env) bind(request, env); return (await handle(request)) ?? env?.ASSETS?.fetch(request) ?? new Response("Not found.", { status: 404 }); } };\n`;
+      if (id === ENTRY) return `import { handle } from "@expressive/rpc/calls";\nimport { bind } from "@expressive/rpc/protocol";\n\nexport default { async fetch(request, env, ctx) { if (env) bind(request, env, ctx); return (await handle(request)) ?? env?.ASSETS?.fetch(request) ?? new Response("Not found.", { status: 404 }); } };\n`;
       if (id === RUNTIME) return `export { handler, route, scoped } from "@expressive/rpc/http";\nexport { bind, install, verify } from "@expressive/rpc/protocol";\n`;
       if (this.environment.config.consumer !== "client") return;
 
@@ -371,7 +371,7 @@ export function rpc({ dir = "api", test, opaque = false, entry, env, base: path 
         const env = { ...(await bound()), ASSETS };
         const { bind: bindEnv, scoped } = await runtime();
 
-        bindEnv(request, env);
+        bindEnv(request, env, ctx);
 
         const response = await scoped(app).fetch!(request, env, ctx);
 

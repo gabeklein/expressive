@@ -1,13 +1,14 @@
 // @vitest-environment happy-dom
 // @vitest-environment-options { "url": "http://localhost/" }
 
-import { set } from "@expressive/mvc";
+import { Component, Model, set } from "@expressive/mvc";
 import { Link, Redirect } from "@expressive/router";
-import { Redirect as Moved } from "@expressive/rpc";
-import { afterEach, describe, expect, it } from "vitest";
+import type { BrowserRouter } from "@expressive/router";
+import { NotFound, Redirect as Moved } from "@expressive/rpc";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { browserRouter, location, mount, settle } from "../../test.setup";
-import { Route } from ".";
+import { Route, Router } from ".";
 
 function Boom(): any {
   throw new Error("kaboom");
@@ -32,6 +33,37 @@ it("renders page content when nothing throws", async () => {
 
   const root = await mount(Home);
   expect(root.textContent).toBe("home");
+});
+
+it("will handle an async new() redirect from the owning route", async () => {
+  class Task extends Model {
+    protected async new() {
+      await null;
+      throw new Moved("/login");
+    }
+  }
+  class Secret extends Component {
+    task = new Task();
+    render() { return <p>secret</p>; }
+  }
+  location("/secret");
+  const root = await mount(() => <Router><Route><Route to="secret" as={Secret} /><Route to="login" as={() => <p>login</p>} /></Route></Router>);
+  await settle();
+  expect(root.textContent).toBe("login");
+  expect(window.location.pathname).toBe("/login");
+});
+
+it("will handle a NotFound reported by a route's async new()", async () => {
+  class Missing extends Route {
+    protected async new() {
+      await null;
+      throw new NotFound("missing");
+    }
+  }
+  location("/");
+  const root = await mount(() => <Router><Route Catch={Err}><Missing as={() => <p>page</p>} /></Route></Router>);
+  await settle();
+  expect(root.textContent).toBe("caught: missing");
 });
 
 it("renders the Catch UI when a child throws", async () => {
@@ -69,6 +101,36 @@ it("recovers when retry is invoked and the error has cleared", async () => {
   expect(root.textContent).toBe("recovered");
 });
 
+it("will restore Loading after retry before a later suspension", async () => {
+  let resolve!: () => void;
+  const pending = new Promise<void>(done => (resolve = done));
+  let retry!: () => void;
+  let page!: Page;
+  class Page extends Route {
+    mode = 0;
+    value = set(() => pending.then(() => "done"));
+    render() {
+      page = this;
+      if (this.mode === 0) throw new Error("broken");
+      return <p>{this.mode === 1 ? "ready" : this.value}</p>;
+    }
+  }
+  const Catch = ({ retry: again }: { retry: () => void }) => { retry = again; return <p>caught</p>; };
+  location("/");
+  const root = await mount(() => <Route Catch={Catch} fallback={<p>loading</p>}><Route as={Page} /></Route>);
+  expect(root.textContent).toBe("caught");
+  page.mode = 1;
+  retry();
+  await settle();
+  expect(root.textContent).toBe("ready");
+  page.mode = 2;
+  await settle();
+  expect(root.textContent).toBe("loading");
+  resolve();
+  await settle();
+  expect(root.textContent).toBe("done");
+});
+
 it("bubbles to an ancestor Catch when the throwing Page has none", async () => {
   class Inner extends Route {
     render() {
@@ -86,17 +148,83 @@ it("bubbles to an ancestor Catch when the throwing Page has none", async () => {
   expect(root.textContent).toBe("caught: kaboom");
 });
 
-// The `NotFound` member injects a to-less `none` child via the `children` seam,
-// so unmatched URLs resolve to it without a generator-emitted sibling Route.
-describe("NotFound member", () => {
+describe("render-time HTTP errors", () => {
+  const router = browserRouter() as unknown as { current: BrowserRouter };
+
+  it("will show the folder Catch for NotFound with the original error and retry", async () => {
+    const missing = new NotFound("Record missing");
+    let caught: Error | undefined;
+    let retry: (() => void) | undefined;
+    const Catch = ({ error, retry: again }: { error: Error; retry: () => void }) => {
+      caught = error;
+      retry = again;
+      return <p>missing</p>;
+    };
+    location("/record");
+    const root = await mount(() => <Route Catch={Catch}><Route to="record" as={() => { throw missing; }} /></Route>);
+    expect(root.textContent).toBe("missing");
+    expect(caught).toBe(missing);
+    expect(retry).toBeTypeOf("function");
+  });
+
+  it("will send a status-shaped error to Catch without navigating", async () => {
+    const fake = Object.assign(new Error("fake"), { status: 302, location: "/login" });
+    location("/record");
+    const root = await mount(() => <Route Catch={Err}><Route to="record" as={() => { throw fake; }} /></Route>);
+    expect(root.textContent).toBe("caught: fake");
+    expect(window.location.pathname).toBe("/record");
+  });
+
+  it("will redirect an rpc Redirect during render and replace a cold entry", async () => {
+    const Login = () => <p>login</p>;
+    location("/secret");
+    const before = window.history.length;
+    const root = await mount(() => <Route Catch={Err}><Route to="login" as={Login} /><Route to="secret" as={() => { throw new Moved("/login"); }} /></Route>);
+    expect(root.textContent).toBe("login");
+    expect(window.location.pathname).toBe("/login");
+    expect(window.history.length).toBe(before);
+  });
+
+  it("will push an rpc Redirect after in-app navigation", async () => {
+    const Tree = () => <Route><Route as={() => <Link to="/secret">Go</Link>} /><Route to="login" as={() => <p>login</p>} /><Route to="secret" as={() => { throw new Moved("/login"); }} /></Route>;
+    location("/");
+    const root = await mount(Tree);
+    const before = window.history.length;
+    await click(root, "Go");
+    await settle();
+    expect(root.textContent).toBe("login");
+    expect(window.history.length).toBe(before + 1);
+  });
+
+  it("will clear a caught NotFound when the path changes", async () => {
+    const Tree = () => <Route Catch={Err}><Route to="missing" as={() => { throw new NotFound("gone"); }} /><Route to="home" as={() => <p>home</p>} /></Route>;
+    location("/missing");
+    const root = await mount(Tree);
+    expect(root.textContent).toBe("caught: gone");
+    router.current.goto("/home");
+    await settle();
+    expect(root.textContent).toBe("home");
+  });
+
+  it("will send a redirect caught after another redirect to Catch", async () => {
+    const Tree = () => <Route><Route to="a" as={() => { throw new Moved("/b"); }} /><Route to="b" Catch={Err} as={() => { throw new Moved("/a"); }} /></Route>;
+    location("/a");
+    const root = await mount(Tree);
+    await settle();
+    expect(root.textContent).toContain("caught: /a");
+  });
+});
+
+describe("missing-path routes", () => {
   browserRouter();
 
   const Home = () => <span>home</span>;
   const Missing = () => <span>missing</span>;
 
   const Tree = () => (
-    <Route NotFound={Missing}>
+    <Route>
       <Route as={Home} />
+      <Route none as={Missing} />
     </Route>
   );
 
@@ -127,8 +255,9 @@ describe("user Page delegated via `as`", () => {
   }
 
   const Tree = () => (
-    <Route as={UserPage} NotFound={Missing}>
+    <Route as={UserPage}>
       <Route to="sub" as={Child} />
+      <Route none as={Missing} />
     </Route>
   );
 
@@ -183,8 +312,9 @@ describe("dynamically generated routes", () => {
 
   const Tree = () => (
     <Route>
-      <Route to="docs" as={DocsPage} NotFound={() => <p>missing</p>}>
+      <Route to="docs" as={DocsPage}>
         <Route as={() => <p>docs-index</p>} />
+        <Route none as={() => <p>missing</p>} />
       </Route>
     </Route>
   );
@@ -290,10 +420,11 @@ describe("redirect guard prop", () => {
     expect((await mount(Tree)).textContent).toBe("secret");
   });
 
-  it("null verdict force-404s to the section NotFound (no navigation)", async () => {
+  it("null verdict force-404s to the section Catch (no navigation)", async () => {
     const Tree = () => (
-      <Route NotFound={Missing}>
+      <Route>
         <Route to="admin" as={Secret} redirect={() => null} />
+        <Route none as={Missing} />
       </Route>
     );
     location("/admin");
@@ -324,34 +455,6 @@ describe("default entry hook via `enter`", () => {
 
     expect(seen.id).toBe("ok");
     expect(root.textContent).toBe("secret");
-  });
-
-  it("verdict derived from params redirects", async () => {
-    const hook = (route: Route) => (route.match?.id === "block" ? "/login" : undefined);
-    const Tree = () => (
-      <Route>
-        <Route to="login" as={Login} />
-        <Route to=":id" as={Secret} enter={hook} />
-      </Route>
-    );
-
-    location("/block");
-    expect((await mount(Tree)).textContent).toBe("login");
-  });
-
-  it("a hook loaded on demand redirects once its module arrives", async () => {
-    const hook = (route: Route) => Promise.resolve({ default: () => "/login" }).then(m => m.default());
-    const Tree = () => (
-      <Route>
-        <Route to="login" as={Login} />
-        <Route to="secret" as={Secret} enter={hook} fallback={null} />
-      </Route>
-    );
-
-    location("/secret");
-    const root = await mount(Tree);
-    await settle();
-    expect(root.textContent).toBe("login");
   });
 
   it("will redirect where a hook's thrown 3xx error points", async () => {
@@ -390,6 +493,26 @@ describe("default entry hook via `enter`", () => {
     expect(window.location.pathname).toBe("/login");
   });
 
+  it("will leave the site for a hook's 3xx error pointing at another origin", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const hook = (): undefined => {
+      throw new Moved("https://auth.example.com/login");
+    };
+    const Tree = () => (
+      <Route Catch={Err} fallback={null}>
+        <Route to="secret" as={Secret} enter={hook} />
+      </Route>
+    );
+
+    location("/secret");
+    const root = await mount(Tree);
+    await settle();
+
+    expect(assign).toHaveBeenCalledWith("https://auth.example.com/login");
+    expect(root.textContent).toBe("");
+    assign.mockRestore();
+  });
+
   it("will throw a hook's error that is not a redirect to its Catch", async () => {
     const hook = (): undefined => {
       throw Object.assign(new Error("Not yours"), { status: 403, location: "/login" });
@@ -426,7 +549,7 @@ describe("default entry hook via `enter`", () => {
   });
 
   it("clearing the hook clears the guard", async () => {
-    const route = Route.new({ enter: () => "/login" });
+    const route = Route.new({ enter: () => undefined });
     expect(route.redirect).toBeTypeOf("function");
     route.enter = undefined;
     expect(route.redirect).toBeUndefined();

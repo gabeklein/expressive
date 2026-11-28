@@ -190,7 +190,10 @@ describe('Route', () => {
       ['will let a first-declared literal win', '/posts/new', <Route>{literal}{dynamic}</Route>, 'literal'],
       ['will let a first-declared :param shadow a later catch-all', '/posts/foo', <Route>{dynamic}<Route to="*" as={text('catch-all')} /></Route>, 'dynamic'],
       ['will let a last catch-all catch what earlier siblings miss', '/anything/at/all', <Route><Route to="/" as={text('home')} /><Route to="*" as={text('not-found')} /></Route>, 'not-found'],
-      ['will let the first of equal matches win', '/posts/foo', <Route><Route to="/posts/:a" as={text('a')} /><Route to="/posts/:b" as={text('b')} /></Route>, 'a']
+      ['will let the first of equal matches win', '/posts/foo', <Route><Route to="/posts/:a" as={text('a')} /><Route to="/posts/:b" as={text('b')} /></Route>, 'a'],
+      ['will let an index shadow a later catch-all at its path', '/', <Route><Route as={text('index')} /><Route to="*" as={text('rest')} /></Route>, 'index'],
+      ['will let a catch-all take what an index beside it misses', '/x', <Route><Route as={text('index')} /><Route to="*" as={text('rest')} /></Route>, 'rest'],
+      ['will let a catch-all take its own path without an index', '/', <Route><Route to="about" as={text('about')} /><Route to="*" as={text('rest')} /></Route>, 'rest']
     ])('%s', async (_, path, ui, expected) => {
       expect(await at(path, ui)).toBe(expected);
     });
@@ -1425,6 +1428,43 @@ describe('a lazy page as `as`', () => {
 
     expect(caught).toEqual([failure]);
     expect(view.container.textContent).toBe('refused');
+  });
+
+  it('will not render a guarded scope\'s page when its async redirect rejects in-app', async () => {
+    location('/');
+    const gate = mockPromise<string | void>();
+    const failure = new Error('refused');
+    const page = vi.fn(text('secret'));
+    const caught: Error[] = [];
+
+    class App extends Route {
+      async catch(error: Error) {
+        caught.push(error);
+        this.fallback = <span>refused</span>;
+        await new Promise(() => {});
+      }
+    }
+
+    const view = await renderAct(
+      <App>
+        <Route to="" as={Home} />
+        <Route to="admin" redirect={() => gate}>
+          <Route as={page} />
+        </Route>
+      </App>
+    );
+
+    await visit('/admin');
+    expect(view.container.textContent).toBe('Home');
+
+    await act(async () => {
+      gate.reject(failure);
+      await gate.catch(() => {});
+    });
+
+    expect(caught).toEqual([failure]);
+    expect(view.container.textContent).toBe('refused');
+    expect(page).not.toHaveBeenCalled();
   });
 
   it('will reach the Route catch when the module rejects', async () => {

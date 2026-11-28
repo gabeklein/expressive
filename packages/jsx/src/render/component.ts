@@ -9,7 +9,7 @@ import { componentProps, placed } from '../style/claim';
 import type { Appearance } from '../style/claim';
 import { call, enter } from '../core/adapter';
 import { inserted } from './commits';
-import { makeScope, range } from './fiber';
+import { enclose, makeScope, range } from './fiber';
 import type { Boundary, Fiber, Placement } from './fiber';
 import { latest, track, untrack } from '../core/hot';
 import { complete } from './mount';
@@ -160,6 +160,7 @@ function probing(fiber: Fiber) {
   const scope = fiber.scope!;
 
   scope.empty = () => !fiber.children.length;
+  scope.enclosed = (into) => enclose(fiber, into);
   scope.probe = () => {
     try {
       scope.probed = { output: consume(fiber, fiber.render!) };

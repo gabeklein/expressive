@@ -17,6 +17,7 @@ afterEach(() => {
 
 export async function mount(Type: any) {
   const container = document.createElement("div");
+  release?.();
   document.body.append(container);
   release = render(jsx(Type, {}), container);
   await settle();

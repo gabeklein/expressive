@@ -1,13 +1,16 @@
 import { pending } from '@expressive/mvc';
 
 interface Schedulable {
-  queued?: 'urgent' | 'passive' | 'deferred';
+  queued?: 'urgent' | 'passive' | 'deferred' | 'held';
+  held?: number;
+  holding?: Set<Schedulable>;
   holds?: (() => void)[];
   probed?: { output: unknown };
   blocking?: (() => void)[];
   update(passive: boolean): PromiseLike<unknown> | void;
   probe?(): PromiseLike<unknown> | void;
   empty?(): boolean;
+  enclosed?(into: Set<Schedulable>): void;
 }
 
 const urgent = new Set<Schedulable>();
@@ -22,6 +25,8 @@ function flush(scopes: Set<Schedulable>) {
   for (const scope of scopes) {
     scopes.delete(scope);
     scope.queued = undefined;
+
+    if (parked(scope)) continue;
 
     let waiting: PromiseLike<unknown> | void = undefined;
 
@@ -60,20 +65,34 @@ function afterFlush(run: () => void) {
 function flushPassive() {
   passiveQueued = false;
 
-  const batch = [...passive].filter((scope) => scope.queued === 'passive');
+  const queued = [...passive].filter((scope) => scope.queued === 'passive');
+  const batch: Schedulable[] = [];
+
   passive.clear();
+
+  for (const scope of queued) {
+    if (parked(scope)) continue;
+    batch.push(scope);
+  }
 
   for (const scope of batch) {
     const waiting = scope.probe?.();
     if (waiting) return defer(batch, waiting, scope);
   }
 
-  batch.sort((a, b) => Number(!!b.empty?.()) - Number(!!a.empty?.()));
+  const inside = new Set<Schedulable>();
+
+  for (const scope of batch)
+    if (!scope.probed || blank(scope.probed.output)) scope.enclosed?.(inside);
+
+  const rank = new Map(batch.map((scope) => [scope, inside.has(scope) ? 2 : scope.empty?.() ? 0 : 1]));
+
+  batch.sort((a, b) => rank.get(a)! - rank.get(b)!);
 
   for (let index = 0; index < batch.length; index++) {
     const scope = batch[index];
 
-    if (scope.queued !== 'passive') continue;
+    if (scope.queued !== 'passive' || parked(scope)) continue;
 
     scope.queued = undefined;
 
@@ -90,6 +109,46 @@ function flushPassive() {
     if (waiting) return defer(batch.slice(index + 1), waiting, scope);
     unblock(scope);
   }
+}
+
+function parked(scope: Schedulable) {
+  if (!scope.held) return false;
+
+  scope.queued = 'held';
+  settle(scope);
+  unblock(scope);
+  return true;
+}
+
+function seal(scope: Schedulable, inside: Set<Schedulable>) {
+  const holding = scope.holding ||= new Set();
+
+  for (const inner of inside)
+    if (!holding.has(inner)) {
+      inner.held = (inner.held || 0) + 1;
+      holding.add(inner);
+    }
+}
+
+function unseal(scope: Schedulable) {
+  const { holding } = scope;
+
+  scope.holding = undefined;
+
+  holding?.forEach((inner) => {
+    if (--inner.held!) return;
+
+    inner.held = undefined;
+
+    if (inner.queued === 'held') {
+      inner.queued = undefined;
+      schedule(inner);
+    }
+  });
+}
+
+function blank(output: unknown) {
+  return output == null || typeof output == 'boolean';
 }
 
 function defer(scopes: Schedulable[], waiting: PromiseLike<unknown>, source: Schedulable) {
@@ -149,7 +208,7 @@ function schedule(scope: Schedulable) {
     return;
   }
 
-  if (scope.queued && scope.queued !== 'deferred') return;
+  if (scope.queued && scope.queued !== 'deferred' && scope.queued !== 'held') return;
 
   scope.queued = 'passive';
   passive.add(scope);
@@ -186,5 +245,5 @@ function unschedule(scope: Schedulable) {
   unblock(scope);
 }
 
-export { afterFlush, claim, release, schedule, settle, transition, unschedule };
+export { afterFlush, claim, release, schedule, seal, settle, transition, unseal, unschedule };
 export type { Schedulable };
